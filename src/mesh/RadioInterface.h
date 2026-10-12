@@ -177,6 +177,14 @@ class RadioInterface
      */
     virtual ErrorCode send(meshtastic_MeshPacket *p) = 0;
 
+    /**
+     * Transmit a raw LoRa frame without any Meshtastic PacketHeader framing. Used by the
+     * experimental MeshCore relay to re-broadcast foreign-protocol frames byte-for-byte.
+     * Implementations must own the buffer until TX completes (copy it). Returns false if the
+     * radio is not idle or the frame could not be queued.
+     */
+    virtual bool sendRawFrame(const uint8_t *bytes, size_t len) { return false; }
+
     /** Return TX queue status */
     [[nodiscard]] virtual meshtastic_QueueStatus getQueueStatus()
     {

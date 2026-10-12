@@ -4,6 +4,10 @@
 #include "RadioInterface.h"
 #include "concurrency/NotifiedWorkerThread.h"
 
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+#include "MeshCoreRepeater.h"
+#endif
+
 #include <RadioLib.h>
 #include <sys/types.h>
 
@@ -375,7 +379,31 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
 
     virtual void onNotify(uint32_t notification) override;
 
-    /** start an immediate transmit
+    /**
+     * Provide a raw LoRa frame for transmission without the Meshtastic PacketHeader, for the
+     * experimental MeshCore relay. The frame is copied; TX is tracked by rawSending and
+     * completed in handleTransmitInterrupt() without touching sendingPacket/radioBuffer.
+     */
+    bool sendRawFrame(const uint8_t *bytes, size_t len) override;
+
+    /** True if a raw (non-MeshPacket) frame is currently being transmitted. */
+    bool isRawSending() const { return rawSending; }
+
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+    /** Dedup + optional relay for MeshCore frames, fed from handleReceiveInterrupt. */
+    MeshCoreRepeater meshCoreRepeater;
+
+    /** If a MeshCore frame is queued for relay and the radio is idle, transmit it raw. */
+    void maybeSendMeshCoreFrame();
+#endif
+
+  protected:
+    uint8_t rawTxBuf[MAX_LORA_PAYLOAD_LEN];
+    size_t rawTxLen = 0;
+    bool rawSending = false;
+
+    /**
+     * Start an immediate transmit
      *  This method is virtual so subclasses can hook as needed, subclasses should not call directly
      *  @return true if packet was sent
      */

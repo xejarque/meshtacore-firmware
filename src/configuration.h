@@ -111,6 +111,23 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define MESHTASTIC_ENABLE_FRAME_INJECTION 0
 #endif
 
+// Experimental: sniff LoRa frames from the MeshCore protocol (meshcore-dev/MeshCore) on the same
+// frequency/SF, without passing them into the Meshtastic routing pipeline. Off by default.
+#ifndef MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+#define MESHTASTIC_ENABLE_MESHCORE_SNIFFER 0
+#endif
+
+// Experimental: also re-broadcast MeshCore flood frames (transparent relay, no decryption) so a
+// Meshtastic router node can extend a MeshCore mesh sharing the same frequency and spreading factor.
+// Implies the sniffer. Off by default.
+#ifndef MESHTASTIC_ENABLE_MESHCORE_RELAY
+#define MESHTASTIC_ENABLE_MESHCORE_RELAY 0
+#endif
+
+#if MESHTASTIC_ENABLE_MESHCORE_RELAY && !MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+#error "MESHTASTIC_ENABLE_MESHCORE_RELAY requires MESHTASTIC_ENABLE_MESHCORE_SNIFFER"
+#endif
+
 /// Convert a preprocessor name into a quoted string
 #define xstr(s) ystr(s)
 #define ystr(s) #s
