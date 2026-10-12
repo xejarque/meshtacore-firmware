@@ -44,6 +44,16 @@ void initVariant()
     digitalWrite(PIN_3V3_EN, HIGH);
 }
 
+// Identity baked into the image: a config reset or a lost /prefs would otherwise mint a new
+// keypair, which changes the NodeNum and makes peers drop our NodeInfo (they reject a key that
+// differs from the one they already hold). NodeNum here is crc32(BAKED_IDENTITY_PUBLIC_KEY).
+static const uint8_t BAKED_IDENTITY_PRIVATE_KEY[32] = {0xA8, 0x9D, 0x3A, 0xB1, 0xC5, 0x88, 0xB9, 0x4E, 0x05, 0xF9, 0x0B,
+                                                       0x33, 0x6D, 0x9B, 0x66, 0xAD, 0xB8, 0x94, 0xEF, 0x32, 0xBF, 0x28,
+                                                       0x10, 0xE3, 0x71, 0x9F, 0x2F, 0xEF, 0x00, 0x49, 0x48, 0x6B};
+static const uint8_t BAKED_IDENTITY_PUBLIC_KEY[32] = {0x67, 0xF2, 0x75, 0x5F, 0x9B, 0x45, 0xFF, 0xCE, 0x7F, 0x1A, 0x44,
+                                                      0x44, 0xBD, 0x60, 0xDA, 0xAF, 0x74, 0xFF, 0xEC, 0xF9, 0x75, 0x5A,
+                                                      0xA4, 0x71, 0xC4, 0xE3, 0xC9, 0xCB, 0x61, 0x73, 0x75, 0x45};
+
 // USERPREFS_CONFIG_DEVICE_ROLE refuses ROUTER and hop_limit has no userPrefs macro, so this
 // build's role, hop limit and Bluetooth defaults are set here, last in installDefaultConfig().
 void variantDefaultConfig()
@@ -54,6 +64,11 @@ void variantDefaultConfig()
     config.bluetooth.enabled = false;
     owner.has_is_unmessagable = true;
     owner.is_unmessagable = true;
+
+    memcpy(config.security.private_key.bytes, BAKED_IDENTITY_PRIVATE_KEY, sizeof(BAKED_IDENTITY_PRIVATE_KEY));
+    config.security.private_key.size = sizeof(BAKED_IDENTITY_PRIVATE_KEY);
+    memcpy(config.security.public_key.bytes, BAKED_IDENTITY_PUBLIC_KEY, sizeof(BAKED_IDENTITY_PUBLIC_KEY));
+    config.security.public_key.size = sizeof(BAKED_IDENTITY_PUBLIC_KEY);
 }
 
 // USERPREFS_FIXED_GPS is gated on reboot_count == 1 and only ESP32 ever increments that counter,
