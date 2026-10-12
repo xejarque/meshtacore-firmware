@@ -118,6 +118,21 @@
   // "USERPREFS_RINGTONE_NAG_SECS": "60",
   // "USERPREFS_NODEINFO_REPLY_SUPPRESS_SECS": "43200",
   // "USERPREFS_UI_TEST_LOG": "true", // Test-only: emits `Screen: frame N/M name=... reason=...` log per UI transition (for the meshtastic-mcp ui test tier); off in release builds.
+  // DMAR BCN defaults. Role ROUTER, hop limit 7 and Bluetooth off live in
+  // variants/nrf52840/gat562_mesh_trial_tracker/variant.cpp (no userPrefs macro for them).
+  "USERPREFS_CONFIG_OWNER_LONG_NAME": "DMAR BCN",
+  "USERPREFS_CONFIG_OWNER_SHORT_NAME": "DMAR",
+  "USERPREFS_CONFIG_LORA_REGION": "meshtastic_Config_LoRaConfig_RegionCode_EU_868",
+  "USERPREFS_LORACONFIG_USE_PRESET": "false",
+  "USERPREFS_LORACONFIG_BANDWIDTH": "62",
+  "USERPREFS_LORACONFIG_SPREAD_FACTOR": "7",
+  "USERPREFS_LORACONFIG_CODING_RATE": "5",
+  "USERPREFS_LORACONFIG_OVERRIDE_FREQUENCY": "869.618",
+  "USERPREFS_LORACONFIG_CHANNEL_NUM": "1",
+  "USERPREFS_CONFIG_GPS_MODE": "meshtastic_Config_PositionConfig_GpsMode_ENABLED",
+  "USERPREFS_CONFIG_SMART_POSITION_ENABLED": "false",
+  "USERPREFS_CONFIG_POSITION_BROADCAST_INTERVAL": "43200",
+  "USERPREFS_USE_ADMIN_KEY_0": "{ 0x89, 0x22, 0x79, 0x89, 0xBE, 0x5C, 0x73, 0xB9, 0x7A, 0x6C, 0xFD, 0xD5, 0x1F, 0x5B, 0x0B, 0x58, 0x6D, 0x61, 0x2D, 0x3A, 0x9D, 0xCF, 0x3F, 0x0C, 0x9C, 0xB9, 0x2A, 0xAB, 0x4F, 0xF9, 0x7B, 0x50 }",
   "USERPREFS_RINGTONE_RTTTL": "24:d=32,o=5,b=565:f6,p,f6,4p,p,f6,p,f6,2p,p,b6,p,b6,p,b6,p,b6,p,b,p,b,p,b,p,b,p,b,p,b,p,b,p,b,1p.,2p.,p",
   // "USERPREFS_NETWORK_IPV6_ENABLED": "1",
   "USERPREFS_TZ_STRING": "tzplaceholder                                         "
