@@ -392,10 +392,10 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
     /** Dedup + optional relay for MeshCore frames, fed from handleReceiveInterrupt. */
     MeshCoreRepeater meshCoreRepeater;
-
-    /** If a MeshCore frame is queued for relay and the radio is idle, transmit it raw. */
-    void maybeSendMeshCoreFrame();
 #endif
+
+    /** If a MeshCore frame is queued for relay and the radio is idle, transmit it raw. No-op when the sniffer is disabled. */
+    void maybeSendMeshCoreFrame();
 
   protected:
     uint8_t rawTxBuf[MAX_LORA_PAYLOAD_LEN];
@@ -431,6 +431,9 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     /**
      * If a send was in progress finish it and return the buffer to the pool */
     void completeSending();
+
+    /** If a raw (non-MeshPacket) frame was being transmitted, mark it finished and log its airtime. */
+    void completeRawSend();
 
     /**
      * Add SNR data to received messages

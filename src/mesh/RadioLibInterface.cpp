@@ -13,6 +13,7 @@
 #include "mesh-pb-constants.h"
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
 #include "MeshCoreRepeater.h"
+#include "NodeDB.h"
 #endif
 #include <pb_decode.h>
 #include <pb_encode.h>
@@ -191,6 +192,11 @@ ErrorCode RadioLibInterface::send(meshtastic_MeshPacket *p)
     printPacket("enqueue for send", p);
 
     LOG_TRACE("txGood=%d,txRelay=%d,rxGood=%d,rxBad=%d", txGood, txRelay, rxGood, rxBad);
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+    LOG_TRACE("meshCore: rxSeen=%d,rxFlood=%d,rxDup=%d,rxDropped=%d,txRelayed=%d,txDropped=%d", meshCoreRepeater.rxSeen,
+              meshCoreRepeater.rxFlood, meshCoreRepeater.rxDup, meshCoreRepeater.rxDropped, meshCoreRepeater.txRelayed,
+              meshCoreRepeater.txDropped);
+#endif
     bool dropped = false;
     ErrorCode res = txQueue.enqueue(p, &dropped) ? ERRNO_OK : ERRNO_UNKNOWN;
 
@@ -620,6 +626,15 @@ void RadioLibInterface::maybeSendMeshCoreFrame()
     if (isSending() || isRawSending() || !meshCoreRepeater.hasPendingFrame()) {
         return;
     }
+    // Same duty-cycle guard as Router::send: a foreign-protocol relay must not push us over the
+    // regional limit. The flood would be stale by the time we could send it, so drop it.
+    float effectiveDutyCycle = getEffectiveDutyCycle();
+    if (!config.lora.override_duty_cycle && effectiveDutyCycle < 100 && airTime->utilizationTXPercent() > effectiveDutyCycle) {
+        LOG_DEBUG("MeshCore relay dropped, duty cycle limit exceeded");
+        meshCoreRepeater.clearPendingFrame();
+        meshCoreRepeater.txDropped++;
+        return;
+    }
     uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
     size_t len = meshCoreRepeater.takePendingFrame(frame, sizeof(frame));
     if (len == 0) {
@@ -630,8 +645,10 @@ void RadioLibInterface::maybeSendMeshCoreFrame()
         // the next radio event.
         return;
     }
-    meshCoreRepeater.onFrameSent();
+    meshCoreRepeater.clearPendingFrame();
 }
+#else
+void RadioLibInterface::maybeSendMeshCoreFrame() {}
 #endif
 
 void RadioLibInterface::handleTransmitInterrupt()
@@ -647,6 +664,13 @@ void RadioLibInterface::handleTransmitInterrupt()
 
 void RadioLibInterface::completeSending()
 {
+    // The driver setStandby()/reconfigure() paths use this to release an in-flight TX; a raw
+    // (MeshCore) frame counts too, or rawSending would stay latched and block every later send.
+    if (!sendingPacket && isRawSending()) {
+        completeRawSend();
+        return;
+    }
+
     // We are careful to clear sending packet before calling printPacket because
     // that can take a long time
     auto p = sendingPacket;
@@ -723,13 +747,13 @@ void RadioLibInterface::handleReceiveInterrupt()
     } else {
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
         // Experimental MeshCore interop: a MeshCore frame has no Meshtastic PacketHeader, so it
-        // must be intercepted before the 12-byte header interpretation below. When enabled, such
+        // must be intercepted before the PacketHeader interpretation below. When enabled, such
         // frames are logged and (optionally) flood-relayed, and never enter the Meshtastic router.
         MeshCoreRepeater::FrameInfo mcInfo;
-        if (meshCoreRepeater.looksLikeMeshCoreFrame((const uint8_t *)&radioBuffer, length, &mcInfo)) {
-            LOG_INFO("MeshCore frame: len=%u route=%u type=0x%02x path=%u/%u payload=%u snr=%g rssi=%g",
-                     (unsigned)length, mcInfo.route_type, mcInfo.payload_type, mcInfo.path_hash_count,
-                     mcInfo.path_hash_size, mcInfo.payload_len, iface->getSNR(), lround(iface->getRSSI()));
+        if (meshCoreRepeater.looksLikeMeshCoreFrame((const uint8_t *)&radioBuffer, length, nodeDB->getNodeNum(), &mcInfo)) {
+            LOG_INFO("MeshCore frame: len=%u route=%u type=0x%02x path=%u/%u payload=%u snr=%g rssi=%g", (unsigned)length,
+                     mcInfo.route_type, mcInfo.payload_type, mcInfo.path_hash_count, mcInfo.path_hash_size, mcInfo.payload_len,
+                     iface->getSNR(), lround(iface->getRSSI()));
             meshCoreRepeater.handleReceivedFrame((const uint8_t *)&radioBuffer, length, iface->getSNR());
             airTime->logAirtime(RX_LOG, rxMsec);
             return; // do not deliver to the Meshtastic router

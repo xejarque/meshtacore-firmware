@@ -1,5 +1,6 @@
 #include "MeshCoreRepeater.h"
 
+#include "NodeDB.h"
 #include "Throttle.h"
 #include "UptimeClock.h"
 #include "meshUtils.h"
@@ -34,6 +35,13 @@
 #define MC_PATH_COUNT_MASK 0x3F
 #define MC_PATH_SIZE_SHIFT 6
 
+// MeshCore header byte 0: bits 6-7 are the payload version (must be PAYLOAD_VER_1 = 0).
+#define MC_PAYLOAD_VER_SHIFT 6
+
+// A full Meshtastic on-air header (to/from/id/flags/channel/next_hop/relay_node) must fit for a
+// frame to be Meshtastic at all; spelled out to keep this file free of RadioInterface.h.
+#define MC_MESHTASTIC_HEADER_LEN 16
+
 static bool isKnownPayloadType(uint8_t type)
 {
     return type == MC_PAYLOAD_TYPE_REQ || type == MC_PAYLOAD_TYPE_RESPONSE || type == MC_PAYLOAD_TYPE_TXT_MSG ||
@@ -43,7 +51,7 @@ static bool isKnownPayloadType(uint8_t type)
            type == MC_PAYLOAD_TYPE_RAW_CUSTOM;
 }
 
-bool MeshCoreRepeater::looksLikeMeshCoreFrame(const uint8_t *raw, size_t len, FrameInfo *out)
+bool MeshCoreRepeater::looksLikeMeshCoreFrame(const uint8_t *raw, size_t len, uint32_t ourNodeNum, FrameInfo *out)
 {
     if (!raw || len < 2 || len > MAX_FRAME_LEN)
         return false;
@@ -51,6 +59,18 @@ bool MeshCoreRepeater::looksLikeMeshCoreFrame(const uint8_t *raw, size_t len, Fr
     FrameInfo info;
     if (!parse(raw, len, &info))
         return false;
+
+    // Meshtastic-header veto: bytes 0..3 and 4..7 of a real Meshtastic frame are its to/from
+    // NodeNums. A frame addressed to or from us is Meshtastic with near certainty (our NodeNum is
+    // crc32 of our public key; a MeshCore header colliding with it is a 2^-32 accident), and it
+    // must never be swallowed - or worse, flood-relayed - as foreign traffic. Broadcasts
+    // (to == 0xffffffff) never reach here: their first byte fails the payload version check.
+    if (ourNodeNum != 0 && len >= MC_MESHTASTIC_HEADER_LEN) {
+        uint32_t to = raw[0] | (raw[1] << 8) | (raw[2] << 16) | ((uint32_t)raw[3] << 24);
+        uint32_t from = raw[4] | (raw[5] << 8) | (raw[6] << 16) | ((uint32_t)raw[7] << 24);
+        if (to == ourNodeNum || from == ourNodeNum)
+            return false;
+    }
 
     if (out)
         *out = info;
@@ -66,7 +86,7 @@ bool MeshCoreRepeater::parse(const uint8_t *raw, size_t len, FrameInfo *out)
     FrameInfo info;
     info.route_type = header & 0x03;
     info.payload_type = (header >> 2) & 0x0F;
-    info.payload_ver = (header >> MC_PATH_SIZE_SHIFT) & 0x03; // same shift: bits 6-7
+    info.payload_ver = (header >> MC_PAYLOAD_VER_SHIFT) & 0x03;
 
     if (info.payload_ver != 0) // PAYLOAD_VER_1 only
         return false;
@@ -107,6 +127,7 @@ bool MeshCoreRepeater::parse(const uint8_t *raw, size_t len, FrameInfo *out)
 
 void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, int8_t snr)
 {
+    (void)snr; // logged by the caller together with RSSI
     FrameInfo info;
     if (!parse(raw, len, &info)) {
         rxDropped++;
@@ -123,9 +144,11 @@ void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, int8_
     rxFlood++;
 
     // MeshCore appends its own hash to the path on each hop (Mesh::routeRecvPacket) and refuses
-    // to forward when the path would overflow MAX_PATH_SIZE (64 bytes). Mirror that bound.
+    // to forward when the path would overflow MAX_PATH_SIZE (64 bytes). Our relay is transparent
+    // and adds no hop, so bound the frame by that same budget: past it, MeshCore nodes could no
+    // longer extend the path and the flood would die at the next real hop anyway.
     size_t nextPathBytes = ((size_t)info.path_hash_count + 1) * info.path_hash_size;
-    if (nextPathBytes > MAX_FRAME_LEN || info.path_hash_count >= MAX_PATH_HASH_COUNT) {
+    if (nextPathBytes > MAX_PATH_SIZE) {
         LOG_DEBUG("MeshCore: flood path full (%u hops), drop", info.path_hash_count);
         rxDropped++;
         return;
@@ -141,8 +164,6 @@ void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, int8_
         return;
 
     queueRelay(raw, len);
-#else
-    (void)snr;
 #endif
 }
 
@@ -174,11 +195,18 @@ bool MeshCoreRepeater::wasRecentlySeen(uint32_t hash)
 
 bool MeshCoreRepeater::canRelay() const
 {
+    // Same rebroadcast policy as Meshtastic's own relay (FloodingRouter::isRebroadcaster): a mute
+    // node or a node with rebroadcast disabled relays nothing, MeshCore floods included.
+    if (config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE ||
+        config.device.rebroadcast_mode == meshtastic_Config_DeviceConfig_RebroadcastMode_NONE)
+        return false;
+
     // Serialize the re-transmissions: the LoRa channel is half-duplex and shared with Meshtastic
-    // traffic, so a raw relay must not stomp on our own TX or on another relay.
+    // traffic, so a raw relay must not stomp on our own TX or on another relay. lastRelayMs == 0
+    // means "never relayed": an inactive cooldown must not suppress the first relay after boot.
     if (hasPendingFrame())
         return false;
-    return !Throttle::isWithinTimespanMs(lastRelayMs, RELAY_COOLDOWN_MS);
+    return lastRelayMs == 0 || !Throttle::isWithinTimespanMs(lastRelayMs, RELAY_COOLDOWN_MS);
 }
 
 void MeshCoreRepeater::queueRelay(const uint8_t *raw, size_t len)

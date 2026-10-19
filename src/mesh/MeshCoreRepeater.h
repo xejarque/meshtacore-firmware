@@ -15,11 +15,19 @@
  * frames are relayed transparently (never decrypted - MeshCore does the same in its own
  * simple_repeater example), with dedup and a hop-count bound. This only makes sense when the
  * Meshtastic node is on the same frequency and spreading factor as the MeshCore network.
+ *
+ * Known limitation: the two protocols are not fully distinguishable by header bytes alone (both
+ * look random). A MeshCore-looking frame that is NOT addressed to/from us could still be a
+ * Meshtastic unicast between two other nodes (a few percent of overheard DMs by length); those
+ * are sniffed instead of routed. Broadcasts and DMs to/from this node are never misclassified.
  */
 class MeshCoreRepeater
 {
   public:
     static constexpr size_t MAX_FRAME_LEN = 255; // MeshCore MAX_TRANS_UNIT
+
+    /** MeshCore MAX_PATH_SIZE: the flood path budget in bytes, shared by every MeshCore node. */
+    static constexpr size_t MAX_PATH_SIZE = 64;
 
     /** Parsed view of a MeshCore frame header (see MeshCore Dispatcher::tryParsePacket). */
     struct FrameInfo {
@@ -28,18 +36,20 @@ class MeshCoreRepeater
         uint8_t payload_ver;  // must be 0 (PAYLOAD_VER_1)
         uint8_t path_hash_size;
         uint8_t path_hash_count;
-        uint8_t header_len;   // bytes consumed by header + transport codes + path
-        uint8_t payload_len;  // remaining bytes
+        uint8_t header_len;  // bytes consumed by header + transport codes + path
+        uint8_t payload_len; // remaining bytes
     };
 
     /**
      * True if the raw LoRa frame looks like a valid MeshCore packet. Conservative on purpose:
      * must be >= 2 bytes, <= 255, payload version 0, a known payload type, and a valid path_len
-     * byte (path mode 3 is reserved). Returns false for any Meshtastic frame with a 12-byte header.
+     * byte (path mode 3 is reserved). A frame whose Meshtastic to/from NodeNum equals ourNodeNum
+     * is never MeshCore (crc32(pubkey) collision odds are 2^-32), so a Meshtastic unicast to or
+     * from this node is kept out of the sniffer even when its bytes happen to parse.
      */
-    static bool looksLikeMeshCoreFrame(const uint8_t *raw, size_t len, FrameInfo *out);
+    static bool looksLikeMeshCoreFrame(const uint8_t *raw, size_t len, uint32_t ourNodeNum, FrameInfo *out);
 
-    /** Parse a MeshCore frame header. Returns false if the frame is malformed or not flood-routed. */
+    /** Parse a MeshCore frame header. Returns false if the frame is malformed. */
     static bool parse(const uint8_t *raw, size_t len, FrameInfo *out);
 
     /** Handle a received MeshCore frame (raw bytes as demodulated). Sniffs always; relays floods if enabled. */
@@ -51,10 +61,11 @@ class MeshCoreRepeater
     /** Copy the pending raw frame into buf; returns its length (0 if none). */
     size_t takePendingFrame(uint8_t *buf, size_t bufLen);
 
-    void onFrameSent() { pendingLen = 0; }
+    /** Drop the pending raw frame (sent, or refused by a policy gate). */
+    void clearPendingFrame() { pendingLen = 0; }
 
     // Counters for observability
-    uint32_t rxSeen = 0, rxFlood = 0, rxDup = 0, rxDropped = 0, txRelayed = 0;
+    uint32_t rxSeen = 0, rxFlood = 0, rxDup = 0, rxDropped = 0, txRelayed = 0, txDropped = 0;
 
   private:
     static constexpr uint8_t MAX_PATH_HASH_SIZE = 3; // MeshCore allows 1..3
