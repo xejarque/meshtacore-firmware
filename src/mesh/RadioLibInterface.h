@@ -84,7 +84,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
 
   protected:
     /// Used as our notification from the ISR
-    enum PendingISR { ISR_NONE = 0, ISR_RX, ISR_TX, TRANSMIT_DELAY_COMPLETED, ISR_POLL_TICK };
+    enum PendingISR { ISR_NONE = 0, ISR_RX, ISR_TX, TRANSMIT_DELAY_COMPLETED, ISR_POLL_TICK, ISR_RELAY_DUE };
 
     /**
      * Raw ISR handler that just calls our polymorphic method

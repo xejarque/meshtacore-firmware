@@ -1,5 +1,6 @@
 #include "MeshCoreRepeater.h"
 
+#include "Arduino.h"
 #include "NodeDB.h"
 #include "Throttle.h"
 #include "UptimeClock.h"
@@ -125,9 +126,10 @@ bool MeshCoreRepeater::parse(const uint8_t *raw, size_t len, FrameInfo *out)
     return true;
 }
 
-void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, int8_t snr)
+void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, int8_t snr, uint32_t airtimeMs)
 {
-    (void)snr; // logged by the caller together with RSSI
+    (void)snr;       // logged by the caller together with RSSI
+    (void)airtimeMs; // used by the relay half below
     FrameInfo info;
     if (!parse(raw, len, &info)) {
         rxDropped++;
@@ -143,6 +145,21 @@ void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, int8_
         return;
     rxFlood++;
 
+    // Safety valve: if the pending relay never got its turn (radio events starved), a flood older
+    // than the dupe window is worthless - free the slot for the frame just heard.
+    if (hasPendingFrame() && !Throttle::isWithinTimespanMs(pendingRelay.firstSeenMs, DUPE_WINDOW_MS)) {
+        clearPendingFrame();
+        txDropped++;
+    }
+
+    // MeshCore's flood_max_advert default (NodePrefs.h): ADVERT floods are not forwarded past 8
+    // hops. The general flood_max (64) is implied by the 6-bit hop count plus the path bound below.
+    if (info.payload_type == MC_PAYLOAD_TYPE_ADVERT && info.path_hash_count >= MAX_FLOOD_HOPS_ADVERT) {
+        LOG_DEBUG("MeshCore: advert flood past %u hops, drop", info.path_hash_count);
+        rxDropped++;
+        return;
+    }
+
     // MeshCore appends its own hash to the path on each hop (Mesh::routeRecvPacket) and refuses
     // to forward when the path would overflow MAX_PATH_SIZE (64 bytes). Our relay is transparent
     // and adds no hop, so bound the frame by that same budget: past it, MeshCore nodes could no
@@ -154,27 +171,30 @@ void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, int8_
         return;
     }
 
-    uint32_t hash = hashFrame(raw, len);
+    uint32_t hash = hashFrame(raw, len, info);
     if (wasRecentlySeen(hash)) {
         rxDup++;
+        onDupeHeard(hash);
         return;
     }
 
     if (!canRelay())
         return;
 
-    queueRelay(raw, len);
+    queueRelay(raw, len, hash, airtimeMs);
 #endif
 }
 
-uint32_t MeshCoreRepeater::hashFrame(const uint8_t *raw, size_t len)
+uint32_t MeshCoreRepeater::hashFrame(const uint8_t *raw, size_t len, const FrameInfo &info)
 {
-    // FNV-1a over the frame; small frames make collisions unlikely, and the dedup ring is only a
-    // rate-limiter for a broadcast storm, not a correctness guarantee.
+    // FNV-1a over payload_type + payload ONLY. MeshCore appends a hop hash to the path at every
+    // forward (Mesh.cpp::routeRecvPacket), so a full-frame hash would make every path variant of
+    // the same packet look new and the relay would re-broadcast each of them. Keying on the
+    // payload dedupes variants, like MeshCore's own Packet::calculatePacketHash.
     uint32_t hash = 2166136261u;
-    for (size_t i = 0; i < len; i++) {
-        hash ^= raw[i];
-        hash *= 16777619u;
+    hash = (hash ^ info.payload_type) * 16777619u;
+    for (size_t i = info.header_len; i < len; i++) {
+        hash = (hash ^ raw[i]) * 16777619u;
     }
     return hash;
 }
@@ -183,7 +203,7 @@ bool MeshCoreRepeater::wasRecentlySeen(uint32_t hash)
 {
     const uint32_t now = Time::getMillis();
     for (size_t i = 0; i < DEDUP_ENTRIES; i++) {
-        if (dedup[i].hash == hash && Throttle::isWithinTimespanMs(dedup[i].seenAtMs, 15000)) {
+        if (dedup[i].hash == hash && Throttle::isWithinTimespanMs(dedup[i].seenAtMs, DEDUP_WINDOW_MS)) {
             return true;
         }
     }
@@ -191,6 +211,35 @@ bool MeshCoreRepeater::wasRecentlySeen(uint32_t hash)
     dedup[dedupNext].seenAtMs = now;
     dedupNext = (dedupNext + 1) % DEDUP_ENTRIES;
     return false;
+}
+
+void MeshCoreRepeater::onDupeHeard(uint32_t hash)
+{
+    // Someone else is retransmitting the frame we have queued: contention, measured on the air.
+    // Postpone our copy (ZephCore's extendPendingRetransmit) and keep the dupe as the contention
+    // sample this relay will fold into the estimate.
+    if (!hasPendingFrame() || pendingRelay.hash32 != hash)
+        return;
+    if (!Throttle::isWithinTimespanMs(pendingRelay.firstSeenMs, DUPE_WINDOW_MS))
+        return;
+
+    if (pendingRelay.dupeCount < 255)
+        pendingRelay.dupeCount++;
+
+    uint32_t perDupe = (uint32_t)(REACTIVE_BACKOFF_AIRTIME * (float)pendingRelay.airtimeMs);
+    uint32_t cap = (uint32_t)(REACTIVE_AIRTIME_CAP * (float)pendingRelay.airtimeMs);
+    if (cap > REACTIVE_HARD_CAP_MS)
+        cap = REACTIVE_HARD_CAP_MS;
+    if (pendingRelay.reactiveAddedMs >= cap)
+        return;
+    uint32_t remaining = cap - pendingRelay.reactiveAddedMs;
+    if (perDupe > remaining)
+        perDupe = remaining;
+    if (perDupe == 0)
+        return;
+
+    pendingRelay.reactiveAddedMs += perDupe;
+    pendingDeadlineMs += perDupe;
 }
 
 bool MeshCoreRepeater::canRelay() const
@@ -201,22 +250,37 @@ bool MeshCoreRepeater::canRelay() const
         config.device.rebroadcast_mode == meshtastic_Config_DeviceConfig_RebroadcastMode_NONE)
         return false;
 
-    // Serialize the re-transmissions: the LoRa channel is half-duplex and shared with Meshtastic
-    // traffic, so a raw relay must not stomp on our own TX or on another relay. lastRelayMs == 0
-    // means "never relayed": an inactive cooldown must not suppress the first relay after boot.
-    if (hasPendingFrame())
-        return false;
-    return lastRelayMs == 0 || !Throttle::isWithinTimespanMs(lastRelayMs, RELAY_COOLDOWN_MS);
+    return !hasPendingFrame(); // one relay at a time; a dropped flood is redundant in a flood mesh
 }
 
-void MeshCoreRepeater::queueRelay(const uint8_t *raw, size_t len)
+void MeshCoreRepeater::queueRelay(const uint8_t *raw, size_t len, uint32_t hash32, uint32_t airtimeMs)
 {
     if (len > sizeof(pending))
         return;
     memcpy(pending, raw, len);
     pendingLen = len;
-    lastRelayMs = Time::getMillis();
+
+    const uint32_t now = Time::getMillis();
+    pendingRelay.hash32 = hash32;
+    pendingRelay.firstSeenMs = now;
+    pendingRelay.airtimeMs = airtimeMs;
+    pendingRelay.reactiveAddedMs = 0;
+    pendingRelay.dupeCount = 0;
+    pendingDeadlineMs = now + adaptiveDelayMs(airtimeMs);
+    lastRelayMs = now;
     txRelayed++;
+}
+
+bool MeshCoreRepeater::isRelayDue() const
+{
+    return hasPendingFrame() && Throttle::deadlinePassed(pendingDeadlineMs);
+}
+
+uint32_t MeshCoreRepeater::relayDueInMs() const
+{
+    if (!hasPendingFrame() || Throttle::deadlinePassed(pendingDeadlineMs))
+        return 0;
+    return pendingDeadlineMs - Time::getMillis();
 }
 
 size_t MeshCoreRepeater::takePendingFrame(uint8_t *buf, size_t bufLen)
@@ -225,6 +289,86 @@ size_t MeshCoreRepeater::takePendingFrame(uint8_t *buf, size_t bufLen)
         return 0;
     memcpy(buf, pending, pendingLen);
     return pendingLen;
+}
+
+void MeshCoreRepeater::clearPendingFrame()
+{
+    foldContentionSample();
+    pendingLen = 0;
+}
+
+void MeshCoreRepeater::foldContentionSample()
+{
+    if (pendingLen == 0)
+        return;
+
+    // Same fold as ZephCore ContentionTracker::finalizeEntry: the dupe count of this relay is
+    // one contention sample, folded into an EMA (alpha 1/8; fast convergence during warmup).
+    uint32_t sampleX256 = (uint32_t)pendingRelay.dupeCount << 8;
+    int32_t diff = (int32_t)sampleX256 - (int32_t)emaX256;
+    if (finalizedSamples < WARMUP_SAMPLES) {
+        if (finalizedSamples == 0)
+            emaX256 = sampleX256;
+        else
+            emaX256 = (uint32_t)((int32_t)emaX256 + (diff >> 1));
+    } else {
+        emaX256 = (uint32_t)((int32_t)emaX256 + (diff >> EMA_SHIFT));
+    }
+    finalizedSamples++;
+}
+
+void MeshCoreRepeater::applyLazyDecay()
+{
+    // ZephCore decays its estimate when the mesh goes quiet (STALE_MS), paced by a maintenance
+    // tick. Here the same steps are computed lazily from the timestamps: no timers at all.
+    const uint32_t now = Time::getMillis();
+    if (lastRelayMs == 0 || emaX256 == 0)
+        return;
+    if (!Throttle::hasElapsed(lastRelayMs, STALE_MS)) {
+        lastDecayMs = 0;
+        return;
+    }
+    if (lastDecayMs == 0)
+        lastDecayMs = now - DECAY_PERIOD_MS; // arm so the first step lands on this call
+
+    for (uint32_t n = 0; n < MAX_DECAY_CATCHUP && emaX256 != 0; n++) {
+        if (!Throttle::hasElapsed(lastDecayMs, DECAY_PERIOD_MS))
+            break;
+        emaX256 -= emaX256 >> EMA_SHIFT;
+        lastDecayMs += DECAY_PERIOD_MS;
+    }
+}
+
+float MeshCoreRepeater::getFloodDelayFactor()
+{
+    applyLazyDecay();
+
+    if (finalizedSamples < WARMUP_SAMPLES)
+        return 0.5f; // conservative default before the estimate is trusted
+
+    float est = (float)emaX256 / 256.0f;
+    if (est <= 0.0f)
+        return MIN_FLOOD_FACTOR;
+
+    // Factor rises smoothly from MIN toward MAX as observed contention grows (0.60 at est = 4).
+    float factor = MIN_FLOOD_FACTOR + (MAX_FLOOD_FACTOR - MIN_FLOOD_FACTOR) * (est / (est + FLOOD_EST_HALFPOINT));
+    if (factor > MAX_FLOOD_FACTOR)
+        factor = MAX_FLOOD_FACTOR;
+    return factor;
+}
+
+uint32_t MeshCoreRepeater::adaptiveDelayMs(uint32_t airtimeMs)
+{
+    // ZephCore Mesh::computeAdaptiveFloodDelay: 20ms floor (neighbours are back in RX) plus a
+    // random jitter of up to 5 x airtime x factor, capped at 6 x airtime and 2000ms.
+    float factor = getFloodDelayFactor();
+    uint32_t jitter = (uint32_t)(JITTER_AIRTIME_MULT * (float)airtimeMs * factor);
+    uint32_t airtimeCap = (uint32_t)(JITTER_AIRTIME_CAP * (float)airtimeMs);
+    if (jitter > airtimeCap)
+        jitter = airtimeCap;
+    if (jitter > JITTER_CAP_MS)
+        jitter = JITTER_CAP_MS;
+    return DELAY_FLOOR_MS + (uint32_t)random(0, (long)jitter + 1);
 }
 
 #endif // MESHTASTIC_ENABLE_MESHCORE_SNIFFER

@@ -52,17 +52,30 @@ class MeshCoreRepeater
     /** Parse a MeshCore frame header. Returns false if the frame is malformed. */
     static bool parse(const uint8_t *raw, size_t len, FrameInfo *out);
 
-    /** Handle a received MeshCore frame (raw bytes as demodulated). Sniffs always; relays floods if enabled. */
-    void handleReceivedFrame(const uint8_t *raw, size_t len, int8_t snr);
+    /**
+     * Handle a received MeshCore frame (raw bytes as demodulated). Sniffs always; relays floods
+     * if enabled. airtimeMs is the frame's on-air time (RadioInterface::getPacketTime), used to
+     * size the adaptive relay delay.
+     */
+    void handleReceivedFrame(const uint8_t *raw, size_t len, int8_t snr, uint32_t airtimeMs);
 
     /** True when a raw MeshCore frame is queued for transmission. */
     bool hasPendingFrame() const { return pendingLen > 0; }
 
+    /** True when the pending frame's adaptive delay has elapsed and it may go out now. */
+    bool isRelayDue() const;
+
+    /** Milliseconds until the pending relay is due (0 when due or nothing pending). */
+    uint32_t relayDueInMs() const;
+
     /** Copy the pending raw frame into buf; returns its length (0 if none). */
     size_t takePendingFrame(uint8_t *buf, size_t bufLen);
 
-    /** Drop the pending raw frame (sent, or refused by a policy gate). */
-    void clearPendingFrame() { pendingLen = 0; }
+    /** Send or drop the pending frame: folds its dupe sample into the contention estimate. */
+    void clearPendingFrame();
+
+    /** Adaptive jitter factor in [0.40, 1.00] (0.5 before warmup), from the observed dupes. */
+    float getFloodDelayFactor();
 
     // Counters for observability
     uint32_t rxSeen = 0, rxFlood = 0, rxDup = 0, rxDropped = 0, txRelayed = 0, txDropped = 0;
@@ -70,12 +83,51 @@ class MeshCoreRepeater
   private:
     static constexpr uint8_t MAX_PATH_HASH_SIZE = 3; // MeshCore allows 1..3
     static constexpr uint8_t MAX_PATH_HASH_COUNT = 63;
-    static constexpr size_t DEDUP_ENTRIES = 32;
-    static constexpr uint32_t RELAY_COOLDOWN_MS = 250; // min gap between MeshCore relays
+    static constexpr size_t DEDUP_ENTRIES = 64;
+    static constexpr uint32_t DEDUP_WINDOW_MS = 15000;
+
+    // MeshCore's flood_max_advert default (NodePrefs.h): ADVERT floods stop being forwarded
+    // after this many hops. flood_max itself (64) is implied by the 6-bit hop count plus the
+    // MAX_PATH_SIZE bound above.
+    static constexpr uint8_t MAX_FLOOD_HOPS_ADVERT = 8;
+
+    // Adaptive relay delay (design follows ZephCore's ContentionTracker / computeAdaptiveFloodDelay,
+    // MIT): jitter is 20ms + rand(0, 5 x airtime x factor), capped at 6 x airtime and 2000ms;
+    // hearing a duplicate of the pending frame postpones it by 0.2 x airtime per dupe, capped at
+    // 12 x airtime / 2000ms cumulative.
+    static constexpr uint32_t DELAY_FLOOR_MS = 20;
+    static constexpr float JITTER_AIRTIME_MULT = 5.0f;
+    static constexpr float JITTER_AIRTIME_CAP = 6.0f;
+    static constexpr uint32_t JITTER_CAP_MS = 2000;
+    static constexpr float REACTIVE_BACKOFF_AIRTIME = 0.2f;
+    static constexpr float REACTIVE_AIRTIME_CAP = 12.0f;
+    static constexpr uint32_t REACTIVE_HARD_CAP_MS = 2000;
+    static constexpr uint32_t DUPE_WINDOW_MS = 10000;
+
+    // Contention estimate: EMA (x256 fixed point) of the per-relay dupe counts.
+    static constexpr int EMA_SHIFT = 3;      // alpha = 1/8
+    static constexpr int WARMUP_SAMPLES = 4; // samples before the EMA is trusted
+    static constexpr float MIN_FLOOD_FACTOR = 0.40f;
+    static constexpr float MAX_FLOOD_FACTOR = 1.00f;
+    static constexpr float FLOOD_EST_HALFPOINT = 4.0f; // factor = 0.60 at est = 4
+    // The estimate decays when the relay goes idle: one 1/8 step per period once the relay has
+    // been quiet for STALE_MS, applied lazily whenever the factor is read (no timer).
+    static constexpr uint32_t STALE_MS = 300000;
+    static constexpr uint32_t DECAY_PERIOD_MS = 5000;
+    static constexpr uint32_t MAX_DECAY_CATCHUP = 8;
 
     struct DedupEntry {
         uint32_t hash;
         uint32_t seenAtMs;
+    };
+
+    /** Observation for the frame currently being relayed: its dupes are the contention sample. */
+    struct PendingRelay {
+        uint32_t hash32 = 0;
+        uint32_t firstSeenMs = 0;
+        uint32_t airtimeMs = 0;
+        uint16_t reactiveAddedMs = 0;
+        uint8_t dupeCount = 0;
     };
 
     DedupEntry dedup[DEDUP_ENTRIES];
@@ -83,12 +135,22 @@ class MeshCoreRepeater
 
     uint8_t pending[MAX_FRAME_LEN];
     size_t pendingLen = 0;
-    uint32_t lastRelayMs = 0;
+    PendingRelay pendingRelay;
+    uint32_t pendingDeadlineMs = 0;
 
-    static uint32_t hashFrame(const uint8_t *raw, size_t len);
+    uint32_t emaX256 = 0;
+    uint16_t finalizedSamples = 0;
+    uint32_t lastRelayMs = 0;
+    uint32_t lastDecayMs = 0;
+
+    static uint32_t hashFrame(const uint8_t *raw, size_t len, const FrameInfo &info);
     bool wasRecentlySeen(uint32_t hash);
+    void onDupeHeard(uint32_t hash);
     bool canRelay() const;
-    void queueRelay(const uint8_t *raw, size_t len);
+    void queueRelay(const uint8_t *raw, size_t len, uint32_t hash32, uint32_t airtimeMs);
+    void foldContentionSample();
+    void applyLazyDecay();
+    uint32_t adaptiveDelayMs(uint32_t airtimeMs);
 };
 
 #endif // MESHTASTIC_ENABLE_MESHCORE_SNIFFER

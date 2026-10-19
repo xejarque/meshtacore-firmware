@@ -7,7 +7,8 @@
 //
 // The false-positive half of the suite is the important one: with the sniffer enabled on a real
 // node, a Meshtastic frame misread as MeshCore is swallowed instead of routed - and flood-relayed
-// as garbage into the MeshCore network.
+// as garbage into the MeshCore network. The relay half covers the path-independent dedupe (one
+// re-emission per packet, not per path variant) and the ZephCore-style adaptive relay delay.
 #define MESHTASTIC_ENABLE_MESHCORE_SNIFFER 1
 #define MESHTASTIC_ENABLE_MESHCORE_RELAY 1
 #include "mesh/MeshCoreRepeater.cpp"
@@ -23,9 +24,12 @@ static const uint32_t kOurNodeNum = 0x12345678;
 static const uint8_t kTxtMsg = 0x02;
 static const uint8_t kAdvert = 0x04;
 
+// Airtime reported for test frames; the adaptive delay scales with it (see test expectations).
+static const uint32_t kAirtimeMs = 100;
+
 void setUp(void)
 {
-    Time::setTestMillis(1000); // t == 0 is the "never relayed" sentinel for the cooldown
+    Time::setTestMillis(1000);
     config.device.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
     config.device.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_ALL;
 }
@@ -38,15 +42,18 @@ void tearDown(void)
 // --- frame builders ---
 
 // MeshCore flood frame: 1 header byte, 1 path_len byte, hashCount x hashSize path bytes, payload.
-static size_t makeFloodFrame(uint8_t *buf, uint8_t payloadType, uint8_t hashCount, uint8_t hashSize, uint8_t fill)
+// pathFill and payloadFill are independent: MeshCore rewrites the path at every hop, so path
+// variants of one packet must hash equal (dedupe) while distinct packets must not.
+static size_t makeFloodFrame(uint8_t *buf, uint8_t payloadType, uint8_t hashCount, uint8_t hashSize, uint8_t pathFill,
+                             uint8_t payloadFill)
 {
     size_t i = 0;
     buf[i++] = (payloadType << 2) | 0x01; // ver 0, route FLOOD
     buf[i++] = (uint8_t)(((hashSize - 1) << 6) | hashCount);
     for (uint8_t h = 0; h < hashCount * hashSize; h++)
-        buf[i++] = fill + h;
+        buf[i++] = pathFill + h;
     for (uint8_t p = 0; p < 8; p++)
-        buf[i++] = (uint8_t)(fill ^ (0x40 + p));
+        buf[i++] = (uint8_t)(payloadFill ^ (0x40 + p));
     return i;
 }
 
@@ -97,7 +104,7 @@ static size_t makeMeshtasticFrame(uint8_t *buf, uint32_t to, uint32_t from, uint
 void test_flood_frame_parses_with_expected_fields()
 {
     uint8_t buf[64];
-    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0xAA);
+    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0xAA, 0xAA);
 
     MeshCoreRepeater::FrameInfo info;
     TEST_ASSERT_TRUE(MeshCoreRepeater::looksLikeMeshCoreFrame(buf, len, kOurNodeNum, &info));
@@ -195,7 +202,7 @@ void test_meshtastic_unicast_from_us_is_not_swallowed()
 void test_short_meshcore_frame_survives_veto()
 {
     uint8_t buf[64];
-    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0xAA); // 12 bytes < 16
+    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0xAA, 0xAA); // 12 bytes < 16
     TEST_ASSERT_LESS_THAN_UINT32(16, (uint32_t)len);
     // Construct the collision: raw[0..3] == ourNodeNum.
     uint32_t collision = buf[0] | (buf[1] << 8) | (buf[2] << 16) | ((uint32_t)buf[3] << 24);
@@ -208,9 +215,9 @@ void test_flood_is_queued_for_relay_once_and_deduped()
 {
     MeshCoreRepeater repeater;
     uint8_t buf[64];
-    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0xAA);
+    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0xAA, 0xAA);
 
-    repeater.handleReceivedFrame(buf, len, 5);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
     TEST_ASSERT_TRUE(repeater.hasPendingFrame());
     TEST_ASSERT_EQUAL_UINT32(1, repeater.txRelayed);
 
@@ -218,10 +225,38 @@ void test_flood_is_queued_for_relay_once_and_deduped()
     Time::advanceTestMillis(1000);
 
     // Same frame again: a MeshCore node re-flooded it to us; do not relay twice.
-    repeater.handleReceivedFrame(buf, len, 5);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
     TEST_ASSERT_FALSE(repeater.hasPendingFrame());
     TEST_ASSERT_EQUAL_UINT32(1, repeater.rxDup);
     TEST_ASSERT_EQUAL_UINT32(1, repeater.txRelayed);
+}
+
+// The key amplification regression: MeshCore appends a hop hash to the path on every forward, so
+// the same packet comes back to us as different bytes. The dedupe keys on type+payload, so path
+// variants count as duplicates - one re-emission per packet, not one per variant.
+void test_dedupe_is_path_independent()
+{
+    MeshCoreRepeater repeater;
+    uint8_t buf[64];
+
+    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, 0x77);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.txRelayed);
+    repeater.clearPendingFrame();
+
+    // Same payload, longer path (a MeshCore node re-flooded it one hop further).
+    len = makeFloodFrame(buf, kTxtMsg, 3, 1, 0x20, 0x77);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.rxDup);
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.txRelayed);
+
+    // A different payload is still a different packet.
+    len = makeFloodFrame(buf, kTxtMsg, 3, 1, 0x20, 0x88);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+    TEST_ASSERT_EQUAL_UINT32(2, repeater.txRelayed);
 }
 
 void test_direct_frames_are_never_relayed()
@@ -235,7 +270,7 @@ void test_direct_frames_are_never_relayed()
     buf[i++] = 0x11;
     buf[i++] = 0x22;
 
-    repeater.handleReceivedFrame(buf, i, 5);
+    repeater.handleReceivedFrame(buf, i, 5, kAirtimeMs);
     TEST_ASSERT_FALSE(repeater.hasPendingFrame());
     TEST_ASSERT_EQUAL_UINT32(1, repeater.rxSeen); // still sniffed
     TEST_ASSERT_EQUAL_UINT32(0, repeater.rxFlood);
@@ -248,12 +283,30 @@ void test_flood_with_full_path_is_dropped()
     uint8_t buf[200];
     // count 63 x hash_size 2: the next hop would need 128 path bytes, over MeshCore's 64-byte
     // MAX_PATH_SIZE, so real MeshCore nodes could not extend it either.
-    size_t len = makeFloodFrame(buf, kTxtMsg, 63, 2, 0x10);
+    size_t len = makeFloodFrame(buf, kTxtMsg, 63, 2, 0x10, 0x10);
 
-    repeater.handleReceivedFrame(buf, len, 5);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
     TEST_ASSERT_FALSE(repeater.hasPendingFrame());
     TEST_ASSERT_EQUAL_UINT32(1, repeater.rxDropped);
     TEST_ASSERT_EQUAL_UINT32(0, repeater.txRelayed);
+}
+
+// MeshCore flood_max_advert default: ADVERT floods are not forwarded past 8 hops.
+void test_advert_flood_hop_limit()
+{
+    MeshCoreRepeater repeater;
+    uint8_t buf[64];
+
+    size_t len = makeFloodFrame(buf, kAdvert, 8, 1, 0x10, 0x10);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.rxDropped);
+
+    Time::advanceTestMillis(1000);
+    len = makeFloodFrame(buf, kAdvert, 7, 1, 0x10, 0x20);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.txRelayed);
 }
 
 void test_relay_respects_role_and_rebroadcast_mode()
@@ -263,56 +316,164 @@ void test_relay_respects_role_and_rebroadcast_mode()
     size_t len;
 
     config.device.role = meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE;
-    len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0xAA);
-    repeater.handleReceivedFrame(buf, len, 5);
+    len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0xAA, 0xAA);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
     TEST_ASSERT_FALSE(repeater.hasPendingFrame());
 
     Time::advanceTestMillis(1000);
     config.device.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
     config.device.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_NONE;
-    len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x50); // distinct frame: the dedup ring remembers the first
-    repeater.handleReceivedFrame(buf, len, 5);
+    len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x50, 0x50); // distinct frame: the dedup ring remembers the first
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
     TEST_ASSERT_FALSE(repeater.hasPendingFrame());
 
     Time::advanceTestMillis(1000);
     config.device.role = meshtastic_Config_DeviceConfig_Role_ROUTER;
     config.device.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_ALL;
-    len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x90);
-    repeater.handleReceivedFrame(buf, len, 5);
+    len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x90, 0x90);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
     TEST_ASSERT_TRUE(repeater.hasPendingFrame());
 }
 
-void test_relay_cooldown_spaces_retransmissions()
+// One relay slot: a second flood arriving while one is queued is dropped (flood redundancy).
+void test_second_flood_dropped_while_pending()
 {
     MeshCoreRepeater repeater;
     uint8_t buf[64];
 
-    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0xAA);
-    repeater.handleReceivedFrame(buf, len, 5);
-    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
-    repeater.clearPendingFrame();
-
-    // A different frame 100ms later: not a dup, but inside the 250ms relay cooldown.
-    Time::advanceTestMillis(100);
-    len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x50);
-    repeater.handleReceivedFrame(buf, len, 5);
-    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, 0x10);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
     TEST_ASSERT_EQUAL_UINT32(1, repeater.txRelayed);
 
-    // Past the cooldown it goes out.
-    Time::advanceTestMillis(200);
-    len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x90);
-    repeater.handleReceivedFrame(buf, len, 5);
+    len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, 0x20);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.txRelayed); // second one never queued
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());    // first one still pending
+}
+
+// --- adaptive relay delay (ZephCore-style) ---
+
+// Jitter is 20ms floor + rand(0, 5 x airtime x factor), capped at 6 x airtime and 2000ms. With
+// airtime 100 and the pre-warmup factor 0.5 the delay lands in [20, 270].
+void test_adaptive_delay_is_bounded()
+{
+    MeshCoreRepeater repeater;
+    uint8_t buf[64];
+    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, 0x10);
+
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.5f, repeater.getFloodDelayFactor()); // pre-warmup default
+
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
     TEST_ASSERT_TRUE(repeater.hasPendingFrame());
-    TEST_ASSERT_EQUAL_UINT32(2, repeater.txRelayed);
+    TEST_ASSERT_FALSE(repeater.isRelayDue());
+
+    uint32_t delay = repeater.relayDueInMs();
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT32(20, delay);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32(270, delay); // 20 + 5 x 100 x 0.5
+
+    Time::advanceTestMillis(delay);
+    TEST_ASSERT_TRUE(repeater.isRelayDue());
+}
+
+// The contention estimate: dupes heard per relay fold into an EMA. Busy mesh -> more dupes ->
+// bigger factor (longer jitter); quiet mesh -> back toward the minimum.
+void test_delay_factor_reflects_observed_contention()
+{
+    uint8_t buf[64];
+    uint8_t variant[64];
+
+    // Quiet mesh: four relays, zero dupes -> factor settles at the minimum.
+    MeshCoreRepeater quiet;
+    for (int n = 0; n < 4; n++) {
+        size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, (uint8_t)(0x40 + n));
+        quiet.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+        quiet.clearPendingFrame();
+        Time::advanceTestMillis(1000);
+    }
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.40f, quiet.getFloodDelayFactor());
+
+    // Busy mesh: four relays, each with 30 dupes (path variants of the same packet).
+    MeshCoreRepeater busy;
+    for (int n = 0; n < 4; n++) {
+        size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, (uint8_t)(0x40 + n));
+        busy.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+        for (int d = 0; d < 30; d++) {
+            size_t vlen = makeFloodFrame(variant, kTxtMsg, 2, 1, (uint8_t)(0x30 + d), (uint8_t)(0x40 + n));
+            busy.handleReceivedFrame(variant, vlen, 5, kAirtimeMs);
+        }
+        busy.clearPendingFrame();
+        Time::advanceTestMillis(1000);
+    }
+    // factor = 0.40 + 0.60 x 30/(30+4) ~ 0.93
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, 0.93f, busy.getFloodDelayFactor());
+}
+
+// Reactive extension: hearing another node retransmit the queued packet postpones ours, so the
+// echo lands after theirs instead of colliding with it (ZephCore extendPendingRetransmit).
+void test_dupe_postpones_pending_relay()
+{
+    MeshCoreRepeater repeater;
+    uint8_t buf[64];
+
+    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, 0x10);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    uint32_t initialDelay = repeater.relayDueInMs();
+
+    // A dupe (path variant of the same packet): +0.2 x airtime = 20ms, clock frozen.
+    len = makeFloodFrame(buf, kTxtMsg, 3, 1, 0x20, 0x10);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.rxDup);
+    TEST_ASSERT_EQUAL_UINT32(initialDelay + 20, repeater.relayDueInMs());
+
+    // Cumulative extension caps at 12 x airtime = 1200ms: 60 more dupes add nothing past that.
+    for (int d = 0; d < 60; d++) {
+        len = makeFloodFrame(buf, kTxtMsg, 2, 1, (uint8_t)(0x30 + d), 0x10);
+        repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    }
+    TEST_ASSERT_EQUAL_UINT32(initialDelay + 1200, repeater.relayDueInMs());
+}
+
+// The absolute deadline survives the 32-bit millis() wrap (Throttle::deadlinePassed semantics).
+void test_relay_deadline_survives_millis_wrap()
+{
+    MeshCoreRepeater repeater;
+    uint8_t buf[64];
+    Time::setTestMillis(0xFFFFFF00u); // just before the wrap
+
+    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, 0x10);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.isRelayDue()); // deadline wrapped to the other side
+
+    Time::advanceTestMillis(300); // crosses 0; deadline is <= 270ms out
+    TEST_ASSERT_TRUE(repeater.isRelayDue());
+}
+
+// A pending relay that never got its turn (starved radio events) must not wedge the slot: once
+// it is older than the dupe window it is dropped in favour of the frame just heard.
+void test_stale_pending_relay_is_dropped_for_new_frame()
+{
+    MeshCoreRepeater repeater;
+    uint8_t buf[64];
+
+    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, 0x10);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+
+    Time::advanceTestMillis(11000); // past DUPE_WINDOW_MS, still queued (nobody sent it)
+    len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, 0x20);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.txDropped); // stale one discarded
+    TEST_ASSERT_EQUAL_UINT32(2, repeater.txRelayed); // new one took the slot
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
 }
 
 void test_take_pending_frame_copies_without_clearing()
 {
     MeshCoreRepeater repeater;
     uint8_t buf[64];
-    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0xAA);
-    repeater.handleReceivedFrame(buf, len, 5);
+    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0xAA, 0xAA);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
 
     uint8_t out[64];
     TEST_ASSERT_EQUAL_UINT32(0, repeater.takePendingFrame(out, 4)); // too small
@@ -337,10 +498,17 @@ void setup()
     RUN_TEST(test_meshtastic_unicast_from_us_is_not_swallowed);
     RUN_TEST(test_short_meshcore_frame_survives_veto);
     RUN_TEST(test_flood_is_queued_for_relay_once_and_deduped);
+    RUN_TEST(test_dedupe_is_path_independent);
     RUN_TEST(test_direct_frames_are_never_relayed);
     RUN_TEST(test_flood_with_full_path_is_dropped);
+    RUN_TEST(test_advert_flood_hop_limit);
     RUN_TEST(test_relay_respects_role_and_rebroadcast_mode);
-    RUN_TEST(test_relay_cooldown_spaces_retransmissions);
+    RUN_TEST(test_second_flood_dropped_while_pending);
+    RUN_TEST(test_adaptive_delay_is_bounded);
+    RUN_TEST(test_delay_factor_reflects_observed_contention);
+    RUN_TEST(test_dupe_postpones_pending_relay);
+    RUN_TEST(test_relay_deadline_survives_millis_wrap);
+    RUN_TEST(test_stale_pending_relay_is_dropped_for_new_frame);
     RUN_TEST(test_take_pending_frame_copies_without_clearing);
     exit(UNITY_END());
 }

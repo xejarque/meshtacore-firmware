@@ -434,6 +434,16 @@ void RadioLibInterface::onNotify(uint32_t notification)
     case ISR_POLL_TICK:
         handleSoftwareLoraIrqPoll();
         break;
+    case ISR_RELAY_DUE:
+        maybeSendMeshCoreFrame(); // adaptive MeshCore relay delay elapsed
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+        if (meshCoreRepeater.hasPendingFrame()) {
+            // Not due yet (reactive extension) or the radio was busy: re-arm. overwrite=false so
+            // this never clobbers a pending TRANSMIT_DELAY_COMPLETED (own traffic wins).
+            notifyLater(meshCoreRepeater.relayDueInMs() + 1, ISR_RELAY_DUE, false);
+        }
+#endif
+        break;
     case TRANSMIT_DELAY_COMPLETED:
 
         // If we are not currently in receive mode, then restart the random delay (this can happen if the main thread
@@ -623,7 +633,7 @@ void RadioLibInterface::completeRawSend()
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
 void RadioLibInterface::maybeSendMeshCoreFrame()
 {
-    if (isSending() || isRawSending() || !meshCoreRepeater.hasPendingFrame()) {
+    if (isSending() || isRawSending() || !meshCoreRepeater.hasPendingFrame() || !meshCoreRepeater.isRelayDue()) {
         return;
     }
     // Same duty-cycle guard as Router::send: a foreign-protocol relay must not push us over the
@@ -754,7 +764,13 @@ void RadioLibInterface::handleReceiveInterrupt()
             LOG_INFO("MeshCore frame: len=%u route=%u type=0x%02x path=%u/%u payload=%u snr=%g rssi=%g", (unsigned)length,
                      mcInfo.route_type, mcInfo.payload_type, mcInfo.path_hash_count, mcInfo.path_hash_size, mcInfo.payload_len,
                      iface->getSNR(), lround(iface->getRSSI()));
-            meshCoreRepeater.handleReceivedFrame((const uint8_t *)&radioBuffer, length, iface->getSNR());
+            meshCoreRepeater.handleReceivedFrame((const uint8_t *)&radioBuffer, length, iface->getSNR(),
+                                                 getPacketTime(length, false));
+            if (meshCoreRepeater.hasPendingFrame()) {
+                // Best-effort wake-up when the adaptive relay delay elapses (radio events would
+                // also do it); overwrite=false keeps a pending TRANSMIT_DELAY_COMPLETED intact.
+                notifyLater(meshCoreRepeater.relayDueInMs() + 1, ISR_RELAY_DUE, false);
+            }
             airTime->logAirtime(RX_LOG, rxMsec);
             return; // do not deliver to the Meshtastic router
         }
