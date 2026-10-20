@@ -338,6 +338,7 @@ void MeshCoreRepeater::handleControl(const uint8_t *raw, size_t len, const Frame
     if (spread > 4 * JITTER_CAP_MS)
         spread = 4 * JITTER_CAP_MS;
     if (queueOwnFrame(frame, 8 + keyLen, DELAY_FLOOR_MS + (uint32_t)random(0, (long)spread + 1))) {
+        LOG_INFO("MeshCore discover reply queued");
         discoverRepliesInWindow++;
         discoverReplies++;
     }
@@ -442,6 +443,7 @@ void MeshCoreRepeater::queueRelay(const uint8_t *raw, size_t len, uint32_t hash3
     memcpy(pending, raw, len);
     pendingLen = len;
     pendingOwn = false;
+    LOG_DEBUG("MeshCore relay queued: len=%u delay=%ums", (unsigned)len, (unsigned)delayMs);
 
     const uint32_t now = Time::getMillis();
     pendingRelay.hash32 = hash32;

@@ -644,7 +644,8 @@ void RadioLibInterface::completeRawSend()
 
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
 static constexpr size_t MESHCORE_SEED_LEN = 32;
-static constexpr uint32_t MESHCORE_ADVERT_FIRST_MS = 60 * 1000; // first ADVERTs a minute after boot
+static constexpr uint32_t MESHCORE_IDENTITY_LOAD_MS = 5 * 1000; // identity ready early: discovery needs it
+static constexpr uint32_t MESHCORE_ADVERT_FIRST_MS = 60 * 1000; // first zero-hop ADVERT a minute after boot
 // MeshCore simple_repeater defaults: a zero-hop advert every 2 minutes for direct neighbours, a flood advert
 // every 47 hours for the whole mesh. A flood is re-sent by every node, so it must stay rare.
 static constexpr uint32_t MESHCORE_LOCAL_ADVERT_INTERVAL_MS = 2 * 60 * 1000;
@@ -656,7 +657,7 @@ static constexpr uint32_t MESHCORE_ADVERT_NUDGE_MS = 1000;      // radio busy: a
 class MeshCoreAdvertThread : public concurrency::OSThread
 {
   public:
-    explicit MeshCoreAdvertThread(RadioLibInterface *radio) : OSThread("MeshCoreAdvert", MESHCORE_ADVERT_FIRST_MS), radio(radio)
+    explicit MeshCoreAdvertThread(RadioLibInterface *radio) : OSThread("MeshCoreAdvert", MESHCORE_IDENTITY_LOAD_MS), radio(radio)
     {
     }
 
@@ -802,10 +803,13 @@ void RadioLibInterface::maybeSendMeshCoreFrame()
     }
     // Same listen-before-talk as the Meshtastic TX path. A busy radio or channel leaves the frame
     // queued (takePendingFrame copies, not clears) for the next radio event or ISR_RELAY_DUE.
+    const bool own = meshCoreRepeater.pendingIsOwn();
     if (!isReceiving || !canSendImmediately()) {
+        LOG_DEBUG("MeshCore TX deferred: radio busy");
         return;
     }
     if (isChannelActive()) {
+        LOG_DEBUG("MeshCore TX deferred: channel busy");
         startReceive();
         return;
     }
@@ -813,6 +817,7 @@ void RadioLibInterface::maybeSendMeshCoreFrame()
         startReceive(); // the channel scan left the radio in standby
         return;
     }
+    LOG_INFO("MeshCore TX %s: len=%u header=0x%02x path_len=0x%02x", own ? "own" : "relay", (unsigned)len, frame[0], frame[1]);
     if (!meshCoreRepeater.pendingIsOwn())
         meshCoreRepeater.markRelayed();
     meshCoreRepeater.clearPendingFrame();
@@ -1020,6 +1025,7 @@ void RadioLibInterface::startReceive()
         // Like a MeshCore repeater: no flood at boot (a node that reboots often would flood the mesh each time), the
         // first flood one full interval later; the zero-hop advert for direct neighbours goes out shortly after boot.
         nextMeshCoreFloodAdvertMs = millis() + MESHCORE_FLOOD_ADVERT_INTERVAL_MS;
+        nextMeshCoreLocalAdvertMs = millis() + MESHCORE_ADVERT_FIRST_MS;
         meshCoreAdvertThread = new MeshCoreAdvertThread(this);
     }
 #endif
