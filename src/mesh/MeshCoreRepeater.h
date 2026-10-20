@@ -81,11 +81,34 @@ class MeshCoreRepeater
     /** The pending frame went on air: counts it and keeps the contention estimate from going stale. */
     void markRelayed();
 
+    /** Install this node's MeshCore identity from its 32-byte Ed25519 seed (public key is derived). */
+    void setIdentitySeed(const uint8_t seed[32]);
+
+    bool hasIdentity() const { return hasIdentityKey; }
+    const uint8_t *getIdentityPub() const { return identityPub; }
+
+    /**
+     * Encode an ADVERT for this node: repeater type, signed over pub||timestamp||app_data exactly as MeshCore's
+     * Mesh::createAdvert does. flood=false gives a zero-hop advert (route DIRECT, empty path) that only direct
+     * neighbours hear, like a MeshCore repeater's local advert. Returns the frame length, or 0 if it does not fit.
+     */
+    size_t buildAdvert(uint8_t *out, size_t outLen, const char *name, uint32_t timestamp, bool flood);
+
+    /**
+     * Queue one of our own frames (ADVERT, discovery reply) on the relay slot, due after delayMs. Not counted as a
+     * relay and not folded into the contention estimate. Returns false if the slot is busy.
+     */
+    bool queueOwnFrame(const uint8_t *raw, size_t len, uint32_t delayMs = 0);
+
+    /** True when the pending frame is one of ours rather than a relayed flood. */
+    bool pendingIsOwn() const { return pendingOwn; }
+
     /** Adaptive jitter factor in [0.40, 1.00] (0.5 before warmup), from the observed dupes. */
     float getFloodDelayFactor();
 
     // Counters for observability
-    uint32_t rxSeen = 0, rxFlood = 0, rxDup = 0, rxDropped = 0, txRelayed = 0, txDropped = 0;
+    uint32_t rxSeen = 0, rxFlood = 0, rxDup = 0, rxDropped = 0, txRelayed = 0, txDropped = 0, rxDirectForUs = 0,
+             discoverReplies = 0;
 
   private:
     static constexpr uint8_t MAX_PATH_HASH_SIZE = 3; // MeshCore allows 1..3
@@ -142,6 +165,12 @@ class MeshCoreRepeater
 
     uint8_t pending[MAX_FRAME_LEN];
     size_t pendingLen = 0;
+    bool pendingOwn = false;
+
+    // This node's MeshCore identity (Ed25519). The seed is the secret; the public key is derived from it.
+    uint8_t identitySeed[32] = {0};
+    uint8_t identityPub[32] = {0};
+    bool hasIdentityKey = false;
     PendingRelay pendingRelay;
     uint32_t pendingDeadlineMs = 0;
 
@@ -153,9 +182,28 @@ class MeshCoreRepeater
     static uint32_t hashFrame(const uint8_t *raw, size_t len, const FrameInfo &info);
     bool wasRecentlySeen(uint32_t hash) const;
     void rememberFrame(uint32_t hash);
+
+    // A MeshCore repeater answers neighbour discovery at most 4 times per 2 minutes (simple_repeater discover_limiter).
+    static constexpr uint8_t DISCOVER_MAX_REPLIES = 4;
+    static constexpr uint32_t DISCOVER_WINDOW_MS = 120000;
+    uint32_t discoverWindowStartMs = 0;
+    uint8_t discoverRepliesInWindow = 0;
+
+    /** Our path hash (prefix of the public key) is the first hop of this direct frame's path. */
+    bool isNextHopForUs(const uint8_t *raw, const FrameInfo &info) const;
+
+    /**
+     * Copy raw into out with its path rewritten: append our path hash (flood forward, Mesh::routeRecvPacket) or
+     * drop the first hop (direct forward, Mesh::removeSelfFromPath). Returns the new length, 0 if it does not fit.
+     */
+    size_t rewritePath(const uint8_t *raw, size_t len, const FrameInfo &info, bool appendSelf, uint8_t *out, size_t outLen) const;
+
+    /** Zero-hop CONTROL frame: answer a NODE_DISCOVER_REQ for repeaters with our public key. */
+    void handleControl(const uint8_t *raw, size_t len, const FrameInfo &info, float snr, uint32_t airtimeMs);
+    void handleDirect(const uint8_t *raw, size_t len, const FrameInfo &info, uint32_t airtimeMs);
     void onDupeHeard(uint32_t hash);
     bool canRelay() const;
-    void queueRelay(const uint8_t *raw, size_t len, uint32_t hash32, uint32_t airtimeMs);
+    void queueRelay(const uint8_t *raw, size_t len, uint32_t hash32, uint32_t airtimeMs, uint32_t delayMs);
     void foldContentionSample();
     void applyLazyDecay();
     uint32_t adaptiveDelayMs(uint32_t airtimeMs);

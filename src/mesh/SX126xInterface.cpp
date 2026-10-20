@@ -579,7 +579,14 @@ template <typename T> bool SX126xInterface<T>::isActivelyReceiving()
 {
     // The IRQ status will be cleared when we start our read operation. Check if we've started a header, but haven't yet
     // received and handled the interrupt for reading the packet/handling errors.
-    return receiveDetected(lora.getIrqFlags(), RADIOLIB_SX126X_IRQ_HEADER_VALID, RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED);
+    uint16_t irq = lora.getIrqFlags();
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER && MESHTASTIC_MESHCORE_RX_DEBUG
+    // Preamble/header seen by the chip: shows whether a foreign sync word is ever matched, even when the frame
+    // never reaches RX_DONE (a non-matching sync word is dropped silently by the demodulator).
+    if (irq & (RADIOLIB_SX126X_IRQ_HEADER_VALID | RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED))
+        LOG_INFO("RXDBG preamble/header irq=0x%04x", irq);
+#endif
+    return receiveDetected(irq, RADIOLIB_SX126X_IRQ_HEADER_VALID, RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED);
 }
 
 template <typename T> bool SX126xInterface<T>::sleep()

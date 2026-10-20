@@ -12,9 +12,13 @@
 #include "main.h"
 #include "mesh-pb-constants.h"
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+#include "FSCommon.h"
+#include "HardwareRNG.h"
 #include "MeshCoreRepeater.h"
 #include "NodeDB.h"
 #include "Router.h"
+#include "SafeFile.h"
+#include "gps/RTC.h"
 #endif
 #include <pb_decode.h>
 #include <pb_encode.h>
@@ -639,6 +643,115 @@ void RadioLibInterface::completeRawSend()
 }
 
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+static constexpr size_t MESHCORE_SEED_LEN = 32;
+static constexpr uint32_t MESHCORE_ADVERT_FIRST_MS = 60 * 1000; // first ADVERTs a minute after boot
+// MeshCore simple_repeater defaults: a zero-hop advert every 2 minutes for direct neighbours, a flood advert
+// every 47 hours for the whole mesh. A flood is re-sent by every node, so it must stay rare.
+static constexpr uint32_t MESHCORE_LOCAL_ADVERT_INTERVAL_MS = 2 * 60 * 1000;
+static constexpr uint32_t MESHCORE_FLOOD_ADVERT_INTERVAL_MS = 47UL * 60 * 60 * 1000;
+static constexpr uint32_t MESHCORE_ADVERT_RETRY_MS = 60 * 1000; // no identity / no valid time
+static constexpr uint32_t MESHCORE_ADVERT_NUDGE_MS = 1000;      // radio busy: ask again
+
+/** Runs RadioLibInterface::meshCoreAdvertTick() on its own schedule. */
+class MeshCoreAdvertThread : public concurrency::OSThread
+{
+  public:
+    explicit MeshCoreAdvertThread(RadioLibInterface *radio) : OSThread("MeshCoreAdvert", MESHCORE_ADVERT_FIRST_MS), radio(radio)
+    {
+    }
+
+  protected:
+    int32_t runOnce() override { return radio->meshCoreAdvertTick(); }
+
+  private:
+    RadioLibInterface *radio;
+};
+
+/**
+ * The repeater's MeshCore identity seed, kept in flash so the node keeps the same MeshCore key across reboots.
+ * Created from the hardware RNG on first use; never created from a weak source.
+ */
+static bool loadOrCreateMeshCoreSeed(uint8_t seed[MESHCORE_SEED_LEN])
+{
+#ifdef FSCom
+    static const char *path = "/prefs/meshcore_identity.bin";
+    {
+        concurrency::LockGuard g(spiLock);
+        auto f = FSCom.open(path, FILE_O_READ);
+        if (f) {
+            bool ok = f.size() == MESHCORE_SEED_LEN && f.read(seed, MESHCORE_SEED_LEN) == MESHCORE_SEED_LEN;
+            f.close();
+            if (ok)
+                return true;
+            LOG_WARN("MeshCore identity: %s is corrupt, creating a new key", path);
+        }
+    }
+#endif
+    if (!HardwareRNG::fill(seed, MESHCORE_SEED_LEN, true)) {
+        LOG_ERROR("MeshCore identity: no hardware entropy, not creating a key");
+        return false;
+    }
+#ifdef FSCom
+    // SafeFile: atomic replace under spiLock. A bare FILE_O_WRITE appends on nRF52 LittleFS.
+    SafeFile out(path, true);
+    out.write(seed, MESHCORE_SEED_LEN);
+    if (!out.close())
+        LOG_ERROR("MeshCore identity: could not save %s, the key will change on reboot", path);
+#endif
+    LOG_INFO("MeshCore identity created");
+    return true;
+}
+
+uint32_t RadioLibInterface::meshCoreAdvertTick()
+{
+    if (!meshCoreRepeater.hasIdentity()) {
+        uint8_t seed[MESHCORE_SEED_LEN];
+        if (!loadOrCreateMeshCoreSeed(seed))
+            return MESHCORE_ADVERT_RETRY_MS;
+        meshCoreRepeater.setIdentitySeed(seed);
+        const uint8_t *pub = meshCoreRepeater.getIdentityPub();
+        LOG_INFO("MeshCore identity ready, pub=%02x%02x%02x%02x...", pub[0], pub[1], pub[2], pub[3]);
+    }
+
+    // One of our frames is queued but not on air yet: nudge the radio thread until it goes. A nudge lost to
+    // another pending event is harmless, the next tick repeats it.
+    if (meshCoreRepeater.hasPendingFrame()) {
+        notify(ISR_RELAY_DUE, false);
+        return MESHCORE_ADVERT_NUDGE_MS;
+    }
+
+    const bool floodDue = Throttle::deadlinePassed(nextMeshCoreFloodAdvertMs);
+    const bool localDue = Throttle::deadlinePassed(nextMeshCoreLocalAdvertMs);
+    if (!floodDue && !localDue) {
+        const uint32_t now = millis();
+        const uint32_t toFlood = nextMeshCoreFloodAdvertMs - now, toLocal = nextMeshCoreLocalAdvertMs - now;
+        return toFlood < toLocal ? toFlood : toLocal;
+    }
+
+    // MeshCore clients order adverts by timestamp, so it must be a real time - but any source will do.
+    const uint32_t now = getValidTime(RTCQualityDevice);
+    if (now == 0) {
+        LOG_INFO("MeshCore ADVERT postponed: no valid time yet");
+        return MESHCORE_ADVERT_RETRY_MS;
+    }
+
+    // A flood also reaches the direct neighbours, so it stands in for the local advert that is due with it.
+    uint8_t raw[MeshCoreRepeater::MAX_FRAME_LEN];
+    size_t len = meshCoreRepeater.buildAdvert(raw, sizeof(raw), owner.long_name, now, floodDue);
+    if (len == 0 || !meshCoreRepeater.queueOwnFrame(raw, len)) {
+        LOG_WARN("MeshCore ADVERT could not be built or queued");
+        return MESHCORE_ADVERT_RETRY_MS;
+    }
+    LOG_INFO("MeshCore %s ADVERT queued (%u bytes, name=%s, ts=%u)", floodDue ? "flood" : "zero-hop", (unsigned)len,
+             owner.long_name, (unsigned)now);
+    const uint32_t queuedAt = millis();
+    if (floodDue)
+        nextMeshCoreFloodAdvertMs = queuedAt + MESHCORE_FLOOD_ADVERT_INTERVAL_MS;
+    nextMeshCoreLocalAdvertMs = queuedAt + MESHCORE_LOCAL_ADVERT_INTERVAL_MS;
+    notify(ISR_RELAY_DUE, false);
+    return MESHCORE_ADVERT_NUDGE_MS;
+}
+
 bool RadioLibInterface::isMeshtasticOnOurChannels(size_t length)
 {
     // Meshtastic first: a frame that parses as MeshCore may still be a Meshtastic packet between two
@@ -689,7 +802,8 @@ void RadioLibInterface::maybeSendMeshCoreFrame()
         startReceive(); // the channel scan left the radio in standby
         return;
     }
-    meshCoreRepeater.markRelayed();
+    if (!meshCoreRepeater.pendingIsOwn())
+        meshCoreRepeater.markRelayed();
     meshCoreRepeater.clearPendingFrame();
 }
 #else
@@ -777,6 +891,17 @@ void RadioLibInterface::handleReceiveInterrupt()
 #if ARCH_PORTDUINO
     if (portduino_config.logoutputlevel == level_trace) {
         printBytes("Raw incoming packet: ", (uint8_t *)&radioBuffer, length);
+    }
+#endif
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER && MESHTASTIC_MESHCORE_RX_DEBUG
+    {
+        // First 16 bytes of every frame that reached the radio, whatever it turns out to be.
+        const uint8_t *raw = (const uint8_t *)&radioBuffer;
+        char hex[16 * 3 + 1] = {0};
+        size_t n = length < 16 ? length : 16;
+        for (size_t i = 0; i < n; i++)
+            snprintf(hex + i * 3, 4, "%02x ", raw[i]);
+        LOG_INFO("RXDBG len=%u state=%d bytes=%s", (unsigned)length, state, hex);
     }
 #endif
     if (state != RADIOLIB_ERR_NONE) {
@@ -879,6 +1004,10 @@ void RadioLibInterface::startReceive()
     rxOffline = false;
     chipRecoveryFailures = 0;
     powerMon->setState(meshtastic_PowerMon_State_Lora_RXOn);
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+    if (!meshCoreAdvertThread)
+        meshCoreAdvertThread = new MeshCoreAdvertThread(this);
+#endif
 }
 
 void RadioLibInterface::pollMissedIrqs()

@@ -144,6 +144,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define MESHTASTIC_MESHCORE_RX_SYNCWORD 0x2424
 #endif
 
+// Debug only: log every preamble/header detection and every received frame's leading bytes, so a
+// MeshCore frame is visible even when it fails the sniffer's header check. Never enable in a release.
+#ifndef MESHTASTIC_MESHCORE_RX_DEBUG
+#define MESHTASTIC_MESHCORE_RX_DEBUG 0
+#endif
+
 #if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC && !MESHTASTIC_ENABLE_MESHCORE_SNIFFER
 #error "MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC requires MESHTASTIC_ENABLE_MESHCORE_SNIFFER"
 #endif

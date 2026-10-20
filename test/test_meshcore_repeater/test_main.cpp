@@ -512,6 +512,179 @@ void test_take_pending_frame_copies_without_clearing()
     TEST_ASSERT_EQUAL_UINT32(0, repeater.takePendingFrame(out, sizeof(out)));
 }
 
+// --- ADVERT identity (MeshCore Mesh::createAdvert layout) ---
+
+// The companion accepts our ADVERT only if the signature verifies over pub||timestamp||app_data, so check
+// the bytes against the same Ed25519 implementation, and the header against what parse() accepts.
+void test_advert_is_signed_and_parseable()
+{
+    MeshCoreRepeater repeater;
+    uint8_t seed[32];
+    for (int i = 0; i < 32; i++)
+        seed[i] = (uint8_t)(0x11 * (i + 1));
+    repeater.setIdentitySeed(seed);
+    TEST_ASSERT_TRUE(repeater.hasIdentity());
+
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const uint32_t timestamp = 1792521507;
+    size_t len = repeater.buildAdvert(frame, sizeof(frame), "Xavi M1", timestamp, true);
+    // header, path_len, pub, ts, sig, app data (type + name)
+    TEST_ASSERT_EQUAL_UINT32(2 + 32 + 4 + 64 + 1 + 7, len);
+
+    TEST_ASSERT_EQUAL_HEX8(0x11, frame[0]); // ADVERT, flood, version 0
+    TEST_ASSERT_EQUAL_HEX8(0x00, frame[1]); // no path yet
+    TEST_ASSERT_EQUAL_MEMORY(repeater.getIdentityPub(), &frame[2], 32);
+
+    uint32_t ts;
+    memcpy(&ts, &frame[34], 4);
+    TEST_ASSERT_EQUAL_UINT32(timestamp, ts);
+
+    const uint8_t *sig = &frame[38];
+    const uint8_t *appData = &frame[102];
+    TEST_ASSERT_EQUAL_HEX8(0x82, appData[0]); // repeater (2) with the name flag (0x80)
+    TEST_ASSERT_EQUAL_MEMORY("Xavi M1", &appData[1], 7);
+
+    uint8_t message[32 + 4 + 8];
+    memcpy(message, &frame[2], 32);
+    memcpy(message + 32, &frame[34], 4);
+    memcpy(message + 36, appData, 8);
+    TEST_ASSERT_TRUE(Ed25519::verify(sig, repeater.getIdentityPub(), message, sizeof(message)));
+
+    MeshCoreRepeater::FrameInfo info;
+    TEST_ASSERT_TRUE(MeshCoreRepeater::parse(frame, len, &info));
+    TEST_ASSERT_EQUAL_UINT8(0x04, info.payload_type);
+}
+
+// Our own ADVERT goes out on the relay slot without being counted as a relay.
+void test_own_advert_is_queued_and_not_a_relay()
+{
+    MeshCoreRepeater repeater;
+    uint8_t seed[32] = {0x42};
+    repeater.setIdentitySeed(seed);
+
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    size_t len = repeater.buildAdvert(frame, sizeof(frame), "Xavi M1", 1792521507, true);
+    TEST_ASSERT_TRUE(repeater.queueOwnFrame(frame, len));
+    TEST_ASSERT_TRUE(repeater.pendingIsOwn());
+    TEST_ASSERT_TRUE(repeater.isRelayDue());
+
+    repeater.clearPendingFrame(); // the radio path skips markRelayed() for own frames, so txRelayed stays 0
+    TEST_ASSERT_EQUAL_UINT32(0, repeater.txRelayed);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+}
+
+// --- repeater behaviour once we have an identity (MeshCore Mesh.cpp parity) ---
+
+static void giveIdentity(MeshCoreRepeater &repeater)
+{
+    uint8_t seed[32];
+    for (int i = 0; i < 32; i++)
+        seed[i] = (uint8_t)(0x5A ^ i);
+    repeater.setIdentitySeed(seed);
+}
+
+// A zero-hop advert is route DIRECT with an empty path (Mesh::sendZeroHop): neighbours hear it, nobody relays it.
+void test_zero_hop_advert_header()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    size_t len = repeater.buildAdvert(frame, sizeof(frame), "Xavi M1", 1792521507, false);
+    TEST_ASSERT_GREATER_THAN_UINT32(0, len);
+    TEST_ASSERT_EQUAL_HEX8((0x04 << 2) | 0x02, frame[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x00, frame[1]);
+}
+
+// Flood forward appends our path hash (public key prefix), like Mesh::routeRecvPacket, so the sender's app can
+// show the repeat as heard through us.
+void test_flood_relay_appends_our_hash()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    uint8_t buf[64];
+    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, 0x10); // 2 hops of 1 byte
+
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    uint8_t out[MeshCoreRepeater::MAX_FRAME_LEN];
+    size_t outLen = repeater.takePendingFrame(out, sizeof(out));
+    TEST_ASSERT_EQUAL_UINT32(len + 1, outLen);
+    TEST_ASSERT_EQUAL_HEX8(buf[0], out[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x03, out[1]);                         // 3 hops now
+    TEST_ASSERT_EQUAL_MEMORY(&buf[2], &out[2], 2);                // previous hops kept in order
+    TEST_ASSERT_EQUAL_HEX8(repeater.getIdentityPub()[0], out[4]); // ours appended
+    TEST_ASSERT_EQUAL_MEMORY(&buf[4], &out[5], len - 4);          // payload untouched
+}
+
+// A direct frame is forwarded only when we are its next hop, with our hop removed (Mesh::removeSelfFromPath).
+void test_direct_frame_forwarded_only_as_next_hop()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    const uint8_t us = repeater.getIdentityPub()[0];
+
+    uint8_t buf[16];
+    size_t i = 0;
+    buf[i++] = (kTxtMsg << 2) | 0x02; // DIRECT
+    buf[i++] = 0x02;                  // 2 hops of 1 byte
+    buf[i++] = (uint8_t)(us ^ 0xFF);  // first hop is someone else
+    buf[i++] = 0x77;
+    for (int p = 0; p < 6; p++)
+        buf[i++] = (uint8_t)(0xA0 + p);
+    repeater.handleReceivedFrame(buf, i, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+
+    buf[2] = us; // now we are the next hop
+    repeater.handleReceivedFrame(buf, i, 5, kAirtimeMs);
+    uint8_t out[MeshCoreRepeater::MAX_FRAME_LEN];
+    size_t outLen = repeater.takePendingFrame(out, sizeof(out));
+    TEST_ASSERT_EQUAL_UINT32(i - 1, outLen);
+    TEST_ASSERT_EQUAL_HEX8(0x01, out[1]); // one hop left
+    TEST_ASSERT_EQUAL_HEX8(0x77, out[2]); // and it is the next one
+    TEST_ASSERT_EQUAL_MEMORY(&buf[4], &out[3], 6);
+}
+
+// Neighbour discovery: answer a zero-hop NODE_DISCOVER_REQ for repeaters with our key and the request tag.
+void test_discover_request_gets_a_reply()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    uint8_t req[2 + 10];
+    req[0] = (0x0B << 2) | 0x02; // CONTROL, DIRECT
+    req[1] = 0x00;               // zero hop
+    req[2] = 0x80;               // NODE_DISCOVER_REQ, full key
+    req[3] = 1 << 2;             // filter: repeaters
+    req[4] = 0xDE;
+    req[5] = 0xAD;
+    req[6] = 0xBE;
+    req[7] = 0xEF;
+    memset(&req[8], 0, 4); // since = 0
+
+    repeater.handleReceivedFrame(req, sizeof(req), 6.0f, kAirtimeMs);
+    uint8_t out[MeshCoreRepeater::MAX_FRAME_LEN];
+    size_t outLen = repeater.takePendingFrame(out, sizeof(out));
+    TEST_ASSERT_EQUAL_UINT32(2 + 6 + 32, outLen);
+    TEST_ASSERT_EQUAL_HEX8((0x0B << 2) | 0x02, out[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x00, out[1]);
+    TEST_ASSERT_EQUAL_HEX8(0x92, out[2]);       // DISCOVER_RESP | repeater
+    TEST_ASSERT_EQUAL_INT8(24, (int8_t)out[3]); // SNR x4
+    TEST_ASSERT_EQUAL_MEMORY(&req[4], &out[4], 4);
+    TEST_ASSERT_EQUAL_MEMORY(repeater.getIdentityPub(), &out[8], 32);
+    TEST_ASSERT_TRUE(repeater.pendingIsOwn());
+    TEST_ASSERT_EQUAL_UINT32(0, repeater.txRelayed);
+}
+
+// No identity: relay stays transparent, discovery is ignored.
+void test_without_identity_relay_is_transparent()
+{
+    MeshCoreRepeater repeater;
+    uint8_t buf[64];
+    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, 0x10);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    uint8_t out[MeshCoreRepeater::MAX_FRAME_LEN];
+    TEST_ASSERT_EQUAL_UINT32(len, repeater.takePendingFrame(out, sizeof(out)));
+    TEST_ASSERT_EQUAL_MEMORY(buf, out, len);
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -537,6 +710,13 @@ void setup()
     RUN_TEST(test_relay_deadline_survives_millis_wrap);
     RUN_TEST(test_stale_pending_relay_is_dropped_for_new_frame);
     RUN_TEST(test_take_pending_frame_copies_without_clearing);
+    RUN_TEST(test_advert_is_signed_and_parseable);
+    RUN_TEST(test_own_advert_is_queued_and_not_a_relay);
+    RUN_TEST(test_zero_hop_advert_header);
+    RUN_TEST(test_flood_relay_appends_our_hash);
+    RUN_TEST(test_direct_frame_forwarded_only_as_next_hop);
+    RUN_TEST(test_discover_request_gets_a_reply);
+    RUN_TEST(test_without_identity_relay_is_transparent);
     exit(UNITY_END());
 }
 

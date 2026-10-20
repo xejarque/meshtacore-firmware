@@ -400,6 +400,21 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     /** If a MeshCore frame is queued for relay and the radio is idle, transmit it raw. No-op when the sniffer is disabled. */
     void maybeSendMeshCoreFrame();
 
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+    /** Owns the ADVERT schedule; the radio thread's single notification slot cannot hold a long timer. */
+    concurrency::OSThread *meshCoreAdvertThread = nullptr;
+    // Next flood / zero-hop ADVERT. 0: the first tick (one MESHCORE_ADVERT_FIRST_MS after boot) sends both.
+    uint32_t nextMeshCoreFloodAdvertMs = 0;
+    uint32_t nextMeshCoreLocalAdvertMs = 0;
+
+  public:
+    /**
+     * One step of the MeshCore ADVERT schedule, run from its own thread: loads the identity, queues a signed
+     * ADVERT when due, and nudges the radio thread until it is on air. Returns ms until the next step.
+     */
+    uint32_t meshCoreAdvertTick();
+#endif
+
   protected:
     /** True if a raw (non-MeshPacket) frame is currently being transmitted. */
     bool isRawSending() const { return rawSending; }
