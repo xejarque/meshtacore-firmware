@@ -466,6 +466,15 @@ template <typename T> void SX126xInterface<T>::configHardwareForSend()
     if (err != RADIOLIB_ERR_NONE)
         LOG_ERROR("SX126X setSyncWord %s%d", radioLibErr, err);
 #endif
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+    // MeshCore listens for a longer preamble at low SF (RadioLibWrapper::preambleLengthForSF: 32 at SF<=8, else 16).
+    // Ours is restored in startReceive().
+    const uint16_t meshCorePreamble = sf <= 8 ? 32 : 16;
+    if (isRawSending() && meshCorePreamble != preambleLength) {
+        if (lora.setPreambleLength(meshCorePreamble) == RADIOLIB_ERR_NONE)
+            meshCorePreambleSet = true;
+    }
+#endif
     setTransmitEnable(true);
     RadioLibInterface::configHardwareForSend();
 }
@@ -497,6 +506,26 @@ template <typename T> void SX126xInterface<T>::startReceive()
 
 #if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
     setSyncWordRegister(MESHTASTIC_MESHCORE_RX_SYNCWORD);
+#endif
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER && MESHTASTIC_MESHCORE_RX_DEBUG && RADIOLIB_LOW_LEVEL
+    {
+        // What the chip really holds, not what we think we wrote; logged when it changes.
+        static uint16_t lastLogged = 0;
+        uint8_t reg[2] = {0, 0};
+        lora.readRegister(RADIOLIB_SX126X_REG_LORA_SYNC_WORD_MSB, reg, 2);
+        const uint16_t value = (uint16_t)(reg[0] << 8) | reg[1];
+        if (value != lastLogged) {
+            LOG_INFO("RXDBG RX sync word register=0x%04x preamble=%u", value, preambleLength);
+            lastLogged = value;
+        }
+    }
+#endif
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+    // Back to our preamble after a MeshCore frame: the RX duty cycle below is sized from it, and Meshtastic TX uses it.
+    if (meshCorePreambleSet) {
+        lora.setPreambleLength(preambleLength);
+        meshCorePreambleSet = false;
+    }
 #endif
 
 #ifdef ARCH_PORTDUINO_WASM

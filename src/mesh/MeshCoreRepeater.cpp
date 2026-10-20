@@ -50,6 +50,7 @@
 #define MAX_ADVERT_DATA_SIZE 32
 #define MC_ADV_TYPE_REPEATER 0x02
 #define MC_ADV_NAME_MASK 0x80
+#define MC_MAX_PACKET_PAYLOAD 184 // MeshCore.h MAX_PACKET_PAYLOAD
 
 // MeshCore CONTROL subtypes (simple_repeater MyMesh.cpp)
 #define MC_CTL_DISCOVER_REQ 0x80
@@ -125,10 +126,13 @@ bool MeshCoreRepeater::parse(const uint8_t *raw, size_t len, FrameInfo *out)
     if (info.path_hash_count > MAX_PATH_HASH_COUNT)
         return false;
 
+    // Dispatcher::checkRecv: a path over MAX_PATH_SIZE or a payload over MAX_PACKET_PAYLOAD is not a MeshCore packet.
     size_t pathBytes = (size_t)info.path_hash_count * info.path_hash_size;
-    if (pathBytes > MAX_FRAME_LEN || i + pathBytes > len) // path can't be larger than the frame
+    if (pathBytes > MAX_PATH_SIZE || i + pathBytes > len)
         return false;
     i += pathBytes;
+    if (len - i > MC_MAX_PACKET_PAYLOAD)
+        return false;
 
     info.header_len = (uint8_t)i;
     info.payload_len = (uint8_t)(len - i);
@@ -163,9 +167,12 @@ void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, float
         }
         return;
     }
-    // TRACE is never flooded by MeshCore (Mesh::sendFlood refuses it); its path carries SNRs, not hops.
-    if (info.payload_type == MC_PAYLOAD_TYPE_TRACE)
+    // Only what MeshCore itself routes on: anything else (TRACE, MULTIPART, CONTROL, RAW_CUSTOM, a truncated packet) is
+    // not forwarded by a MeshCore repeater - and is more likely a misparsed Meshtastic frame than real traffic.
+    if (!isFloodForwardable(info)) {
+        rxDropped++;
         return;
+    }
     rxFlood++;
 
     // Safety valve: if the pending relay never got its turn (radio events starved), a flood older
@@ -192,6 +199,11 @@ void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, float
         rxDropped++;
         return;
     }
+
+    // Our own ADVERT coming back (Mesh::onRecvPacket drops a SELF advert before anything else).
+    if (info.payload_type == MC_PAYLOAD_TYPE_ADVERT && hasIdentityKey &&
+        memcmp(&raw[info.header_len], identityPub, MC_PUB_KEY_SIZE) == 0)
+        return;
 
     uint32_t hash = hashFrame(raw, len, info);
     if (wasRecentlySeen(hash)) {
@@ -343,24 +355,44 @@ uint32_t MeshCoreRepeater::hashFrame(const uint8_t *raw, size_t len, const Frame
     for (size_t i = info.header_len; i < len; i++) {
         hash = (hash ^ raw[i]) * 16777619u;
     }
-    return hash;
+    return hash ? hash : 1; // 0 marks an empty dedupe slot
 }
 
 bool MeshCoreRepeater::wasRecentlySeen(uint32_t hash) const
 {
     for (size_t i = 0; i < DEDUP_ENTRIES; i++) {
-        if (dedup[i].hash == hash && Throttle::isWithinTimespanMs(dedup[i].seenAtMs, DEDUP_WINDOW_MS)) {
+        if (dedup[i] == hash)
             return true;
-        }
     }
     return false;
 }
 
 void MeshCoreRepeater::rememberFrame(uint32_t hash)
 {
-    dedup[dedupNext].hash = hash;
-    dedup[dedupNext].seenAtMs = Time::getMillis();
+    dedup[dedupNext] = hash;
     dedupNext = (dedupNext + 1) % DEDUP_ENTRIES;
+}
+
+bool MeshCoreRepeater::isFloodForwardable(const FrameInfo &info)
+{
+    switch (info.payload_type) {
+    case MC_PAYLOAD_TYPE_ACK:
+        return info.payload_len >= 4; // ack crc
+    case MC_PAYLOAD_TYPE_REQ:
+    case MC_PAYLOAD_TYPE_RESPONSE:
+    case MC_PAYLOAD_TYPE_TXT_MSG:
+    case MC_PAYLOAD_TYPE_PATH:
+        return info.payload_len > 2 + 2; // dest + src hash, then more than the 2-byte MAC
+    case MC_PAYLOAD_TYPE_ANON_REQ:
+        return info.payload_len > 1 + MC_PUB_KEY_SIZE + 2; // dest hash + sender key, then more than the MAC
+    case MC_PAYLOAD_TYPE_GRP_TXT:
+    case MC_PAYLOAD_TYPE_GRP_DATA:
+        return info.payload_len > 1 + 2; // channel hash, then more than the MAC
+    case MC_PAYLOAD_TYPE_ADVERT:
+        return info.payload_len >= MC_PUB_KEY_SIZE + 4 + MC_SIGNATURE_SIZE; // key, timestamp, signature
+    default:
+        return false;
+    }
 }
 
 void MeshCoreRepeater::onDupeHeard(uint32_t hash)
@@ -528,11 +560,17 @@ uint32_t MeshCoreRepeater::adaptiveDelayMs(uint32_t airtimeMs)
     return DELAY_FLOOR_MS + (uint32_t)random(0, (long)jitter + 1);
 }
 
-void MeshCoreRepeater::setIdentitySeed(const uint8_t seed[32])
+bool MeshCoreRepeater::setIdentitySeed(const uint8_t seed[32])
 {
+    uint8_t pub[MC_PUB_KEY_SIZE];
+    Ed25519::derivePublicKey(pub, seed);
+    // 0x00 and 0xFF are reserved 1-byte path hashes: MeshCore will not use such a key (Identity::validatePrivateKey).
+    if (pub[0] == 0x00 || pub[0] == 0xFF)
+        return false;
     memcpy(identitySeed, seed, sizeof(identitySeed));
-    Ed25519::derivePublicKey(identityPub, identitySeed);
+    memcpy(identityPub, pub, sizeof(identityPub));
     hasIdentityKey = true;
+    return true;
 }
 
 size_t MeshCoreRepeater::buildAdvert(uint8_t *out, size_t outLen, const char *name, uint32_t timestamp, bool flood)

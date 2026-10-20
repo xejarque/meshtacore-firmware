@@ -81,8 +81,11 @@ class MeshCoreRepeater
     /** The pending frame went on air: counts it and keeps the contention estimate from going stale. */
     void markRelayed();
 
-    /** Install this node's MeshCore identity from its 32-byte Ed25519 seed (public key is derived). */
-    void setIdentitySeed(const uint8_t seed[32]);
+    /**
+     * Install this node's MeshCore identity from its 32-byte Ed25519 seed (public key is derived). Returns false, and
+     * installs nothing, for a key MeshCore rejects: a public key starting 0x00 or 0xFF (Identity::validatePrivateKey).
+     */
+    bool setIdentitySeed(const uint8_t seed[32]);
 
     bool hasIdentity() const { return hasIdentityKey; }
     const uint8_t *getIdentityPub() const { return identityPub; }
@@ -113,8 +116,9 @@ class MeshCoreRepeater
   private:
     static constexpr uint8_t MAX_PATH_HASH_SIZE = 3; // MeshCore allows 1..3
     static constexpr uint8_t MAX_PATH_HASH_COUNT = 63;
-    static constexpr size_t DEDUP_ENTRIES = 64;
-    static constexpr uint32_t DEDUP_WINDOW_MS = 15000;
+    // MeshCore SimpleMeshTables: a ring of the last 160 packet hashes, with no time expiry. A copy arriving late (slow SF,
+    // many hops) must still be recognised, or it would be relayed a second time.
+    static constexpr size_t DEDUP_ENTRIES = 160;
 
     // MeshCore's flood_max_advert default (NodePrefs.h): ADVERT floods stop being forwarded
     // after this many hops. flood_max itself (64) is implied by the 6-bit hop count plus the
@@ -146,11 +150,6 @@ class MeshCoreRepeater
     static constexpr uint32_t DECAY_PERIOD_MS = 5000;
     static constexpr uint32_t MAX_DECAY_CATCHUP = 8;
 
-    struct DedupEntry {
-        uint32_t hash;
-        uint32_t seenAtMs;
-    };
-
     /** Observation for the frame currently being relayed: its dupes are the contention sample. */
     struct PendingRelay {
         uint32_t hash32 = 0;
@@ -160,7 +159,7 @@ class MeshCoreRepeater
         uint8_t dupeCount = 0;
     };
 
-    DedupEntry dedup[DEDUP_ENTRIES] = {};
+    uint32_t dedup[DEDUP_ENTRIES] = {}; // 0 = empty slot; hashFrame() never returns 0
     uint8_t dedupNext = 0;
 
     uint8_t pending[MAX_FRAME_LEN];
@@ -197,6 +196,9 @@ class MeshCoreRepeater
      * drop the first hop (direct forward, Mesh::removeSelfFromPath). Returns the new length, 0 if it does not fit.
      */
     size_t rewritePath(const uint8_t *raw, size_t len, const FrameInfo &info, bool appendSelf, uint8_t *out, size_t outLen) const;
+
+    /** MeshCore floods only these payload types, each with a minimum payload (Mesh::onRecvPacket). */
+    static bool isFloodForwardable(const FrameInfo &info);
 
     /** Zero-hop CONTROL frame: answer a NODE_DISCOVER_REQ for repeaters with our public key. */
     void handleControl(const uint8_t *raw, size_t len, const FrameInfo &info, float snr, uint32_t airtimeMs);

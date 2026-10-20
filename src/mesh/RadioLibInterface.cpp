@@ -671,11 +671,11 @@ class MeshCoreAdvertThread : public concurrency::OSThread
  * The repeater's MeshCore identity seed, kept in flash so the node keeps the same MeshCore key across reboots.
  * Created from the hardware RNG on first use; never created from a weak source.
  */
-static bool loadOrCreateMeshCoreSeed(uint8_t seed[MESHCORE_SEED_LEN])
+static bool loadOrCreateMeshCoreSeed(uint8_t seed[MESHCORE_SEED_LEN], bool forceNew)
 {
 #ifdef FSCom
     static const char *path = "/prefs/meshcore_identity.bin";
-    {
+    if (!forceNew) {
         concurrency::LockGuard g(spiLock);
         auto f = FSCom.open(path, FILE_O_READ);
         if (f) {
@@ -706,9 +706,13 @@ uint32_t RadioLibInterface::meshCoreAdvertTick()
 {
     if (!meshCoreRepeater.hasIdentity()) {
         uint8_t seed[MESHCORE_SEED_LEN];
-        if (!loadOrCreateMeshCoreSeed(seed))
+        if (!loadOrCreateMeshCoreSeed(seed, false))
             return MESHCORE_ADVERT_RETRY_MS;
-        meshCoreRepeater.setIdentitySeed(seed);
+        // A key MeshCore rejects (public key starting 0x00/0xFF, ~1 in 128) is replaced by a fresh one.
+        for (int attempt = 0; !meshCoreRepeater.setIdentitySeed(seed); attempt++) {
+            if (attempt >= 8 || !loadOrCreateMeshCoreSeed(seed, true))
+                return MESHCORE_ADVERT_RETRY_MS;
+        }
         const uint8_t *pub = meshCoreRepeater.getIdentityPub();
         LOG_INFO("MeshCore identity ready, pub=%02x%02x%02x%02x...", pub[0], pub[1], pub[2], pub[3]);
     }
@@ -736,14 +740,21 @@ uint32_t RadioLibInterface::meshCoreAdvertTick()
     }
 
     // A flood also reaches the direct neighbours, so it stands in for the local advert that is due with it.
+    // MeshCore clients ignore an advert without a name (BaseChatMesh::onAdvertRecv).
+    char fallbackName[20];
+    const char *name = owner.long_name;
+    if (name[0] == 0) {
+        snprintf(fallbackName, sizeof(fallbackName), "Meshtastic-%04x", (unsigned)(nodeDB->getNodeNum() & 0xFFFF));
+        name = fallbackName;
+    }
     uint8_t raw[MeshCoreRepeater::MAX_FRAME_LEN];
-    size_t len = meshCoreRepeater.buildAdvert(raw, sizeof(raw), owner.long_name, now, floodDue);
+    size_t len = meshCoreRepeater.buildAdvert(raw, sizeof(raw), name, now, floodDue);
     if (len == 0 || !meshCoreRepeater.queueOwnFrame(raw, len)) {
         LOG_WARN("MeshCore ADVERT could not be built or queued");
         return MESHCORE_ADVERT_RETRY_MS;
     }
-    LOG_INFO("MeshCore %s ADVERT queued (%u bytes, name=%s, ts=%u)", floodDue ? "flood" : "zero-hop", (unsigned)len,
-             owner.long_name, (unsigned)now);
+    LOG_INFO("MeshCore %s ADVERT queued (%u bytes, name=%s, ts=%u)", floodDue ? "flood" : "zero-hop", (unsigned)len, name,
+             (unsigned)now);
     const uint32_t queuedAt = millis();
     if (floodDue)
         nextMeshCoreFloodAdvertMs = queuedAt + MESHCORE_FLOOD_ADVERT_INTERVAL_MS;
@@ -1005,8 +1016,12 @@ void RadioLibInterface::startReceive()
     chipRecoveryFailures = 0;
     powerMon->setState(meshtastic_PowerMon_State_Lora_RXOn);
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
-    if (!meshCoreAdvertThread)
+    if (!meshCoreAdvertThread) {
+        // Like a MeshCore repeater: no flood at boot (a node that reboots often would flood the mesh each time), the
+        // first flood one full interval later; the zero-hop advert for direct neighbours goes out shortly after boot.
+        nextMeshCoreFloodAdvertMs = millis() + MESHCORE_FLOOD_ADVERT_INTERVAL_MS;
         meshCoreAdvertThread = new MeshCoreAdvertThread(this);
+    }
 #endif
 }
 

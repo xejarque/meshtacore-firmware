@@ -403,7 +403,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
     /** Owns the ADVERT schedule; the radio thread's single notification slot cannot hold a long timer. */
     concurrency::OSThread *meshCoreAdvertThread = nullptr;
-    // Next flood / zero-hop ADVERT. 0: the first tick (one MESHCORE_ADVERT_FIRST_MS after boot) sends both.
+    // Next flood / zero-hop ADVERT. The zero-hop one is due at the first tick (MESHCORE_ADVERT_FIRST_MS after boot).
     uint32_t nextMeshCoreFloodAdvertMs = 0;
     uint32_t nextMeshCoreLocalAdvertMs = 0;
 

@@ -112,5 +112,9 @@ template <class T> class SX126xInterface : public RadioLibInterface
     /** Write a raw 16-bit value into the LoRa sync word register (e.g. 0x24B4 for Meshtastic's 0x2B). */
     void setSyncWordRegister(uint16_t registerValue);
 #endif
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+    /** The chip holds MeshCore's preamble length for a raw frame; startReceive() puts ours back. */
+    bool meshCorePreambleSet = false;
+#endif
 };
 #endif

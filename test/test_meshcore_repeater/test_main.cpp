@@ -293,18 +293,31 @@ void test_flood_with_full_path_is_dropped()
 }
 
 // MeshCore flood_max_advert default: ADVERT floods are not forwarded past 8 hops.
+// A flood ADVERT with the minimum MeshCore payload (key, timestamp, signature) and a given hop count.
+static size_t makeAdvertFlood(uint8_t *buf, uint8_t hashCount, uint8_t fill)
+{
+    size_t i = 0;
+    buf[i++] = (kAdvert << 2) | 0x01;
+    buf[i++] = hashCount;
+    for (uint8_t h = 0; h < hashCount; h++)
+        buf[i++] = (uint8_t)(0x10 + h);
+    for (int p = 0; p < 100; p++)
+        buf[i++] = (uint8_t)(fill ^ p);
+    return i;
+}
+
 void test_advert_flood_hop_limit()
 {
     MeshCoreRepeater repeater;
-    uint8_t buf[64];
+    uint8_t buf[160];
 
-    size_t len = makeFloodFrame(buf, kAdvert, 8, 1, 0x10, 0x10);
+    size_t len = makeAdvertFlood(buf, 8, 0x10);
     repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
     TEST_ASSERT_FALSE(repeater.hasPendingFrame());
     TEST_ASSERT_EQUAL_UINT32(1, repeater.rxDropped);
 
     Time::advanceTestMillis(1000);
-    len = makeFloodFrame(buf, kAdvert, 7, 1, 0x10, 0x20);
+    len = makeAdvertFlood(buf, 7, 0x20);
     repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
     TEST_ASSERT_TRUE(repeater.hasPendingFrame());
 }
@@ -522,7 +535,8 @@ void test_advert_is_signed_and_parseable()
     uint8_t seed[32];
     for (int i = 0; i < 32; i++)
         seed[i] = (uint8_t)(0x11 * (i + 1));
-    repeater.setIdentitySeed(seed);
+    while (!repeater.setIdentitySeed(seed))
+        seed[0]++;
     TEST_ASSERT_TRUE(repeater.hasIdentity());
 
     uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
@@ -560,7 +574,8 @@ void test_own_advert_is_queued_and_not_a_relay()
 {
     MeshCoreRepeater repeater;
     uint8_t seed[32] = {0x42};
-    repeater.setIdentitySeed(seed);
+    while (!repeater.setIdentitySeed(seed))
+        seed[0]++;
 
     uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
     size_t len = repeater.buildAdvert(frame, sizeof(frame), "Xavi M1", 1792521507, true);
@@ -580,7 +595,8 @@ static void giveIdentity(MeshCoreRepeater &repeater)
     uint8_t seed[32];
     for (int i = 0; i < 32; i++)
         seed[i] = (uint8_t)(0x5A ^ i);
-    repeater.setIdentitySeed(seed);
+    while (!repeater.setIdentitySeed(seed)) // a reserved key: try the next seed
+        seed[0]++;
 }
 
 // A zero-hop advert is route DIRECT with an empty path (Mesh::sendZeroHop): neighbours hear it, nobody relays it.
@@ -685,6 +701,113 @@ void test_without_identity_relay_is_transparent()
     TEST_ASSERT_EQUAL_MEMORY(buf, out, len);
 }
 
+// --- MeshCore parity fixes ---
+
+// RFC 8032 test vector 1: the signature MeshCore verifies must be the standard Ed25519 one, not just one our library
+// agrees with itself about.
+void test_ed25519_matches_rfc8032()
+{
+    static const uint8_t seed[32] = {0x9d, 0x61, 0xb1, 0x9d, 0xef, 0xfd, 0x5a, 0x60, 0xba, 0x84, 0x4a,
+                                     0xf4, 0x92, 0xec, 0x2c, 0xc4, 0x44, 0x49, 0xc5, 0x69, 0x7b, 0x32,
+                                     0x69, 0x19, 0x70, 0x3b, 0xac, 0x03, 0x1c, 0xae, 0x7f, 0x60};
+    static const uint8_t pub[32] = {0xd7, 0x5a, 0x98, 0x01, 0x82, 0xb1, 0x0a, 0xb7, 0xd5, 0x4b, 0xfe,
+                                    0xd3, 0xc9, 0x64, 0x07, 0x3a, 0x0e, 0xe1, 0x72, 0xf3, 0xda, 0xa6,
+                                    0x23, 0x25, 0xaf, 0x02, 0x1a, 0x68, 0xf7, 0x07, 0x51, 0x1a};
+    static const uint8_t sig[64] = {0xe5, 0x56, 0x43, 0x00, 0xc3, 0x60, 0xac, 0x72, 0x90, 0x86, 0xe2, 0xcc, 0x80,
+                                    0x6e, 0x82, 0x8a, 0x84, 0x87, 0x7f, 0x1e, 0xb8, 0xe5, 0xd9, 0x74, 0xd8, 0x73,
+                                    0xe0, 0x65, 0x22, 0x49, 0x01, 0x55, 0x5f, 0xb8, 0x82, 0x15, 0x90, 0xa3, 0x3b,
+                                    0xac, 0xc6, 0x1e, 0x39, 0x70, 0x1c, 0xf9, 0xb4, 0x6b, 0xd2, 0x5b, 0xf5, 0xf0,
+                                    0x59, 0x5b, 0xbe, 0x24, 0x65, 0x51, 0x41, 0x43, 0x8e, 0x7a, 0x10, 0x0b};
+    uint8_t derived[32];
+    Ed25519::derivePublicKey(derived, seed);
+    TEST_ASSERT_EQUAL_MEMORY(pub, derived, 32);
+    uint8_t out[64];
+    Ed25519::sign(out, seed, derived, "", 0);
+    TEST_ASSERT_EQUAL_MEMORY(sig, out, 64);
+}
+
+// MeshCore refuses a key whose 1-byte path hash would be reserved (0x00 / 0xFF).
+void test_identity_with_reserved_hash_is_rejected()
+{
+    uint8_t seed[32] = {0};
+    uint8_t pub[32];
+    bool sawReserved = false, sawValid = false;
+    for (int n = 0; n < 2000 && !(sawReserved && sawValid); n++) {
+        seed[0] = (uint8_t)n;
+        seed[1] = (uint8_t)(n >> 8);
+        Ed25519::derivePublicKey(pub, seed);
+        MeshCoreRepeater repeater;
+        bool ok = repeater.setIdentitySeed(seed);
+        if (pub[0] == 0x00 || pub[0] == 0xFF) {
+            TEST_ASSERT_FALSE(ok);
+            TEST_ASSERT_FALSE(repeater.hasIdentity());
+            sawReserved = true;
+        } else {
+            TEST_ASSERT_TRUE(ok);
+            sawValid = true;
+        }
+    }
+    TEST_ASSERT_TRUE(sawReserved && sawValid);
+}
+
+// Types MeshCore never floods, or truncated packets, are not relayed.
+void test_only_meshcore_routed_types_are_flooded()
+{
+    MeshCoreRepeater repeater;
+    uint8_t buf[64];
+    size_t len = makeFloodFrame(buf, 0x0F, 2, 1, 0x10, 0x10); // RAW_CUSTOM
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+
+    // A TXT_MSG with only 4 payload bytes (dest, src, 2-byte MAC, no data) is truncated.
+    size_t i = 0;
+    buf[i++] = (kTxtMsg << 2) | 0x01;
+    buf[i++] = 0x00;
+    for (int p = 0; p < 4; p++)
+        buf[i++] = (uint8_t)(0x30 + p);
+    repeater.handleReceivedFrame(buf, i, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+}
+
+// Payloads over MeshCore's 184 bytes and paths over 64 bytes are not MeshCore packets.
+void test_parse_enforces_meshcore_limits()
+{
+    uint8_t buf[MeshCoreRepeater::MAX_FRAME_LEN];
+    buf[0] = (kTxtMsg << 2) | 0x01;
+    buf[1] = 0x00;
+    memset(&buf[2], 0x33, 185);
+    TEST_ASSERT_FALSE(MeshCoreRepeater::parse(buf, 2 + 185, NULL));
+    TEST_ASSERT_TRUE(MeshCoreRepeater::parse(buf, 2 + 184, NULL));
+
+    buf[1] = (uint8_t)((1 << 6) | 33); // 33 hops x 2 bytes = 66 path bytes
+    TEST_ASSERT_FALSE(MeshCoreRepeater::parse(buf, 2 + 66 + 10, NULL));
+}
+
+// A late copy (well past the old 15 s window) is still a duplicate, like MeshCore's time-unbounded table.
+void test_dedupe_has_no_time_expiry()
+{
+    MeshCoreRepeater repeater;
+    uint8_t buf[64];
+    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, 0x10);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    repeater.clearPendingFrame();
+    Time::advanceTestMillis(10 * 60 * 1000);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.rxDup);
+}
+
+// Our own flood ADVERT echoed back by a neighbour is never relayed.
+void test_own_advert_echo_is_not_relayed()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    size_t len = repeater.buildAdvert(frame, sizeof(frame), "Xavi M1", 1792521507, true);
+    repeater.handleReceivedFrame(frame, len, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -717,6 +840,12 @@ void setup()
     RUN_TEST(test_direct_frame_forwarded_only_as_next_hop);
     RUN_TEST(test_discover_request_gets_a_reply);
     RUN_TEST(test_without_identity_relay_is_transparent);
+    RUN_TEST(test_ed25519_matches_rfc8032);
+    RUN_TEST(test_identity_with_reserved_hash_is_rejected);
+    RUN_TEST(test_only_meshcore_routed_types_are_flooded);
+    RUN_TEST(test_parse_enforces_meshcore_limits);
+    RUN_TEST(test_dedupe_has_no_time_expiry);
+    RUN_TEST(test_own_advert_echo_is_not_relayed);
     exit(UNITY_END());
 }
 
