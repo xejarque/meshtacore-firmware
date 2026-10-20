@@ -14,6 +14,7 @@
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
 #include "MeshCoreRepeater.h"
 #include "NodeDB.h"
+#include "Router.h"
 #endif
 #include <pb_decode.h>
 #include <pb_encode.h>
@@ -101,7 +102,7 @@ bool RadioLibInterface::canSendImmediately()
     // We wait _if_ we are partially though receiving a packet (rather than just merely waiting for one).
     // To do otherwise would be doubly bad because not only would we drop the packet that was on the way in,
     // we almost certainly guarantee no one outside will like the packet we are sending.
-    bool busyTx = sendingPacket != NULL;
+    bool busyTx = isSending(); // includes an in-flight raw (MeshCore) frame
     bool busyRx = isReceiving && isActivelyReceiving();
 
     if (busyTx || busyRx) {
@@ -275,7 +276,7 @@ bool RadioLibInterface::findInTxQueue(NodeNum from, PacketId id)
 void RadioLibInterface::updateNoiseFloor()
 {
     // Only sample from idle receive mode. TX/RX-critical paths must return to radio work quickly.
-    if (!isReceiving || sendingPacket != NULL || isActivelyReceiving() || isIRQPending()) {
+    if (!isReceiving || isSending() || isActivelyReceiving() || isIRQPending()) {
         return;
     }
 
@@ -413,6 +414,8 @@ void RadioLibInterface::deliverPendingIrqFromPoll(PendingISR cause)
 
 void RadioLibInterface::onNotify(uint32_t notification)
 {
+    // setStandby() runs checkNotification(), so a radio event can nest inside another one
+    notifyDepth++;
 
     switch (notification) {
     case ISR_TX:
@@ -438,9 +441,11 @@ void RadioLibInterface::onNotify(uint32_t notification)
         maybeSendMeshCoreFrame(); // adaptive MeshCore relay delay elapsed
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
         if (meshCoreRepeater.hasPendingFrame()) {
-            // Not due yet (reactive extension) or the radio was busy: re-arm. overwrite=false so
-            // this never clobbers a pending TRANSMIT_DELAY_COMPLETED (own traffic wins).
-            notifyLater(meshCoreRepeater.relayDueInMs() + 1, ISR_RELAY_DUE, false);
+            // Not due yet (reactive extension) or the radio/channel was busy: re-arm. A due frame
+            // retries one CAD slot later rather than spinning. overwrite=false so this never
+            // clobbers a pending TRANSMIT_DELAY_COMPLETED (own traffic wins).
+            uint32_t retryMs = meshCoreRepeater.isRelayDue() ? slotTimeMsec : meshCoreRepeater.relayDueInMs() + 1;
+            notifyLater(retryMs, ISR_RELAY_DUE, false);
         }
 #endif
         break;
@@ -494,6 +499,7 @@ void RadioLibInterface::onNotify(uint32_t notification)
     default:
         assert(0); // We expected to receive a valid notification from the ISR
     }
+    notifyDepth--;
 }
 
 void RadioLibInterface::setTransmitDelay()
@@ -591,10 +597,10 @@ bool RadioLibInterface::removePendingTXPacket(NodeNum from, PacketId id, uint32_
 
 bool RadioLibInterface::sendRawFrame(const uint8_t *bytes, size_t len)
 {
-    // Must not collide with the normal packet TX path or an in-flight raw frame.
-    if (len == 0 || len > sizeof(rawTxBuf) || isSending() || isRawSending() || !isReceiving) {
-        LOG_WARN("sendRawFrame rejected (len=%u sending=%d rawSending=%d rx=%d)", (unsigned)len, isSending(), isRawSending(),
-                 isReceiving);
+    // Must not collide with the normal packet TX path or an in-flight raw frame. Listen-before-talk
+    // is the caller's job (see maybeSendMeshCoreFrame), which leaves the radio in standby.
+    if (len == 0 || len > sizeof(rawTxBuf) || isSending()) {
+        LOG_WARN("sendRawFrame rejected (len=%u sending=%d)", (unsigned)len, isSending());
         return false;
     }
     if (disabled || !config.lora.tx_enabled) {
@@ -605,18 +611,20 @@ bool RadioLibInterface::sendRawFrame(const uint8_t *bytes, size_t len)
     memcpy(rawTxBuf, bytes, len);
     rawTxLen = len;
 
-    // The radio is in RX; drive it into TX. startTransmit() arms the TX-done IRQ which
-    // handleTransmitInterrupt() will route to completeRawSend().
+    // Drive the radio into TX. startTransmit() arms the TX-done IRQ which
+    // handleTransmitInterrupt() will route to completeRawSend(). rawSending is set before
+    // configHardwareForSend() so drivers can pick the MeshCore sync word for this frame.
+    rawSending = true;
     enableInterrupt(isrTxLevel0);
     configHardwareForSend();
     int res = iface->startTransmit(rawTxBuf, rawTxLen);
     if (res != RADIOLIB_ERR_NONE) {
         LOG_ERROR("sendRawFrame startTransmit failed, error=%d", res);
+        rawSending = false;
         rawTxLen = 0;
         startReceive();
         return false;
     }
-    rawSending = true;
     lastTxStart = millis();
     return true;
 }
@@ -631,9 +639,27 @@ void RadioLibInterface::completeRawSend()
 }
 
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+bool RadioLibInterface::isMeshtasticOnOurChannels(size_t length)
+{
+    // Meshtastic first: a frame that parses as MeshCore may still be a Meshtastic packet between two
+    // other nodes. Only the trial decrypt can tell, so it runs on these ambiguous frames alone.
+    if (length <= sizeof(PacketHeader))
+        return false;
+    const PacketHeader &h = radioBuffer.header;
+    return decodesOnOurChannels(h.from, h.id, h.channel, radioBuffer.payload, length - sizeof(PacketHeader));
+}
+
 void RadioLibInterface::maybeSendMeshCoreFrame()
 {
-    if (isSending() || isRawSending() || !meshCoreRepeater.hasPendingFrame() || !meshCoreRepeater.isRelayDue()) {
+    // Only from a top-level radio event: a nested one would start a TX that the outer event's
+    // channel scan or standby then aborts.
+    if (notifyDepth > 1 || isSending() || !meshCoreRepeater.hasPendingFrame() || !meshCoreRepeater.isRelayDue()) {
+        return;
+    }
+    // A permanent refusal would otherwise retry the same frame forever.
+    if (disabled || !config.lora.tx_enabled) {
+        meshCoreRepeater.clearPendingFrame();
+        meshCoreRepeater.txDropped++;
         return;
     }
     // Same duty-cycle guard as Router::send: a foreign-protocol relay must not push us over the
@@ -650,11 +676,20 @@ void RadioLibInterface::maybeSendMeshCoreFrame()
     if (len == 0) {
         return;
     }
-    if (!sendRawFrame(frame, len)) {
-        // The frame stays queued in the repeater (takePendingFrame copies, not clears); retry on
-        // the next radio event.
+    // Same listen-before-talk as the Meshtastic TX path. A busy radio or channel leaves the frame
+    // queued (takePendingFrame copies, not clears) for the next radio event or ISR_RELAY_DUE.
+    if (!isReceiving || !canSendImmediately()) {
         return;
     }
+    if (isChannelActive()) {
+        startReceive();
+        return;
+    }
+    if (!sendRawFrame(frame, len)) {
+        startReceive(); // the channel scan left the radio in standby
+        return;
+    }
+    meshCoreRepeater.markRelayed();
     meshCoreRepeater.clearPendingFrame();
 }
 #else
@@ -760,10 +795,11 @@ void RadioLibInterface::handleReceiveInterrupt()
         // must be intercepted before the PacketHeader interpretation below. When enabled, such
         // frames are logged and (optionally) flood-relayed, and never enter the Meshtastic router.
         MeshCoreRepeater::FrameInfo mcInfo;
-        if (meshCoreRepeater.looksLikeMeshCoreFrame((const uint8_t *)&radioBuffer, length, nodeDB->getNodeNum(), &mcInfo)) {
-            LOG_INFO("MeshCore frame: len=%u route=%u type=0x%02x path=%u/%u payload=%u snr=%g rssi=%g", (unsigned)length,
+        if (meshCoreRepeater.looksLikeMeshCoreFrame((const uint8_t *)&radioBuffer, length, nodeDB->getNodeNum(), &mcInfo) &&
+            !isMeshtasticOnOurChannels(length)) {
+            LOG_INFO("MeshCore frame: len=%u route=%u type=0x%02x path=%u/%u payload=%u snr=%g rssi=%d", (unsigned)length,
                      mcInfo.route_type, mcInfo.payload_type, mcInfo.path_hash_count, mcInfo.path_hash_size, mcInfo.payload_len,
-                     iface->getSNR(), lround(iface->getRSSI()));
+                     iface->getSNR(), (int)lround(iface->getRSSI()));
             meshCoreRepeater.handleReceivedFrame((const uint8_t *)&radioBuffer, length, iface->getSNR(),
                                                  getPacketTime(length, false));
             if (meshCoreRepeater.hasPendingFrame()) {
@@ -851,7 +887,7 @@ void RadioLibInterface::pollMissedIrqs()
     if (isReceiving) {
         checkRxDoneIrqFlag();
     }
-    if (sendingPacket) {
+    if (isSending()) { // raw (MeshCore) frames too, or a missed TX_DONE latches rawSending forever
         checkTxDoneIrqFlag();
     }
 }

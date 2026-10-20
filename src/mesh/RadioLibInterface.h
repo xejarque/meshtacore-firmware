@@ -119,6 +119,9 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
      */
     uint8_t syncWord = 0x2b;
 
+    /** MeshCore's sync word (RADIOLIB_SX126X_SYNC_WORD_PRIVATE), used to transmit relayed MeshCore frames. */
+    const uint8_t meshCoreSyncWord = 0x12;
+
     float currentLimit = 100; // 100mA OCP - Should be acceptable for RFM95/SX127x chipset.
 
 #if !defined(USE_STM32WLx)
@@ -386,19 +389,23 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
      */
     bool sendRawFrame(const uint8_t *bytes, size_t len) override;
 
-    /** True if a raw (non-MeshPacket) frame is currently being transmitted. */
-    bool isRawSending() const { return rawSending; }
-
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
     /** Dedup + optional relay for MeshCore frames, fed from handleReceiveInterrupt. */
     MeshCoreRepeater meshCoreRepeater;
+
+    /** True if the frame in radioBuffer decrypts as a Meshtastic packet on one of our channels. */
+    bool isMeshtasticOnOurChannels(size_t length);
 #endif
 
     /** If a MeshCore frame is queued for relay and the radio is idle, transmit it raw. No-op when the sniffer is disabled. */
     void maybeSendMeshCoreFrame();
 
   protected:
+    /** True if a raw (non-MeshPacket) frame is currently being transmitted. */
+    bool isRawSending() const { return rawSending; }
+
     uint8_t rawTxBuf[MAX_LORA_PAYLOAD_LEN];
+    uint8_t notifyDepth = 0; // nesting of onNotify(); setStandby() can dispatch a pending event
     size_t rawTxLen = 0;
     bool rawSending = false;
 

@@ -966,6 +966,25 @@ static void adminKeyFallbackRefund()
 }
 #endif
 
+bool decodesOnOurChannels(NodeNum from, PacketId id, ChannelHash channelHash, const uint8_t *encrypted, size_t len)
+{
+    if (len == 0 || len > MAX_LORA_PAYLOAD_LEN)
+        return false;
+
+    concurrency::LockGuard g(cryptLock);
+    for (ChannelIndex chIndex = 0; chIndex < channels.getNumChannels(); chIndex++) {
+        if (!channels.decryptForHash(chIndex, channelHash))
+            continue;
+        memcpy(bytes, encrypted, len);
+        crypto->decrypt(from, id, len, bytes);
+
+        meshtastic_Data decoded = meshtastic_Data_init_zero;
+        if (pb_decode_from_bytes(bytes, len, &meshtastic_Data_msg, &decoded) && decoded.portnum != meshtastic_PortNum_UNKNOWN_APP)
+            return true;
+    }
+    return false;
+}
+
 DecodeState perhapsDecode(meshtastic_MeshPacket *p)
 {
     concurrency::LockGuard g(cryptLock);

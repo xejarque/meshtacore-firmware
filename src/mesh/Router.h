@@ -276,6 +276,13 @@ enum class RoutingAuthVerdict { ACCEPT, OPAQUE_RELAY_ONLY, REJECT };
  */
 DecodeState perhapsDecode(meshtastic_MeshPacket *p);
 
+/**
+ * True if an on-air payload decrypts and decodes on one of our channels. A side-effect-free subset of
+ * perhapsDecode() (channel PSKs only, no PKI, no NodeDB), so the radio can tell a Meshtastic frame from
+ * a foreign protocol's before it reaches the router.
+ */
+bool decodesOnOurChannels(NodeNum from, PacketId id, ChannelHash channelHash, const uint8_t *encrypted, size_t len);
+
 /** Apply receive authentication before routing state mutation; unknown-channel packets may remain opaque relay-only. */
 RoutingAuthVerdict passesRoutingAuthGate(meshtastic_MeshPacket *p);
 #ifdef PIO_UNIT_TESTING

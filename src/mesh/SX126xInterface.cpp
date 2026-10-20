@@ -460,9 +460,29 @@ template <typename T> void SX126xInterface<T>::addReceiveMetadata(meshtastic_Mes
  */
 template <typename T> void SX126xInterface<T>::configHardwareForSend()
 {
+#if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
+    // RX runs on the hybrid sync word; each protocol must go out on its own.
+    int err = lora.setSyncWord(isRawSending() ? meshCoreSyncWord : syncWord);
+    if (err != RADIOLIB_ERR_NONE)
+        LOG_ERROR("SX126X setSyncWord %s%d", radioLibErr, err);
+#endif
     setTransmitEnable(true);
     RadioLibInterface::configHardwareForSend();
 }
+
+#if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
+template <typename T> void SX126xInterface<T>::setSyncWordRegister(uint16_t registerValue)
+{
+    // RadioLib packs (syncWord, controlBits) nibble-wise into the register: MSB = sw.hi|cb.hi, LSB = sw.lo|cb.lo
+    const uint8_t msb = registerValue >> 8;
+    const uint8_t lsb = registerValue & 0xFF;
+    const uint8_t sw = (msb & 0xF0) | (lsb >> 4);
+    const uint8_t controlBits = ((msb & 0x0F) << 4) | (lsb & 0x0F);
+    int err = lora.setSyncWord(sw, controlBits);
+    if (err != RADIOLIB_ERR_NONE)
+        LOG_ERROR("SX126X setSyncWord 0x%04x %s%d", registerValue, radioLibErr, err);
+}
+#endif
 
 // For power draw measurements, helpful to force radio to stay sleeping
 // #define SLEEP_ONLY
@@ -474,6 +494,10 @@ template <typename T> void SX126xInterface<T>::startReceive()
 #else
 
     setTransmitEnable(false);
+
+#if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
+    setSyncWordRegister(MESHTASTIC_MESHCORE_RX_SYNCWORD);
+#endif
 
 #ifdef ARCH_PORTDUINO_WASM
     const char *rxMethod = "startReceive";

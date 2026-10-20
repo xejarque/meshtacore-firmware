@@ -61,7 +61,7 @@ class MeshCoreRepeater
      * if enabled. airtimeMs is the frame's on-air time (RadioInterface::getPacketTime), used to
      * size the adaptive relay delay.
      */
-    void handleReceivedFrame(const uint8_t *raw, size_t len, int8_t snr, uint32_t airtimeMs);
+    void handleReceivedFrame(const uint8_t *raw, size_t len, float snr, uint32_t airtimeMs);
 
     /** True when a raw MeshCore frame is queued for transmission. */
     bool hasPendingFrame() const { return pendingLen > 0; }
@@ -77,6 +77,9 @@ class MeshCoreRepeater
 
     /** Send or drop the pending frame: folds its dupe sample into the contention estimate. */
     void clearPendingFrame();
+
+    /** The pending frame went on air: counts it and keeps the contention estimate from going stale. */
+    void markRelayed();
 
     /** Adaptive jitter factor in [0.40, 1.00] (0.5 before warmup), from the observed dupes. */
     float getFloodDelayFactor();
@@ -134,7 +137,7 @@ class MeshCoreRepeater
         uint8_t dupeCount = 0;
     };
 
-    DedupEntry dedup[DEDUP_ENTRIES];
+    DedupEntry dedup[DEDUP_ENTRIES] = {};
     uint8_t dedupNext = 0;
 
     uint8_t pending[MAX_FRAME_LEN];
@@ -148,7 +151,8 @@ class MeshCoreRepeater
     uint32_t lastDecayMs = 0;
 
     static uint32_t hashFrame(const uint8_t *raw, size_t len, const FrameInfo &info);
-    bool wasRecentlySeen(uint32_t hash);
+    bool wasRecentlySeen(uint32_t hash) const;
+    void rememberFrame(uint32_t hash);
     void onDupeHeard(uint32_t hash);
     bool canRelay() const;
     void queueRelay(const uint8_t *raw, size_t len, uint32_t hash32, uint32_t airtimeMs);

@@ -128,6 +128,23 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #error "MESHTASTIC_ENABLE_MESHCORE_RELAY requires MESHTASTIC_ENABLE_MESHCORE_SNIFFER"
 #endif
 
+// Experimental, SX126x only: receive with a hybrid sync word so one radio hears both Meshtastic (0x2B,
+// register 0x24B4) and MeshCore (0x12, register 0x1424) frames, and transmit each protocol with its own
+// sync word. Unverified on air: measure reception of both networks before relying on it. Off by default.
+#ifndef MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
+#define MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC 0
+#endif
+
+// Raw SX126x sync word register value used in RX when the hybrid sync word is enabled.
+// 0x2424 and 0x14B4 are the two candidates mixing one sync symbol from each protocol.
+#ifndef MESHTASTIC_MESHCORE_RX_SYNCWORD
+#define MESHTASTIC_MESHCORE_RX_SYNCWORD 0x2424
+#endif
+
+#if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC && !MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+#error "MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC requires MESHTASTIC_ENABLE_MESHCORE_SNIFFER"
+#endif
+
 /// Convert a preprocessor name into a quoted string
 #define xstr(s) ystr(s)
 #define ystr(s) #s

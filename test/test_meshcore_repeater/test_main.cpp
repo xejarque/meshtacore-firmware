@@ -219,8 +219,9 @@ void test_flood_is_queued_for_relay_once_and_deduped()
 
     repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
     TEST_ASSERT_TRUE(repeater.hasPendingFrame());
-    TEST_ASSERT_EQUAL_UINT32(1, repeater.txRelayed);
+    TEST_ASSERT_EQUAL_UINT32(0, repeater.txRelayed); // counted when it goes on air, not when queued
 
+    repeater.markRelayed();
     repeater.clearPendingFrame();
     Time::advanceTestMillis(1000);
 
@@ -242,7 +243,7 @@ void test_dedupe_is_path_independent()
     size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, 0x77);
     repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
     TEST_ASSERT_TRUE(repeater.hasPendingFrame());
-    TEST_ASSERT_EQUAL_UINT32(1, repeater.txRelayed);
+    repeater.markRelayed();
     repeater.clearPendingFrame();
 
     // Same payload, longer path (a MeshCore node re-flooded it one hop further).
@@ -256,7 +257,7 @@ void test_dedupe_is_path_independent()
     len = makeFloodFrame(buf, kTxtMsg, 3, 1, 0x20, 0x88);
     repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
     TEST_ASSERT_TRUE(repeater.hasPendingFrame());
-    TEST_ASSERT_EQUAL_UINT32(2, repeater.txRelayed);
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.rxDup);
 }
 
 void test_direct_frames_are_never_relayed()
@@ -306,7 +307,6 @@ void test_advert_flood_hop_limit()
     len = makeFloodFrame(buf, kAdvert, 7, 1, 0x10, 0x20);
     repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
     TEST_ASSERT_TRUE(repeater.hasPendingFrame());
-    TEST_ASSERT_EQUAL_UINT32(1, repeater.txRelayed);
 }
 
 void test_relay_respects_role_and_rebroadcast_mode()
@@ -341,14 +341,40 @@ void test_second_flood_dropped_while_pending()
     MeshCoreRepeater repeater;
     uint8_t buf[64];
 
+    uint8_t first[64];
+    size_t firstLen = makeFloodFrame(first, kTxtMsg, 2, 1, 0x10, 0x10);
+    repeater.handleReceivedFrame(first, firstLen, 5, kAirtimeMs);
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+
+    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, 0x20);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+
+    uint8_t out[64];
+    TEST_ASSERT_EQUAL_UINT32(firstLen, repeater.takePendingFrame(out, sizeof(out))); // first one still pending
+    TEST_ASSERT_EQUAL_MEMORY(first, out, firstLen);
+}
+
+// The flood dropped for lack of a relay slot was never forwarded, so it must not be remembered as
+// seen: a later copy of it (a neighbour re-flooding it) still gets relayed.
+void test_flood_dropped_while_pending_is_relayed_later()
+{
+    MeshCoreRepeater repeater;
+    uint8_t buf[64];
+
     size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, 0x10);
     repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
-    TEST_ASSERT_EQUAL_UINT32(1, repeater.txRelayed);
 
     len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, 0x20);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs); // dropped: slot taken
+
+    repeater.markRelayed();
+    repeater.clearPendingFrame();
+    Time::advanceTestMillis(1000);
+
+    len = makeFloodFrame(buf, kTxtMsg, 3, 1, 0x30, 0x20); // same payload, one hop further
     repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
-    TEST_ASSERT_EQUAL_UINT32(1, repeater.txRelayed); // second one never queued
-    TEST_ASSERT_TRUE(repeater.hasPendingFrame());    // first one still pending
+    TEST_ASSERT_EQUAL_UINT32(0, repeater.rxDup);
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
 }
 
 // --- adaptive relay delay (ZephCore-style) ---
@@ -464,8 +490,8 @@ void test_stale_pending_relay_is_dropped_for_new_frame()
     repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
 
     TEST_ASSERT_EQUAL_UINT32(1, repeater.txDropped); // stale one discarded
-    TEST_ASSERT_EQUAL_UINT32(2, repeater.txRelayed); // new one took the slot
-    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+    TEST_ASSERT_EQUAL_UINT32(0, repeater.txRelayed); // neither went on air
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());    // new one took the slot
 }
 
 void test_take_pending_frame_copies_without_clearing()
@@ -504,6 +530,7 @@ void setup()
     RUN_TEST(test_advert_flood_hop_limit);
     RUN_TEST(test_relay_respects_role_and_rebroadcast_mode);
     RUN_TEST(test_second_flood_dropped_while_pending);
+    RUN_TEST(test_flood_dropped_while_pending_is_relayed_later);
     RUN_TEST(test_adaptive_delay_is_bounded);
     RUN_TEST(test_delay_factor_reflects_observed_contention);
     RUN_TEST(test_dupe_postpones_pending_relay);

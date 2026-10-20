@@ -107,5 +107,10 @@ template <class T> class SX126xInterface : public RadioLibInterface
 
     /** Recover a chip that lost its runtime state: hardware-reset via begin() and reprogram */
     bool recoverChipStateLoss() override { return reinitChip() && programModemParams() == RADIOLIB_ERR_NONE; }
+
+#if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
+    /** Write a raw 16-bit value into the LoRa sync word register (e.g. 0x24B4 for Meshtastic's 0x2B). */
+    void setSyncWordRegister(uint16_t registerValue);
+#endif
 };
 #endif

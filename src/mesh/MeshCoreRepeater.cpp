@@ -126,7 +126,7 @@ bool MeshCoreRepeater::parse(const uint8_t *raw, size_t len, FrameInfo *out)
     return true;
 }
 
-void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, int8_t snr, uint32_t airtimeMs)
+void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, float snr, uint32_t airtimeMs)
 {
     (void)snr;       // logged by the caller together with RSSI
     (void)airtimeMs; // used by the relay half below
@@ -181,6 +181,9 @@ void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, int8_
     if (!canRelay())
         return;
 
+    // Remembered only once queued: a flood dropped here was never forwarded, so a later copy of
+    // it must still be eligible.
+    rememberFrame(hash);
     queueRelay(raw, len, hash, airtimeMs);
 #endif
 }
@@ -199,18 +202,21 @@ uint32_t MeshCoreRepeater::hashFrame(const uint8_t *raw, size_t len, const Frame
     return hash;
 }
 
-bool MeshCoreRepeater::wasRecentlySeen(uint32_t hash)
+bool MeshCoreRepeater::wasRecentlySeen(uint32_t hash) const
 {
-    const uint32_t now = Time::getMillis();
     for (size_t i = 0; i < DEDUP_ENTRIES; i++) {
         if (dedup[i].hash == hash && Throttle::isWithinTimespanMs(dedup[i].seenAtMs, DEDUP_WINDOW_MS)) {
             return true;
         }
     }
-    dedup[dedupNext].hash = hash;
-    dedup[dedupNext].seenAtMs = now;
-    dedupNext = (dedupNext + 1) % DEDUP_ENTRIES;
     return false;
+}
+
+void MeshCoreRepeater::rememberFrame(uint32_t hash)
+{
+    dedup[dedupNext].hash = hash;
+    dedup[dedupNext].seenAtMs = Time::getMillis();
+    dedupNext = (dedupNext + 1) % DEDUP_ENTRIES;
 }
 
 void MeshCoreRepeater::onDupeHeard(uint32_t hash)
@@ -267,7 +273,11 @@ void MeshCoreRepeater::queueRelay(const uint8_t *raw, size_t len, uint32_t hash3
     pendingRelay.reactiveAddedMs = 0;
     pendingRelay.dupeCount = 0;
     pendingDeadlineMs = now + adaptiveDelayMs(airtimeMs);
-    lastRelayMs = now;
+}
+
+void MeshCoreRepeater::markRelayed()
+{
+    lastRelayMs = Time::getMillis();
     txRelayed++;
 }
 
