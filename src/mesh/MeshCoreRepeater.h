@@ -20,6 +20,10 @@
  * look random). A MeshCore-looking frame that is NOT addressed to/from us could still be a
  * Meshtastic unicast between two other nodes (a few percent of overheard DMs by length); those
  * are sniffed instead of routed. Broadcasts and DMs to/from this node are never misclassified.
+ *
+ * Scope note: MeshCore's own repeaters also enforce region scoping (transport codes vs
+ * REGION_DENY_FLOOD) and ADVERT signatures; a transparent relay cannot (no keys, no identity),
+ * so it forwards scoped floods too - same trust model as a MeshCore repeater blind to the MAC.
  */
 class MeshCoreRepeater
 {
