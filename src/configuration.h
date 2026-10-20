@@ -136,7 +136,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #endif
 
 // Raw SX126x sync word register value used in RX when the hybrid sync word is enabled.
-// 0x2424 and 0x14B4 are the two candidates mixing one sync symbol from each protocol.
+// 0x2424 and 0x14B4 are the two candidates mixing one sync symbol from each protocol. Bench tests
+// (SX1276 TX -> SX1262 RX) found an SX1262 receives when at least one nibble matches, and 0x3424 /
+// 0x1444 heard both 0x34 and 0x12 networks:
+// https://blog.classycode.com/lora-sync-word-compatibility-between-sx127x-and-sx126x-460324d1787a
 #ifndef MESHTASTIC_MESHCORE_RX_SYNCWORD
 #define MESHTASTIC_MESHCORE_RX_SYNCWORD 0x2424
 #endif
