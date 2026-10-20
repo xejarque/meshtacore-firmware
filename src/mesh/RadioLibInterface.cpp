@@ -804,12 +804,21 @@ void RadioLibInterface::maybeSendMeshCoreFrame()
     // Same listen-before-talk as the Meshtastic TX path. A busy radio or channel leaves the frame
     // queued (takePendingFrame copies, not clears) for the next radio event or ISR_RELAY_DUE.
     const bool own = meshCoreRepeater.pendingIsOwn();
+    // A deferred frame is retried every CAD slot; log the reason at most once a second.
+    static uint32_t lastDeferLogMs = 0;
+    const bool logDefer = !Throttle::isWithinTimespanMs(lastDeferLogMs, 1000);
     if (!isReceiving || !canSendImmediately()) {
-        LOG_DEBUG("MeshCore TX deferred: radio busy");
+        if (logDefer) {
+            LOG_DEBUG("MeshCore TX deferred: radio busy");
+            lastDeferLogMs = millis();
+        }
         return;
     }
     if (isChannelActive()) {
-        LOG_DEBUG("MeshCore TX deferred: channel busy");
+        if (logDefer) {
+            LOG_DEBUG("MeshCore TX deferred: channel busy");
+            lastDeferLogMs = millis();
+        }
         startReceive();
         return;
     }
