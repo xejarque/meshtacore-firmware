@@ -90,6 +90,14 @@ class Channels
     // Returns true if the channel has the default name and PSK
     bool isDefaultChannel(ChannelIndex chIndex);
 
+    /// True if this channel is enabled, named "MC:..." and carries a 16- or 32-byte PSK.
+    bool isMeshCoreChannel(ChannelIndex chIndex);
+
+    /// Copy the channel's MeshCore PSK into key (zero-padded to 32 bytes). Returns the effective
+    /// secret length - 16 when a 32-byte key's second half is all zeroes (MeshCore's 128-bit form) -
+    /// or 0 when this is not a MeshCore channel.
+    size_t getMeshCoreKey(ChannelIndex chIndex, uint8_t key[32]);
+
     // Returns true if this channel's effective key is publicly decryptable (open or well-known/default PSK).
     bool usesPublicKey(ChannelIndex chIndex);
     // Returns true if the channel is "well known": its PSK is absent or a

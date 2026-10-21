@@ -15,6 +15,9 @@
 #include "FSCommon.h"
 #include "HardwareRNG.h"
 #include "MeshCoreRepeater.h"
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+#include "MeshCoreCompanion.h"
+#endif
 #include "NodeDB.h"
 #include "Router.h"
 #include "SafeFile.h"
@@ -633,6 +636,32 @@ bool RadioLibInterface::sendRawFrame(const uint8_t *bytes, size_t len)
     return true;
 }
 
+bool RadioLibInterface::queueMeshCoreFrame(const uint8_t *bytes, size_t len)
+{
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    if (!bytes || len == 0 || len > MeshCoreRepeater::MAX_FRAME_LEN)
+        return false;
+
+    // The relay slot is shared: our own text wins over a queued foreign flood.
+    if (meshCoreRepeater.hasPendingFrame()) {
+        if (!meshCoreRepeater.pendingIsOwn())
+            meshCoreRepeater.txDropped++;
+        meshCoreRepeater.clearPendingFrame();
+    }
+    if (!meshCoreRepeater.queueOwnFrame(bytes, len))
+        return false;
+
+    meshCoreCompanion.noteTransmitted(bytes, len);
+    meshCoreCompanion.txSent++;
+    notify(ISR_RELAY_DUE, false);
+    return true;
+#else
+    (void)bytes;
+    (void)len;
+    return false;
+#endif
+}
+
 void RadioLibInterface::completeRawSend()
 {
     rawSending = false;
@@ -950,6 +979,10 @@ void RadioLibInterface::handleReceiveInterrupt()
             LOG_INFO("MeshCore frame: len=%u route=%u type=0x%02x path=%u/%u payload=%u snr=%g rssi=%d", (unsigned)length,
                      mcInfo.route_type, mcInfo.payload_type, mcInfo.path_hash_count, mcInfo.path_hash_size, mcInfo.payload_len,
                      iface->getSNR(), (int)lround(iface->getRSSI()));
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+            meshCoreCompanion.handleFrame((const uint8_t *)&radioBuffer, length, iface->getSNR(),
+                                          (int32_t)lround(iface->getRSSI()));
+#endif
             meshCoreRepeater.handleReceivedFrame((const uint8_t *)&radioBuffer, length, iface->getSNR(),
                                                  getPacketTime(length, false));
             if (meshCoreRepeater.hasPendingFrame()) {

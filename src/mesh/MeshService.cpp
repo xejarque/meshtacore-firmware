@@ -20,6 +20,9 @@
 #include "modules/NexusModule.h"
 #include "mesh-pb-constants.h"
 #include "meshUtils.h"
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+#include "MeshCoreCompanion.h"
+#endif
 #include "modules/AdminModule.h"
 #include "modules/NodeInfoModule.h"
 #include "modules/PositionModule.h"
@@ -84,6 +87,9 @@ void MeshService::init()
 #if HAS_GPS
     if (gps)
         gpsObserver.observe(&gps->newStatus);
+#endif
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    meshCoreCompanion.ensurePseudoNode();
 #endif
 }
 
@@ -398,6 +404,50 @@ ErrorCode MeshService::sendToMesh(meshtastic_MeshPacket *p, RxSource src, bool c
 {
     uint32_t mesh_packet_id = p->id;
     nodeDB->updateFrom(*p); // update our local DB for this packet (because phone might have sent position packets etc...)
+
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+        p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && isBroadcast(p->to) &&
+        channels.isMeshCoreChannel(p->channel)) {
+        uint8_t key[32];
+        const size_t keyLen = channels.getMeshCoreKey(p->channel, key);
+
+        char text[MeshCoreCompanion::MAX_TEXT_LEN + 1];
+        size_t textLen = p->decoded.payload.size;
+        if (textLen > MeshCoreCompanion::MAX_TEXT_LEN)
+            textLen = MeshCoreCompanion::MAX_TEXT_LEN;
+        memcpy(text, p->decoded.payload.bytes, textLen);
+        text[textLen] = 0;
+
+        const char *sender = owner.long_name[0] ? owner.long_name : (owner.short_name[0] ? owner.short_name : "Meshtastic");
+        uint32_t timestamp = getValidTime(RTCQualityFromNet);
+        if (timestamp == 0)
+            timestamp = Time::getUptimeSecs();
+
+        uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+        const size_t frameLen =
+            keyLen ? MeshCoreCompanion::encodeGroupText(key, keyLen, sender, timestamp, text, frame, sizeof(frame)) : 0;
+        RadioInterface *iface = router ? router->getRadioIface() : nullptr;
+        const bool queued = frameLen > 0 && iface && iface->queueMeshCoreFrame(frame, frameLen);
+        if (queued) {
+            LOG_INFO("MeshCore TX ch=%u len=%u", (unsigned)p->channel, (unsigned)frameLen);
+            // MeshCore peers cannot ACK a Meshtastic packet; report the local implicit ACK the app
+            // expects for a channel broadcast once the frame is handed to the radio.
+            if (routingModule)
+                routingModule->sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel, 0);
+        } else {
+            LOG_WARN("MeshCore TX failed on ch=%u (keyLen=%u frameLen=%u)", (unsigned)p->channel, (unsigned)keyLen,
+                     (unsigned)frameLen);
+        }
+
+        if (router) {
+            meshtastic_QueueStatus qs = router->getQueueStatus();
+            (void)sendQueueStatusToPhone(qs, queued ? ERRNO_OK : ERRNO_UNKNOWN, mesh_packet_id);
+        }
+        releaseToPool(p);
+        return;
+    }
+#endif
 
     // callModules' loopback gate keeps RX_SRC_LOCAL packets from RoutingModule, the only module
     // that forwards to the phone, so deliver our own reply's copy here or the client never sees it.

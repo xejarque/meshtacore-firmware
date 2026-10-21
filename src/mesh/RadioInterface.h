@@ -185,6 +185,18 @@ class RadioInterface
      */
     virtual bool sendRawFrame(const uint8_t *bytes, size_t len) { return false; }
 
+    /**
+     * Queue a raw MeshCore frame for transmission through the radio's listen-before-talk path.
+     * Unlike sendRawFrame(), this may defer until the channel is idle. Used by the MeshCore
+     * companion for GRP_TXT. The frame is copied; returns false if it could not be queued.
+     */
+    virtual bool queueMeshCoreFrame(const uint8_t *bytes, size_t len)
+    {
+        (void)bytes;
+        (void)len;
+        return false;
+    }
+
     /** Return TX queue status */
     [[nodiscard]] virtual meshtastic_QueueStatus getQueueStatus()
     {

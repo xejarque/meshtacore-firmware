@@ -56,6 +56,9 @@ class MeshCoreRepeater
     /** Parse a MeshCore frame header. Returns false if the frame is malformed. */
     static bool parse(const uint8_t *raw, size_t len, FrameInfo *out);
 
+    /** FNV-1a over payload_type + payload only (path variants hash equal). 0 is never returned. */
+    static uint32_t hashFrame(const uint8_t *raw, size_t len, const FrameInfo &info);
+
     /**
      * Handle a received MeshCore frame (raw bytes as demodulated). Sniffs always; relays floods
      * if enabled. airtimeMs is the frame's on-air time (RadioInterface::getPacketTime), used to
@@ -178,7 +181,6 @@ class MeshCoreRepeater
     uint32_t lastRelayMs = 0;
     uint32_t lastDecayMs = 0;
 
-    static uint32_t hashFrame(const uint8_t *raw, size_t len, const FrameInfo &info);
     bool wasRecentlySeen(uint32_t hash) const;
     void rememberFrame(uint32_t hash);
 

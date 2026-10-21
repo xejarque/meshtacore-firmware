@@ -128,6 +128,18 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #error "MESHTASTIC_ENABLE_MESHCORE_RELAY requires MESHTASTIC_ENABLE_MESHCORE_SNIFFER"
 #endif
 
+// Experimental: expose MeshCore group text channels to the Meshtastic client. Channels named
+// "MC:<name>" are seeded as secondaries on a fresh install; text sent on one is encrypted as a
+// MeshCore GRP_TXT flood, and GRP_TXT frames we can decrypt are delivered to the phone as if sent
+// by a "MeshCore" node. Requires the sniffer (it shares the MeshCore repeater's raw TX path).
+#ifndef MESHTASTIC_ENABLE_MESHCORE_COMPANION
+#define MESHTASTIC_ENABLE_MESHCORE_COMPANION 0
+#endif
+
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION && !MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+#error "MESHTASTIC_ENABLE_MESHCORE_COMPANION requires MESHTASTIC_ENABLE_MESHCORE_SNIFFER"
+#endif
+
 // Experimental, SX126x only: receive with a hybrid sync word so one radio hears both Meshtastic (0x2B,
 // register 0x24B4) and MeshCore (0x12, register 0x1424) frames, and transmit each protocol with its own
 // sync word. Unverified on air: measure reception of both networks before relying on it. Off by default.
