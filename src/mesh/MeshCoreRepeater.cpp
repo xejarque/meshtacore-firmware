@@ -65,6 +65,23 @@ static bool isKnownPayloadType(uint8_t type)
            type == MC_PAYLOAD_TYPE_RAW_CUSTOM;
 }
 
+// Mesh::onRecvPacket forwards an ADVERT only when its Ed25519 signature over pub_key || timestamp || app_data holds.
+static bool advertSignatureValid(const uint8_t *payload, size_t payloadLen)
+{
+    constexpr size_t signedHeadLen = MC_PUB_KEY_SIZE + 4;
+    constexpr size_t appDataAt = signedHeadLen + MC_SIGNATURE_SIZE;
+    if (payloadLen < appDataAt)
+        return false;
+    size_t appLen = payloadLen - appDataAt;
+    if (appLen > MAX_ADVERT_DATA_SIZE)
+        appLen = MAX_ADVERT_DATA_SIZE;
+
+    uint8_t message[signedHeadLen + MAX_ADVERT_DATA_SIZE];
+    memcpy(message, payload, signedHeadLen);
+    memcpy(&message[signedHeadLen], &payload[appDataAt], appLen);
+    return Ed25519::verify(&payload[signedHeadLen], payload, message, signedHeadLen + appLen);
+}
+
 bool MeshCoreRepeater::looksLikeMeshCoreFrame(const uint8_t *raw, size_t len, uint32_t ourNodeNum, FrameInfo *out)
 {
     if (!raw || len < 2 || len > MAX_FRAME_LEN)
@@ -163,7 +180,7 @@ void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, float
             if (info.path_hash_count == 0)
                 handleControl(raw, len, info, snr, airtimeMs);
         } else {
-            handleDirect(raw, len, info, airtimeMs);
+            handleDirect(raw, len, info, snr, airtimeMs);
         }
         return;
     }
@@ -214,6 +231,13 @@ void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, float
 
     if (!canRelay())
         return;
+
+    if (info.payload_type == MC_PAYLOAD_TYPE_ADVERT && !advertSignatureValid(&raw[info.header_len], info.payload_len)) {
+        LOG_DEBUG("MeshCore: advert with a bad signature, drop");
+        rememberFrame(hash); // MeshCore marks it seen first too: a forged copy is not verified twice
+        rxDropped++;
+        return;
+    }
 
     // With an identity, forward like a MeshCore repeater: our hash goes on the path, so receivers can tell the
     // packet came through us (heard-by, return paths). Without one, the frame is relayed unchanged.
@@ -273,12 +297,19 @@ size_t MeshCoreRepeater::rewritePath(const uint8_t *raw, size_t len, const Frame
     return newLen;
 }
 
-void MeshCoreRepeater::handleDirect(const uint8_t *raw, size_t len, const FrameInfo &info, uint32_t airtimeMs)
+void MeshCoreRepeater::handleDirect(const uint8_t *raw, size_t len, const FrameInfo &info, float snr, uint32_t airtimeMs)
 {
-    // Multipart and TRACE carry per-hop state MeshCore rewrites specially; not forwarded here.
-    if (!isNextHopForUs(raw, info) || info.payload_type == MC_PAYLOAD_TYPE_MULTIPART ||
-        info.payload_type == MC_PAYLOAD_TYPE_TRACE)
+    // A TRACE carries its route in the payload; its path field collects SNRs, so the next-hop test below does not apply.
+    if (info.payload_type == MC_PAYLOAD_TYPE_TRACE) {
+        handleTrace(raw, len, info, snr, airtimeMs);
         return;
+    }
+    if (!isNextHopForUs(raw, info))
+        return;
+    if (info.payload_type == MC_PAYLOAD_TYPE_MULTIPART) {
+        handleMultipartAck(raw, len, info, airtimeMs);
+        return;
+    }
     rxDirectForUs++;
 
     const uint32_t hash = hashFrame(raw, len, info);
@@ -294,8 +325,91 @@ void MeshCoreRepeater::handleDirect(const uint8_t *raw, size_t len, const FrameI
     if (outLen == 0)
         return;
     rememberFrame(hash);
+    queueRelay(forwarded, outLen, hash, airtimeMs, directDelayMs(airtimeMs));
+}
+
+uint32_t MeshCoreRepeater::directDelayMs(uint32_t airtimeMs)
+{
     // MeshCore getDirectRetransmitDelay: routed traffic goes out sooner than floods.
-    queueRelay(forwarded, outLen, hash, airtimeMs, DELAY_FLOOR_MS + (uint32_t)random(0, (long)airtimeMs + 1));
+    return DELAY_FLOOR_MS + (uint32_t)random(0, (long)airtimeMs + 1);
+}
+
+void MeshCoreRepeater::handleTrace(const uint8_t *raw, size_t len, const FrameInfo &info, float snr, uint32_t airtimeMs)
+{
+    // Mesh::onRecvPacket, TRACE: payload = tag(4) auth(4) flags(1) then the hashes to visit; the path field holds
+    // one SNR byte (x4) per hop already taken, so path_len indexes the hash list. flags&3 is the hash size exponent.
+    constexpr size_t traceHeadLen = 4 + 4 + 1;
+    if (!hasIdentityKey || info.path_hash_size != 1 || info.path_hash_count >= MAX_PATH_SIZE || info.payload_len < traceHeadLen)
+        return;
+
+    const uint8_t *payload = &raw[info.header_len];
+    const size_t hashSize = (size_t)1 << (payload[8] & 0x03);
+    const size_t offset = (size_t)info.path_hash_count * hashSize;
+    if (traceHeadLen + offset + hashSize > info.payload_len) // end of the list: we are the destination, nothing to forward
+        return;
+    if (memcmp(&payload[traceHeadLen + offset], identityPub, hashSize) != 0)
+        return;
+    if (len + 1 > MAX_FRAME_LEN)
+        return;
+
+    const uint32_t hash = hashFrame(raw, len, info);
+    if (wasRecentlySeen(hash)) {
+        rxDup++;
+        return;
+    }
+    if (!canRelay())
+        return;
+    rxDirectForUs++;
+
+    // Copy the frame with one more path byte: our receive SNR (not our hash) after the SNRs already collected.
+    const size_t pathLenAt = info.header_len - info.path_hash_count - 1;
+    const size_t snrAt = info.header_len;
+    uint8_t forwarded[MAX_FRAME_LEN];
+    memcpy(forwarded, raw, snrAt);
+    forwarded[pathLenAt] = raw[pathLenAt] + 1;
+    float snrX4 = snr * 4;
+    snrX4 = snrX4 > 127.0f ? 127.0f : (snrX4 < -128.0f ? -128.0f : snrX4);
+    forwarded[snrAt] = (uint8_t)(int8_t)snrX4;
+    memcpy(&forwarded[snrAt + 1], &raw[snrAt], len - snrAt);
+
+    rememberFrame(hash);
+    queueRelay(forwarded, len + 1, hash, airtimeMs, directDelayMs(airtimeMs));
+}
+
+void MeshCoreRepeater::handleMultipartAck(const uint8_t *raw, size_t len, const FrameInfo &info, uint32_t airtimeMs)
+{
+    // Mesh::forwardMultipartDirect: only a multipart ACK (type in the low nibble, packets still to come in the high
+    // one) is forwarded, as a plain direct ACK with us removed from the path, delayed to follow the rest of the sequence.
+    const uint8_t *payload = &raw[info.header_len];
+    if (info.payload_len < 5 || (payload[0] & 0x0F) != MC_PAYLOAD_TYPE_ACK)
+        return;
+    const uint8_t remaining = payload[0] >> 4;
+
+    FrameInfo ackInfo = info;
+    ackInfo.header_len++; // dedupe on the ACK body, not on the sequence counter
+    const uint32_t hash = hashFrame(raw, len, ackInfo);
+    if (wasRecentlySeen(hash)) {
+        rxDup++;
+        return;
+    }
+    if (!canRelay())
+        return;
+    rxDirectForUs++;
+
+    const size_t hashSize = info.path_hash_size;
+    const size_t pathBytes = (size_t)info.path_hash_count * hashSize;
+    const size_t bodyLen = (size_t)info.payload_len - 1;
+    uint8_t forwarded[MAX_FRAME_LEN];
+    size_t i = 0;
+    forwarded[i++] = (MC_PAYLOAD_TYPE_ACK << 2) | MC_ROUTE_DIRECT;
+    forwarded[i++] = (uint8_t)(((hashSize - 1) << MC_PATH_SIZE_SHIFT) | (info.path_hash_count - 1));
+    memcpy(&forwarded[i], &raw[info.header_len - pathBytes + hashSize], pathBytes - hashSize); // drop the first hop: us
+    i += pathBytes - hashSize;
+    memcpy(&forwarded[i], &payload[1], bodyLen);
+    i += bodyLen;
+
+    rememberFrame(hash);
+    queueRelay(forwarded, i, hash, airtimeMs, directDelayMs(airtimeMs) + ((uint32_t)remaining + 1) * 300);
 }
 
 void MeshCoreRepeater::handleControl(const uint8_t *raw, size_t len, const FrameInfo &info, float snr, uint32_t airtimeMs)
@@ -353,6 +467,12 @@ uint32_t MeshCoreRepeater::hashFrame(const uint8_t *raw, size_t len, const Frame
     // payload dedupes variants, like MeshCore's own Packet::calculatePacketHash.
     uint32_t hash = 2166136261u;
     hash = (hash ^ info.payload_type) * 16777619u;
+    if (info.payload_type == MC_PAYLOAD_TYPE_TRACE) {
+        // A TRACE grows its path with SNRs at every hop and may pass the same node again on the way back
+        // (Packet::calculatePacketHash), so the path length is part of its identity.
+        const size_t pathLenAt = info.header_len - (size_t)info.path_hash_count * info.path_hash_size - 1;
+        hash = (hash ^ raw[pathLenAt]) * 16777619u;
+    }
     for (size_t i = info.header_len; i < len; i++) {
         hash = (hash ^ raw[i]) * 16777619u;
     }
@@ -361,17 +481,12 @@ uint32_t MeshCoreRepeater::hashFrame(const uint8_t *raw, size_t len, const Frame
 
 bool MeshCoreRepeater::wasRecentlySeen(uint32_t hash) const
 {
-    for (size_t i = 0; i < DEDUP_ENTRIES; i++) {
-        if (dedup[i] == hash)
-            return true;
-    }
-    return false;
+    return dedup.contains(hash);
 }
 
 void MeshCoreRepeater::rememberFrame(uint32_t hash)
 {
-    dedup[dedupNext] = hash;
-    dedupNext = (dedupNext + 1) % DEDUP_ENTRIES;
+    dedup.remember(hash);
 }
 
 bool MeshCoreRepeater::isFloodForwardable(const FrameInfo &info)
@@ -602,7 +717,7 @@ size_t MeshCoreRepeater::buildAdvert(uint8_t *out, size_t outLen, const char *na
 
     // Header: payload type ADVERT, version 0. Flood, or zero-hop (route DIRECT with an empty path, Mesh::sendZeroHop).
     out[0] = (MC_PAYLOAD_TYPE_ADVERT << 2) | (flood ? MC_ROUTE_FLOOD : MC_ROUTE_DIRECT);
-    out[1] = 0x00;
+    out[1] = flood ? OWN_FLOOD_PATH_LEN_BYTE : 0x00;
     size_t i = 2;
     memcpy(&out[i], identityPub, MC_PUB_KEY_SIZE);
     i += MC_PUB_KEY_SIZE;

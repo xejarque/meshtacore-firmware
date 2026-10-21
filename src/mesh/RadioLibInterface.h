@@ -392,6 +392,9 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     /** Queue a raw MeshCore frame for the next idle radio slot (see RadioInterface::queueMeshCoreFrame). */
     bool queueMeshCoreFrame(const uint8_t *bytes, size_t len) override;
 
+    /** True if a MeshCore frame may go on air now: radio enabled, tx_enabled and within the duty cycle. */
+    bool meshCoreTxAllowed();
+
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
     /** Dedup + optional relay for MeshCore frames, fed from handleReceiveInterrupt. */
     MeshCoreRepeater meshCoreRepeater;

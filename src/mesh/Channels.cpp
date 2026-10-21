@@ -3,6 +3,7 @@
 #include "CryptoEngine.h"
 #include "Default.h"
 #include "DisplayFormatters.h"
+#include "MeshCoreCompanion.h"
 #include "NodeDB.h"
 #include "RadioInterface.h"
 #include "configuration.h"
@@ -490,6 +491,7 @@ bool Channels::isMeshCoreChannel(ChannelIndex chIndex)
 
 size_t Channels::getMeshCoreKey(ChannelIndex chIndex, uint8_t key[32])
 {
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
     if (!isMeshCoreChannel(chIndex))
         return 0;
 
@@ -497,15 +499,12 @@ size_t Channels::getMeshCoreKey(ChannelIndex chIndex, uint8_t key[32])
     memset(key, 0, 32);
     memcpy(key, ch.settings.psk.bytes, ch.settings.psk.size);
 
-    size_t len = ch.settings.psk.size;
-    if (len == 32) {
-        uint8_t tail = 0;
-        for (size_t i = 16; i < 32; i++)
-            tail |= key[i];
-        if (tail == 0)
-            len = 16; // MeshCore treats an all-zero second half as a 128-bit secret
-    }
-    return len;
+    return MeshCoreCompanion::normalizedKeyLen(key, ch.settings.psk.size);
+#else
+    (void)chIndex;
+    (void)key;
+    return 0;
+#endif
 }
 
 bool Channels::isDefaultChannel(ChannelIndex chIndex)

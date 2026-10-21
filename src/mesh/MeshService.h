@@ -235,6 +235,10 @@ class MeshService
     int handleFromRadio(const meshtastic_MeshPacket *p);
 
   private:
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    /// Encode p as a MeshCore GRP_TXT and queue it on the radio. False if it could not be queued.
+    bool sendMeshCoreGroupText(const meshtastic_MeshPacket *p);
+#endif
 #if HAS_GPS
     /// Called when our gps position has changed - updates nodedb and sends Location message out into the mesh
     /// returns 0 to allow further processing

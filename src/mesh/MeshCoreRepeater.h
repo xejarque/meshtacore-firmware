@@ -1,5 +1,6 @@
 #pragma once
 
+#include "MeshCoreDedup.h"
 #include "configuration.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -22,13 +23,19 @@
  * are sniffed instead of routed. Broadcasts and DMs to/from this node are never misclassified.
  *
  * Scope note: MeshCore's own repeaters also enforce region scoping (transport codes vs
- * REGION_DENY_FLOOD) and ADVERT signatures; a transparent relay cannot (no keys, no identity),
- * so it forwards scoped floods too - same trust model as a MeshCore repeater blind to the MAC.
+ * REGION_DENY_FLOOD); this relay has no region map, so it forwards scoped floods too - same trust
+ * model as a MeshCore repeater blind to the MAC. ADVERT signatures are verified before forwarding.
  */
 class MeshCoreRepeater
 {
   public:
     static constexpr size_t MAX_FRAME_LEN = 255; // MeshCore MAX_TRANS_UNIT
+
+    /**
+     * path_len byte of a flood we originate: no hops yet, 2-byte path hashes (upper bits = hash size - 1). The sender
+     * picks the size and every repeater appends hashes of that size, so this is what clients show as the path width.
+     */
+    static constexpr uint8_t OWN_FLOOD_PATH_LEN_BYTE = (2 - 1) << 6;
 
     /** MeshCore MAX_PATH_SIZE: the flood path budget in bytes, shared by every MeshCore node. */
     static constexpr size_t MAX_PATH_SIZE = 64;
@@ -162,8 +169,7 @@ class MeshCoreRepeater
         uint8_t dupeCount = 0;
     };
 
-    uint32_t dedup[DEDUP_ENTRIES] = {}; // 0 = empty slot; hashFrame() never returns 0
-    uint8_t dedupNext = 0;
+    MeshCoreDedup<DEDUP_ENTRIES> dedup; // hashFrame() never returns 0, the empty-slot marker
 
     uint8_t pending[MAX_FRAME_LEN];
     size_t pendingLen = 0;
@@ -204,7 +210,12 @@ class MeshCoreRepeater
 
     /** Zero-hop CONTROL frame: answer a NODE_DISCOVER_REQ for repeaters with our public key. */
     void handleControl(const uint8_t *raw, size_t len, const FrameInfo &info, float snr, uint32_t airtimeMs);
-    void handleDirect(const uint8_t *raw, size_t len, const FrameInfo &info, uint32_t airtimeMs);
+    void handleDirect(const uint8_t *raw, size_t len, const FrameInfo &info, float snr, uint32_t airtimeMs);
+    /** TRACE: when the next hash in its payload list is ours, append our receive SNR to the path and forward it. */
+    void handleTrace(const uint8_t *raw, size_t len, const FrameInfo &info, float snr, uint32_t airtimeMs);
+    /** MULTIPART ACK for us as next hop: forward it as a plain direct ACK. */
+    void handleMultipartAck(const uint8_t *raw, size_t len, const FrameInfo &info, uint32_t airtimeMs);
+    static uint32_t directDelayMs(uint32_t airtimeMs);
     void onDupeHeard(uint32_t hash);
     bool canRelay() const;
     void queueRelay(const uint8_t *raw, size_t len, uint32_t hash32, uint32_t airtimeMs, uint32_t delayMs);

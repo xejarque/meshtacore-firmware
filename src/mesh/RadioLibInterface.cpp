@@ -636,16 +636,34 @@ bool RadioLibInterface::sendRawFrame(const uint8_t *bytes, size_t len)
     return true;
 }
 
+bool RadioLibInterface::meshCoreTxAllowed()
+{
+    if (disabled || !config.lora.tx_enabled)
+        return false;
+    // Same duty-cycle guard as Router::send: a foreign-protocol frame must not push us over the regional limit.
+    const float effectiveDutyCycle = getEffectiveDutyCycle();
+    return config.lora.override_duty_cycle || effectiveDutyCycle >= 100 || airTime->utilizationTXPercent() <= effectiveDutyCycle;
+}
+
 bool RadioLibInterface::queueMeshCoreFrame(const uint8_t *bytes, size_t len)
 {
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
     if (!bytes || len == 0 || len > MeshCoreRepeater::MAX_FRAME_LEN)
         return false;
 
-    // The relay slot is shared: our own text wins over a queued foreign flood.
+    if (!meshCoreTxAllowed()) {
+        LOG_WARN("MeshCore TX refused: tx disabled or duty cycle exceeded");
+        return false;
+    }
+
+    // The relay slot is shared: our own text wins over a queued foreign flood, but never evicts
+    // another frame of ours (text, advert, discover reply) that is still waiting for its slot.
     if (meshCoreRepeater.hasPendingFrame()) {
-        if (!meshCoreRepeater.pendingIsOwn())
-            meshCoreRepeater.txDropped++;
+        if (meshCoreRepeater.pendingIsOwn()) {
+            LOG_WARN("MeshCore TX refused: an own frame is still pending");
+            return false;
+        }
+        meshCoreRepeater.txDropped++;
         meshCoreRepeater.clearPendingFrame();
     }
     if (!meshCoreRepeater.queueOwnFrame(bytes, len))
@@ -811,16 +829,7 @@ void RadioLibInterface::maybeSendMeshCoreFrame()
         return;
     }
     // A permanent refusal would otherwise retry the same frame forever.
-    if (disabled || !config.lora.tx_enabled) {
-        meshCoreRepeater.clearPendingFrame();
-        meshCoreRepeater.txDropped++;
-        return;
-    }
-    // Same duty-cycle guard as Router::send: a foreign-protocol relay must not push us over the
-    // regional limit. The flood would be stale by the time we could send it, so drop it.
-    float effectiveDutyCycle = getEffectiveDutyCycle();
-    if (!config.lora.override_duty_cycle && effectiveDutyCycle < 100 && airTime->utilizationTXPercent() > effectiveDutyCycle) {
-        LOG_DEBUG("MeshCore relay dropped, duty cycle limit exceeded");
+    if (!meshCoreTxAllowed()) {
         meshCoreRepeater.clearPendingFrame();
         meshCoreRepeater.txDropped++;
         return;

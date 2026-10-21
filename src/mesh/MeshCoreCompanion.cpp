@@ -99,7 +99,7 @@ bool MeshCoreCompanion::channelHash(const uint8_t *key, size_t keyLen, uint8_t *
 }
 
 size_t MeshCoreCompanion::encodeGroupText(const uint8_t *key, size_t keyLen, const char *sender, uint32_t timestamp,
-                                          const char *text, uint8_t *out, size_t outCap)
+                                          const char *text, uint8_t *out, size_t outCap, bool *truncated)
 {
     size_t len = normalizedKeyLen(key, keyLen);
     if (len == 0 || !out)
@@ -111,6 +111,8 @@ size_t MeshCoreCompanion::encodeGroupText(const uint8_t *key, size_t keyLen, con
     size_t senderLen = utf8PrefixLen(sender, MAX_TEXT_LEN - 2);
     size_t prefixLen = senderLen + 2; // ": "
     size_t textLen = utf8PrefixLen(text, MAX_TEXT_LEN - prefixLen);
+    if (truncated)
+        *truncated = text && textLen < strlen(text);
 
     uint8_t plain[5 + MAX_TEXT_LEN];
     writeLe32(plain, timestamp);
@@ -123,7 +125,7 @@ size_t MeshCoreCompanion::encodeGroupText(const uint8_t *key, size_t keyLen, con
         memcpy(&plain[5 + prefixLen], text, textLen);
 
     const size_t plainLen = 5 + prefixLen + textLen;
-    uint8_t cipher[176];
+    uint8_t cipher[MAX_CIPHER_LEN];
     const size_t cipherLen = aesEncrypt(secret, plain, plainLen, cipher);
     if (cipherLen == 0 || 5 + cipherLen > outCap)
         return 0;
@@ -132,8 +134,8 @@ size_t MeshCoreCompanion::encodeGroupText(const uint8_t *key, size_t keyLen, con
     if (!channelHash(key, keyLen, &hash))
         return 0;
 
-    out[0] = (0x05 << 2) | 0x01; // GRP_TXT, ROUTE_FLOOD
-    out[1] = 0x00;               // path_len: zero hops, 1-byte hashes
+    out[0] = (0x05 << 2) | 0x01;                        // GRP_TXT, ROUTE_FLOOD
+    out[1] = MeshCoreRepeater::OWN_FLOOD_PATH_LEN_BYTE; // zero hops, 2-byte hashes
     out[2] = hash;
 
     SHA256 hmac;
@@ -161,7 +163,7 @@ bool MeshCoreCompanion::decodeGroupText(const uint8_t *key, size_t keyLen, const
         return false;
 
     const size_t cipherLen = info.payload_len - 3;
-    if (cipherLen % 16 != 0)
+    if (cipherLen % 16 != 0 || cipherLen > MAX_CIPHER_LEN)
         return false;
 
     uint8_t secret[32] = {};
@@ -175,7 +177,7 @@ bool MeshCoreCompanion::decodeGroupText(const uint8_t *key, size_t keyLen, const
     if (memcmp(mac, &payload[1], sizeof(mac)) != 0)
         return false;
 
-    uint8_t plain[184];
+    uint8_t plain[MAX_CIPHER_LEN];
     const size_t plainLen = aesDecrypt(secret, &payload[3], cipherLen, plain);
     if (plainLen < 5 || (plain[4] >> 2) != 0) // only TXT_TYPE_PLAIN
         return false;
@@ -213,6 +215,37 @@ void MeshCoreCompanion::ensurePseudoNode()
     TypeConversions::CopyUserToNodeInfoLite(lite, user);
 }
 
+void MeshCoreCompanion::hopFields(uint8_t pathHashCount, uint8_t *hopStart, uint8_t *hopLimit)
+{
+    const uint8_t hops = pathHashCount < HOP_START ? pathHashCount : HOP_START;
+    *hopStart = HOP_START; // nonzero: a zero hop_start makes clients show '?' instead of the hop count
+    *hopLimit = HOP_START - hops;
+}
+
+uint32_t MeshCoreCompanion::nextTxTimestamp(uint32_t now)
+{
+    lastTxTimestamp = now > lastTxTimestamp ? now : lastTxTimestamp + 1;
+    return lastTxTimestamp;
+}
+
+bool MeshCoreCompanion::cachedChannelHash(ChannelIndex ch, const uint8_t *key, size_t keyLen, uint8_t *out)
+{
+    if (ch >= MAX_NUM_CHANNELS)
+        return channelHash(key, keyLen, out);
+
+    HashCacheEntry &entry = hashCache[ch];
+    if (entry.keyLen != keyLen || memcmp(entry.key, key, keyLen) != 0) {
+        if (!channelHash(key, keyLen, &entry.hash)) {
+            entry.keyLen = 0;
+            return false;
+        }
+        memcpy(entry.key, key, keyLen);
+        entry.keyLen = keyLen;
+    }
+    *out = entry.hash;
+    return true;
+}
+
 void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, int32_t rssi)
 {
     if (!raw || !router)
@@ -223,6 +256,10 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
         return;
 
     rxSeen++;
+    if (info.header_len >= len || info.payload_len < 1 + 2 + 16) {
+        rxIgnored++;
+        return;
+    }
     const uint32_t hash = MeshCoreRepeater::hashFrame(raw, len, info);
     if (wasRecentlySeen(hash)) {
         rxDup++;
@@ -235,6 +272,10 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
         if (keyLen == 0)
             continue;
 
+        uint8_t hash8;
+        if (!cachedChannelHash(i, key, keyLen, &hash8) || raw[info.header_len] != hash8)
+            continue; // not this channel: skip the HMAC and AES work
+
         char text[MAX_TEXT_LEN + 1];
         uint32_t timestamp = 0;
         if (!decodeGroupText(key, keyLen, raw, len, info, text, sizeof(text), &timestamp))
@@ -246,6 +287,7 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
 
         rememberFrame(hash);
         rxDecoded++;
+        ensurePseudoNode(); // a node-DB reset or eviction may have removed it since boot
 
         p->from = PSEUDO_NODE_NUM;
         p->to = NODENUM_BROADCAST;
@@ -258,18 +300,20 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
         memcpy(p->decoded.payload.bytes, text, p->decoded.payload.size);
         p->decoded.has_bitfield = true;
         p->decoded.bitfield = 0;
-        // Nonzero equal hops make clients render 0 hops instead of '?'. A next hop that is not us
-        // keeps this synthetic packet out of the relay gate despite hop_limit > 0.
-        p->hop_limit = 1;
-        p->hop_start = 1;
+        // Hops are the repeaters the frame crossed (its path). A hop_limit below hop_start also keeps this
+        // synthetic packet's relay gate closed, and a next hop that is not us closes it for direct frames.
+        MeshCoreCompanion::hopFields(info.path_hash_count, &p->hop_start, &p->hop_limit);
         const uint8_t ourRelay = nodeDB->getLastByteOfNodeNum(nodeDB->getNodeNum());
         p->next_hop = (uint8_t)(ourRelay + 1);
         if (p->next_hop == NO_NEXT_HOP_PREFERENCE)
             p->next_hop = 1;
         p->transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
-        p->rx_snr = snr;
-        p->has_rx_rssi = true;
-        p->rx_rssi = rssi;
+        // Clients show signal strength only for a direct frame; a relayed one shows its hop count.
+        if (info.path_hash_count == 0) {
+            p->rx_snr = snr;
+            p->has_rx_rssi = true;
+            p->rx_rssi = rssi;
+        }
 
         LOG_INFO("MeshCore group text ch=%u ts=%u len=%u", (unsigned)i, timestamp, (unsigned)p->decoded.payload.size);
         router->enqueueReceivedMessage(p);
@@ -284,21 +328,6 @@ void MeshCoreCompanion::noteTransmitted(const uint8_t *raw, size_t len)
     MeshCoreRepeater::FrameInfo info;
     if (raw && MeshCoreRepeater::parse(raw, len, &info))
         rememberFrame(MeshCoreRepeater::hashFrame(raw, len, info));
-}
-
-bool MeshCoreCompanion::wasRecentlySeen(uint32_t hash) const
-{
-    for (size_t i = 0; i < DEDUP_ENTRIES; i++) {
-        if (dedup[i] == hash)
-            return true;
-    }
-    return false;
-}
-
-void MeshCoreCompanion::rememberFrame(uint32_t hash)
-{
-    dedup[dedupNext] = hash;
-    dedupNext = (dedupNext + 1) % DEDUP_ENTRIES;
 }
 
 #endif // MESHTASTIC_ENABLE_MESHCORE_COMPANION

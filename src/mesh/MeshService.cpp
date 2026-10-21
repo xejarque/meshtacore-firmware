@@ -400,52 +400,70 @@ ErrorCode MeshService::sendQueueStatusToPhone(const meshtastic_QueueStatus &qs, 
     return res ? ERRNO_OK : ERRNO_UNKNOWN;
 }
 
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+bool MeshService::sendMeshCoreGroupText(const meshtastic_MeshPacket *p)
+{
+    uint8_t key[32];
+    const size_t keyLen = channels.getMeshCoreKey(p->channel, key);
+
+    // MeshCore timestamps are wall-clock: without a valid time peers would see 1970 or reject the message.
+    const uint32_t now = getValidTime(RTCQualityFromNet);
+    if (keyLen == 0 || now == 0) {
+        LOG_WARN("MeshCore TX failed on ch=%u (keyLen=%u validTime=%d)", (unsigned)p->channel, (unsigned)keyLen, now != 0);
+        return false;
+    }
+
+    // encodeGroupText cuts the text on a UTF-8 boundary once the "sender: " prefix is accounted for.
+    char text[sizeof(p->decoded.payload.bytes) + 1];
+    memcpy(text, p->decoded.payload.bytes, p->decoded.payload.size);
+    text[p->decoded.payload.size] = 0;
+
+    const char *sender = owner.long_name[0] ? owner.long_name : (owner.short_name[0] ? owner.short_name : "Meshtastic");
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    bool truncated = false;
+    const size_t frameLen = MeshCoreCompanion::encodeGroupText(key, keyLen, sender, meshCoreCompanion.nextTxTimestamp(now), text,
+                                                               frame, sizeof(frame), &truncated);
+    RadioInterface *iface = router ? router->getRadioIface() : nullptr;
+    if (frameLen == 0 || !iface || !iface->queueMeshCoreFrame(frame, frameLen)) {
+        LOG_WARN("MeshCore TX failed on ch=%u (frameLen=%u)", (unsigned)p->channel, (unsigned)frameLen);
+        return false;
+    }
+    if (truncated)
+        LOG_WARN("MeshCore text cut to fit %u bytes with the sender prefix", (unsigned)MeshCoreCompanion::MAX_TEXT_LEN);
+    LOG_INFO("MeshCore TX ch=%u len=%u", (unsigned)p->channel, (unsigned)frameLen);
+    return true;
+}
+#endif
+
 ErrorCode MeshService::sendToMesh(meshtastic_MeshPacket *p, RxSource src, bool ccToPhone)
 {
     uint32_t mesh_packet_id = p->id;
     nodeDB->updateFrom(*p); // update our local DB for this packet (because phone might have sent position packets etc...)
 
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
-    if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
-        p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && isBroadcast(p->to) &&
-        channels.isMeshCoreChannel(p->channel)) {
-        uint8_t key[32];
-        const size_t keyLen = channels.getMeshCoreKey(p->channel, key);
-
-        char text[MeshCoreCompanion::MAX_TEXT_LEN + 1];
-        size_t textLen = p->decoded.payload.size;
-        if (textLen > MeshCoreCompanion::MAX_TEXT_LEN)
-            textLen = MeshCoreCompanion::MAX_TEXT_LEN;
-        memcpy(text, p->decoded.payload.bytes, textLen);
-        text[textLen] = 0;
-
-        const char *sender = owner.long_name[0] ? owner.long_name : (owner.short_name[0] ? owner.short_name : "Meshtastic");
-        uint32_t timestamp = getValidTime(RTCQualityFromNet);
-        if (timestamp == 0)
-            timestamp = Time::getUptimeSecs();
-
-        uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
-        const size_t frameLen =
-            keyLen ? MeshCoreCompanion::encodeGroupText(key, keyLen, sender, timestamp, text, frame, sizeof(frame)) : 0;
-        RadioInterface *iface = router ? router->getRadioIface() : nullptr;
-        const bool queued = frameLen > 0 && iface && iface->queueMeshCoreFrame(frame, frameLen);
-        if (queued) {
-            LOG_INFO("MeshCore TX ch=%u len=%u", (unsigned)p->channel, (unsigned)frameLen);
-            // MeshCore peers cannot ACK a Meshtastic packet; report the local implicit ACK the app
-            // expects for a channel broadcast once the frame is handed to the radio.
-            if (routingModule)
-                routingModule->sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel, 0);
+    if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag && channels.isMeshCoreChannel(p->channel) && !isToUs(p)) {
+        const bool isGroupText = p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && isBroadcast(p->to);
+        bool queued = false;
+        if (!isGroupText) {
+            // Anything but a group text would go out as Meshtastic traffic encrypted with the MeshCore key.
+            LOG_WARN("Dropping port %u on MeshCore channel %u: only broadcast text is bridged", (unsigned)p->decoded.portnum,
+                     (unsigned)p->channel);
         } else {
-            LOG_WARN("MeshCore TX failed on ch=%u (keyLen=%u frameLen=%u)", (unsigned)p->channel, (unsigned)keyLen,
-                     (unsigned)frameLen);
+            queued = sendMeshCoreGroupText(p);
         }
 
-        if (router) {
-            meshtastic_QueueStatus qs = router->getQueueStatus();
-            (void)sendQueueStatusToPhone(qs, queued ? ERRNO_OK : ERRNO_UNKNOWN, mesh_packet_id);
+        // MeshCore peers cannot ACK a Meshtastic packet; report the local implicit ACK the app
+        // expects for a channel broadcast once the frame is handed to the radio.
+        if (isGroupText) {
+            if (queued && routingModule)
+                routingModule->sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel, 0);
+            if (router) {
+                meshtastic_QueueStatus qs = router->getQueueStatus();
+                (void)sendQueueStatusToPhone(qs, queued ? ERRNO_OK : ERRNO_UNKNOWN, mesh_packet_id);
+            }
         }
         releaseToPool(p);
-        return;
+        return queued ? ERRNO_OK : ERRNO_UNKNOWN;
     }
 #endif
 

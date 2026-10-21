@@ -306,6 +306,9 @@ static size_t makeAdvertFlood(uint8_t *buf, uint8_t hashCount, uint8_t fill)
     return i;
 }
 
+static void giveIdentity(MeshCoreRepeater &repeater);
+static size_t makeSignedAdvertFlood(uint8_t *buf, uint8_t hashCount);
+
 void test_advert_flood_hop_limit()
 {
     MeshCoreRepeater repeater;
@@ -317,7 +320,7 @@ void test_advert_flood_hop_limit()
     TEST_ASSERT_EQUAL_UINT32(1, repeater.rxDropped);
 
     Time::advanceTestMillis(1000);
-    len = makeAdvertFlood(buf, 7, 0x20);
+    len = makeSignedAdvertFlood(buf, 7);
     repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
     TEST_ASSERT_TRUE(repeater.hasPendingFrame());
 }
@@ -546,7 +549,7 @@ void test_advert_is_signed_and_parseable()
     TEST_ASSERT_EQUAL_UINT32(2 + 32 + 4 + 64 + 1 + 7, len);
 
     TEST_ASSERT_EQUAL_HEX8(0x11, frame[0]); // ADVERT, flood, version 0
-    TEST_ASSERT_EQUAL_HEX8(0x00, frame[1]); // no path yet
+    TEST_ASSERT_EQUAL_HEX8(0x40, frame[1]); // no hops yet, 2-byte path hashes
     TEST_ASSERT_EQUAL_MEMORY(repeater.getIdentityPub(), &frame[2], 32);
 
     uint32_t ts;
@@ -808,6 +811,206 @@ void test_own_advert_echo_is_not_relayed()
     TEST_ASSERT_FALSE(repeater.hasPendingFrame());
 }
 
+// A genuine ADVERT from another repeater (own identity, signed), with hashCount path bytes spliced in: the
+// signature does not cover the path, which every forwarder rewrites.
+static size_t makeSignedAdvertFlood(uint8_t *buf, uint8_t hashCount)
+{
+    MeshCoreRepeater remote;
+    giveIdentity(remote);
+    uint8_t advert[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t advertLen = remote.buildAdvert(advert, sizeof(advert), "Remote", 1792521507, true);
+    size_t i = 0;
+    buf[i++] = advert[0];
+    buf[i++] = hashCount;
+    for (uint8_t h = 0; h < hashCount; h++)
+        buf[i++] = (uint8_t)(0x10 + h);
+    memcpy(&buf[i], &advert[2], advertLen - 2);
+    return i + advertLen - 2;
+}
+
+// Mesh::onRecvPacket drops an ADVERT whose signature does not verify; forwarding it would spread forgeries.
+void test_advert_with_bad_signature_is_not_relayed()
+{
+    MeshCoreRepeater repeater;
+    uint8_t buf[MeshCoreRepeater::MAX_FRAME_LEN];
+    size_t len = makeSignedAdvertFlood(buf, 1);
+
+    buf[len - 1] ^= 0x01; // tamper with the advertised name
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.rxDropped);
+
+    // The forged copy again: remembered, so it is not verified a second time.
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.rxDup);
+
+    buf[len - 1] ^= 0x01; // restored: the genuine advert is a different packet and is forwarded
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+}
+
+void test_advert_with_valid_signature_is_relayed()
+{
+    MeshCoreRepeater repeater;
+    uint8_t buf[MeshCoreRepeater::MAX_FRAME_LEN];
+    size_t len = makeSignedAdvertFlood(buf, 1);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+}
+
+// --- TRACE ---
+
+// Direct TRACE: path holds the SNRs gathered so far; payload = tag, auth, flags (hash size exponent), hashes to visit.
+static size_t makeTrace(uint8_t *buf, uint8_t snrCount, const uint8_t *hashes, uint8_t hashCount, uint8_t flags)
+{
+    size_t i = 0;
+    buf[i++] = (0x09 << 2) | 0x02;
+    buf[i++] = snrCount;
+    for (uint8_t k = 0; k < snrCount; k++)
+        buf[i++] = (uint8_t)(0x20 + k);
+    const uint8_t head[9] = {0x01, 0x02, 0x03, 0x04, 0xA1, 0xA2, 0xA3, 0xA4, flags};
+    memcpy(&buf[i], head, sizeof(head));
+    i += sizeof(head);
+    memcpy(&buf[i], hashes, (size_t)hashCount << (flags & 3));
+    return i + ((size_t)hashCount << (flags & 3));
+}
+
+void test_trace_is_forwarded_with_our_snr()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    const uint8_t us = repeater.getIdentityPub()[0];
+    const uint8_t hashes[3] = {0x77, us, 0x99};
+    uint8_t buf[64];
+    size_t len = makeTrace(buf, 1, hashes, 3, 0); // one hop done, we are the second in the list
+
+    repeater.handleReceivedFrame(buf, len, 5.5f, kAirtimeMs);
+    uint8_t out[MeshCoreRepeater::MAX_FRAME_LEN];
+    size_t outLen = repeater.takePendingFrame(out, sizeof(out));
+    TEST_ASSERT_EQUAL_UINT32(len + 1, outLen);
+    TEST_ASSERT_EQUAL_HEX8(buf[0], out[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x02, out[1]);                // two SNRs now
+    TEST_ASSERT_EQUAL_HEX8(0x20, out[2]);                // the one already there
+    TEST_ASSERT_EQUAL_INT8(22, (int8_t)out[3]);          // our SNR x4
+    TEST_ASSERT_EQUAL_MEMORY(&buf[3], &out[4], len - 3); // payload untouched
+}
+
+void test_trace_is_ignored_unless_we_are_next()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    const uint8_t us = repeater.getIdentityPub()[0];
+    uint8_t buf[64];
+
+    const uint8_t elsewhere[3] = {0x77, (uint8_t)(us ^ 0xFF), 0x99};
+    size_t len = makeTrace(buf, 1, elsewhere, 3, 0);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+
+    const uint8_t done[2] = {0x77, us};
+    len = makeTrace(buf, 2, done, 2, 0); // path as long as the list: the trace ended before us
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+}
+
+void test_trace_needs_an_identity()
+{
+    MeshCoreRepeater repeater;
+    const uint8_t hashes[1] = {0x42};
+    uint8_t buf[64];
+    size_t len = makeTrace(buf, 0, hashes, 1, 0);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+}
+
+// A route may cross the same repeater twice (out and back): both passes are forwarded.
+void test_trace_revisiting_us_is_forwarded_twice()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    const uint8_t us = repeater.getIdentityPub()[0];
+    const uint8_t hashes[3] = {us, 0x55, us};
+    uint8_t buf[64];
+
+    size_t len = makeTrace(buf, 0, hashes, 3, 0);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+    repeater.clearPendingFrame();
+
+    len = makeTrace(buf, 2, hashes, 3, 0);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+    repeater.clearPendingFrame();
+
+    len = makeTrace(buf, 2, hashes, 3, 0); // the very same frame again is a duplicate
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+}
+
+void test_trace_with_wider_hashes()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    uint8_t hashes[4 * 2] = {0xEE, 0xEE, 0xEE, 0xEE};
+    memcpy(&hashes[4], repeater.getIdentityPub(), 4);
+    uint8_t buf[64];
+    size_t len = makeTrace(buf, 1, hashes, 2, 2); // flags&3 = 2: 4-byte hashes, we are the second
+
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+}
+
+// --- MULTIPART ---
+
+// Direct MULTIPART ACK: [remaining<<4 | ACK] then the ACK crc. We are the first hop.
+static size_t makeMultipart(uint8_t *buf, uint8_t us, uint8_t innerType)
+{
+    size_t i = 0;
+    buf[i++] = (0x0A << 2) | 0x02;
+    buf[i++] = 0x02; // two hops
+    buf[i++] = us;
+    buf[i++] = 0x66;
+    buf[i++] = (uint8_t)((2 << 4) | innerType);
+    buf[i++] = 0xC1;
+    buf[i++] = 0xC2;
+    buf[i++] = 0xC3;
+    buf[i++] = 0xC4;
+    return i;
+}
+
+void test_multipart_ack_is_forwarded_as_plain_ack()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    uint8_t buf[32];
+    size_t len = makeMultipart(buf, repeater.getIdentityPub()[0], 0x03);
+
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    uint8_t out[MeshCoreRepeater::MAX_FRAME_LEN];
+    size_t outLen = repeater.takePendingFrame(out, sizeof(out));
+    TEST_ASSERT_EQUAL_UINT32(2 + 1 + 4, outLen);
+    TEST_ASSERT_EQUAL_HEX8((0x03 << 2) | 0x02, out[0]); // ACK, direct
+    TEST_ASSERT_EQUAL_HEX8(0x01, out[1]);               // we are off the path
+    TEST_ASSERT_EQUAL_HEX8(0x66, out[2]);
+    const uint8_t crc[4] = {0xC1, 0xC2, 0xC3, 0xC4};
+    TEST_ASSERT_EQUAL_MEMORY(crc, &out[3], 4);
+}
+
+void test_multipart_other_types_are_not_forwarded()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    uint8_t buf[32];
+    size_t len = makeMultipart(buf, repeater.getIdentityPub()[0], 0x02);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+
+    len = makeMultipart(buf, (uint8_t)(repeater.getIdentityPub()[0] ^ 0xFF), 0x03); // not our hop
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -846,6 +1049,15 @@ void setup()
     RUN_TEST(test_parse_enforces_meshcore_limits);
     RUN_TEST(test_dedupe_has_no_time_expiry);
     RUN_TEST(test_own_advert_echo_is_not_relayed);
+    RUN_TEST(test_advert_with_bad_signature_is_not_relayed);
+    RUN_TEST(test_advert_with_valid_signature_is_relayed);
+    RUN_TEST(test_trace_is_forwarded_with_our_snr);
+    RUN_TEST(test_trace_is_ignored_unless_we_are_next);
+    RUN_TEST(test_trace_needs_an_identity);
+    RUN_TEST(test_trace_revisiting_us_is_forwarded_twice);
+    RUN_TEST(test_trace_with_wider_hashes);
+    RUN_TEST(test_multipart_ack_is_forwarded_as_plain_ack);
+    RUN_TEST(test_multipart_other_types_are_not_forwarded);
     exit(UNITY_END());
 }
 
