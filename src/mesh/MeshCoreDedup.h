@@ -22,6 +22,15 @@ template <size_t N> class MeshCoreDedup
         next = (next + 1) % N;
     }
 
+    /** Take a hash back out, so a copy of a frame we never got to forward is still eligible. */
+    void forget(uint32_t hash)
+    {
+        for (size_t i = 0; i < N; i++) {
+            if (entries[i] == hash)
+                entries[i] = 0;
+        }
+    }
+
   private:
     uint32_t entries[N] = {};
     size_t next = 0;

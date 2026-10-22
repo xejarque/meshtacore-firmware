@@ -57,6 +57,34 @@ class LockingArduinoHal : public ArduinoHal
 // RadioLib's own default Vref, for a probe with no explicit voltage configured.
 #define TCXO_OPTIONAL_DEFAULT_VOLTAGE 1.6f
 
+
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+class RadioLibInterface;
+
+/**
+ * Owns the wake-ups of the MeshCore relay. The radio thread has a single notification slot, shared with the Meshtastic
+ * TX timer: a relay timer armed there either displaces the TX timer or is displaced by it. A thread of its own keeps
+ * the two schedules independent; both still serialise on the radio, which only the radio thread and this one touch.
+ */
+class MeshCoreRelayThread : public concurrency::OSThread
+{
+  public:
+    explicit MeshCoreRelayThread(RadioLibInterface *radio);
+
+    /** Run the relay step in ms (idle until then if nothing else wakes it). */
+    void wakeIn(uint32_t ms);
+
+    /** True while a wake-up is scheduled. */
+    bool isArmed() const { return enabled; }
+
+  protected:
+    int32_t runOnce() override;
+
+  private:
+    RadioLibInterface *radio;
+};
+#endif
+
 #if defined(USE_STM32WLx)
 /**
  * A wrapper for the RadioLib STM32WLx_Module class, that doesn't connect any pins as they are virtual
@@ -84,7 +112,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
 
   protected:
     /// Used as our notification from the ISR
-    enum PendingISR { ISR_NONE = 0, ISR_RX, ISR_TX, TRANSMIT_DELAY_COMPLETED, ISR_POLL_TICK, ISR_RELAY_DUE };
+    enum PendingISR { ISR_NONE = 0, ISR_RX, ISR_TX, TRANSMIT_DELAY_COMPLETED, ISR_POLL_TICK };
 
     /**
      * Raw ISR handler that just calls our polymorphic method
@@ -403,10 +431,19 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     bool isMeshtasticOnOurChannels(size_t length);
 #endif
 
-    /** If a MeshCore frame is queued for relay and the radio is idle, transmit it raw. No-op when the sniffer is disabled. */
+    /**
+     * If a MeshCore frame is due and the radio and channel are free, transmit it raw. Otherwise it stays queued for the
+     * next meshCoreRelayTick(). No-op when the sniffer is disabled.
+     */
     void maybeSendMeshCoreFrame();
 
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+    /** Owns the MeshCore relay's wake-ups, apart from the radio thread's single notification slot. */
+    MeshCoreRelayThread *meshCoreRelayThread = nullptr;
+
+    /** Schedule the relay thread for when the next queued MeshCore frame can go out. */
+    void wakeMeshCoreRelay();
+
     /** Owns the ADVERT schedule; the radio thread's single notification slot cannot hold a long timer. */
     concurrency::OSThread *meshCoreAdvertThread = nullptr;
     // Next flood / zero-hop ADVERT. The zero-hop one is due at the first tick (MESHCORE_ADVERT_FIRST_MS after boot).
@@ -414,6 +451,12 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     uint32_t nextMeshCoreLocalAdvertMs = 0;
 
   public:
+    /**
+     * One step of the MeshCore relay, run from its own thread: sends what is due and returns ms until the next step,
+     * or disables the thread when nothing is queued.
+     */
+    uint32_t meshCoreRelayTick();
+
     /**
      * One step of the MeshCore ADVERT schedule, run from its own thread: loads the identity, queues a signed
      * ADVERT when due, and nudges the radio thread until it is on air. Returns ms until the next step.
@@ -426,7 +469,6 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     bool isRawSending() const { return rawSending; }
 
     uint8_t rawTxBuf[MAX_LORA_PAYLOAD_LEN];
-    uint8_t notifyDepth = 0; // nesting of onNotify(); setStandby() can dispatch a pending event
     size_t rawTxLen = 0;
     bool rawSending = false;
 

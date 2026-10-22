@@ -82,6 +82,33 @@ static bool advertSignatureValid(const uint8_t *payload, size_t payloadLen)
     return Ed25519::verify(&payload[signedHeadLen], payload, message, signedHeadLen + appLen);
 }
 
+// Every encrypted MeshCore payload is [routing hashes][2-byte MAC][AES-128 blocks], and Utils::encrypt zero-pads the
+// last block, so what follows the fixed part is a whole number of 16-byte blocks. A Meshtastic frame that parsed as
+// MeshCore by accident has this shape about one time in sixteen.
+static bool payloadShapeValid(uint8_t payloadType, size_t payloadLen)
+{
+    constexpr size_t macSize = 2, blockSize = 16;
+    size_t fixedLen;
+    switch (payloadType) {
+    case MC_PAYLOAD_TYPE_REQ:
+    case MC_PAYLOAD_TYPE_RESPONSE:
+    case MC_PAYLOAD_TYPE_TXT_MSG:
+    case MC_PAYLOAD_TYPE_PATH:
+        fixedLen = 1 + 1 + macSize; // dest hash, src hash
+        break;
+    case MC_PAYLOAD_TYPE_ANON_REQ:
+        fixedLen = 1 + MC_PUB_KEY_SIZE + macSize; // dest hash, sender key
+        break;
+    case MC_PAYLOAD_TYPE_GRP_TXT:
+    case MC_PAYLOAD_TYPE_GRP_DATA:
+        fixedLen = 1 + macSize; // channel hash
+        break;
+    default:
+        return true; // ADVERT is signed, the rest has no block structure we check
+    }
+    return payloadLen > fixedLen && (payloadLen - fixedLen) % blockSize == 0;
+}
+
 bool MeshCoreRepeater::looksLikeMeshCoreFrame(const uint8_t *raw, size_t len, uint32_t ourNodeNum, FrameInfo *out)
 {
     if (!raw || len < 2 || len > MAX_FRAME_LEN)
@@ -89,6 +116,8 @@ bool MeshCoreRepeater::looksLikeMeshCoreFrame(const uint8_t *raw, size_t len, ui
 
     FrameInfo info;
     if (!parse(raw, len, &info))
+        return false;
+    if (!payloadShapeValid(info.payload_type, info.payload_len))
         return false;
 
     // Meshtastic-header veto: bytes 0..3 and 4..7 of a real Meshtastic frame are its to/from
@@ -192,12 +221,8 @@ void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, float
     }
     rxFlood++;
 
-    // Safety valve: if the pending relay never got its turn (radio events starved), a flood older
-    // than the dupe window is worthless - free the slot for the frame just heard.
-    if (hasPendingFrame() && !Throttle::isWithinTimespanMs(pendingRelay.firstSeenMs, DUPE_WINDOW_MS)) {
-        clearPendingFrame();
-        txDropped++;
-    }
+    // A flood that never got its turn is worthless once its dupe window is over: free its slot.
+    expireStale();
 
     // MeshCore's flood_max_advert default (NodePrefs.h): ADVERT floods are not forwarded past 8
     // hops. The general flood_max (64) is implied by the 6-bit hop count plus the path bound below.
@@ -232,13 +257,6 @@ void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, float
     if (!canRelay())
         return;
 
-    if (info.payload_type == MC_PAYLOAD_TYPE_ADVERT && !advertSignatureValid(&raw[info.header_len], info.payload_len)) {
-        LOG_DEBUG("MeshCore: advert with a bad signature, drop");
-        rememberFrame(hash); // MeshCore marks it seen first too: a forged copy is not verified twice
-        rxDropped++;
-        return;
-    }
-
     // With an identity, forward like a MeshCore repeater: our hash goes on the path, so receivers can tell the
     // packet came through us (heard-by, return paths). Without one, the frame is relayed unchanged.
     uint8_t forwarded[MAX_FRAME_LEN];
@@ -253,10 +271,15 @@ void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, float
         out = forwarded;
     }
 
-    // Remembered only once queued: a flood dropped here was never forwarded, so a later copy of
-    // it must still be eligible.
+    // An ADVERT is only forwarded if its Ed25519 signature holds (Mesh::onRecvPacket). The check takes long enough to
+    // deafen the radio, so it waits until the frame is about to go on air (takePendingFrame), with the radio listening.
+    // Remembered only once queued: a flood dropped here was never forwarded, so a later copy of it must still be
+    // eligible. A forged advert is remembered too, as MeshCore marks it seen first: a forged copy is not checked twice.
+    const uint8_t hops = info.path_hash_count < 200 ? info.path_hash_count : 200;
+    if (!queueRelay(out, outLen, hash, airtimeMs, adaptiveDelayMs(airtimeMs), PRIORITY_FLOOD_BASE + hops,
+                    info.payload_type == MC_PAYLOAD_TYPE_ADVERT))
+        return;
     rememberFrame(hash);
-    queueRelay(out, outLen, hash, airtimeMs, adaptiveDelayMs(airtimeMs));
 #endif
 }
 
@@ -324,8 +347,9 @@ void MeshCoreRepeater::handleDirect(const uint8_t *raw, size_t len, const FrameI
     const size_t outLen = rewritePath(raw, len, info, false, forwarded, sizeof(forwarded));
     if (outLen == 0)
         return;
+    if (!queueRelay(forwarded, outLen, hash, airtimeMs, directDelayMs(airtimeMs), PRIORITY_DIRECT))
+        return;
     rememberFrame(hash);
-    queueRelay(forwarded, outLen, hash, airtimeMs, directDelayMs(airtimeMs));
 }
 
 uint32_t MeshCoreRepeater::directDelayMs(uint32_t airtimeMs)
@@ -372,8 +396,9 @@ void MeshCoreRepeater::handleTrace(const uint8_t *raw, size_t len, const FrameIn
     forwarded[snrAt] = (uint8_t)(int8_t)snrX4;
     memcpy(&forwarded[snrAt + 1], &raw[snrAt], len - snrAt);
 
+    if (!queueRelay(forwarded, len + 1, hash, airtimeMs, directDelayMs(airtimeMs), PRIORITY_DIRECT))
+        return;
     rememberFrame(hash);
-    queueRelay(forwarded, len + 1, hash, airtimeMs, directDelayMs(airtimeMs));
 }
 
 void MeshCoreRepeater::handleMultipartAck(const uint8_t *raw, size_t len, const FrameInfo &info, uint32_t airtimeMs)
@@ -408,8 +433,9 @@ void MeshCoreRepeater::handleMultipartAck(const uint8_t *raw, size_t len, const 
     memcpy(&forwarded[i], &payload[1], bodyLen);
     i += bodyLen;
 
+    if (!queueRelay(forwarded, i, hash, airtimeMs, directDelayMs(airtimeMs) + ((uint32_t)remaining + 1) * 300, PRIORITY_DIRECT))
+        return;
     rememberFrame(hash);
-    queueRelay(forwarded, i, hash, airtimeMs, directDelayMs(airtimeMs) + ((uint32_t)remaining + 1) * 300);
 }
 
 void MeshCoreRepeater::handleControl(const uint8_t *raw, size_t len, const FrameInfo &info, float snr, uint32_t airtimeMs)
@@ -513,60 +539,136 @@ bool MeshCoreRepeater::isFloodForwardable(const FrameInfo &info)
 
 void MeshCoreRepeater::onDupeHeard(uint32_t hash)
 {
-    // Someone else is retransmitting the frame we have queued: contention, measured on the air.
+    // Someone else is retransmitting a frame we have queued: contention, measured on the air.
     // Postpone our copy (ZephCore's extendPendingRetransmit) and keep the dupe as the contention
     // sample this relay will fold into the estimate.
-    if (!hasPendingFrame() || pendingRelay.hash32 != hash)
-        return;
-    if (!Throttle::isWithinTimespanMs(pendingRelay.firstSeenMs, DUPE_WINDOW_MS))
-        return;
+    for (QueuedFrame &f : queue) {
+        if (f.len == 0 || f.own || f.hash32 != hash)
+            continue;
+        if (!Throttle::isWithinTimespanMs(f.firstSeenMs, DUPE_WINDOW_MS))
+            return;
 
-    if (pendingRelay.dupeCount < 255)
-        pendingRelay.dupeCount++;
+        if (f.dupeCount < 255)
+            f.dupeCount++;
 
-    uint32_t perDupe = (uint32_t)(REACTIVE_BACKOFF_AIRTIME * (float)pendingRelay.airtimeMs);
-    uint32_t cap = (uint32_t)(REACTIVE_AIRTIME_CAP * (float)pendingRelay.airtimeMs);
-    if (cap > REACTIVE_HARD_CAP_MS)
-        cap = REACTIVE_HARD_CAP_MS;
-    if (pendingRelay.reactiveAddedMs >= cap)
-        return;
-    uint32_t remaining = cap - pendingRelay.reactiveAddedMs;
-    if (perDupe > remaining)
-        perDupe = remaining;
-    if (perDupe == 0)
-        return;
+        uint32_t perDupe = (uint32_t)(REACTIVE_BACKOFF_AIRTIME * (float)f.airtimeMs);
+        uint32_t cap = (uint32_t)(REACTIVE_AIRTIME_CAP * (float)f.airtimeMs);
+        if (cap > REACTIVE_HARD_CAP_MS)
+            cap = REACTIVE_HARD_CAP_MS;
+        if (f.reactiveAddedMs >= cap)
+            return;
+        uint32_t remaining = cap - f.reactiveAddedMs;
+        if (perDupe > remaining)
+            perDupe = remaining;
+        if (perDupe == 0)
+            return;
 
-    pendingRelay.reactiveAddedMs += perDupe;
-    pendingDeadlineMs += perDupe;
+        f.reactiveAddedMs += perDupe;
+        f.deadlineMs += perDupe;
+        return;
+    }
 }
 
 bool MeshCoreRepeater::canRelay() const
 {
     // Same rebroadcast policy as Meshtastic's own relay (FloodingRouter::isRebroadcaster): a mute
     // node or a node with rebroadcast disabled relays nothing, MeshCore floods included.
-    if (config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE ||
-        config.device.rebroadcast_mode == meshtastic_Config_DeviceConfig_RebroadcastMode_NONE)
-        return false;
-
-    return !hasPendingFrame(); // one relay at a time; a dropped flood is redundant in a flood mesh
+    return config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE &&
+           config.device.rebroadcast_mode != meshtastic_Config_DeviceConfig_RebroadcastMode_NONE;
 }
 
-void MeshCoreRepeater::queueRelay(const uint8_t *raw, size_t len, uint32_t hash32, uint32_t airtimeMs, uint32_t delayMs)
+int MeshCoreRepeater::claimSlot(uint8_t priority)
 {
-    if (len > sizeof(pending))
-        return;
-    memcpy(pending, raw, len);
-    pendingLen = len;
-    pendingOwn = false;
-    LOG_DEBUG("MeshCore relay queued: len=%u delay=%ums", (unsigned)len, (unsigned)delayMs);
+    for (size_t i = 0; i < QUEUE_SIZE; i++) {
+        if (queue[i].len == 0)
+            return (int)i;
+    }
 
-    const uint32_t now = Time::getMillis();
-    pendingRelay.hash32 = hash32;
-    pendingRelay.firstSeenMs = now;
-    pendingRelay.airtimeMs = airtimeMs;
-    pendingRelay.reactiveAddedMs = 0;
-    pendingRelay.dupeCount = 0;
-    pendingDeadlineMs = now + delayMs;
+    // Full: the worst queued flood gives way to a better frame (ZephCore: "if the new one is more urgent, expel the
+    // worst"). Among equals the one due last goes. Routed traffic and our own frames are never evicted.
+    int victim = -1;
+    for (size_t i = 0; i < QUEUE_SIZE; i++) {
+        const QueuedFrame &f = queue[i];
+        if (f.own || f.priority <= priority)
+            continue;
+        if (victim < 0 || f.priority > queue[victim].priority ||
+            (f.priority == queue[victim].priority && (int32_t)(f.deadlineMs - queue[victim].deadlineMs) > 0))
+            victim = (int)i;
+    }
+    if (victim < 0)
+        return -1;
+
+    // It was remembered when queued, but never forwarded: a later copy must be eligible again.
+    dedup.forget(queue[victim].hash32);
+    release(victim);
+    txDropped++;
+    return victim;
+}
+
+bool MeshCoreRepeater::queueRelay(const uint8_t *raw, size_t len, uint32_t hash32, uint32_t airtimeMs, uint32_t delayMs,
+                                  uint8_t priority, bool needsVerify)
+{
+    if (len == 0 || len > MAX_FRAME_LEN)
+        return false;
+    const int slot = claimSlot(priority);
+    if (slot < 0) {
+        LOG_DEBUG("MeshCore relay queue full, drop");
+        txDropped++;
+        return false;
+    }
+
+    QueuedFrame &f = queue[slot];
+    memcpy(f.data, raw, len);
+    f.len = (uint8_t)len; // MAX_FRAME_LEN is 255
+    f.own = false;
+    f.needsVerify = needsVerify;
+    f.priority = priority;
+    f.dupeCount = 0;
+    f.reactiveAddedMs = 0;
+    f.hash32 = hash32;
+    f.airtimeMs = airtimeMs;
+    f.firstSeenMs = Time::getMillis();
+    f.deadlineMs = f.firstSeenMs + delayMs;
+    LOG_DEBUG("MeshCore relay queued: len=%u delay=%ums prio=%u", (unsigned)len, (unsigned)delayMs, (unsigned)priority);
+    return true;
+}
+
+void MeshCoreRepeater::release(int index)
+{
+    queue[index].len = 0;
+    if (selected == index)
+        selected = -1;
+    if (!hasPendingFrame())
+        busyAttempts = 0;
+}
+
+void MeshCoreRepeater::expireStale()
+{
+    for (size_t i = 0; i < QUEUE_SIZE; i++) {
+        const QueuedFrame &f = queue[i];
+        if (f.len != 0 && !f.own && !Throttle::isWithinTimespanMs(f.firstSeenMs, DUPE_WINDOW_MS)) {
+            release((int)i);
+            txDropped++;
+        }
+    }
+}
+
+bool MeshCoreRepeater::hasPendingFrame() const
+{
+    for (const QueuedFrame &f : queue) {
+        if (f.len != 0)
+            return true;
+    }
+    return false;
+}
+
+bool MeshCoreRepeater::hasPendingOwnFrame() const
+{
+    for (const QueuedFrame &f : queue) {
+        if (f.len != 0 && f.own)
+            return true;
+    }
+    return false;
 }
 
 void MeshCoreRepeater::markRelayed()
@@ -575,42 +677,143 @@ void MeshCoreRepeater::markRelayed()
     txRelayed++;
 }
 
+void MeshCoreRepeater::afterTransmit(uint32_t slotMs)
+{
+    const uint32_t slot = slotMs < MIN_SLOT_MS ? MIN_SLOT_MS : slotMs;
+    holdoffUntilMs = Time::getMillis() + (uint32_t)random(1, HOLDOFF_MAX_SLOTS + 1) * slot;
+    holdoffSet = true;
+    busyAttempts = 0;
+}
+
+uint32_t MeshCoreRepeater::busyBackoffMs(uint32_t slotMs)
+{
+    const uint32_t slot = slotMs < MIN_SLOT_MS ? MIN_SLOT_MS : slotMs;
+    if (busyAttempts < BUSY_BACKOFF_MAX_EXP)
+        busyAttempts++;
+    const long window = 1L << busyAttempts; // 2, 4, 8, 16 slots
+    return (uint32_t)random(1, window + 1) * slot;
+}
+
+int MeshCoreRepeater::pickNext() const
+{
+    int best = -1;
+    bool bestDue = false;
+    for (size_t i = 0; i < QUEUE_SIZE; i++) {
+        const QueuedFrame &f = queue[i];
+        if (f.len == 0)
+            continue;
+        const bool due = Throttle::deadlinePassed(f.deadlineMs);
+        bool better;
+        if (best < 0)
+            better = true;
+        else if (due != bestDue)
+            better = due; // a due frame beats one that is not
+        else if (due && f.priority != queue[best].priority)
+            better = f.priority < queue[best].priority;
+        else
+            better = (int32_t)(f.deadlineMs - queue[best].deadlineMs) < 0;
+        if (better) {
+            best = (int)i;
+            bestDue = due;
+        }
+    }
+    return best;
+}
+
 bool MeshCoreRepeater::isRelayDue() const
 {
-    return hasPendingFrame() && Throttle::deadlinePassed(pendingDeadlineMs);
+    if (holdoffSet && !Throttle::deadlinePassed(holdoffUntilMs))
+        return false;
+    for (const QueuedFrame &f : queue) {
+        if (f.len != 0 && Throttle::deadlinePassed(f.deadlineMs))
+            return true;
+    }
+    return false;
 }
 
 uint32_t MeshCoreRepeater::relayDueInMs() const
 {
-    if (!hasPendingFrame() || Throttle::deadlinePassed(pendingDeadlineMs))
+    const uint32_t now = Time::getMillis();
+    bool any = false;
+    uint32_t soonest = 0;
+    for (const QueuedFrame &f : queue) {
+        if (f.len == 0)
+            continue;
+        const uint32_t wait = Throttle::deadlinePassed(f.deadlineMs) ? 0 : f.deadlineMs - now;
+        if (!any || wait < soonest)
+            soonest = wait;
+        any = true;
+    }
+    if (!any)
         return 0;
-    return pendingDeadlineMs - Time::getMillis();
+    if (holdoffSet && !Throttle::deadlinePassed(holdoffUntilMs)) {
+        const uint32_t holdoff = holdoffUntilMs - now;
+        if (holdoff > soonest)
+            soonest = holdoff;
+    }
+    return soonest;
 }
 
 size_t MeshCoreRepeater::takePendingFrame(uint8_t *buf, size_t bufLen)
 {
-    if (pendingLen == 0 || bufLen < pendingLen)
-        return 0;
-    memcpy(buf, pending, pendingLen);
-    return pendingLen;
+    for (int pick = pickNext(); pick >= 0; pick = pickNext()) {
+        QueuedFrame &f = queue[pick];
+        if (f.needsVerify) {
+            FrameInfo info;
+            if (!parse(f.data, f.len, &info) || !advertSignatureValid(&f.data[info.header_len], info.payload_len)) {
+                LOG_DEBUG("MeshCore: advert with a bad signature, drop");
+                release(pick);
+                rxDropped++;
+                continue;
+            }
+            f.needsVerify = false;
+        }
+        if (bufLen < f.len)
+            return 0;
+        memcpy(buf, f.data, f.len);
+        selected = pick;
+        selectedHash = f.hash32;
+        return f.len;
+    }
+    return 0;
+}
+
+int MeshCoreRepeater::selectedIndex() const
+{
+    if (selectedHash == 0)
+        return pickNext(); // nothing taken: the frame that would be taken next
+    if (selected >= 0 && queue[selected].len != 0 && queue[selected].hash32 == selectedHash)
+        return selected;
+    for (size_t i = 0; i < QUEUE_SIZE; i++) {
+        if (queue[i].len != 0 && queue[i].hash32 == selectedHash)
+            return (int)i;
+    }
+    return -1;
+}
+
+bool MeshCoreRepeater::pendingIsOwn() const
+{
+    const int pick = selectedIndex();
+    return pick >= 0 && queue[pick].own;
 }
 
 void MeshCoreRepeater::clearPendingFrame()
 {
-    if (!pendingOwn)
-        foldContentionSample();
-    pendingLen = 0;
-    pendingOwn = false;
+    const int pick = selectedIndex();
+    selected = -1;
+    selectedHash = 0;
+    if (pick < 0)
+        return;
+    if (!queue[pick].own)
+        foldContentionSample(queue[pick]);
+    release(pick);
 }
 
-void MeshCoreRepeater::foldContentionSample()
+void MeshCoreRepeater::foldContentionSample(const QueuedFrame &f)
 {
-    if (pendingLen == 0)
-        return;
-
     // Same fold as ZephCore ContentionTracker::finalizeEntry: the dupe count of this relay is
     // one contention sample, folded into an EMA (alpha 1/8; fast convergence during warmup).
-    uint32_t sampleX256 = (uint32_t)pendingRelay.dupeCount << 8;
+    uint32_t sampleX256 = (uint32_t)f.dupeCount << 8;
     int32_t diff = (int32_t)sampleX256 - (int32_t)emaX256;
     if (finalizedSamples < WARMUP_SAMPLES) {
         if (finalizedSamples == 0)
@@ -743,22 +946,31 @@ size_t MeshCoreRepeater::buildAdvert(uint8_t *out, size_t outLen, const char *na
 
 bool MeshCoreRepeater::queueOwnFrame(const uint8_t *raw, size_t len, uint32_t delayMs)
 {
-    if (hasPendingFrame() || len == 0 || len > sizeof(pending))
+    if (len == 0 || len > MAX_FRAME_LEN)
         return false;
 
-    PendingRelay own;
     FrameInfo info;
     if (!parse(raw, len, &info))
         return false;
-    own.hash32 = hashFrame(raw, len, info);
+    const uint32_t hash = hashFrame(raw, len, info);
 
-    memcpy(pending, raw, len);
-    pendingLen = len;
-    pendingOwn = true;
-    pendingRelay = own;
-    pendingRelay.firstSeenMs = Time::getMillis();
-    pendingDeadlineMs = pendingRelay.firstSeenMs + delayMs;
-    rememberFrame(own.hash32); // a neighbour re-flooding our own ADVERT must not make us relay it again
+    const int slot = claimSlot(PRIORITY_OWN);
+    if (slot < 0)
+        return false;
+
+    QueuedFrame &f = queue[slot];
+    memcpy(f.data, raw, len);
+    f.len = (uint8_t)len;
+    f.own = true;
+    f.needsVerify = false;
+    f.priority = PRIORITY_OWN;
+    f.dupeCount = 0;
+    f.reactiveAddedMs = 0;
+    f.hash32 = hash;
+    f.airtimeMs = 0;
+    f.firstSeenMs = Time::getMillis();
+    f.deadlineMs = f.firstSeenMs + delayMs;
+    rememberFrame(hash); // a neighbour re-flooding our own ADVERT must not make us relay it again
     return true;
 }
 

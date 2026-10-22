@@ -421,9 +421,6 @@ void RadioLibInterface::deliverPendingIrqFromPoll(PendingISR cause)
 
 void RadioLibInterface::onNotify(uint32_t notification)
 {
-    // setStandby() runs checkNotification(), so a radio event can nest inside another one
-    notifyDepth++;
-
     switch (notification) {
     case ISR_TX:
         handleTransmitInterrupt(); // completeSending() already restored the radio to the home config
@@ -433,28 +430,19 @@ void RadioLibInterface::onNotify(uint32_t notification)
         (void)RadioTxHooks::beforeTransmit(this, txQueue.getFront());
         startReceive();
         setTransmitDelay();
-        maybeSendMeshCoreFrame();
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+        // A MeshCore frame never follows a transmission straight away: hold it back a few random slots.
+        meshCoreRepeater.afterTransmit(slotTimeMsec);
+        wakeMeshCoreRelay();
+#endif
         break;
     case ISR_RX:
         handleReceiveInterrupt();
         startReceive();
         setTransmitDelay();
-        maybeSendMeshCoreFrame();
         break;
     case ISR_POLL_TICK:
         handleSoftwareLoraIrqPoll();
-        break;
-    case ISR_RELAY_DUE:
-        maybeSendMeshCoreFrame(); // adaptive MeshCore relay delay elapsed
-#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
-        if (meshCoreRepeater.hasPendingFrame()) {
-            // Not due yet (reactive extension) or the radio/channel was busy: re-arm. A due frame
-            // retries one CAD slot later rather than spinning. overwrite=false so this never
-            // clobbers a pending TRANSMIT_DELAY_COMPLETED (own traffic wins).
-            uint32_t retryMs = meshCoreRepeater.isRelayDue() ? slotTimeMsec : meshCoreRepeater.relayDueInMs() + 1;
-            notifyLater(retryMs, ISR_RELAY_DUE, false);
-        }
-#endif
         break;
     case TRANSMIT_DELAY_COMPLETED:
 
@@ -506,7 +494,6 @@ void RadioLibInterface::onNotify(uint32_t notification)
     default:
         assert(0); // We expected to receive a valid notification from the ISR
     }
-    notifyDepth--;
 }
 
 void RadioLibInterface::setTransmitDelay()
@@ -656,22 +643,16 @@ bool RadioLibInterface::queueMeshCoreFrame(const uint8_t *bytes, size_t len)
         return false;
     }
 
-    // The relay slot is shared: our own text wins over a queued foreign flood, but never evicts
-    // another frame of ours (text, advert, discover reply) that is still waiting for its slot.
-    if (meshCoreRepeater.hasPendingFrame()) {
-        if (meshCoreRepeater.pendingIsOwn()) {
-            LOG_WARN("MeshCore TX refused: an own frame is still pending");
-            return false;
-        }
-        meshCoreRepeater.txDropped++;
-        meshCoreRepeater.clearPendingFrame();
-    }
-    if (!meshCoreRepeater.queueOwnFrame(bytes, len))
+    // Our own text outranks every queued flood (it evicts the worst one when the queue is full) but never evicts
+    // another frame of ours (advert, discover reply) or routed traffic.
+    if (!meshCoreRepeater.queueOwnFrame(bytes, len)) {
+        LOG_WARN("MeshCore TX refused: the relay queue holds only own and routed frames");
         return false;
+    }
 
     meshCoreCompanion.noteTransmitted(bytes, len);
     meshCoreCompanion.txSent++;
-    notify(ISR_RELAY_DUE, false);
+    wakeMeshCoreRelay();
     return true;
 #else
     (void)bytes;
@@ -699,6 +680,7 @@ static constexpr uint32_t MESHCORE_LOCAL_ADVERT_INTERVAL_MS = 2 * 60 * 1000;
 static constexpr uint32_t MESHCORE_FLOOD_ADVERT_INTERVAL_MS = 47UL * 60 * 60 * 1000;
 static constexpr uint32_t MESHCORE_ADVERT_RETRY_MS = 60 * 1000; // no identity / no valid time
 static constexpr uint32_t MESHCORE_ADVERT_NUDGE_MS = 1000;      // radio busy: ask again
+static constexpr uint32_t MESHCORE_TX_POLL_MS = 100;            // a raw frame is on air: look again for a lost TX-done
 
 /** Runs RadioLibInterface::meshCoreAdvertTick() on its own schedule. */
 class MeshCoreAdvertThread : public concurrency::OSThread
@@ -765,10 +747,10 @@ uint32_t RadioLibInterface::meshCoreAdvertTick()
         LOG_INFO("MeshCore identity ready, pub=%02x%02x%02x%02x...", pub[0], pub[1], pub[2], pub[3]);
     }
 
-    // One of our frames is queued but not on air yet: nudge the radio thread until it goes. A nudge lost to
-    // another pending event is harmless, the next tick repeats it.
-    if (meshCoreRepeater.hasPendingFrame()) {
-        notify(ISR_RELAY_DUE, false);
+    // One of our frames is queued but not on air yet: nudge the relay thread until it goes. A nudge that finds
+    // the relay already scheduled changes nothing, so the next tick can repeat it.
+    if (meshCoreRepeater.hasPendingOwnFrame()) {
+        wakeMeshCoreRelay();
         return MESHCORE_ADVERT_NUDGE_MS;
     }
 
@@ -807,7 +789,7 @@ uint32_t RadioLibInterface::meshCoreAdvertTick()
     if (floodDue)
         nextMeshCoreFloodAdvertMs = queuedAt + MESHCORE_FLOOD_ADVERT_INTERVAL_MS;
     nextMeshCoreLocalAdvertMs = queuedAt + MESHCORE_LOCAL_ADVERT_INTERVAL_MS;
-    notify(ISR_RELAY_DUE, false);
+    wakeMeshCoreRelay();
     return MESHCORE_ADVERT_NUDGE_MS;
 }
 
@@ -821,11 +803,60 @@ bool RadioLibInterface::isMeshtasticOnOurChannels(size_t length)
     return decodesOnOurChannels(h.from, h.id, h.channel, radioBuffer.payload, length - sizeof(PacketHeader));
 }
 
+MeshCoreRelayThread::MeshCoreRelayThread(RadioLibInterface *radio) : OSThread("MeshCoreRelay"), radio(radio)
+{
+    disable();
+}
+
+void MeshCoreRelayThread::wakeIn(uint32_t ms)
+{
+    enabled = true;
+    setIntervalFromNow(ms);
+}
+
+int32_t MeshCoreRelayThread::runOnce()
+{
+    return radio->meshCoreRelayTick();
+}
+
+void RadioLibInterface::wakeMeshCoreRelay()
+{
+    if (!meshCoreRelayThread || !meshCoreRepeater.hasPendingFrame())
+        return;
+    const uint32_t dueIn = meshCoreRepeater.relayDueInMs();
+    // A frame that is already due is being retried on its own backoff: pulling that forward would defeat it.
+    if (dueIn == 0 && meshCoreRelayThread->isArmed())
+        return;
+    meshCoreRelayThread->wakeIn(dueIn + 1);
+}
+
+uint32_t RadioLibInterface::meshCoreRelayTick()
+{
+    maybeSendMeshCoreFrame();
+
+    if (!meshCoreRepeater.hasPendingFrame())
+        return meshCoreRelayThread->disable();
+    // On air now: the TX-done event wakes us again; this only covers a TX-done that never comes.
+    if (isSending())
+        return MESHCORE_TX_POLL_MS;
+    // Due but deferred (radio or channel busy): come back after a random backoff. Otherwise at its deadline.
+    return meshCoreRepeater.isRelayDue() ? meshCoreRepeater.busyBackoffMs(slotTimeMsec) : meshCoreRepeater.relayDueInMs() + 1;
+}
+
 void RadioLibInterface::maybeSendMeshCoreFrame()
 {
-    // Only from a top-level radio event: a nested one would start a TX that the outer event's
-    // channel scan or standby then aborts.
-    if (notifyDepth > 1 || isSending() || !meshCoreRepeater.hasPendingFrame() || !meshCoreRepeater.isRelayDue()) {
+    if (isSending() || !meshCoreRepeater.hasPendingFrame() || !meshCoreRepeater.isRelayDue()) {
+        return;
+    }
+    // A deferred frame is retried on a backoff; log the reason at most once a second.
+    static uint32_t lastDeferLogMs = 0;
+    const bool logDefer = !Throttle::isWithinTimespanMs(lastDeferLogMs, 1000);
+    // MeshBeacon moves the radio to another preset for its packet: a MeshCore frame sent now would go out on it.
+    if (txQueue.getFront() && RadioTxHooks::holdsRadio(txQueue.getFront())) {
+        if (logDefer) {
+            LOG_DEBUG("MeshCore TX deferred: radio held for a beacon");
+            lastDeferLogMs = millis();
+        }
         return;
     }
     // A permanent refusal would otherwise retry the same frame forever.
@@ -835,16 +866,13 @@ void RadioLibInterface::maybeSendMeshCoreFrame()
         return;
     }
     uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
-    size_t len = meshCoreRepeater.takePendingFrame(frame, sizeof(frame));
+    size_t len = meshCoreRepeater.takePendingFrame(frame, sizeof(frame)); // checks an ADVERT's signature, radio listening
     if (len == 0) {
         return;
     }
     // Same listen-before-talk as the Meshtastic TX path. A busy radio or channel leaves the frame
-    // queued (takePendingFrame copies, not clears) for the next radio event or ISR_RELAY_DUE.
+    // queued (takePendingFrame copies, not clears) for the next meshCoreRelayTick().
     const bool own = meshCoreRepeater.pendingIsOwn();
-    // A deferred frame is retried every CAD slot; log the reason at most once a second.
-    static uint32_t lastDeferLogMs = 0;
-    const bool logDefer = !Throttle::isWithinTimespanMs(lastDeferLogMs, 1000);
     if (!isReceiving || !canSendImmediately()) {
         if (logDefer) {
             LOG_DEBUG("MeshCore TX deferred: radio busy");
@@ -860,12 +888,15 @@ void RadioLibInterface::maybeSendMeshCoreFrame()
         startReceive();
         return;
     }
+    // The scan can dispatch a pending radio event (setStandby) that starts a Meshtastic TX: leave that one alone.
+    if (isSending())
+        return;
     if (!sendRawFrame(frame, len)) {
         startReceive(); // the channel scan left the radio in standby
         return;
     }
     LOG_INFO("MeshCore TX %s: len=%u header=0x%02x path_len=0x%02x", own ? "own" : "relay", (unsigned)len, frame[0], frame[1]);
-    if (!meshCoreRepeater.pendingIsOwn())
+    if (!own)
         meshCoreRepeater.markRelayed();
     meshCoreRepeater.clearPendingFrame();
 }
@@ -994,11 +1025,7 @@ void RadioLibInterface::handleReceiveInterrupt()
 #endif
             meshCoreRepeater.handleReceivedFrame((const uint8_t *)&radioBuffer, length, iface->getSNR(),
                                                  getPacketTime(length, false));
-            if (meshCoreRepeater.hasPendingFrame()) {
-                // Best-effort wake-up when the adaptive relay delay elapses (radio events would
-                // also do it); overwrite=false keeps a pending TRANSMIT_DELAY_COMPLETED intact.
-                notifyLater(meshCoreRepeater.relayDueInMs() + 1, ISR_RELAY_DUE, false);
-            }
+            wakeMeshCoreRelay(); // when the adaptive relay delay elapses
             airTime->logAirtime(RX_LOG, rxMsec);
             return; // do not deliver to the Meshtastic router
         }
@@ -1078,6 +1105,7 @@ void RadioLibInterface::startReceive()
         nextMeshCoreFloodAdvertMs = millis() + MESHCORE_FLOOD_ADVERT_INTERVAL_MS;
         nextMeshCoreLocalAdvertMs = millis() + MESHCORE_ADVERT_FIRST_MS;
         meshCoreAdvertThread = new MeshCoreAdvertThread(this);
+        meshCoreRelayThread = new MeshCoreRelayThread(this);
     }
 #endif
 }

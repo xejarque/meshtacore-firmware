@@ -54,7 +54,9 @@ class MeshCoreRepeater
     /**
      * True if the raw LoRa frame looks like a valid MeshCore packet. Conservative on purpose:
      * must be >= 2 bytes, <= 255, payload version 0, a known payload type, and a valid path_len
-     * byte (path mode 3 is reserved). A frame whose Meshtastic to/from NodeNum equals ourNodeNum
+     * byte (path mode 3 is reserved). Encrypted payloads must also have MeshCore's shape: a MAC and whole 16-byte AES
+     * blocks, which every real MeshCore packet has and a Meshtastic frame misread as one almost never does.
+     * A frame whose Meshtastic to/from NodeNum equals ourNodeNum
      * is never MeshCore (crc32(pubkey) collision odds are 2^-32), so a Meshtastic unicast to or
      * from this node is kept out of the sniffer even when its bytes happen to parse.
      */
@@ -73,23 +75,47 @@ class MeshCoreRepeater
      */
     void handleReceivedFrame(const uint8_t *raw, size_t len, float snr, uint32_t airtimeMs);
 
-    /** True when a raw MeshCore frame is queued for transmission. */
-    bool hasPendingFrame() const { return pendingLen > 0; }
+    /** True when at least one raw MeshCore frame is queued for transmission. */
+    bool hasPendingFrame() const;
 
-    /** True when the pending frame's adaptive delay has elapsed and it may go out now. */
+    /** True when one of our own frames (ADVERT, discovery reply, companion text) is still queued. */
+    bool hasPendingOwnFrame() const;
+
+    /** True when a queued frame's adaptive delay has elapsed (and the post-TX hold-off is over): it may go out now. */
     bool isRelayDue() const;
 
-    /** Milliseconds until the pending relay is due (0 when due or nothing pending). */
+    /** Milliseconds until a queued frame can go out (0 when one is due or nothing is queued). */
     uint32_t relayDueInMs() const;
 
-    /** Copy the pending raw frame into buf; returns its length (0 if none). */
+    /**
+     * Pick the frame to send next and copy it into buf; returns its length (0 if none). Due frames go first, best
+     * priority first (routed traffic, then our own frames, then floods with the fewest hops). An ADVERT is only
+     * signature-checked here, as late as possible and with the radio listening; a bad one is dropped and the next
+     * frame is tried. The pick stays selected for pendingIsOwn(), markRelayed() and clearPendingFrame().
+     */
     size_t takePendingFrame(uint8_t *buf, size_t bufLen);
 
-    /** Send or drop the pending frame: folds its dupe sample into the contention estimate. */
+    /** True when the frame picked by takePendingFrame() is one of ours rather than a relayed flood. */
+    bool pendingIsOwn() const;
+
+    /** Remove the picked frame (sent or refused): folds a relayed flood's dupe sample into the contention estimate. */
     void clearPendingFrame();
 
-    /** The pending frame went on air: counts it and keeps the contention estimate from going stale. */
+    /** The picked frame went on air: counts it and keeps the contention estimate from going stale. */
     void markRelayed();
+
+    /**
+     * Something was transmitted: hold the next MeshCore frame back a few random slots, like Meshtastic's own post-TX
+     * delay, and forget the busy-channel backoff.
+     */
+    void afterTransmit(uint32_t slotMs);
+
+    /**
+     * The channel (or the radio) was busy for a due frame: milliseconds to wait before the next attempt. A random number
+     * of slots whose range doubles with every consecutive deferral, so repeaters that heard the same packet do not
+     * come back together the moment the channel frees up.
+     */
+    uint32_t busyBackoffMs(uint32_t slotMs);
 
     /**
      * Install this node's MeshCore identity from its 32-byte Ed25519 seed (public key is derived). Returns false, and
@@ -108,13 +134,14 @@ class MeshCoreRepeater
     size_t buildAdvert(uint8_t *out, size_t outLen, const char *name, uint32_t timestamp, bool flood);
 
     /**
-     * Queue one of our own frames (ADVERT, discovery reply) on the relay slot, due after delayMs. Not counted as a
-     * relay and not folded into the contention estimate. Returns false if the slot is busy.
+     * Queue one of our own frames (ADVERT, discovery reply, companion text), due after delayMs. Not counted as a relay
+     * and not folded into the contention estimate. When the queue is full it takes the place of the worst queued flood;
+     * returns false if there is none to give way (the queue holds only routed traffic and our own frames).
      */
     bool queueOwnFrame(const uint8_t *raw, size_t len, uint32_t delayMs = 0);
 
-    /** True when the pending frame is one of ours rather than a relayed flood. */
-    bool pendingIsOwn() const { return pendingOwn; }
+    /** Frames the relay can hold at once (ZephCore queues 32; floods are redundant, so a handful is enough here). */
+    static constexpr size_t QUEUE_SIZE = 8;
 
     /** Adaptive jitter factor in [0.40, 1.00] (0.5 before warmup), from the observed dupes. */
     float getFloodDelayFactor();
@@ -160,27 +187,45 @@ class MeshCoreRepeater
     static constexpr uint32_t DECAY_PERIOD_MS = 5000;
     static constexpr uint32_t MAX_DECAY_CATCHUP = 8;
 
-    /** Observation for the frame currently being relayed: its dupes are the contention sample. */
-    struct PendingRelay {
+    // Queue order: routed traffic first, then our own frames, then floods by hop count (fewest first, as ZephCore).
+    static constexpr uint8_t PRIORITY_DIRECT = 0;
+    static constexpr uint8_t PRIORITY_OWN = 1;
+    static constexpr uint8_t PRIORITY_FLOOD_BASE = 2;
+
+    // Busy-channel backoff and post-TX hold-off are counted in slots; never less than MIN_SLOT_MS, because the fast
+    // presets have sub-10 ms slots that would turn the retry into a spin.
+    static constexpr uint32_t MIN_SLOT_MS = 20;
+    static constexpr uint8_t BUSY_BACKOFF_MAX_EXP = 4; // widest window: 2^4 = 16 slots
+    static constexpr uint8_t HOLDOFF_MAX_SLOTS = 3;
+
+    /** One queued frame together with what the contention estimate needs from it: its dupes are the sample. */
+    struct QueuedFrame {
+        uint8_t data[MAX_FRAME_LEN];
+        uint8_t len = 0; // 0 marks a free slot
+        bool own = false;
+        bool needsVerify = false; // ADVERT whose signature is still to be checked
+        uint8_t priority = 0;
+        uint8_t dupeCount = 0;
+        uint16_t reactiveAddedMs = 0;
         uint32_t hash32 = 0;
         uint32_t firstSeenMs = 0;
+        uint32_t deadlineMs = 0;
         uint32_t airtimeMs = 0;
-        uint16_t reactiveAddedMs = 0;
-        uint8_t dupeCount = 0;
     };
 
     MeshCoreDedup<DEDUP_ENTRIES> dedup; // hashFrame() never returns 0, the empty-slot marker
 
-    uint8_t pending[MAX_FRAME_LEN];
-    size_t pendingLen = 0;
-    bool pendingOwn = false;
+    QueuedFrame queue[QUEUE_SIZE];
+    int selected = -1;         // index picked by takePendingFrame(), -1 when none
+    uint32_t selectedHash = 0; // identity of that pick: a radio event in between may evict it and reuse its slot
+    uint32_t holdoffUntilMs = 0;
+    bool holdoffSet = false;
+    uint8_t busyAttempts = 0;
 
     // This node's MeshCore identity (Ed25519). The seed is the secret; the public key is derived from it.
     uint8_t identitySeed[32] = {0};
     uint8_t identityPub[32] = {0};
     bool hasIdentityKey = false;
-    PendingRelay pendingRelay;
-    uint32_t pendingDeadlineMs = 0;
 
     uint32_t emaX256 = 0;
     uint16_t finalizedSamples = 0;
@@ -218,8 +263,20 @@ class MeshCoreRepeater
     static uint32_t directDelayMs(uint32_t airtimeMs);
     void onDupeHeard(uint32_t hash);
     bool canRelay() const;
-    void queueRelay(const uint8_t *raw, size_t len, uint32_t hash32, uint32_t airtimeMs, uint32_t delayMs);
-    void foldContentionSample();
+
+    /** Queue a frame to relay; false (and nothing remembered) when the queue is full of better frames. */
+    bool queueRelay(const uint8_t *raw, size_t len, uint32_t hash32, uint32_t airtimeMs, uint32_t delayMs, uint8_t priority,
+                    bool needsVerify = false);
+    /** Index of a free slot, evicting the worst queued flood that ranks below `priority` if none is free; -1 if none. */
+    int claimSlot(uint8_t priority);
+    /** Index of the frame to send next: best priority among the due ones, else the soonest to become due. -1 if empty. */
+    int pickNext() const;
+    void release(int index);
+    /** Index of the frame takePendingFrame() picked (or would pick), -1 if it is gone from the queue. */
+    int selectedIndex() const;
+    /** Drop floods that waited longer than a copy of them could still matter (they were never forwarded). */
+    void expireStale();
+    void foldContentionSample(const QueuedFrame &f);
     void applyLazyDecay();
     uint32_t adaptiveDelayMs(uint32_t airtimeMs);
 };
