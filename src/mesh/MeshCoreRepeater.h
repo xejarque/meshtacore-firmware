@@ -125,6 +125,10 @@ class MeshCoreRepeater
 
     bool hasIdentity() const { return hasIdentityKey; }
     const uint8_t *getIdentityPub() const { return identityPub; }
+    const uint8_t *getIdentitySeed() const { return identitySeed; }
+
+    /** Check an ADVERT payload's Ed25519 signature over pub_key || timestamp || app_data. */
+    static bool verifyAdvert(const uint8_t *payload, size_t payloadLen);
 
     /**
      * Encode an ADVERT for this node: repeater type, signed over pub||timestamp||app_data exactly as MeshCore's

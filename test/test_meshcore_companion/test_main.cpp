@@ -254,6 +254,269 @@ void test_sender_node_num_is_stable_and_distinct(void)
     TEST_ASSERT_NOT_EQUAL(MeshCoreCompanion::PSEUDO_NODE_NUM, a);
 }
 
+// Two identities: the seed is the Ed25519 private key, the public key is derived from it.
+static const uint8_t kSeedA[32] = {1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13, 14, 15, 16,
+                                   17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32};
+static const uint8_t kSeedB[32] = {32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17,
+                                   16, 15, 14, 13, 12, 11, 10, 9,  8,  7,  6,  5,  4,  3,  2,  1};
+
+void test_shared_secret_is_symmetric(void)
+{
+    uint8_t pubA[32], pubB[32], ab[32], ba[32];
+    Ed25519::derivePublicKey(pubA, kSeedA);
+    Ed25519::derivePublicKey(pubB, kSeedB);
+
+    TEST_ASSERT_TRUE(MeshCoreCompanion::sharedSecret(kSeedA, pubB, ab));
+    TEST_ASSERT_TRUE(MeshCoreCompanion::sharedSecret(kSeedB, pubA, ba));
+    TEST_ASSERT_EQUAL_MEMORY(ab, ba, 32);
+
+    uint8_t other[32];
+    TEST_ASSERT_TRUE(MeshCoreCompanion::sharedSecret(kSeedA, pubA, other));
+    TEST_ASSERT_NOT_EQUAL(0, memcmp(ab, other, 32));
+}
+
+void test_direct_text_round_trip(void)
+{
+    uint8_t pubA[32], pubB[32], secret[32];
+    Ed25519::derivePublicKey(pubA, kSeedA);
+    Ed25519::derivePublicKey(pubB, kSeedB);
+    TEST_ASSERT_TRUE(MeshCoreCompanion::sharedSecret(kSeedA, pubB, secret));
+
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = MeshCoreCompanion::encodeDirectText(secret, pubB[0], pubA[0], 0x01020304, 0, "hola", frame, sizeof(frame));
+    TEST_ASSERT_GREATER_THAN(0, len);
+    TEST_ASSERT_EQUAL_HEX8(0x09, frame[0]); // TXT_MSG, flood
+    TEST_ASSERT_EQUAL_HEX8(pubB[0], frame[2]);
+    TEST_ASSERT_EQUAL_HEX8(pubA[0], frame[3]);
+
+    MeshCoreRepeater::FrameInfo info;
+    TEST_ASSERT_TRUE(MeshCoreRepeater::parse(frame, len, &info));
+
+    // The receiver derives the same secret from its own seed and our public key.
+    uint8_t rxSecret[32];
+    TEST_ASSERT_TRUE(MeshCoreCompanion::sharedSecret(kSeedB, pubA, rxSecret));
+    char text[MeshCoreCompanion::MAX_TEXT_LEN + 1];
+    uint32_t ts = 0;
+    uint8_t flags = 0xFF;
+    TEST_ASSERT_TRUE(MeshCoreCompanion::decodeDirectText(rxSecret, frame, len, info, text, sizeof(text), &ts, &flags));
+    TEST_ASSERT_EQUAL_STRING("hola", text);
+    TEST_ASSERT_EQUAL_HEX32(0x01020304, ts);
+    TEST_ASSERT_EQUAL_HEX8(0, flags);
+}
+
+void test_direct_text_rejects_wrong_secret_and_tampering(void)
+{
+    uint8_t pubA[32], pubB[32], secret[32];
+    Ed25519::derivePublicKey(pubA, kSeedA);
+    Ed25519::derivePublicKey(pubB, kSeedB);
+    TEST_ASSERT_TRUE(MeshCoreCompanion::sharedSecret(kSeedA, pubB, secret));
+
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = MeshCoreCompanion::encodeDirectText(secret, pubB[0], pubA[0], 1, 0, "hola", frame, sizeof(frame));
+    MeshCoreRepeater::FrameInfo info;
+    TEST_ASSERT_TRUE(MeshCoreRepeater::parse(frame, len, &info));
+
+    char text[MeshCoreCompanion::MAX_TEXT_LEN + 1];
+    uint8_t wrong[32];
+    memcpy(wrong, secret, 32);
+    wrong[0] ^= 1;
+    TEST_ASSERT_FALSE(MeshCoreCompanion::decodeDirectText(wrong, frame, len, info, text, sizeof(text), nullptr, nullptr));
+
+    frame[len - 1] ^= 1;
+    TEST_ASSERT_FALSE(MeshCoreCompanion::decodeDirectText(secret, frame, len, info, text, sizeof(text), nullptr, nullptr));
+}
+
+void test_ack_hash_depends_on_text_and_sender(void)
+{
+    uint8_t pubA[32], pubB[32];
+    Ed25519::derivePublicKey(pubA, kSeedA);
+    Ed25519::derivePublicKey(pubB, kSeedB);
+
+    const uint32_t h = MeshCoreCompanion::ackHash(7, 0, "hola", pubA);
+    TEST_ASSERT_EQUAL_HEX32(h, MeshCoreCompanion::ackHash(7, 0, "hola", pubA));
+    TEST_ASSERT_NOT_EQUAL(h, MeshCoreCompanion::ackHash(7, 0, "hola!", pubA));
+    TEST_ASSERT_NOT_EQUAL(h, MeshCoreCompanion::ackHash(8, 0, "hola", pubA));
+    TEST_ASSERT_NOT_EQUAL(h, MeshCoreCompanion::ackHash(7, 0, "hola", pubB));
+}
+
+void test_ack_frame_layout(void)
+{
+    uint8_t frame[8];
+    TEST_ASSERT_EQUAL(6, MeshCoreCompanion::encodeAck(0x44332211, frame, sizeof(frame)));
+    TEST_ASSERT_EQUAL_HEX8(0x0D, frame[0]); // ACK, flood
+    TEST_ASSERT_EQUAL_HEX8(MeshCoreRepeater::OWN_FLOOD_PATH_LEN_BYTE, frame[1]);
+    TEST_ASSERT_EQUAL_HEX8(0x11, frame[2]);
+    TEST_ASSERT_EQUAL_HEX8(0x44, frame[5]);
+    TEST_ASSERT_EQUAL(0, MeshCoreCompanion::encodeAck(1, frame, 5));
+}
+
+static void fillPub(uint8_t pub[32], uint8_t first, uint8_t seed)
+{
+    for (int i = 0; i < 32; i++)
+        pub[i] = seed + i;
+    pub[0] = first;
+}
+
+void test_contacts_upsert_refreshes_name_and_keeps_node_num(void)
+{
+    MeshCoreContacts<4> table;
+    uint8_t pub[32];
+    fillPub(pub, 0x10, 1);
+
+    MeshCoreContact *a = table.upsert(pub, "Alice");
+    const uint32_t num = a->nodeNum;
+    TEST_ASSERT_EQUAL_HEX8(0x4D, num >> 24);
+
+    MeshCoreContact *again = table.upsert(pub, "Alicia");
+    TEST_ASSERT_EQUAL_PTR(a, again);
+    TEST_ASSERT_EQUAL_STRING("Alicia", again->name);
+    TEST_ASSERT_EQUAL_HEX32(num, again->nodeNum);
+    TEST_ASSERT_EQUAL_PTR(a, table.findByNodeNum(num));
+}
+
+void test_contacts_evict_least_recently_used(void)
+{
+    MeshCoreContacts<2> table;
+    uint8_t a[32], b[32], c[32];
+    fillPub(a, 1, 10);
+    fillPub(b, 2, 20);
+    fillPub(c, 3, 30);
+
+    table.upsert(a, "A");
+    table.upsert(b, "B");
+    table.touch(table.findByPub(a)); // B is now the oldest
+    table.upsert(c, "C");
+
+    TEST_ASSERT_NOT_NULL(table.findByPub(a));
+    TEST_ASSERT_NULL(table.findByPub(b));
+    TEST_ASSERT_NOT_NULL(table.findByPub(c));
+}
+
+void test_contacts_share_a_one_byte_hash(void)
+{
+    MeshCoreContacts<4> table;
+    uint8_t a[32], b[32], c[32];
+    fillPub(a, 0x42, 1);
+    fillPub(b, 0x42, 50);
+    fillPub(c, 0x43, 90);
+    table.upsert(a, "A");
+    table.upsert(b, "B");
+    table.upsert(c, "C");
+
+    MeshCoreContact *found[4];
+    TEST_ASSERT_EQUAL(2, table.findByHash(0x42, found, 4));
+    TEST_ASSERT_EQUAL(1, table.findByHash(0x43, found, 4));
+    TEST_ASSERT_EQUAL(0, table.findByHash(0x44, found, 4));
+}
+
+void test_contacts_never_reuse_the_pseudo_node_num(void)
+{
+    MeshCoreContacts<32> table;
+    for (int i = 0; i < 32; i++) {
+        uint8_t pub[32];
+        fillPub(pub, i, i * 7);
+        MeshCoreContact *c = table.upsert(pub, "x");
+        TEST_ASSERT_NOT_EQUAL(MeshCoreCompanion::PSEUDO_NODE_NUM, c->nodeNum);
+        TEST_ASSERT_EQUAL_PTR(c, table.findByNodeNum(c->nodeNum));
+    }
+}
+
+void test_contacts_image_round_trip_keeps_keys_and_names(void)
+{
+    MeshCoreCompanion writer;
+    uint8_t a[32], b[32];
+    fillPub(a, 1, 10);
+    fillPub(b, 2, 20);
+    writer.contacts.upsert(a, "Alice");
+    writer.contacts.upsert(b, "Bob");
+
+    uint8_t image[MeshCoreCompanion::SAVED_IMAGE_MAX];
+    const size_t n = writer.exportContacts(image, sizeof(image));
+    TEST_ASSERT_EQUAL(5 + 2 * MeshCoreCompanion::SAVED_RECORD_LEN, n);
+
+    MeshCoreCompanion reader;
+    TEST_ASSERT_EQUAL(2, reader.importContacts(image, n));
+    MeshCoreContact *ra = reader.contacts.findByPub(a);
+    MeshCoreContact *rb = reader.contacts.findByPub(b);
+    TEST_ASSERT_NOT_NULL(ra);
+    TEST_ASSERT_NOT_NULL(rb);
+    TEST_ASSERT_EQUAL_STRING("Alice", ra->name);
+    TEST_ASSERT_EQUAL_STRING("Bob", rb->name);
+    TEST_ASSERT_EQUAL_HEX32(writer.contacts.findByPub(a)->nodeNum, ra->nodeNum);
+}
+
+void test_contacts_image_rejects_garbage(void)
+{
+    MeshCoreCompanion c;
+    uint8_t junk[64] = {};
+    TEST_ASSERT_EQUAL(0, c.importContacts(junk, sizeof(junk)));
+
+    uint8_t image[MeshCoreCompanion::SAVED_IMAGE_MAX];
+    uint8_t a[32];
+    fillPub(a, 1, 10);
+    c.contacts.upsert(a, "Alice");
+    const size_t n = c.exportContacts(image, sizeof(image));
+
+    MeshCoreCompanion other;
+    TEST_ASSERT_EQUAL(0, other.importContacts(image, n - 1)); // truncated
+    image[3] = 99;                                            // unknown version
+    TEST_ASSERT_EQUAL(0, other.importContacts(image, n));
+}
+
+void test_contacts_fingerprint_follows_the_set_not_the_recency(void)
+{
+    MeshCoreCompanion c;
+    uint8_t a[32], b[32];
+    fillPub(a, 1, 10);
+    fillPub(b, 2, 20);
+    c.contacts.upsert(a, "Alice");
+    const uint32_t one = c.contactsFingerprint();
+
+    c.contacts.touch(c.contacts.findByPub(a));
+    TEST_ASSERT_EQUAL_HEX32(one, c.contactsFingerprint());
+
+    c.contacts.upsert(b, "Bob");
+    TEST_ASSERT_NOT_EQUAL(one, c.contactsFingerprint());
+    const uint32_t two = c.contactsFingerprint();
+
+    c.contacts.upsert(a, "Alicia");
+    TEST_ASSERT_NOT_EQUAL(two, c.contactsFingerprint());
+}
+
+void test_image_is_capped_to_the_most_recent_contacts(void)
+{
+    MeshCoreCompanion c;
+    for (int i = 0; i < 20; i++) {
+        uint8_t pub[32];
+        fillPub(pub, i + 1, i * 3);
+        c.contacts.upsert(pub, "n");
+    }
+    uint8_t image[MeshCoreCompanion::SAVED_IMAGE_MAX];
+    const size_t n = c.exportContacts(image, sizeof(image));
+    TEST_ASSERT_EQUAL(5 + MeshCoreCompanion::SAVED_MAX * MeshCoreCompanion::SAVED_RECORD_LEN, n);
+    TEST_ASSERT_EQUAL(MeshCoreCompanion::SAVED_MAX, image[4]);
+
+    // The newest contact (first byte 20) is first in the image; the oldest four did not make it.
+    TEST_ASSERT_EQUAL_HEX8(20, image[5]);
+    uint8_t oldest[32];
+    fillPub(oldest, 1, 0);
+    MeshCoreCompanion reader;
+    reader.importContacts(image, n);
+    TEST_ASSERT_NULL(reader.contacts.findByPub(oldest));
+}
+
+void test_direct_send_needs_identity_and_contact(void)
+{
+    MeshCoreCompanion c;
+    uint8_t pub[32];
+    fillPub(pub, 1, 10);
+    const uint32_t num = c.contacts.upsert(pub, "Alice")->nodeNum;
+    TEST_ASSERT_FALSE(c.sendDirectText(num, 1, "hola", 1000, nullptr)); // no identity, no radio
+    TEST_ASSERT_FALSE(c.sendDirectText(0x12345678, 1, "hola", 1000, nullptr));
+    TEST_ASSERT_TRUE(c.hasContact(num));
+    TEST_ASSERT_FALSE(c.hasContact(0x12345678));
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -274,6 +537,20 @@ void setup()
     RUN_TEST(test_split_sender_rejects_missing_or_empty_name);
     RUN_TEST(test_split_sender_cuts_long_name_on_utf8_boundary);
     RUN_TEST(test_sender_node_num_is_stable_and_distinct);
+    RUN_TEST(test_shared_secret_is_symmetric);
+    RUN_TEST(test_direct_text_round_trip);
+    RUN_TEST(test_direct_text_rejects_wrong_secret_and_tampering);
+    RUN_TEST(test_ack_hash_depends_on_text_and_sender);
+    RUN_TEST(test_ack_frame_layout);
+    RUN_TEST(test_contacts_upsert_refreshes_name_and_keeps_node_num);
+    RUN_TEST(test_contacts_evict_least_recently_used);
+    RUN_TEST(test_contacts_share_a_one_byte_hash);
+    RUN_TEST(test_contacts_never_reuse_the_pseudo_node_num);
+    RUN_TEST(test_contacts_image_round_trip_keeps_keys_and_names);
+    RUN_TEST(test_contacts_image_rejects_garbage);
+    RUN_TEST(test_contacts_fingerprint_follows_the_set_not_the_recency);
+    RUN_TEST(test_image_is_capped_to_the_most_recent_contacts);
+    RUN_TEST(test_direct_send_needs_identity_and_contact);
     exit(UNITY_END());
 }
 

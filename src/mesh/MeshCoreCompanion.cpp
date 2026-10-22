@@ -4,12 +4,21 @@
 
 #include "Channels.h"
 #include "NodeDB.h"
+#include "RadioInterface.h"
 #include "Router.h"
+#include "Throttle.h"
 #include "TypeConversions.h"
+#include "mesh-pb-constants.h"
 #include "meshUtils.h"
 #include <AES.h>
+#include <Curve25519.h>
 #include <SHA256.h>
+#include <SHA512.h>
 #include <string.h>
+
+#if !(MESHTASTIC_EXCLUDE_XEDDSA)
+#include "XEdDSA.h" // fe_* field arithmetic for the Ed25519 -> X25519 public key map
+#endif
 
 MeshCoreCompanion meshCoreCompanion;
 
@@ -197,6 +206,174 @@ bool MeshCoreCompanion::decodeGroupText(const uint8_t *key, size_t keyLen, const
     return true;
 }
 
+bool MeshCoreCompanion::sharedSecret(const uint8_t seed[32], const uint8_t peerPub[32], uint8_t out[32])
+{
+#if !(MESHTASTIC_EXCLUDE_XEDDSA)
+    if (!seed || !peerPub || !out)
+        return false;
+
+    // Peer: Montgomery u = (1 + y) / (1 - y) from the Edwards y in the public key.
+    fe y, one, num, den;
+    fe_frombytes(y, peerPub);
+    fe_1(one);
+    fe_add(num, one, y);
+    fe_sub(den, one, y);
+    fe_invert(den, den);
+    fe_mul(num, num, den);
+    uint8_t u[32];
+    fe_tobytes(u, num);
+
+    // Us: the Ed25519 scalar is the clamped first half of SHA-512(seed).
+    SHA512 sha;
+    uint8_t digest[64];
+    sha.reset();
+    sha.update(seed, 32);
+    sha.finalize(digest, sizeof(digest));
+    digest[0] &= 248;
+    digest[31] &= 63;
+    digest[31] |= 64;
+
+    const bool ok = Curve25519::eval(out, digest, u) && !Curve25519::isWeakPoint(out);
+    memset(digest, 0, sizeof(digest));
+    return ok;
+#else
+    return false;
+#endif
+}
+
+size_t MeshCoreCompanion::encodeDirectText(const uint8_t secret[32], uint8_t destHash, uint8_t srcHash, uint32_t timestamp,
+                                           uint8_t flags, const char *text, uint8_t *out, size_t outCap, bool *truncated)
+{
+    if (!secret || !out)
+        return 0;
+
+    const size_t textLen = utf8PrefixLen(text, MAX_TEXT_LEN);
+    if (truncated)
+        *truncated = text && textLen < strlen(text);
+
+    uint8_t plain[5 + MAX_TEXT_LEN];
+    writeLe32(plain, timestamp);
+    plain[4] = flags;
+    if (textLen)
+        memcpy(&plain[5], text, textLen);
+
+    const size_t plainLen = 5 + textLen;
+    uint8_t cipher[MAX_DIRECT_CIPHER_LEN];
+    const size_t cipherLen = aesEncrypt(secret, plain, plainLen, cipher);
+    if (cipherLen == 0 || 4 + cipherLen > outCap)
+        return 0;
+
+    out[0] = (0x02 << 2) | 0x01;                        // TXT_MSG, ROUTE_FLOOD
+    out[1] = MeshCoreRepeater::OWN_FLOOD_PATH_LEN_BYTE; // zero hops, 2-byte hashes
+    out[2] = destHash;
+    out[3] = srcHash;
+
+    SHA256 hmac;
+    hmac.resetHMAC(secret, 32);
+    hmac.update(cipher, cipherLen);
+    hmac.finalizeHMAC(secret, 32, &out[4], 2);
+
+    memcpy(&out[6], cipher, cipherLen);
+    return 6 + cipherLen;
+}
+
+bool MeshCoreCompanion::decodeDirectText(const uint8_t secret[32], const uint8_t *frame, size_t len,
+                                         const MeshCoreRepeater::FrameInfo &info, char *textOut, size_t textOutCap,
+                                         uint32_t *timestampOut, uint8_t *flagsOut)
+{
+    if (!secret || !frame || info.payload_type != 0x02 || info.header_len >= len)
+        return false;
+    if (info.payload_len < 1 + 1 + 2 + 16)
+        return false;
+
+    const uint8_t *payload = &frame[info.header_len];
+    const size_t cipherLen = info.payload_len - 4;
+    if (cipherLen % 16 != 0 || cipherLen > MAX_DIRECT_CIPHER_LEN)
+        return false;
+
+    uint8_t mac[2];
+    SHA256 hmac;
+    hmac.resetHMAC(secret, 32);
+    hmac.update(&payload[4], cipherLen);
+    hmac.finalizeHMAC(secret, 32, mac, sizeof(mac));
+    if (memcmp(mac, &payload[2], sizeof(mac)) != 0)
+        return false;
+
+    uint8_t plain[MAX_DIRECT_CIPHER_LEN];
+    const size_t plainLen = aesDecrypt(secret, &payload[4], cipherLen, plain);
+    if (plainLen < 5 || (plain[4] >> 2) != TXT_FLAGS_PLAIN)
+        return false;
+
+    if (textOut && textOutCap) {
+        size_t end = 0;
+        while (end < plainLen - 5 && plain[5 + end] != 0)
+            end++;
+        size_t copyLen = end < textOutCap ? end : textOutCap - 1;
+        memcpy(textOut, &plain[5], copyLen);
+        textOut[copyLen] = 0;
+        sanitizeUtf8(textOut, textOutCap);
+    }
+    if (timestampOut)
+        *timestampOut = readLe32(plain);
+    if (flagsOut)
+        *flagsOut = plain[4];
+    return true;
+}
+
+uint32_t MeshCoreCompanion::ackHash(uint32_t timestamp, uint8_t flags, const char *text, const uint8_t senderPub[32])
+{
+    uint8_t head[5];
+    writeLe32(head, timestamp);
+    head[4] = flags;
+
+    SHA256 sha;
+    uint8_t digest[32];
+    sha.reset();
+    sha.update(head, sizeof(head));
+    if (text)
+        sha.update(text, strlen(text));
+    sha.update(senderPub, 32);
+    sha.finalize(digest, sizeof(digest));
+    return readLe32(digest);
+}
+
+size_t MeshCoreCompanion::encodeAck(uint32_t hash, uint8_t *out, size_t outCap)
+{
+    if (!out || outCap < 6)
+        return 0;
+    out[0] = (0x03 << 2) | 0x01; // ACK, ROUTE_FLOOD
+    out[1] = MeshCoreRepeater::OWN_FLOOD_PATH_LEN_BYTE;
+    writeLe32(&out[2], hash);
+    return 6;
+}
+
+void MeshCoreCompanion::announceUser(uint32_t nodeNum, const meshtastic_User &user)
+{
+    if (!router)
+        return;
+    meshtastic_MeshPacket *p = packetPool.allocZeroed();
+    if (!p)
+        return;
+
+    p->from = nodeNum;
+    p->to = NODENUM_BROADCAST;
+    p->id = generatePacketId();
+    p->channel = 0;
+    p->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    p->decoded.portnum = meshtastic_PortNum_NODEINFO_APP;
+    p->decoded.payload.size =
+        pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), &meshtastic_User_msg, &user);
+    // Local news for the client, never to be repeated over Meshtastic: no hops left, and a next hop that is not us.
+    p->hop_start = 0;
+    p->hop_limit = 0;
+    const uint8_t ourRelay = nodeDB->getLastByteOfNodeNum(nodeDB->getNodeNum());
+    p->next_hop = (uint8_t)(ourRelay + 1);
+    if (p->next_hop == NO_NEXT_HOP_PREFERENCE)
+        p->next_hop = 1;
+    p->transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
+    router->enqueueReceivedMessage(p);
+}
+
 void MeshCoreCompanion::ensurePseudoNode()
 {
     if (!nodeDB)
@@ -213,6 +390,7 @@ void MeshCoreCompanion::ensurePseudoNode()
     user.has_is_unmessagable = true;
     user.is_unmessagable = true;
     TypeConversions::CopyUserToNodeInfoLite(lite, user);
+    announceUser(PSEUDO_NODE_NUM, user);
 }
 
 bool MeshCoreCompanion::splitSender(const char *text, char *nameOut, size_t nameCap, const char **body)
@@ -243,12 +421,16 @@ uint32_t MeshCoreCompanion::senderNodeNum(const char *name)
     return num == PSEUDO_NODE_NUM ? num + 1 : num;
 }
 
-void MeshCoreCompanion::ensureSenderNode(uint32_t nodeNum, const char *name)
+void MeshCoreCompanion::ensureSenderNode(uint32_t nodeNum, const char *name, bool messagable)
 {
     if (!nodeDB)
         return;
     meshtastic_NodeInfoLite *lite = nodeDB->getOrCreateMeshNode(nodeNum);
-    if (!lite || (nodeInfoLiteHasUser(lite) && strncmp(lite->long_name, name, sizeof(lite->long_name) - 1) == 0))
+    // A real Meshtastic node that happens to share this number reports a hardware model: never rename it.
+    if (lite && nodeInfoLiteHasUser(lite) && lite->hw_model != meshtastic_HardwareModel_UNSET)
+        return;
+    if (!lite || (nodeInfoLiteHasUser(lite) && strncmp(lite->long_name, name, sizeof(lite->long_name) - 1) == 0 &&
+                  nodeInfoLiteIsUnmessagable(lite) == !messagable))
         return;
 
     meshtastic_User user = {};
@@ -257,8 +439,9 @@ void MeshCoreCompanion::ensureSenderNode(uint32_t nodeNum, const char *name)
     user.hw_model = meshtastic_HardwareModel_UNSET;
     user.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
     user.has_is_unmessagable = true;
-    user.is_unmessagable = true;
+    user.is_unmessagable = !messagable;
     TypeConversions::CopyUserToNodeInfoLite(lite, user);
+    announceUser(nodeNum, user);
 }
 
 void MeshCoreCompanion::hopFields(uint8_t pathHashCount, uint8_t *hopStart, uint8_t *hopLimit)
@@ -298,9 +481,30 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
         return;
 
     MeshCoreRepeater::FrameInfo info;
-    if (!MeshCoreRepeater::parse(raw, len, &info) || info.payload_type != 0x05)
+    if (!MeshCoreRepeater::parse(raw, len, &info))
         return;
 
+    switch (info.payload_type) {
+    case 0x05: // GRP_TXT
+        handleGroupText(raw, len, info, snr, rssi);
+        break;
+    case 0x04: // ADVERT
+        handleAdvert(raw, len, info);
+        break;
+    case 0x02: // TXT_MSG
+        handleDirectText(raw, len, info, snr, rssi);
+        break;
+    case 0x03: // ACK
+        handleAck(raw, len, info);
+        break;
+    default:
+        break;
+    }
+}
+
+void MeshCoreCompanion::handleGroupText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr,
+                                        int32_t rssi)
+{
     rxSeen++;
     if (info.header_len >= len || info.payload_len < 1 + 2 + 16) {
         rxIgnored++;
@@ -378,6 +582,324 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
     }
 
     rxIgnored++;
+}
+
+void MeshCoreCompanion::setIdentity(const uint8_t seed[32], const uint8_t pub[32])
+{
+    memcpy(identitySeed, seed, sizeof(identitySeed));
+    memcpy(identityPub, pub, sizeof(identityPub));
+    identityReady = true;
+    contacts.forEach([](MeshCoreContact &c) { c.hasSecret = false; }); // secrets were derived for another identity
+}
+
+bool MeshCoreCompanion::ensureSecret(MeshCoreContact &c)
+{
+    if (!c.hasSecret)
+        c.hasSecret = identityReady && sharedSecret(identitySeed, c.pub, c.secret);
+    return c.hasSecret;
+}
+
+void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info)
+{
+    // ADVERT payload: public key (32), timestamp (4), signature (64), then app data: a flags byte (node type in the
+    // low nibble, 0x10 position, 0x20/0x40 reserved features, 0x80 name) followed by those fields in that order.
+    constexpr size_t appDataAt = 32 + 4 + 64;
+    if (!identityReady || info.header_len >= len || info.payload_len <= appDataAt)
+        return;
+
+    const uint8_t *payload = &raw[info.header_len];
+    if (memcmp(payload, identityPub, 32) == 0)
+        return; // our own advert coming back
+
+    const uint8_t flags = payload[appDataAt];
+    if ((flags & 0x0F) != 0x01 || !(flags & 0x80))
+        return; // only named chat nodes: repeaters and rooms are not people to message
+
+    size_t at = appDataAt + 1;
+    if (flags & 0x10)
+        at += 8;
+    if (flags & 0x20)
+        at += 2;
+    if (flags & 0x40)
+        at += 2;
+    if (at >= info.payload_len)
+        return;
+
+    char name[MeshCoreContact::NAME_LEN];
+    size_t nameLen = info.payload_len - at;
+    if (nameLen > sizeof(name) - 1)
+        nameLen = sizeof(name) - 1;
+    memcpy(name, &payload[at], nameLen);
+    name[nameLen] = 0;
+    sanitizeUtf8(name, sizeof(name));
+    if (name[0] == 0)
+        return;
+
+    // A contact we already trust under the same name only needs its LRU stamp refreshed: skip the signature check.
+    MeshCoreContact *known = contacts.findByPub(payload);
+    if (known && strcmp(known->name, name) == 0) {
+        contacts.touch(known);
+        return;
+    }
+    if (!MeshCoreRepeater::verifyAdvert(payload, info.payload_len))
+        return;
+
+    MeshCoreContact *c = contacts.upsert(payload, name);
+    if (!known)
+        contactsLearned++;
+    ensureSenderNode(c->nodeNum, c->name, true);
+}
+
+void MeshCoreCompanion::injectDirectText(const MeshCoreContact &c, const char *text, int pathHashCount, float snr, int32_t rssi)
+{
+    meshtastic_MeshPacket *p = packetPool.allocZeroed();
+    if (!p)
+        return;
+
+    ensureSenderNode(c.nodeNum, c.name, true); // a node-DB reset or eviction may have removed it
+    p->from = c.nodeNum;
+    p->to = nodeDB->getNodeNum();
+    p->id = generatePacketId();
+    p->channel = 0;
+    p->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+    const size_t textLen = strlen(text);
+    p->decoded.payload.size = textLen <= sizeof(p->decoded.payload.bytes) ? textLen : sizeof(p->decoded.payload.bytes);
+    memcpy(p->decoded.payload.bytes, text, p->decoded.payload.size);
+    p->decoded.has_bitfield = true;
+    p->decoded.bitfield = 0;
+    hopFields(pathHashCount, &p->hop_start, &p->hop_limit);
+    p->transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
+    if (pathHashCount == 0) {
+        p->rx_snr = snr;
+        p->has_rx_rssi = true;
+        p->rx_rssi = rssi;
+    }
+    router->enqueueReceivedMessage(p);
+}
+
+void MeshCoreCompanion::queueAck(uint32_t hash)
+{
+    uint8_t frame[8];
+    const size_t n = encodeAck(hash, frame, sizeof(frame));
+    RadioInterface *iface = router ? router->getRadioIface() : nullptr;
+    if (n == 0 || !iface || !iface->queueMeshCoreFrame(frame, n))
+        LOG_WARN("MeshCore ACK could not be queued");
+}
+
+void MeshCoreCompanion::handleDirectText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr,
+                                         int32_t rssi)
+{
+    // TXT_MSG payload: dest hash (1), source hash (1), MAC (2), ciphertext.
+    if (!identityReady || info.header_len >= len || info.payload_len < 1 + 1 + 2 + 16)
+        return;
+    const uint8_t *payload = &raw[info.header_len];
+    if (payload[0] != identityPub[0])
+        return; // not for us: the repeater relays it, we cannot read it anyway
+
+    const uint32_t hash = MeshCoreRepeater::hashFrame(raw, len, info);
+    if (wasRecentlySeen(hash)) {
+        rxDup++;
+        return;
+    }
+
+    // The source hash is one byte, so several contacts can share it: the MAC tells which one wrote it.
+    MeshCoreContact *candidates[CONTACTS_MAX];
+    const size_t n = contacts.findByHash(payload[1], candidates, CONTACTS_MAX);
+    for (size_t i = 0; i < n; i++) {
+        MeshCoreContact *c = candidates[i];
+        char text[MAX_TEXT_LEN + 1];
+        uint32_t timestamp = 0;
+        uint8_t flags = 0;
+        if (!ensureSecret(*c) || !decodeDirectText(c->secret, raw, len, info, text, sizeof(text), &timestamp, &flags))
+            continue;
+
+        rememberFrame(hash);
+        contacts.touch(c);
+        dmRx++;
+        LOG_INFO("MeshCore direct text from %s ts=%u len=%u", c->name, timestamp, (unsigned)strlen(text));
+        injectDirectText(*c, text, info.path_hash_count, snr, rssi);
+        queueAck(ackHash(timestamp, flags, text, c->pub));
+        return;
+    }
+}
+
+void MeshCoreCompanion::reportDelivery(uint32_t fromNum, uint32_t packetId, meshtastic_Routing_Error err)
+{
+    meshtastic_Routing r = meshtastic_Routing_init_default;
+    r.which_variant = meshtastic_Routing_error_reason_tag;
+    r.error_reason = err;
+
+    meshtastic_MeshPacket *p = packetPool.allocZeroed();
+    if (!p)
+        return;
+    p->from = fromNum;
+    p->to = nodeDB->getNodeNum();
+    p->id = generatePacketId();
+    p->channel = 0;
+    p->priority = meshtastic_MeshPacket_Priority_ACK;
+    p->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    p->decoded.portnum = meshtastic_PortNum_ROUTING_APP;
+    p->decoded.request_id = packetId;
+    p->decoded.payload.size =
+        pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), &meshtastic_Routing_msg, &r);
+    p->transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
+    router->enqueueReceivedMessage(p);
+}
+
+void MeshCoreCompanion::addPending(uint32_t ackHash, uint32_t packetId, uint32_t contactNum)
+{
+    PendingAck *slot = nullptr;
+    for (auto &e : pending) {
+        if (!e.used) {
+            slot = &e;
+            break;
+        }
+        if (!slot || (uint32_t)(millis() - e.sentMs) > (uint32_t)(millis() - slot->sentMs))
+            slot = &e; // the oldest one gives way
+    }
+    if (slot->used)
+        reportDelivery(slot->contactNum, slot->packetId, meshtastic_Routing_Error_MAX_RETRANSMIT);
+
+    slot->ackHash = ackHash;
+    slot->packetId = packetId;
+    slot->contactNum = contactNum;
+    slot->sentMs = millis();
+    slot->used = true;
+}
+
+bool MeshCoreCompanion::sendDirectText(uint32_t nodeNum, uint32_t packetId, const char *text, uint32_t now, RadioInterface *iface)
+{
+    MeshCoreContact *c = contacts.findByNodeNum(nodeNum);
+    if (!c || !identityReady || !iface || now == 0 || !text || !ensureSecret(*c))
+        return false;
+
+    // The ACK hashes the text as the peer will read it, so cut it the way encodeDirectText does.
+    char cut[MAX_TEXT_LEN + 1];
+    const size_t cutLen = utf8PrefixLen(text, MAX_TEXT_LEN);
+    memcpy(cut, text, cutLen);
+    cut[cutLen] = 0;
+
+    const uint32_t timestamp = nextTxTimestamp(now);
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t frameLen =
+        encodeDirectText(c->secret, c->pub[0], identityPub[0], timestamp, TXT_FLAGS_PLAIN, cut, frame, sizeof(frame));
+    if (frameLen == 0 || !iface->queueMeshCoreFrame(frame, frameLen))
+        return false;
+
+    addPending(ackHash(timestamp, TXT_FLAGS_PLAIN, cut, identityPub), packetId, nodeNum);
+    contacts.touch(c);
+    dmTx++;
+    return true;
+}
+
+void MeshCoreCompanion::handleAck(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info)
+{
+    if (info.payload_len != 4 || info.header_len + 4 > len)
+        return;
+    const uint32_t hash = readLe32(&raw[info.header_len]);
+    for (auto &e : pending) {
+        if (e.used && e.ackHash == hash) {
+            e.used = false;
+            dmAcked++;
+            reportDelivery(e.contactNum, e.packetId, meshtastic_Routing_Error_NONE);
+            return;
+        }
+    }
+}
+
+void MeshCoreCompanion::service()
+{
+    for (auto &e : pending) {
+        if (e.used && !Throttle::isWithinTimespanMs(e.sentMs, ACK_TIMEOUT_MS)) {
+            e.used = false;
+            dmTimedOut++;
+            reportDelivery(e.contactNum, e.packetId, meshtastic_Routing_Error_MAX_RETRANSMIT);
+        }
+    }
+}
+
+static constexpr uint8_t SAVED_MAGIC[3] = {'M', 'C', 'C'};
+static constexpr uint8_t SAVED_VERSION = 1;
+
+size_t MeshCoreCompanion::exportContacts(uint8_t *buf, size_t cap)
+{
+    if (!buf || cap < SAVED_IMAGE_MAX)
+        return 0;
+
+    // The most recently used contacts, newest first: the table can hold more than the file.
+    const MeshCoreContact *picked[SAVED_MAX];
+    size_t count = 0;
+    for (; count < SAVED_MAX; count++) {
+        const MeshCoreContact *best = nullptr;
+        contacts.forEach([&](MeshCoreContact &c) {
+            for (size_t i = 0; i < count; i++)
+                if (picked[i] == &c)
+                    return;
+            if (!best || c.lastUsed > best->lastUsed)
+                best = &c;
+        });
+        if (!best)
+            break;
+        picked[count] = best;
+    }
+
+    memcpy(buf, SAVED_MAGIC, sizeof(SAVED_MAGIC));
+    buf[3] = SAVED_VERSION;
+    buf[4] = (uint8_t)count;
+    for (size_t i = 0; i < count; i++) {
+        uint8_t *rec = &buf[5 + i * SAVED_RECORD_LEN];
+        memcpy(rec, picked[i]->pub, 32);
+        memcpy(&rec[32], picked[i]->name, MeshCoreContact::NAME_LEN);
+    }
+    return 5 + count * SAVED_RECORD_LEN;
+}
+
+size_t MeshCoreCompanion::importContacts(const uint8_t *buf, size_t len)
+{
+    if (!buf || len < 5 || memcmp(buf, SAVED_MAGIC, sizeof(SAVED_MAGIC)) != 0 || buf[3] != SAVED_VERSION)
+        return 0;
+    const size_t count = buf[4];
+    if (count > SAVED_MAX || len != 5 + count * SAVED_RECORD_LEN)
+        return 0;
+
+    // Saved newest first: load oldest first so the newest ends up the most recently used.
+    size_t loaded = 0;
+    for (size_t i = count; i-- > 0;) {
+        const uint8_t *rec = &buf[5 + i * SAVED_RECORD_LEN];
+        if (identityReady && memcmp(rec, identityPub, 32) == 0)
+            continue;
+        char name[MeshCoreContact::NAME_LEN];
+        memcpy(name, &rec[32], sizeof(name));
+        name[sizeof(name) - 1] = 0;
+        MeshCoreContact *c = contacts.upsert(rec, name);
+        ensureSenderNode(c->nodeNum, c->name, true);
+        loaded++;
+    }
+    return loaded;
+}
+
+uint32_t MeshCoreCompanion::contactsFingerprint()
+{
+    // Public keys and names only: the LRU order changes with every advert and is not worth a flash write.
+    uint32_t h = 2166136261u; // FNV-1a
+    auto mix = [&](const uint8_t *p, size_t n) {
+        for (size_t i = 0; i < n; i++)
+            h = (h ^ p[i]) * 16777619u;
+    };
+    uint32_t sum = 0, count = 0;
+    contacts.forEach([&](MeshCoreContact &c) {
+        uint32_t ch = 2166136261u;
+        for (size_t i = 0; i < 32; i++)
+            ch = (ch ^ c.pub[i]) * 16777619u;
+        for (const char *q = c.name; *q; q++)
+            ch = (ch ^ (uint8_t)*q) * 16777619u;
+        sum += ch; // order independent: a slot being reused must not look like a change
+        count++;
+    });
+    mix((const uint8_t *)&sum, sizeof(sum));
+    mix((const uint8_t *)&count, sizeof(count));
+    return h;
 }
 
 void MeshCoreCompanion::noteTransmitted(const uint8_t *raw, size_t len)

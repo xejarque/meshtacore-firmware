@@ -678,9 +678,11 @@ static constexpr uint32_t MESHCORE_ADVERT_FIRST_MS = 60 * 1000; // first zero-ho
 // every 47 hours for the whole mesh. A flood is re-sent by every node, so it must stay rare.
 static constexpr uint32_t MESHCORE_LOCAL_ADVERT_INTERVAL_MS = 2 * 60 * 1000;
 static constexpr uint32_t MESHCORE_FLOOD_ADVERT_INTERVAL_MS = 47UL * 60 * 60 * 1000;
-static constexpr uint32_t MESHCORE_ADVERT_RETRY_MS = 60 * 1000; // no identity / no valid time
-static constexpr uint32_t MESHCORE_ADVERT_NUDGE_MS = 1000;      // radio busy: ask again
-static constexpr uint32_t MESHCORE_TX_POLL_MS = 100;            // a raw frame is on air: look again for a lost TX-done
+static constexpr uint32_t MESHCORE_ADVERT_RETRY_MS = 60 * 1000;           // no identity / no valid time
+static constexpr uint32_t MESHCORE_ADVERT_NUDGE_MS = 1000;                // radio busy: ask again
+static constexpr uint32_t MESHCORE_SERVICE_MS = 5 * 1000;                 // longest wait between housekeeping steps
+static constexpr uint32_t MESHCORE_CONTACTS_SAVE_MIN_MS = 10 * 60 * 1000; // flash wear: at most one save per 10 minutes
+static constexpr uint32_t MESHCORE_TX_POLL_MS = 100;                      // a raw frame is on air: look again for a lost TX-done
 
 /** Runs RadioLibInterface::meshCoreAdvertTick() on its own schedule. */
 class MeshCoreAdvertThread : public concurrency::OSThread
@@ -691,7 +693,7 @@ class MeshCoreAdvertThread : public concurrency::OSThread
     }
 
   protected:
-    int32_t runOnce() override { return radio->meshCoreAdvertTick(); }
+    int32_t runOnce() override { return radio->meshCoreServiceTick(); }
 
   private:
     RadioLibInterface *radio;
@@ -730,6 +732,70 @@ static bool loadOrCreateMeshCoreSeed(uint8_t seed[MESHCORE_SEED_LEN], bool force
 #endif
     LOG_INFO("MeshCore identity created");
     return true;
+}
+
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+static const char *meshCoreContactsPath = "/prefs/meshcore_contacts.bin";
+
+static void loadMeshCoreContacts()
+{
+#ifdef FSCom
+    uint8_t image[MeshCoreCompanion::SAVED_IMAGE_MAX];
+    size_t n = 0;
+    {
+        concurrency::LockGuard g(spiLock);
+        auto f = FSCom.open(meshCoreContactsPath, FILE_O_READ);
+        if (!f)
+            return;
+        n = f.size() <= sizeof(image) ? f.read(image, f.size()) : 0;
+        f.close();
+    }
+    const size_t loaded = meshCoreCompanion.importContacts(image, n);
+    LOG_INFO("MeshCore contacts: %u restored from flash", (unsigned)loaded);
+#endif
+}
+
+static void saveMeshCoreContacts()
+{
+#ifdef FSCom
+    uint8_t image[MeshCoreCompanion::SAVED_IMAGE_MAX];
+    const size_t n = meshCoreCompanion.exportContacts(image, sizeof(image));
+    if (n == 0)
+        return;
+    SafeFile out(meshCoreContactsPath, true); // atomic replace
+    out.write(image, n);
+    if (!out.close())
+        LOG_WARN("MeshCore contacts: could not save %s", meshCoreContactsPath);
+#endif
+}
+#endif
+
+uint32_t RadioLibInterface::meshCoreServiceTick()
+{
+    uint32_t next = meshCoreAdvertTick();
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    if (meshCoreRepeater.hasIdentity() && !meshCoreCompanion.hasIdentity()) {
+        meshCoreCompanion.setIdentity(meshCoreRepeater.getIdentitySeed(), meshCoreRepeater.getIdentityPub());
+    }
+    if (meshCoreCompanion.hasIdentity() && !meshCoreContactsLoaded) {
+        meshCoreContactsLoaded = true;
+        loadMeshCoreContacts();
+        meshCoreContactsFingerprint = meshCoreCompanion.contactsFingerprint();
+        lastMeshCoreContactsSaveMs = millis();
+    }
+
+    meshCoreCompanion.service();
+
+    if (meshCoreContactsLoaded && Throttle::hasElapsed(lastMeshCoreContactsSaveMs, MESHCORE_CONTACTS_SAVE_MIN_MS)) {
+        const uint32_t fingerprint = meshCoreCompanion.contactsFingerprint();
+        if (fingerprint != meshCoreContactsFingerprint) {
+            saveMeshCoreContacts();
+            meshCoreContactsFingerprint = fingerprint;
+            lastMeshCoreContactsSaveMs = millis();
+        }
+    }
+#endif
+    return next < MESHCORE_SERVICE_MS ? next : MESHCORE_SERVICE_MS;
 }
 
 uint32_t RadioLibInterface::meshCoreAdvertTick()

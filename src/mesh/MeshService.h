@@ -238,6 +238,10 @@ class MeshService
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
     /// Encode p as a MeshCore GRP_TXT and queue it on the radio. False if it could not be queued.
     bool sendMeshCoreGroupText(const meshtastic_MeshPacket *p);
+
+    /// Encode p as a MeshCore TXT_MSG for the contact behind p->to and queue it on the radio. The real ACK, or its
+    /// timeout, reaches the client later. False if it could not be queued.
+    bool sendMeshCoreDirectText(const meshtastic_MeshPacket *p);
 #endif
 #if HAS_GPS
     /// Called when our gps position has changed - updates nodedb and sends Location message out into the mesh

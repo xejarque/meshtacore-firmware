@@ -462,6 +462,20 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
      * ADVERT when due, and nudges the radio thread until it is on air. Returns ms until the next step.
      */
     uint32_t meshCoreAdvertTick();
+
+    /**
+     * Housekeeping around the ADVERT schedule, run from the same thread: hands the identity to the companion once it
+     * exists, restores the saved contacts, saves them again when they changed, and times out unanswered direct
+     * messages. Returns ms until the next step.
+     */
+    uint32_t meshCoreServiceTick();
+
+  private:
+    uint32_t meshCoreContactsFingerprint = 0; // of what is on flash, so a save happens only on a change
+    uint32_t lastMeshCoreContactsSaveMs = 0;
+    bool meshCoreContactsLoaded = false;
+
+  public:
 #endif
 
   protected:

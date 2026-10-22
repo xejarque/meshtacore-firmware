@@ -435,12 +435,47 @@ bool MeshService::sendMeshCoreGroupText(const meshtastic_MeshPacket *p)
 }
 #endif
 
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+bool MeshService::sendMeshCoreDirectText(const meshtastic_MeshPacket *p)
+{
+    // MeshCore timestamps are wall-clock: without a valid time the peer would reject or misorder the message.
+    const uint32_t now = getValidTime(RTCQualityFromNet);
+    char text[sizeof(p->decoded.payload.bytes) + 1];
+    memcpy(text, p->decoded.payload.bytes, p->decoded.payload.size);
+    text[p->decoded.payload.size] = 0;
+
+    RadioInterface *iface = router ? router->getRadioIface() : nullptr;
+    if (!meshCoreCompanion.sendDirectText(p->to, p->id, text, now, iface)) {
+        LOG_WARN("MeshCore direct TX failed to=0x%08x (validTime=%d)", (unsigned)p->to, now != 0);
+        return false;
+    }
+    LOG_INFO("MeshCore direct TX to=0x%08x id=%u", (unsigned)p->to, (unsigned)p->id);
+    return true;
+}
+#endif
+
 ErrorCode MeshService::sendToMesh(meshtastic_MeshPacket *p, RxSource src, bool ccToPhone)
 {
     uint32_t mesh_packet_id = p->id;
     nodeDB->updateFrom(*p); // update our local DB for this packet (because phone might have sent position packets etc...)
 
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    // A text for a MeshCore contact leaves as a TXT_MSG. Only contacts we hold a key for: any other node number is a
+    // Meshtastic node, whatever its top byte.
+    if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+        p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && meshCoreCompanion.hasContact(p->to)) {
+        const bool queued = sendMeshCoreDirectText(p);
+        // Delivery is reported when the contact's ACK arrives (or times out); only a refusal is answered now.
+        if (!queued && routingModule)
+            routingModule->sendAckNak(meshtastic_Routing_Error_NO_INTERFACE, getFrom(p), p->id, p->channel, 0);
+        if (router) {
+            meshtastic_QueueStatus qs = router->getQueueStatus();
+            (void)sendQueueStatusToPhone(qs, queued ? ERRNO_OK : ERRNO_UNKNOWN, mesh_packet_id);
+        }
+        releaseToPool(p);
+        return queued ? ERRNO_OK : ERRNO_UNKNOWN;
+    }
+
     if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag && channels.isMeshCoreChannel(p->channel) && !isToUs(p)) {
         const bool isGroupText = p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && isBroadcast(p->to);
         bool queued = false;

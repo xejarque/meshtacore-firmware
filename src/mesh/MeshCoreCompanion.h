@@ -5,10 +5,13 @@
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 
 #include "Channels.h"
+#include "MeshCoreContacts.h"
 #include "MeshCoreDedup.h"
 #include "MeshCoreRepeater.h"
 #include <stddef.h>
 #include <stdint.h>
+
+class RadioInterface;
 
 /**
  * MeshCore group-text bridge for the Meshtastic client.
@@ -54,6 +57,40 @@ class MeshCoreCompanion
                                 const MeshCoreRepeater::FrameInfo &info, char *textOut, size_t textOutCap,
                                 uint32_t *timestampOut);
 
+    /// MeshCore ECDH: our Ed25519 seed and the peer's Ed25519 public key give the 32-byte secret both sides
+    /// derive (orlp ed25519_key_exchange: X25519 over the clamped SHA-512 scalar and the key's Montgomery u).
+    /// False for a malformed or weak peer key.
+    static bool sharedSecret(const uint8_t seed[32], const uint8_t peerPub[32], uint8_t out[32]);
+
+    /// Largest ciphertext a valid TXT_MSG carries: 5-byte header + MAX_TEXT_LEN, padded to the AES block.
+    static constexpr size_t MAX_DIRECT_CIPHER_LEN = MAX_CIPHER_LEN;
+
+    /// TXT_MSG flood flags byte: text type in bits 2-7 (0 = plain), send attempt in bits 0-1.
+    static constexpr uint8_t TXT_FLAGS_PLAIN = 0;
+
+    /**
+     * Encode a TXT_MSG flood frame for a peer: dest_hash | src_hash | MAC | AES(timestamp, flags, text). hashes are the
+     * first byte of each public key. text is truncated to MAX_TEXT_LEN on a UTF-8 boundary. Returns the frame length,
+     * or 0 if it does not fit.
+     */
+    static size_t encodeDirectText(const uint8_t secret[32], uint8_t destHash, uint8_t srcHash, uint32_t timestamp, uint8_t flags,
+                                   const char *text, uint8_t *out, size_t outCap, bool *truncated = nullptr);
+
+    /**
+     * Verify and decrypt a TXT_MSG for secret. textOut gets the NUL-terminated, sanitised text; the timestamp and flags
+     * are returned as sent. False on a bad MAC, malformed ciphertext or a non-plain text type.
+     */
+    static bool decodeDirectText(const uint8_t secret[32], const uint8_t *frame, size_t len,
+                                 const MeshCoreRepeater::FrameInfo &info, char *textOut, size_t textOutCap,
+                                 uint32_t *timestampOut, uint8_t *flagsOut);
+
+    /// The 4-byte ACK a peer answers a TXT_MSG with: SHA-256(timestamp | flags | text | senderPub)[:4], where
+    /// senderPub belongs to whoever wrote the text (BaseChatMesh::onPeerDataRecv).
+    static uint32_t ackHash(uint32_t timestamp, uint8_t flags, const char *text, const uint8_t senderPub[32]);
+
+    /// Encode an ACK flood frame carrying hash. Returns the frame length, or 0 if it does not fit.
+    static size_t encodeAck(uint32_t hash, uint8_t *out, size_t outCap);
+
     /// Meshtastic hop fields for a frame that crossed pathHashCount repeaters. Clients show hops as
     /// hop_start - hop_limit, so 0 hops stays "direct" and anything beyond HOP_START is capped there.
     static constexpr uint8_t HOP_START = 7;
@@ -73,19 +110,57 @@ class MeshCoreCompanion
 
     /// Create or refresh the node for a bridged sender: long name is the name, short name its first 4 bytes
     /// (never splitting a UTF-8 character).
-    void ensureSenderNode(uint32_t nodeNum, const char *name);
+    /// messagable=true marks a direct-message contact: the client lets the user write to it.
+    void ensureSenderNode(uint32_t nodeNum, const char *name, bool messagable = false);
 
     /// Timestamp for the next outgoing text: strictly increasing, so two texts sent within the same
     /// second still encrypt differently and are not dropped as duplicates by repeaters.
     uint32_t nextTxTimestamp(uint32_t now);
 
-    /// Consume a received MeshCore frame: decode GRP_TXT on any MC: channel and inject it.
+    /// Consume a received MeshCore frame: GRP_TXT on any MC: channel and TXT_MSG for us are injected into the
+    /// router, an ACK settles a pending direct message, an ADVERT teaches us a contact.
     void handleFrame(const uint8_t *raw, size_t len, float snr, int32_t rssi);
+
+    /// Install our MeshCore identity (Ed25519 seed and public key); direct messages need it.
+    void setIdentity(const uint8_t seed[32], const uint8_t pub[32]);
+    bool hasIdentity() const { return identityReady; }
+
+    /// True when node is a direct-message contact we hold a public key for.
+    bool hasContact(uint32_t nodeNum) { return contacts.findByNodeNum(nodeNum) != nullptr; }
+
+    /// Queue a TXT_MSG for the contact behind nodeNum and wait for its ACK, answering packetId to the client.
+    /// text is cut to MAX_TEXT_LEN on a UTF-8 boundary. False if it could not be queued.
+    bool sendDirectText(uint32_t nodeNum, uint32_t packetId, const char *text, uint32_t now, RadioInterface *iface);
+
+    /// How long a direct message waits for its ACK before the client is told it failed.
+    static constexpr uint32_t ACK_TIMEOUT_MS = 30000;
+
+    /// Run periodically: report direct messages whose ACK never came.
+    void service();
+
+    /// The most recently used contacts as a flash image: magic, count, then public key and name per contact. This is
+    /// independent of the node DB's favourite flag, whose role-specific meaning in Meshtastic stays untouched.
+    /// Returns the image length (an empty table is still a valid 5-byte image), 0 if cap is below SAVED_IMAGE_MAX.
+    size_t exportContacts(uint8_t *buf, size_t cap);
+
+    /// Restore contacts from an exportContacts() image. Returns how many were loaded.
+    size_t importContacts(const uint8_t *buf, size_t len);
+
+    static constexpr size_t SAVED_MAX = 16;
+    static constexpr size_t SAVED_RECORD_LEN = 32 + MeshCoreContact::NAME_LEN;
+    static constexpr size_t SAVED_IMAGE_MAX = 5 + SAVED_MAX * SAVED_RECORD_LEN;
+
+    /// Checksum of the contact set (keys and names, not recency), to save only when it changed.
+    uint32_t contactsFingerprint();
 
     /// Mark one of our own transmitted frames seen, so hearing it back does not inject it.
     void noteTransmitted(const uint8_t *raw, size_t len);
 
     uint32_t rxSeen = 0, rxDecoded = 0, rxDup = 0, rxIgnored = 0, txSent = 0;
+    uint32_t contactsLearned = 0, dmRx = 0, dmTx = 0, dmAcked = 0, dmTimedOut = 0;
+
+    static constexpr size_t CONTACTS_MAX = 32;
+    MeshCoreContacts<CONTACTS_MAX> contacts;
 
   private:
     static constexpr size_t DEDUP_ENTRIES = 64;
@@ -100,6 +175,37 @@ class MeshCoreCompanion
     MeshCoreDedup<DEDUP_ENTRIES> dedup; // hashFrame() never returns 0, the empty-slot marker
     HashCacheEntry hashCache[MAX_NUM_CHANNELS];
     uint32_t lastTxTimestamp = 0;
+
+    uint8_t identitySeed[32] = {};
+    uint8_t identityPub[32] = {};
+    bool identityReady = false;
+
+    /// A direct message on air whose ACK we are waiting for.
+    struct PendingAck {
+        uint32_t ackHash = 0;
+        uint32_t packetId = 0;
+        uint32_t contactNum = 0;
+        uint32_t sentMs = 0;
+        bool used = false;
+    };
+    static constexpr size_t PENDING_ACKS = 8;
+    PendingAck pending[PENDING_ACKS];
+
+    void handleGroupText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi);
+    void handleAdvert(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info);
+    void handleDirectText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi);
+    void handleAck(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info);
+
+    bool ensureSecret(MeshCoreContact &c);
+    void injectDirectText(const MeshCoreContact &c, const char *text, int pathHashCount, float snr, int32_t rssi);
+    void queueAck(uint32_t hash);
+    /// Tell the client how a direct message ended, as if the contact itself had answered.
+    void reportDelivery(uint32_t fromNum, uint32_t packetId, meshtastic_Routing_Error err);
+    void addPending(uint32_t ackHash, uint32_t packetId, uint32_t contactNum);
+
+    /// Tell the client about a node we just created or renamed. The node DB alone is not enough: a connected phone only
+    /// learns a node's name from a NODEINFO packet (or on its next config download), and otherwise shows "Meshtastic xxxx".
+    void announceUser(uint32_t nodeNum, const meshtastic_User &user);
 
     bool cachedChannelHash(ChannelIndex ch, const uint8_t *key, size_t keyLen, uint8_t *out);
     bool wasRecentlySeen(uint32_t hash) const { return dedup.contains(hash); }

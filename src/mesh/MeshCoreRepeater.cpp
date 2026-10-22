@@ -82,6 +82,11 @@ static bool advertSignatureValid(const uint8_t *payload, size_t payloadLen)
     return Ed25519::verify(&payload[signedHeadLen], payload, message, signedHeadLen + appLen);
 }
 
+bool MeshCoreRepeater::verifyAdvert(const uint8_t *payload, size_t payloadLen)
+{
+    return advertSignatureValid(payload, payloadLen);
+}
+
 // Every encrypted MeshCore payload is [routing hashes][2-byte MAC][AES-128 blocks], and Utils::encrypt zero-pads the
 // last block, so what follows the fixed part is a whole number of 16-byte blocks. A Meshtastic frame that parsed as
 // MeshCore by accident has this shape about one time in sixteen.
