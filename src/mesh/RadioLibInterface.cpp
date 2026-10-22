@@ -844,6 +844,8 @@ uint32_t RadioLibInterface::meshCoreAdvertTick()
         name = fallbackName;
     }
     uint8_t raw[MeshCoreRepeater::MAX_FRAME_LEN];
+    // The Meshtastic role decides how MeshCore sees us: a router is a repeater, anything else a companion to message.
+    meshCoreRepeater.setNodeType(MeshCoreRepeater::nodeTypeForRole(config.device.role));
     size_t len = meshCoreRepeater.buildAdvert(raw, sizeof(raw), name, now, floodDue);
     if (len == 0 || !meshCoreRepeater.queueOwnFrame(raw, len)) {
         LOG_WARN("MeshCore ADVERT could not be built or queued");

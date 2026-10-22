@@ -517,6 +517,113 @@ void test_direct_send_needs_identity_and_contact(void)
     TEST_ASSERT_FALSE(c.hasContact(0x12345678));
 }
 
+void test_contact_node_carries_the_meshcore_key_and_is_messagable(void)
+{
+    // The other tests run without a node DB (the bridge then does nothing); this one needs a real one.
+    NodeDB *previous = nodeDB;
+    nodeDB = new NodeDB();
+
+    MeshCoreCompanion c;
+    uint8_t pub[32];
+    fillPub(pub, 0x21, 77);
+    const uint32_t num = MeshCoreContacts<4>::nodeNumFor(pub);
+
+    c.ensureSenderNode(num, "Keyed", true, pub);
+    meshtastic_NodeInfoLite *lite = nodeDB->getMeshNode(num);
+    TEST_ASSERT_NOT_NULL(lite);
+    TEST_ASSERT_EQUAL(32, lite->public_key.size);
+    TEST_ASSERT_EQUAL_MEMORY(pub, lite->public_key.bytes, 32);
+    TEST_ASSERT_FALSE(nodeInfoLiteIsUnmessagable(lite));
+
+    // A group sender has no key and stays unmessagable.
+    const uint32_t groupNum = MeshCoreCompanion::senderNodeNum("GroupOnly");
+    c.ensureSenderNode(groupNum, "GroupOnly");
+    lite = nodeDB->getMeshNode(groupNum);
+    TEST_ASSERT_NOT_NULL(lite);
+    TEST_ASSERT_EQUAL(0, lite->public_key.size);
+    TEST_ASSERT_TRUE(nodeInfoLiteIsUnmessagable(lite));
+
+    delete nodeDB;
+    nodeDB = previous;
+}
+
+void test_contacts_find_a_name_only_when_unique(void)
+{
+    MeshCoreContacts<4> table;
+    uint8_t a[32], b[32], c[32];
+    fillPub(a, 1, 10);
+    fillPub(b, 2, 20);
+    fillPub(c, 3, 30);
+    table.upsert(a, "Alice");
+    table.upsert(b, "Alice");
+    table.upsert(c, "Carol");
+
+    TEST_ASSERT_NULL(table.findUniqueByName("Alice")); // two people share it: the name cannot pick one
+    TEST_ASSERT_EQUAL_PTR(table.findByPub(c), table.findUniqueByName("Carol"));
+    TEST_ASSERT_NULL(table.findUniqueByName("Nobody"));
+}
+
+static void sharedBetweenTestSeeds(uint8_t secret[32], uint8_t pubA[32], uint8_t pubB[32])
+{
+    Ed25519::derivePublicKey(pubA, kSeedA);
+    Ed25519::derivePublicKey(pubB, kSeedB);
+    TEST_ASSERT_TRUE(MeshCoreCompanion::sharedSecret(kSeedA, pubB, secret));
+}
+
+void test_path_ack_round_trip(void)
+{
+    uint8_t secret[32], pubA[32], pubB[32];
+    sharedBetweenTestSeeds(secret, pubA, pubB);
+
+    uint8_t frame[64];
+    const size_t len = MeshCoreCompanion::encodePathAck(secret, pubA[0], pubB[0], 0xA1B2C3D4, frame, sizeof(frame));
+    TEST_ASSERT_GREATER_THAN(0, len);
+    TEST_ASSERT_EQUAL_HEX8(0x21, frame[0]); // PATH, flood
+
+    MeshCoreRepeater::FrameInfo info;
+    TEST_ASSERT_TRUE(MeshCoreRepeater::parse(frame, len, &info));
+    uint32_t hash = 0;
+    TEST_ASSERT_TRUE(MeshCoreCompanion::decodePathAck(secret, frame, len, info, &hash));
+    TEST_ASSERT_EQUAL_HEX32(0xA1B2C3D4, hash);
+
+    uint8_t wrong[32];
+    memcpy(wrong, secret, 32);
+    wrong[5] ^= 1;
+    TEST_ASSERT_FALSE(MeshCoreCompanion::decodePathAck(wrong, frame, len, info, &hash));
+}
+
+void test_path_ack_skips_the_walked_path(void)
+{
+    uint8_t secret[32], pubA[32], pubB[32];
+    sharedBetweenTestSeeds(secret, pubA, pubB);
+
+    // path_len 0x42: 2-byte hashes, 2 hops (4 bytes of path), then extra type ACK and the hash.
+    const uint8_t plain[] = {0x42, 0x11, 0x22, 0x33, 0x44, 0x03, 0x78, 0x56, 0x34, 0x12};
+    uint8_t frame[80];
+    const size_t len = sealDatagram(secret, 0x08, pubA[0], pubB[0], plain, sizeof(plain), frame, sizeof(frame));
+    MeshCoreRepeater::FrameInfo info;
+    TEST_ASSERT_TRUE(MeshCoreRepeater::parse(frame, len, &info));
+
+    uint32_t hash = 0;
+    TEST_ASSERT_TRUE(MeshCoreCompanion::decodePathAck(secret, frame, len, info, &hash));
+    TEST_ASSERT_EQUAL_HEX32(0x12345678, hash);
+}
+
+void test_path_with_another_extra_is_not_an_ack(void)
+{
+    uint8_t secret[32], pubA[32], pubB[32];
+    sharedBetweenTestSeeds(secret, pubA, pubB);
+
+    const uint8_t plain[] = {0x00, 0x0F, 1, 2, 3, 4}; // RAW_CUSTOM extra, what MeshCore sends with no ACK to carry
+    uint8_t frame[64];
+    const size_t len = sealDatagram(secret, 0x08, pubA[0], pubB[0], plain, sizeof(plain), frame, sizeof(frame));
+    MeshCoreRepeater::FrameInfo info;
+    TEST_ASSERT_TRUE(MeshCoreRepeater::parse(frame, len, &info));
+
+    uint32_t hash = 0;
+    TEST_ASSERT_FALSE(MeshCoreCompanion::decodePathAck(secret, frame, len, info, &hash));
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -551,6 +658,11 @@ void setup()
     RUN_TEST(test_contacts_fingerprint_follows_the_set_not_the_recency);
     RUN_TEST(test_image_is_capped_to_the_most_recent_contacts);
     RUN_TEST(test_direct_send_needs_identity_and_contact);
+    RUN_TEST(test_contact_node_carries_the_meshcore_key_and_is_messagable);
+    RUN_TEST(test_contacts_find_a_name_only_when_unique);
+    RUN_TEST(test_path_ack_round_trip);
+    RUN_TEST(test_path_ack_skips_the_walked_path);
+    RUN_TEST(test_path_with_another_extra_is_not_an_ack);
     exit(UNITY_END());
 }
 

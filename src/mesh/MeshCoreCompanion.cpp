@@ -241,6 +241,57 @@ bool MeshCoreCompanion::sharedSecret(const uint8_t seed[32], const uint8_t peerP
 #endif
 }
 
+// MeshCore datagram (TXT_MSG, PATH): dest hash | src hash | MAC(2) | AES-128 blocks, MAC = HMAC-SHA256 over the cipher.
+static size_t sealDatagram(const uint8_t secret[32], uint8_t payloadType, uint8_t destHash, uint8_t srcHash, const uint8_t *plain,
+                           size_t plainLen, uint8_t *out, size_t outCap)
+{
+    uint8_t cipher[MeshCoreCompanion::MAX_CIPHER_LEN];
+    if (plainLen > sizeof(cipher))
+        return 0;
+    const size_t cipherLen = aesEncrypt(secret, plain, plainLen, cipher);
+    if (cipherLen == 0 || 6 + cipherLen > outCap)
+        return 0;
+
+    out[0] = (payloadType << 2) | 0x01;                 // ROUTE_FLOOD
+    out[1] = MeshCoreRepeater::OWN_FLOOD_PATH_LEN_BYTE; // zero hops, 2-byte hashes
+    out[2] = destHash;
+    out[3] = srcHash;
+
+    SHA256 hmac;
+    hmac.resetHMAC(secret, 32);
+    hmac.update(cipher, cipherLen);
+    hmac.finalizeHMAC(secret, 32, &out[4], 2);
+
+    memcpy(&out[6], cipher, cipherLen);
+    return 6 + cipherLen;
+}
+
+/// Verify the MAC of a datagram payload and decrypt it into plain (MAX_CIPHER_LEN bytes). False on any mismatch.
+static bool openDatagram(const uint8_t secret[32], uint8_t payloadType, const uint8_t *frame, size_t len,
+                         const MeshCoreRepeater::FrameInfo &info, uint8_t *plain, size_t *plainLen)
+{
+    if (!secret || !frame || info.payload_type != payloadType || info.header_len >= len)
+        return false;
+    if (info.payload_len < 1 + 1 + 2 + 16)
+        return false;
+
+    const uint8_t *payload = &frame[info.header_len];
+    const size_t cipherLen = info.payload_len - 4;
+    if (cipherLen % 16 != 0 || cipherLen > MeshCoreCompanion::MAX_CIPHER_LEN)
+        return false;
+
+    uint8_t mac[2];
+    SHA256 hmac;
+    hmac.resetHMAC(secret, 32);
+    hmac.update(&payload[4], cipherLen);
+    hmac.finalizeHMAC(secret, 32, mac, sizeof(mac));
+    if (memcmp(mac, &payload[2], sizeof(mac)) != 0)
+        return false;
+
+    *plainLen = aesDecrypt(secret, &payload[4], cipherLen, plain);
+    return *plainLen != 0;
+}
+
 size_t MeshCoreCompanion::encodeDirectText(const uint8_t secret[32], uint8_t destHash, uint8_t srcHash, uint32_t timestamp,
                                            uint8_t flags, const char *text, uint8_t *out, size_t outCap, bool *truncated)
 {
@@ -257,51 +308,16 @@ size_t MeshCoreCompanion::encodeDirectText(const uint8_t secret[32], uint8_t des
     if (textLen)
         memcpy(&plain[5], text, textLen);
 
-    const size_t plainLen = 5 + textLen;
-    uint8_t cipher[MAX_DIRECT_CIPHER_LEN];
-    const size_t cipherLen = aesEncrypt(secret, plain, plainLen, cipher);
-    if (cipherLen == 0 || 4 + cipherLen > outCap)
-        return 0;
-
-    out[0] = (0x02 << 2) | 0x01;                        // TXT_MSG, ROUTE_FLOOD
-    out[1] = MeshCoreRepeater::OWN_FLOOD_PATH_LEN_BYTE; // zero hops, 2-byte hashes
-    out[2] = destHash;
-    out[3] = srcHash;
-
-    SHA256 hmac;
-    hmac.resetHMAC(secret, 32);
-    hmac.update(cipher, cipherLen);
-    hmac.finalizeHMAC(secret, 32, &out[4], 2);
-
-    memcpy(&out[6], cipher, cipherLen);
-    return 6 + cipherLen;
+    return sealDatagram(secret, 0x02, destHash, srcHash, plain, 5 + textLen, out, outCap); // TXT_MSG
 }
 
 bool MeshCoreCompanion::decodeDirectText(const uint8_t secret[32], const uint8_t *frame, size_t len,
                                          const MeshCoreRepeater::FrameInfo &info, char *textOut, size_t textOutCap,
                                          uint32_t *timestampOut, uint8_t *flagsOut)
 {
-    if (!secret || !frame || info.payload_type != 0x02 || info.header_len >= len)
-        return false;
-    if (info.payload_len < 1 + 1 + 2 + 16)
-        return false;
-
-    const uint8_t *payload = &frame[info.header_len];
-    const size_t cipherLen = info.payload_len - 4;
-    if (cipherLen % 16 != 0 || cipherLen > MAX_DIRECT_CIPHER_LEN)
-        return false;
-
-    uint8_t mac[2];
-    SHA256 hmac;
-    hmac.resetHMAC(secret, 32);
-    hmac.update(&payload[4], cipherLen);
-    hmac.finalizeHMAC(secret, 32, mac, sizeof(mac));
-    if (memcmp(mac, &payload[2], sizeof(mac)) != 0)
-        return false;
-
     uint8_t plain[MAX_DIRECT_CIPHER_LEN];
-    const size_t plainLen = aesDecrypt(secret, &payload[4], cipherLen, plain);
-    if (plainLen < 5 || (plain[4] >> 2) != TXT_FLAGS_PLAIN)
+    size_t plainLen = 0;
+    if (!openDatagram(secret, 0x02, frame, len, info, plain, &plainLen) || plainLen < 5 || (plain[4] >> 2) != TXT_FLAGS_PLAIN)
         return false;
 
     if (textOut && textOutCap) {
@@ -317,6 +333,37 @@ bool MeshCoreCompanion::decodeDirectText(const uint8_t secret[32], const uint8_t
         *timestampOut = readLe32(plain);
     if (flagsOut)
         *flagsOut = plain[4];
+    return true;
+}
+
+size_t MeshCoreCompanion::encodePathAck(const uint8_t secret[32], uint8_t destHash, uint8_t srcHash, uint32_t hash, uint8_t *out,
+                                        size_t outCap)
+{
+    if (!secret || !out)
+        return 0;
+    // Mesh::createPathReturn: the path walked so far (none), then an extra block: its type and the ACK hash.
+    uint8_t plain[6];
+    plain[0] = 0x00; // path_len: 1-byte hashes, no hops
+    plain[1] = 0x03; // extra type: ACK
+    writeLe32(&plain[2], hash);
+    return sealDatagram(secret, 0x08, destHash, srcHash, plain, sizeof(plain), out, outCap); // PATH
+}
+
+bool MeshCoreCompanion::decodePathAck(const uint8_t secret[32], const uint8_t *frame, size_t len,
+                                      const MeshCoreRepeater::FrameInfo &info, uint32_t *hashOut)
+{
+    uint8_t plain[MAX_CIPHER_LEN];
+    size_t plainLen = 0;
+    if (!hashOut || !openDatagram(secret, 0x08, frame, len, info, plain, &plainLen))
+        return false;
+
+    // path_len (hash size in the top two bits, hop count in the rest), the path, then the extra block.
+    size_t at = 0;
+    const uint8_t pathLenByte = plain[at++];
+    at += (size_t)((pathLenByte >> 6) + 1) * (pathLenByte & 0x3F);
+    if (at >= plainLen || (plain[at++] & 0x0F) != 0x03 || plainLen - at < 4) // the extra must be an ACK
+        return false;
+    *hashOut = readLe32(&plain[at]);
     return true;
 }
 
@@ -363,9 +410,11 @@ void MeshCoreCompanion::announceUser(uint32_t nodeNum, const meshtastic_User &us
     p->decoded.portnum = meshtastic_PortNum_NODEINFO_APP;
     p->decoded.payload.size =
         pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), &meshtastic_User_msg, &user);
-    // Local news for the client, never to be repeated over Meshtastic: no hops left, and a next hop that is not us.
-    p->hop_start = 0;
-    p->hop_limit = 0;
+    // Local news for the client, never to be repeated over Meshtastic: a next hop that is not us closes the relay gate. The
+    // router drops a packet whose hop_start is missing, so it carries the same hop fields as a bridged text one hop away.
+    p->decoded.has_bitfield = true;
+    p->decoded.bitfield = 0;
+    hopFields(1, &p->hop_start, &p->hop_limit);
     const uint8_t ourRelay = nodeDB->getLastByteOfNodeNum(nodeDB->getNodeNum());
     p->next_hop = (uint8_t)(ourRelay + 1);
     if (p->next_hop == NO_NEXT_HOP_PREFERENCE)
@@ -421,7 +470,7 @@ uint32_t MeshCoreCompanion::senderNodeNum(const char *name)
     return num == PSEUDO_NODE_NUM ? num + 1 : num;
 }
 
-void MeshCoreCompanion::ensureSenderNode(uint32_t nodeNum, const char *name, bool messagable)
+void MeshCoreCompanion::ensureSenderNode(uint32_t nodeNum, const char *name, bool messagable, const uint8_t *publicKey)
 {
     if (!nodeDB)
         return;
@@ -430,7 +479,8 @@ void MeshCoreCompanion::ensureSenderNode(uint32_t nodeNum, const char *name, boo
     if (lite && nodeInfoLiteHasUser(lite) && lite->hw_model != meshtastic_HardwareModel_UNSET)
         return;
     if (!lite || (nodeInfoLiteHasUser(lite) && strncmp(lite->long_name, name, sizeof(lite->long_name) - 1) == 0 &&
-                  nodeInfoLiteIsUnmessagable(lite) == !messagable))
+                  nodeInfoLiteIsUnmessagable(lite) == !messagable && lite->public_key.size == (publicKey ? 32 : 0) &&
+                  (!publicKey || memcmp(lite->public_key.bytes, publicKey, 32) == 0)))
         return;
 
     meshtastic_User user = {};
@@ -440,6 +490,10 @@ void MeshCoreCompanion::ensureSenderNode(uint32_t nodeNum, const char *name, boo
     user.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
     user.has_is_unmessagable = true;
     user.is_unmessagable = !messagable;
+    if (publicKey) {
+        user.public_key.size = 32;
+        memcpy(user.public_key.bytes, publicKey, 32);
+    }
     TypeConversions::CopyUserToNodeInfoLite(lite, user);
     announceUser(nodeNum, user);
 }
@@ -497,6 +551,9 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
     case 0x03: // ACK
         handleAck(raw, len, info);
         break;
+    case 0x08: // PATH: how MeshCore answers a flood, with the ACK inside
+        handlePathAck(raw, len, info);
+        break;
     default:
         break;
     }
@@ -544,8 +601,15 @@ void MeshCoreCompanion::handleGroupText(const uint8_t *raw, size_t len, const Me
         const char *body = text;
         uint32_t fromNum = PSEUDO_NODE_NUM;
         if (splitSender(text, sender, sizeof(sender), &body)) {
-            fromNum = senderNodeNum(sender);
-            ensureSenderNode(fromNum, sender);
+            // Someone we can message shows up as that one node in channels too, instead of a second, unmessagable one.
+            MeshCoreContact *contact = contacts.findUniqueByName(sender);
+            if (contact) {
+                fromNum = contact->nodeNum;
+                ensureSenderNode(fromNum, contact->name, true, contact->pub);
+            } else {
+                fromNum = senderNodeNum(sender);
+                ensureSenderNode(fromNum, sender);
+            }
         } else {
             ensurePseudoNode(); // a node-DB reset or eviction may have removed it since boot
         }
@@ -639,6 +703,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
     MeshCoreContact *known = contacts.findByPub(payload);
     if (known && strcmp(known->name, name) == 0) {
         contacts.touch(known);
+        ensureSenderNode(known->nodeNum, known->name, true, known->pub); // brings a node made before keys were set up along
         return;
     }
     if (!MeshCoreRepeater::verifyAdvert(payload, info.payload_len))
@@ -647,7 +712,18 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
     MeshCoreContact *c = contacts.upsert(payload, name);
     if (!known)
         contactsLearned++;
-    ensureSenderNode(c->nodeNum, c->name, true);
+    ensureSenderNode(c->nodeNum, c->name, true, c->pub);
+    retireGroupNode(c->name);
+}
+
+void MeshCoreCompanion::retireGroupNode(const char *name)
+{
+    // The node made for this name before it was a contact: ours (no hardware model, unmessagable), not a favourite.
+    const uint32_t num = senderNodeNum(name);
+    const meshtastic_NodeInfoLite *lite = nodeDB ? nodeDB->getMeshNode(num) : nullptr;
+    if (lite && nodeInfoLiteHasUser(lite) && lite->hw_model == meshtastic_HardwareModel_UNSET &&
+        nodeInfoLiteIsUnmessagable(lite) && !nodeInfoLiteIsFavorite(lite))
+        nodeDB->removeNodeByNum(num);
 }
 
 void MeshCoreCompanion::injectDirectText(const MeshCoreContact &c, const char *text, int pathHashCount, float snr, int32_t rssi)
@@ -656,7 +732,7 @@ void MeshCoreCompanion::injectDirectText(const MeshCoreContact &c, const char *t
     if (!p)
         return;
 
-    ensureSenderNode(c.nodeNum, c.name, true); // a node-DB reset or eviction may have removed it
+    ensureSenderNode(c.nodeNum, c.name, true, c.pub); // a node-DB reset or eviction may have removed it
     p->from = c.nodeNum;
     p->to = nodeDB->getNodeNum();
     p->id = generatePacketId();
@@ -743,6 +819,10 @@ void MeshCoreCompanion::reportDelivery(uint32_t fromNum, uint32_t packetId, mesh
     p->decoded.request_id = packetId;
     p->decoded.payload.size =
         pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), &meshtastic_Routing_msg, &r);
+    // The router drops a packet whose hop_start is missing, so the delivery report carries real hop fields (direct).
+    p->decoded.has_bitfield = true;
+    p->decoded.bitfield = 0;
+    hopFields(0, &p->hop_start, &p->hop_limit);
     p->transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
     router->enqueueReceivedMessage(p);
 }
@@ -793,11 +873,8 @@ bool MeshCoreCompanion::sendDirectText(uint32_t nodeNum, uint32_t packetId, cons
     return true;
 }
 
-void MeshCoreCompanion::handleAck(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info)
+void MeshCoreCompanion::settleAck(uint32_t hash)
 {
-    if (info.payload_len != 4 || info.header_len + 4 > len)
-        return;
-    const uint32_t hash = readLe32(&raw[info.header_len]);
     for (auto &e : pending) {
         if (e.used && e.ackHash == hash) {
             e.used = false;
@@ -806,6 +883,33 @@ void MeshCoreCompanion::handleAck(const uint8_t *raw, size_t len, const MeshCore
             return;
         }
     }
+}
+
+void MeshCoreCompanion::handlePathAck(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info)
+{
+    // PATH payload: dest hash (1), source hash (1), MAC (2), ciphertext. Only ours, from a contact we hold a secret for.
+    if (!identityReady || info.header_len >= len || info.payload_len < 1 + 1 + 2 + 16)
+        return;
+    const uint8_t *payload = &raw[info.header_len];
+    if (payload[0] != identityPub[0])
+        return;
+
+    MeshCoreContact *candidates[CONTACTS_MAX];
+    const size_t n = contacts.findByHash(payload[1], candidates, CONTACTS_MAX);
+    for (size_t i = 0; i < n; i++) {
+        uint32_t hash = 0;
+        if (ensureSecret(*candidates[i]) && decodePathAck(candidates[i]->secret, raw, len, info, &hash)) {
+            settleAck(hash);
+            return;
+        }
+    }
+}
+
+void MeshCoreCompanion::handleAck(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info)
+{
+    if (info.payload_len != 4 || info.header_len + 4 > len)
+        return;
+    settleAck(readLe32(&raw[info.header_len]));
 }
 
 void MeshCoreCompanion::service()
@@ -873,7 +977,8 @@ size_t MeshCoreCompanion::importContacts(const uint8_t *buf, size_t len)
         memcpy(name, &rec[32], sizeof(name));
         name[sizeof(name) - 1] = 0;
         MeshCoreContact *c = contacts.upsert(rec, name);
-        ensureSenderNode(c->nodeNum, c->name, true);
+        ensureSenderNode(c->nodeNum, c->name, true, c->pub);
+        retireGroupNode(c->name);
         loaded++;
     }
     return loaded;

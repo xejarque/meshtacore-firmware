@@ -849,6 +849,37 @@ void test_advert_is_signed_and_parseable()
     TEST_ASSERT_EQUAL_UINT8(0x04, info.payload_type);
 }
 
+// A device that is not a router announces itself as a chat node, so MeshCore apps let their users message it.
+void test_advert_type_follows_the_meshtastic_role()
+{
+    TEST_ASSERT_EQUAL_HEX8(MeshCoreRepeater::ADV_TYPE_REPEATER,
+                           MeshCoreRepeater::nodeTypeForRole(meshtastic_Config_DeviceConfig_Role_ROUTER));
+    TEST_ASSERT_EQUAL_HEX8(MeshCoreRepeater::ADV_TYPE_REPEATER,
+                           MeshCoreRepeater::nodeTypeForRole(meshtastic_Config_DeviceConfig_Role_ROUTER_LATE));
+    TEST_ASSERT_EQUAL_HEX8(MeshCoreRepeater::ADV_TYPE_REPEATER,
+                           MeshCoreRepeater::nodeTypeForRole(meshtastic_Config_DeviceConfig_Role_REPEATER));
+    TEST_ASSERT_EQUAL_HEX8(MeshCoreRepeater::ADV_TYPE_CHAT,
+                           MeshCoreRepeater::nodeTypeForRole(meshtastic_Config_DeviceConfig_Role_CLIENT));
+    TEST_ASSERT_EQUAL_HEX8(MeshCoreRepeater::ADV_TYPE_CHAT,
+                           MeshCoreRepeater::nodeTypeForRole(meshtastic_Config_DeviceConfig_Role_CLIENT_BASE));
+
+    MeshCoreRepeater repeater;
+    uint8_t seed[32];
+    for (int i = 0; i < 32; i++)
+        seed[i] = (uint8_t)(0x11 * (i + 1));
+    while (!repeater.setIdentitySeed(seed))
+        seed[0]++;
+
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    repeater.setNodeType(MeshCoreRepeater::ADV_TYPE_CHAT);
+    TEST_ASSERT_GREATER_THAN(0, repeater.buildAdvert(frame, sizeof(frame), "Xavi M1", 1792521507, true));
+    TEST_ASSERT_EQUAL_HEX8(0x81, frame[102]); // chat (1) with the name flag
+
+    repeater.setNodeType(MeshCoreRepeater::ADV_TYPE_REPEATER);
+    TEST_ASSERT_GREATER_THAN(0, repeater.buildAdvert(frame, sizeof(frame), "Xavi M1", 1792521507, true));
+    TEST_ASSERT_EQUAL_HEX8(0x82, frame[102]);
+}
+
 // Our own ADVERT goes out on the relay slot without being counted as a relay.
 void test_own_advert_is_queued_and_not_a_relay()
 {
@@ -1358,6 +1389,7 @@ void setup()
     RUN_TEST(test_stale_pending_relay_is_dropped_for_new_frame);
     RUN_TEST(test_take_pending_frame_copies_without_clearing);
     RUN_TEST(test_advert_is_signed_and_parseable);
+    RUN_TEST(test_advert_type_follows_the_meshtastic_role);
     RUN_TEST(test_own_advert_is_queued_and_not_a_relay);
     RUN_TEST(test_zero_hop_advert_header);
     RUN_TEST(test_flood_relay_appends_our_hash);

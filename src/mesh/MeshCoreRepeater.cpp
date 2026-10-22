@@ -82,6 +82,18 @@ static bool advertSignatureValid(const uint8_t *payload, size_t payloadLen)
     return Ed25519::verify(&payload[signedHeadLen], payload, message, signedHeadLen + appLen);
 }
 
+uint8_t MeshCoreRepeater::nodeTypeForRole(int role)
+{
+    switch (role) {
+    case meshtastic_Config_DeviceConfig_Role_ROUTER:
+    case meshtastic_Config_DeviceConfig_Role_ROUTER_LATE:
+    case meshtastic_Config_DeviceConfig_Role_REPEATER:
+        return ADV_TYPE_REPEATER;
+    default:
+        return ADV_TYPE_CHAT;
+    }
+}
+
 bool MeshCoreRepeater::verifyAdvert(const uint8_t *payload, size_t payloadLen)
 {
     return advertSignatureValid(payload, payloadLen);
@@ -449,7 +461,7 @@ void MeshCoreRepeater::handleControl(const uint8_t *raw, size_t len, const Frame
     const uint8_t *req = &raw[info.header_len];
     if (!hasIdentityKey || info.payload_len < 6 || (req[0] & 0xF0) != MC_CTL_DISCOVER_REQ)
         return;
-    if ((req[1] & (1 << MC_ADV_TYPE_REPEATER)) == 0)
+    if ((req[1] & (1 << nodeType)) == 0)
         return;
     uint32_t since = 0;
     if (info.payload_len >= 10)
@@ -467,13 +479,13 @@ void MeshCoreRepeater::handleControl(const uint8_t *raw, size_t len, const Frame
     if (discoverRepliesInWindow >= DISCOVER_MAX_REPLIES)
         return;
 
-    // NODE_DISCOVER_RESP: type|repeater, request SNR x4, the request tag, then our key (8-byte prefix if asked).
+    // NODE_DISCOVER_RESP: type|our node type, request SNR x4, the request tag, then our key (8-byte prefix if asked).
     const bool prefixOnly = (req[0] & 0x01) != 0;
     const size_t keyLen = prefixOnly ? 8 : MC_PUB_KEY_SIZE;
     uint8_t frame[2 + 6 + MC_PUB_KEY_SIZE];
     frame[0] = (MC_PAYLOAD_TYPE_CONTROL << 2) | MC_ROUTE_DIRECT;
     frame[1] = 0x00; // zero hop
-    frame[2] = MC_CTL_DISCOVER_RESP | MC_ADV_TYPE_REPEATER;
+    frame[2] = MC_CTL_DISCOVER_RESP | nodeType;
     frame[3] = (uint8_t)(int8_t)(snr * 4);
     memcpy(&frame[4], &req[2], 4);
     memcpy(&frame[8], identityPub, keyLen);
@@ -903,10 +915,10 @@ size_t MeshCoreRepeater::buildAdvert(uint8_t *out, size_t outLen, const char *na
     if (!hasIdentityKey)
         return 0;
 
-    // App data: type byte (repeater, with the name flag when there is a name), then the UTF-8 name.
+    // App data: type byte (our node type, with the name flag when there is a name), then the UTF-8 name.
     uint8_t appData[MAX_ADVERT_DATA_SIZE];
     size_t appLen = 1;
-    appData[0] = MC_ADV_TYPE_REPEATER;
+    appData[0] = nodeType;
     if (name && name[0] != 0) {
         size_t nameLen = strlen(name);
         if (nameLen > MAX_ADVERT_DATA_SIZE - 1)

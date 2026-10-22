@@ -58,6 +58,20 @@ template <size_t N> class MeshCoreContacts
         return nullptr;
     }
 
+    /// The contact with exactly this name, or null when none or several have it (a name alone cannot pick one).
+    MeshCoreContact *findUniqueByName(const char *name)
+    {
+        MeshCoreContact *found = nullptr;
+        for (auto &e : entries) {
+            if (e.lastUsed && strcmp(e.name, name) == 0) {
+                if (found)
+                    return nullptr;
+                found = &e;
+            }
+        }
+        return found;
+    }
+
     MeshCoreContact *findByNodeNum(uint32_t nodeNum)
     {
         for (auto &e : entries)

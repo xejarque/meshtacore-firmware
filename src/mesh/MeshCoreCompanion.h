@@ -88,6 +88,13 @@ class MeshCoreCompanion
     /// senderPub belongs to whoever wrote the text (BaseChatMesh::onPeerDataRecv).
     static uint32_t ackHash(uint32_t timestamp, uint8_t flags, const char *text, const uint8_t senderPub[32]);
 
+    /// MeshCore answers a flooded TXT_MSG with a PATH frame that carries the ACK inside (Mesh::createPathReturn): path_len,
+    /// path, extra type (ACK), hash, all encrypted with the shared secret. These two build and read that frame.
+    static size_t encodePathAck(const uint8_t secret[32], uint8_t destHash, uint8_t srcHash, uint32_t hash, uint8_t *out,
+                                size_t outCap);
+    static bool decodePathAck(const uint8_t secret[32], const uint8_t *frame, size_t len, const MeshCoreRepeater::FrameInfo &info,
+                              uint32_t *hashOut);
+
     /// Encode an ACK flood frame carrying hash. Returns the frame length, or 0 if it does not fit.
     static size_t encodeAck(uint32_t hash, uint8_t *out, size_t outCap);
 
@@ -110,8 +117,10 @@ class MeshCoreCompanion
 
     /// Create or refresh the node for a bridged sender: long name is the name, short name its first 4 bytes
     /// (never splitting a UTF-8 character).
-    /// messagable=true marks a direct-message contact: the client lets the user write to it.
-    void ensureSenderNode(uint32_t nodeNum, const char *name, bool messagable = false);
+    /// messagable=true marks a direct-message contact: the client lets the user write to it. publicKey (32 bytes, the
+    /// contact's MeshCore key) goes into the node's key field, because clients only offer a direct message to a node that
+    /// has one. The text itself is encrypted by MeshCore, not with that key.
+    void ensureSenderNode(uint32_t nodeNum, const char *name, bool messagable = false, const uint8_t *publicKey = nullptr);
 
     /// Timestamp for the next outgoing text: strictly increasing, so two texts sent within the same
     /// second still encrypt differently and are not dropped as duplicates by repeaters.
@@ -195,6 +204,12 @@ class MeshCoreCompanion
     void handleAdvert(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info);
     void handleDirectText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi);
     void handleAck(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info);
+    void handlePathAck(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info);
+    /// An ACK with this hash arrived (plain or inside a PATH): report the matching direct message delivered.
+    void settleAck(uint32_t hash);
+
+    /// Drop the unmessagable node an earlier channel text created for this name, now that the name is a contact.
+    void retireGroupNode(const char *name);
 
     bool ensureSecret(MeshCoreContact &c);
     void injectDirectText(const MeshCoreContact &c, const char *text, int pathHashCount, float snr, int32_t rssi);

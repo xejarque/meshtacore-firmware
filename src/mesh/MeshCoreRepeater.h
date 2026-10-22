@@ -123,6 +123,19 @@ class MeshCoreRepeater
      */
     bool setIdentitySeed(const uint8_t seed[32]);
 
+    /// MeshCore node types an ADVERT can announce (AdvertDataHelpers.h). A chat node is a companion people can message; a
+    /// repeater is infrastructure that MeshCore apps will not start a conversation with.
+    static constexpr uint8_t ADV_TYPE_CHAT = 0x01;
+    static constexpr uint8_t ADV_TYPE_REPEATER = 0x02;
+
+    /// What a Meshtastic device role announces itself as: ROUTER, ROUTER_LATE and REPEATER are repeaters, every other role
+    /// is a chat node. role is a meshtastic_Config_DeviceConfig_Role value.
+    static uint8_t nodeTypeForRole(int role);
+
+    /// Node type our ADVERTs and discovery replies announce. Repeater until set.
+    void setNodeType(uint8_t type) { nodeType = type; }
+    uint8_t getNodeType() const { return nodeType; }
+
     bool hasIdentity() const { return hasIdentityKey; }
     const uint8_t *getIdentityPub() const { return identityPub; }
     const uint8_t *getIdentitySeed() const { return identitySeed; }
@@ -230,6 +243,7 @@ class MeshCoreRepeater
     uint8_t identitySeed[32] = {0};
     uint8_t identityPub[32] = {0};
     bool hasIdentityKey = false;
+    uint8_t nodeType = ADV_TYPE_REPEATER;
 
     uint32_t emaX256 = 0;
     uint16_t finalizedSamples = 0;
