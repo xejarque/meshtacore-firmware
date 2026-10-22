@@ -60,7 +60,20 @@ class MeshCoreCompanion
     static void hopFields(uint8_t pathHashCount, uint8_t *hopStart, uint8_t *hopLimit);
 
     /// Create the synthetic "MeshCore" node if it is missing, so the client has a sender name to render.
+    /// It stands in for any text that carries no "name: " prefix.
     void ensurePseudoNode();
+
+    /// Split a decoded "name: text" body at the first ": ". Returns false when there is no usable name
+    /// (missing separator or empty name); otherwise nameOut holds the name, cut to nameCap-1 bytes on a
+    /// UTF-8 boundary, and *body points at the text after the separator.
+    static bool splitSender(const char *text, char *nameOut, size_t nameCap, const char **body);
+
+    /// Node number standing in for a MeshCore sender: 'M' in the top byte, 24 bits hashed from the name.
+    static uint32_t senderNodeNum(const char *name);
+
+    /// Create or refresh the node for a bridged sender: long name is the name, short name its first 4 bytes
+    /// (never splitting a UTF-8 character).
+    void ensureSenderNode(uint32_t nodeNum, const char *name);
 
     /// Timestamp for the next outgoing text: strictly increasing, so two texts sent within the same
     /// second still encrypt differently and are not dropped as duplicates by repeaters.

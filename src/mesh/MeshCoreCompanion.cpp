@@ -215,6 +215,52 @@ void MeshCoreCompanion::ensurePseudoNode()
     TypeConversions::CopyUserToNodeInfoLite(lite, user);
 }
 
+bool MeshCoreCompanion::splitSender(const char *text, char *nameOut, size_t nameCap, const char **body)
+{
+    if (!text || !nameOut || nameCap == 0 || !body)
+        return false;
+    const char *sep = strstr(text, ": ");
+    if (!sep || sep == text)
+        return false;
+
+    const size_t nameLen = sep - text;
+    char name[MAX_TEXT_LEN + 1];
+    memcpy(name, text, nameLen);
+    name[nameLen] = 0;
+    const size_t keep = utf8PrefixLen(name, nameCap - 1);
+    memcpy(nameOut, name, keep);
+    nameOut[keep] = 0;
+    *body = sep + 2;
+    return true;
+}
+
+uint32_t MeshCoreCompanion::senderNodeNum(const char *name)
+{
+    uint32_t h = 2166136261u; // FNV-1a
+    for (const char *p = name; p && *p; p++)
+        h = (h ^ (uint8_t)*p) * 16777619u;
+    uint32_t num = 0x4D000000 | ((h ^ (h >> 24)) & 0x00FFFFFF);
+    return num == PSEUDO_NODE_NUM ? num + 1 : num;
+}
+
+void MeshCoreCompanion::ensureSenderNode(uint32_t nodeNum, const char *name)
+{
+    if (!nodeDB)
+        return;
+    meshtastic_NodeInfoLite *lite = nodeDB->getOrCreateMeshNode(nodeNum);
+    if (!lite || (nodeInfoLiteHasUser(lite) && strncmp(lite->long_name, name, sizeof(lite->long_name) - 1) == 0))
+        return;
+
+    meshtastic_User user = {};
+    strncpy(user.long_name, name, sizeof(user.long_name) - 1);
+    memcpy(user.short_name, name, utf8PrefixLen(name, 4));
+    user.hw_model = meshtastic_HardwareModel_UNSET;
+    user.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
+    user.has_is_unmessagable = true;
+    user.is_unmessagable = true;
+    TypeConversions::CopyUserToNodeInfoLite(lite, user);
+}
+
 void MeshCoreCompanion::hopFields(uint8_t pathHashCount, uint8_t *hopStart, uint8_t *hopLimit)
 {
     const uint8_t hops = pathHashCount < HOP_START ? pathHashCount : HOP_START;
@@ -287,17 +333,28 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
 
         rememberFrame(hash);
         rxDecoded++;
-        ensurePseudoNode(); // a node-DB reset or eviction may have removed it since boot
 
-        p->from = PSEUDO_NODE_NUM;
+        // Texts read "name: body": the sender gets its own node and the client shows the body alone. Anything
+        // without a prefix falls back to the generic "MeshCore" node.
+        char sender[sizeof(((meshtastic_User *)nullptr)->long_name)];
+        const char *body = text;
+        uint32_t fromNum = PSEUDO_NODE_NUM;
+        if (splitSender(text, sender, sizeof(sender), &body)) {
+            fromNum = senderNodeNum(sender);
+            ensureSenderNode(fromNum, sender);
+        } else {
+            ensurePseudoNode(); // a node-DB reset or eviction may have removed it since boot
+        }
+
+        p->from = fromNum;
         p->to = NODENUM_BROADCAST;
         p->id = generatePacketId();
         p->channel = i;
         p->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
         p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
-        const size_t textLen = strlen(text);
+        const size_t textLen = strlen(body);
         p->decoded.payload.size = textLen <= sizeof(p->decoded.payload.bytes) ? textLen : sizeof(p->decoded.payload.bytes);
-        memcpy(p->decoded.payload.bytes, text, p->decoded.payload.size);
+        memcpy(p->decoded.payload.bytes, body, p->decoded.payload.size);
         p->decoded.has_bitfield = true;
         p->decoded.bitfield = 0;
         // Hops are the repeaters the frame crossed (its path). A hop_limit below hop_start also keeps this

@@ -220,6 +220,40 @@ void test_tx_timestamp_is_strictly_increasing(void)
     TEST_ASSERT_EQUAL_UINT32(200, companion.nextTxTimestamp(200));
 }
 
+void test_split_sender_separates_name_and_body(void)
+{
+    char name[40];
+    const char *body = nullptr;
+    TEST_ASSERT_TRUE(MeshCoreCompanion::splitSender("Xavi: hola: mundo", name, sizeof(name), &body));
+    TEST_ASSERT_EQUAL_STRING("Xavi", name);
+    TEST_ASSERT_EQUAL_STRING("hola: mundo", body);
+}
+
+void test_split_sender_rejects_missing_or_empty_name(void)
+{
+    char name[40];
+    const char *body = nullptr;
+    TEST_ASSERT_FALSE(MeshCoreCompanion::splitSender("sin separador", name, sizeof(name), &body));
+    TEST_ASSERT_FALSE(MeshCoreCompanion::splitSender(": vacio", name, sizeof(name), &body));
+}
+
+void test_split_sender_cuts_long_name_on_utf8_boundary(void)
+{
+    char name[5];
+    const char *body = nullptr;
+    TEST_ASSERT_TRUE(MeshCoreCompanion::splitSender("ab\xC3\xA9\xC3\xA9: x", name, sizeof(name), &body)); // abéé
+    TEST_ASSERT_EQUAL_STRING("ab\xC3\xA9", name);
+}
+
+void test_sender_node_num_is_stable_and_distinct(void)
+{
+    const uint32_t a = MeshCoreCompanion::senderNodeNum("Alice");
+    TEST_ASSERT_EQUAL_HEX32(a, MeshCoreCompanion::senderNodeNum("Alice"));
+    TEST_ASSERT_NOT_EQUAL(a, MeshCoreCompanion::senderNodeNum("Bob"));
+    TEST_ASSERT_EQUAL_HEX8(0x4D, a >> 24);
+    TEST_ASSERT_NOT_EQUAL(MeshCoreCompanion::PSEUDO_NODE_NUM, a);
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -236,6 +270,10 @@ void setup()
     RUN_TEST(test_rejects_oversized_ciphertext_with_valid_mac);
     RUN_TEST(test_encode_reports_truncation);
     RUN_TEST(test_tx_timestamp_is_strictly_increasing);
+    RUN_TEST(test_split_sender_separates_name_and_body);
+    RUN_TEST(test_split_sender_rejects_missing_or_empty_name);
+    RUN_TEST(test_split_sender_cuts_long_name_on_utf8_boundary);
+    RUN_TEST(test_sender_node_num_is_stable_and_distinct);
     exit(UNITY_END());
 }
 
