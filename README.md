@@ -30,6 +30,33 @@ A summary of the highlights — see [docs/nexus-commands.md](docs/nexus-commands
 * **LR2021 multi Spreading Factor listen.**
 * **Client Base role repeats on CLIENT window instead of the LATE window.**
 
+## MeshCore bridge (`meshcore-repeater` branch)
+One SX126x radio listens to Meshtastic and MeshCore at the same time, repeats MeshCore traffic and bridges it to the Meshtastic client. Requires both networks to share frequency, bandwidth and spreading factor; only the sync word differs. Tested on a ThinkNode M1 (nRF52840 + SX1262), env `thinknode_m1_meshcore`.
+
+### What it does
+* **Hybrid sync word RX** — RX register `0x14B4` receives Meshtastic (`0x2B`) and MeshCore (`0x12`) on one SX126x; TX uses each protocol's own sync word. Gated by `MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC`, value in `MESHTASTIC_MESHCORE_RX_SYNCWORD`. `0x2424` was measured SX1262 to SX1262 and only receives Meshtastic.
+* **Meshtastic first** — a frame that parses as MeshCore is first trial-decrypted with our channels; only if that fails is it treated as MeshCore.
+* **Flood relay** — path-independent dedupe (160 hashes, no expiry), adaptive delay based on observed duplicates, queue of 8 with priority, listen-before-talk with random doubling backoff, own thread so its timers do not share the radio thread's notification slot, and ADVERT floods capped at 8 hops.
+* **Direct and TRACE forwarding** — direct frames when we are the next hop (our hop removed), direct TRACE with our SNR appended, MULTIPART ACK forwarded as a plain direct ACK.
+* **Repeater identity** — Ed25519 identity stored with `SafeFile` in `/prefs/meshcore_identity.bin`, signed ADVERTs named after the owner (zero-hop every 2 min, flood after 47 h), answers `NODE_DISCOVER_REQ`, appends its own hash to the path. Appears in the MeshCore companion's neighbour search.
+* **ADVERT verification** — the Ed25519 signature is checked before forwarding and again just before TX.
+* **Group text bridge** — channels named `MC:<name>` carry a MeshCore group PSK (a fresh install seeds `Public`, `#test` and `#bot`). Texts are encoded and decoded as `GRP_TXT` and shown with the real sender name, 0 hops and SNR/RSSI.
+* **Direct messages** — one-to-one chat with MeshCore contacts from the Meshtastic client: ECDH from the repeater identity, `TXT_MSG` and ACK handling, contacts learned from signed ADVERTs (16 most recent kept in flash), delivery confirmed by the MeshCore ACK or reported failed after 30 s. Verified on air against a MeshCore companion in both directions.
+* **Chat node advert** — advertises as a chat node unless the Meshtastic role is `ROUTER`, `ROUTER_LATE` or `REPEATER`.
+* **Debug envs** — `thinknode_m1_meshcore_debug` logs every RX/preamble event and the real sync word register; `thinknode_m1_meshcore_rxtest` receives on MeshCore's own sync word to isolate the hybrid value.
+* **Tests** — `test/test_meshcore_repeater` and the MeshCore channel/interoperability vectors.
+
+### Pending
+* Measure packet loss of the hybrid sync word against a normal build over a long run (sensitivity was never measured).
+* Check that it builds and fits in flash on the other boards in this repo, and run the full native suite here.
+* Test on hardware other than the ThinkNode M1, and on other regions/presets.
+* If hybrid loss turns out too high, the fallback is a second SX1262.
+
+### Wishlist
+* Region-scope filtering for floods (the relay currently forwards region-scoped floods like any other).
+* Admin/config for the MeshCore side (identity, advert intervals, relay on/off) from the client instead of build flags.
+* Docs for this feature in the [meshtastic/meshtastic](https://github.com/meshtastic/meshtastic) docs repo, per the house rule.
+
 ## Documentation
 * [docs/nexus-commands.md](docs/nexus-commands.md) — full command reference for the public build.
 * [docs/manual.md](docs/manual.md) — the Nexus channel, master keys and how to compile your own firmware with them.
