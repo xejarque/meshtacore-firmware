@@ -542,8 +542,7 @@ void MeshCoreCompanion::ensureSenderNode(uint32_t nodeNum, const char *name, boo
 
     meshtastic_User user = {};
     strncpy(user.long_name, display, sizeof(user.long_name) - 1);
-    memcpy(user.short_name, "MC", 2);
-    memcpy(&user.short_name[2], name, utf8PrefixLen(name, 2));
+    memcpy(user.short_name, name, utf8PrefixLen(name, 4));
     user.hw_model = meshtastic_HardwareModel_UNSET;
     user.role = role;
     user.has_is_unmessagable = true;
