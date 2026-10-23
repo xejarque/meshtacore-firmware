@@ -1,80 +1,181 @@
 <div align="center" markdown="1">
 
-# Jentastic/Nexus firmware
+# Meshtacore
+
+**One radio, two meshes.**
+
+A Meshtastic firmware fork that hears [MeshCore](https://github.com/meshcore-dev/MeshCore) on the same SX126x, repeats it, and bridges its groups and direct messages into the Meshtastic client.
+
+![Status](https://img.shields.io/badge/status-experimental-orange)
+![License](https://img.shields.io/badge/license-GPL--3.0-blue)
+![Base](https://img.shields.io/badge/based%20on-Meshtastic%20firmware%202.8.1-lightgrey)
+
 </div>
 
-This is a friendly custom version (soft-fork if you wanna call it that) of the Meshtastic® firmware
-Made for use in the Spanish mesh as well as for personal use. Made with human-reviewed, human-curated agentic engineering, aka AI agents make PRs and I review, fix them up and merge them.
+## Why Meshtacore
 
-Based on upstream Meshtastic firmware **v2.8.1**. Versions append two digits to the official version, starting with `00` — so **2.8.103** is JT/Nexus version **03**, the fourth Nexus release built on 2.8.1 (`00`, `01`, `02`, `03`).
+Meshtastic and MeshCore are two LoRa mesh ecosystems that normally live on separate radios. When both networks share the same frequency, bandwidth and spreading factor, the only thing separating them is the sync word. Meshtacore turns one SX126x into a node that listens to both:
 
-Meshtastic® is a registered trademark of Meshtastic LLC. This project is an independent community initiative and is not affiliated with, sponsored by, or endorsed by Meshtastic LLC.
-<div align=center><img src="splash-screenshot.png" width=512 height=256></img></div>
+- it repeats MeshCore traffic, extending a MeshCore mesh with hardware you already have deployed;
+- it exposes MeshCore group channels and direct messages inside the Meshtastic client, so one phone can talk to both worlds;
+- it keeps Meshtastic working as before, on the same radio and the same antenna.
 
-⚠️ The documentation is still Work in progress.
+No second radio, no second antenna, no second power budget.
 
-## The name
-This firmware was originally the Nexus firmware, in honor of one of the nodes it was planned for. The community came up with the quite fitting nickname of Jentastic so it stuck. That's why it has both names.
-
-## License
-The Nexus module as well as the accompanying scripts are licensed under the GNU **Affero** General Public License v3; upstream code and any changes I made to it are licensed under the GNU General Public License v3.
-AGPLv3-licensed files are tagged as such at the beginning of the files.
-If you wanna read the reasoning for this, read [docs/why-the-license.md](docs/why-the-license.md).
+Good fits: clubs and events that run both ecosystems, Meshtastic solar or repeater sites that can also cover a MeshCore mesh, and anyone testing MeshCore interoperability without dedicating a node to it.
 
 ## Features
-A summary of the highlights — see [docs/nexus-commands.md](docs/nexus-commands.md) for the full command reference:
-* **Remote CLI administration** — configure, diagnose and manage nodes over LoRa, including commands that upstream remote admin can't do (send messages/traceroutes from a node, read RSSI/freq error remotely).
-* **Stateless firewall** — drop misbehaving traffic and manage ignores/favourites across large meshes.
-* **Multicast commands** — manage many nodes at once, plus cronjobs and macros for automation.
-* **Signal intelligence** — signal/packet statistics, ping bot, mesh diagnostics.
-* **LR2021 multi Spreading Factor listen.**
-* **Client Base role repeats on CLIENT window instead of the LATE window.**
 
-## MeshCore bridge (`meshcore-repeater` branch)
-One SX126x radio listens to Meshtastic and MeshCore at the same time, repeats MeshCore traffic and bridges it to the Meshtastic client. Requires both networks to share frequency, bandwidth and spreading factor; only the sync word differs. Tested on a ThinkNode M1 (nRF52840 + SX1262), env `thinknode_m1_meshcore`.
+### One radio, two networks
 
-### What it does
-* **Hybrid sync word RX** — RX register `0x14B4` receives Meshtastic (`0x2B`) and MeshCore (`0x12`) on one SX126x; TX uses each protocol's own sync word. Gated by `MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC`, value in `MESHTASTIC_MESHCORE_RX_SYNCWORD`. `0x2424` was measured SX1262 to SX1262 and only receives Meshtastic.
-* **Meshtastic first** — a frame that parses as MeshCore is first trial-decrypted with our channels; only if that fails is it treated as MeshCore.
-* **Flood relay** — path-independent dedupe (160 hashes, no expiry), adaptive delay based on observed duplicates, queue of 8 with priority, listen-before-talk with random doubling backoff, own thread so its timers do not share the radio thread's notification slot, and ADVERT floods capped at 8 hops.
-* **Direct and TRACE forwarding** — direct frames when we are the next hop (our hop removed), direct TRACE with our SNR appended, MULTIPART ACK forwarded as a plain direct ACK.
-* **Repeater identity** — Ed25519 identity stored with `SafeFile` in `/prefs/meshcore_identity.bin`, signed ADVERTs named after the owner (zero-hop every 2 min, flood after 47 h), answers `NODE_DISCOVER_REQ`, appends its own hash to the path. Appears in the MeshCore companion's neighbour search.
-* **ADVERT verification** — the Ed25519 signature is checked before forwarding and again just before TX.
-* **Group text bridge** — channels named `MC:<name>` carry a MeshCore group PSK (a fresh install seeds `Public`, `#test` and `#bot`). Texts are encoded and decoded as `GRP_TXT` and shown with the real sender name, 0 hops and SNR/RSSI.
-* **Direct messages** — one-to-one chat with MeshCore contacts from the Meshtastic client: ECDH from the repeater identity, `TXT_MSG` and ACK handling, contacts learned from signed ADVERTs (16 most recent kept in flash), delivery confirmed by the MeshCore ACK or reported failed after 30 s. Verified on air against a MeshCore companion in both directions.
-* **Chat node advert** — advertises as a chat node unless the Meshtastic role is `ROUTER`, `ROUTER_LATE` or `REPEATER`.
-* **Debug envs** — `thinknode_m1_meshcore_debug` logs every RX/preamble event and the real sync word register; `thinknode_m1_meshcore_rxtest` receives on MeshCore's own sync word to isolate the hybrid value.
-* **Tests** — `test/test_meshcore_repeater` and the MeshCore channel/interoperability vectors.
+- **Hybrid sync word RX**: register `0x14B4` receives Meshtastic (`0x2B`) and MeshCore (`0x12`) on one SX126x. TX still uses each protocol's own sync word, so both meshes hear a native frame.
+- **Meshtastic first**: a frame that parses as MeshCore is first trial-decrypted with our channels. Only if that fails is it handled as MeshCore, so Meshtastic traffic is never sacrificed for the bridge.
+- **SX126x only**: the hybrid receive is a radio-register trick, not a protocol change.
 
-### Pending
-* Measure packet loss of the hybrid sync word against a normal build over a long run (sensitivity was never measured).
-* Check that it builds and fits in flash on the other boards in this repo, and run the full native suite here.
-* Test on hardware other than the ThinkNode M1, and on other regions/presets.
-* If hybrid loss turns out too high, the fallback is a second SX1262.
+### MeshCore repeater
 
-### Wishlist
-* Region-scope filtering for floods (the relay currently forwards region-scoped floods like any other).
-* Admin/config for the MeshCore side (identity, advert intervals, relay on/off) from the client instead of build flags.
-* Docs for this feature in the [meshtastic/meshtastic](https://github.com/meshtastic/meshtastic) docs repo, per the house rule.
+- Flood relay with path-independent dedupe (last 160 packet hashes, no expiry), so a copy arriving late over a slow spreading factor is still recognised as a duplicate.
+- Adaptive delay based on observed duplicates (the [ZephCore](https://github.com/liquidraver/ZephCore) contention-tracker design), a priority queue of 8, and listen-before-talk with random doubling backoff.
+- Its own thread, so relay timers never compete for the radio thread's single notification slot.
+- Direct frames forwarded when we are the next hop (our hop removed), direct TRACE with our SNR appended, MULTIPART ACK downgraded to a plain direct ACK.
+- ADVERT floods capped at 8 hops.
 
-## Documentation
-* [docs/nexus-commands.md](docs/nexus-commands.md) — full command reference for the public build.
-* [docs/manual.md](docs/manual.md) — the Nexus channel, master keys and how to compile your own firmware with them.
+### Bridge to the Meshtastic client
 
-## Building
-Builds the same way as the official Meshtastic firmware (PlatformIO — `pio run -e <your_env>` and flash as usual). For a keyed/personal build there is also `build-nexus.sh`, a wrapper that injects builder defaults and if you wanna use them, master keys — see [docs/manual.md](docs/manual.md).
+- **Group text**: channels named `MC:<name>` carry a MeshCore group PSK. A fresh install seeds `MC:Public`, `MC:#test` and `MC:#bot`. Text sent on one of those channels goes out as a MeshCore `GRP_TXT`; received group text appears in the app with the real sender name, the path's hop count and, on direct reception, live SNR/RSSI.
+- **Direct messages**: one-to-one chat with MeshCore contacts from the Meshtastic client. ECDH derived from the repeater identity, `TXT_MSG` and ACK handling, contacts learned from signed ADVERTs (the 16 most recent are kept in flash), delivery confirmed by the MeshCore ACK or reported as failed after 30 s.
+- **`/stats`**: a direct message to the node answers with per-protocol contention measurements (CAD hits, airtime) for Meshtastic and MeshCore.
 
-## Why does this exist?
+### Real repeater identity
 
-This firmware was born around a year ago during the deployments and testing of infrastructure nodes in the Spanish Meshtastic™ mesh, currently one of the largest meshes in the world. This involved many preset tests, including the now custom SFNarrow preset we use. And during these tests and deployments we noticed a few shortcomings of the upstream firmware, notably:
-* Remote admin in 2.7 doesn't let you send messages with a node (for understandable reasons), or send a traceroute from a node.
-  * Also notably you can't see RSSI or Frequency Error on traceroutes. And Freq Error is normally only available on serial; on mountain nodes, both are impossible
-* When trying different LoRa settings you have to change a lot of nodes, basically every node you administer, and in a chain, over the normal remote management, this notably works really badly over multiple hops, especially if you are currently in a preset that doesn't work very well, while a CLI command can and does reach.
-* If for any reason you disable the TX enabled on a node, you can't enable it over LoRa anymore.
-But more importantly when the network got larger we noticed something else too. A mesh network doesn't get to grow large without misconfigured nodes spamming and bringing the network down, only solution is usually to add them to ignores, which is a throw the kid out with the bath water approach usually, but necessary. And with the upstream firmware, you don't get any confirmation of if it worked or not (and with 2.7 firmwares, if the node wasn't in the Node DB it would fail, which on a 2000+ node network is almost guaranteed to be the case) and more importantly, you don't have a way to see if the nodes are in ignores or not.
-A similar thing happens with the favourites on nodes, important for zero hop routers, as well as for the case of remote admin, for whichever portable node you use to admin these nodes.
+- Ed25519 identity persisted with `SafeFile` in `/prefs/meshcore_identity.bin`, so the MeshCore public key survives reboots.
+- Signed ADVERTs named after the Meshtastic owner: zero-hop every 2 minutes for direct neighbours, flood every 47 hours for the whole mesh.
+- Answers `NODE_DISCOVER_REQ` and appends its own hash to the path. The node shows up in the MeshCore companion's neighbour search.
+- Advertises as a chat node unless the Meshtastic role is `ROUTER`, `ROUTER_LATE` or `REPEATER`.
 
-For these reasons, the CLI has become insanely useful: you can track signals, send messages with a router so other people can see what signal they receive from the router when the router doesn't hear them, throttle misbehaving traffic, or manage multiple deployed nodes in a more convenient way.
+### Built to coexist
 
-## What this isn't
-This isn't a hard fork, or meant to be one. It is designed to be completely interchangeable with either the upstream official firmware or other custom firmwares, and not break compatibility in any way with either the mesh or client apps.
+- ADVERT signatures are verified before forwarding and again just before TX.
+- Relay traffic is never decrypted; group and direct messages are only decoded when we hold the key.
+- Receive prioritises Meshtastic, transmit always uses the protocol that owns the frame.
+
+## Quick start
+
+### Requirements
+
+- An SX126x radio. Tested on a ThinkNode M1 (nRF52840 + SX1262), env `thinknode_m1_meshcore`.
+- [PlatformIO](https://platformio.org/).
+- Both networks configured with the same frequency, bandwidth and spreading factor. Meshtastic and MeshCore use different sync words, which is exactly what the hybrid receive exploits.
+
+### Build and flash
+
+```bash
+git clone --branch meshtacore https://github.com/xejarque/Meshtacore.git
+cd Meshtacore
+pio run -e thinknode_m1_meshcore
+pio run -e thinknode_m1_meshcore -t upload --upload-port <port>
+```
+
+| Env                              | Purpose                                                                      |
+| -------------------------------- | ---------------------------------------------------------------------------- |
+| `thinknode_m1_meshcore`          | Release build: sniffer, relay, companion and hybrid sync word.               |
+| `thinknode_m1_meshcore_debug`    | Logs every RX/preamble event and the real sync word register.                |
+| `thinknode_m1_meshcore_rxtest`   | Receives on MeshCore's own sync word (`0x1424`) to isolate the hybrid value. |
+| `nrf52_promicro_diy_tcxo_meshcore` | DIY nRF52840 Pro Micro with a TCXO SX126x, MeshCore enabled.               |
+
+### Build flags
+
+MeshCore support is on by default; pass `-D<flag>=0` to opt out.
+
+| Flag                                     | Default  | Effect                                                                                        |
+| ---------------------------------------- | -------- | --------------------------------------------------------------------------------------------- |
+| `MESHTASTIC_ENABLE_MESHCORE_SNIFFER`     | `1`      | Parse MeshCore frames from the radio without entering the Meshtastic routing pipeline.        |
+| `MESHTASTIC_ENABLE_MESHCORE_RELAY`       | `1`      | Re-broadcast MeshCore floods (implies the sniffer).                                           |
+| `MESHTASTIC_ENABLE_MESHCORE_COMPANION`   | `1`      | Expose `MC:` group channels and MeshCore direct messages to the client (implies the sniffer). |
+| `MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC` | `1`      | SX126x hybrid RX sync word (implies the sniffer).                                             |
+| `MESHTASTIC_MESHCORE_RX_SYNCWORD`        | `0x14B4` | Raw SX126x sync word register value used in RX.                                               |
+| `MESHTASTIC_MESHCORE_RX_DEBUG`           | `0`      | Log every RX/preamble event and the sync word register the chip really holds. Debug only.     |
+
+### Tuning the hybrid sync word
+
+`0x14B4` (MeshCore's first sync nibble, Meshtastic's second) was measured SX1262 to SX1262 on a ThinkNode M1 and receives both networks. The mirror candidate `0x2424` received Meshtastic only. If reception is poor on your hardware, build `thinknode_m1_meshcore_rxtest` to confirm the MeshCore side works on its own sync word, then treat the hybrid value as the variable.
+
+## How it works
+
+1. The radio receives with the hybrid sync word, so preamble and header detection accept either network.
+2. A candidate MeshCore frame is trial-decrypted with our Meshtastic channels first. If it decrypts, it goes through the normal Meshtastic path.
+3. Otherwise it is parsed as MeshCore and routed: floods are relayed, direct and TRACE frames forwarded when we are on the path, group and direct text delivered to the client if we hold the key.
+4. Transmissions use the sync word of the protocol that owns the frame.
+5. A service thread handles the repeater identity, ADVERTs and discovery replies.
+
+Full implementation notes, wire formats, threading and failure modes: **[docs/meshcore.md](docs/meshcore.md)**.
+
+## Status
+
+Meshtacore is experimental and developed against a single board. It is honest about what has been verified and what has not.
+
+Verified:
+
+- Hybrid receive of both networks on a ThinkNode M1.
+- Group text and direct messages on air against a MeshCore companion, in both directions.
+- Relay and forwarding behaviour covered by the native tests.
+
+Not verified yet:
+
+- Hybrid sync word packet loss and sensitivity over a long run. The value was measured for reception, never for loss.
+- Builds and flash fit on boards other than the ThinkNode M1.
+- Other regions and modem presets.
+- Region-scope filtering: the relay currently forwards region-scoped floods like any other.
+
+If hybrid loss turns out too high on your hardware, the fallback is a second SX1262.
+
+## Roadmap
+
+- Measure hybrid sync word packet loss against a normal build over a long run.
+- Bring up and size the build on the other SX126x boards in this repository, then run the full native suite.
+- Test on more hardware, regions and presets.
+- Region-scope filtering for floods.
+- Admin and config for the MeshCore side (identity, advert intervals, relay on/off) from the client, instead of build flags.
+- Documentation upstream in the [meshtastic/meshtastic](https://github.com/meshtastic/meshtastic) docs repository.
+
+## Tests
+
+The MeshCore work is covered by `test/test_meshcore_repeater` and `test/test_meshcore_companion`, plus the MeshCore channel and interoperability vectors.
+
+```bash
+./bin/run-tests.sh
+```
+
+The suite reports GREEN (0), RED (1), AMBER (2) or FILTERED (3). Run the full suite before trusting a filtered one: filtering removes the suites that create shared state for later tests.
+
+## Contributing
+
+Work happens on the `meshtacore` branch. Open issues and pull requests on this fork. Before proposing a change, run `./bin/run-tests.sh` and `trunk fmt`; the repository rejects unformatted code.
+
+## Credits
+
+Meshtacore builds on four projects:
+
+- **[Meshtastic firmware](https://github.com/meshtastic/firmware)**: the base firmware, radio abstraction, module system and client protocol.
+- **[Jentastic/Nexus](https://github.com/derpyspike/jentastic)**: the soft-fork this repository descends from, including the Nexus module and its remote administration tooling.
+- **[MeshCore](https://github.com/meshcore-dev/MeshCore)**: the protocol implemented here, including frame format, encryption, ADVERTs and companion behaviour.
+- **[ZephCore](https://github.com/liquidraver/ZephCore)**: the MeshCore Zephyr port. The relay's contention tracking and adaptive flood delay, duplicate-driven postponement and priority queue ordering follow its design, and parts of the implementation were adapted from it.
+
+## License and attribution
+
+Meshtacore is distributed under the [GNU General Public License v3.0](LICENSE). The inherited Nexus module and its accompanying scripts remain under the [GNU Affero General Public License v3](LICENSE-AGPL); AGPL files are tagged as such at the top of the file. It is a fork of [Meshtastic firmware](https://github.com/meshtastic/firmware) 2.8.1 through Jentastic/Nexus.
+
+Meshtastic and MeshCore are independent projects with their own trademarks and communities. Meshtacore is not affiliated with or endorsed by either. MeshCore protocol details follow [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCore).
+
+---
+
+## About Meshtastic
+
+This firmware keeps the full Meshtastic feature set. Meshtastic is an open-source LoRa mesh networking project for long-range, low-power communication without internet or cellular infrastructure, supporting ESP32, nRF52, RP2040/RP2350 and Linux devices. It provides text messaging, location sharing and telemetry over a decentralised mesh.
+
+- [Meshtastic website](https://meshtastic.org)
+- [Meshtastic documentation](https://meshtastic.org/docs/)
+- [Building instructions](https://meshtastic.org/docs/development/firmware/build)
+- [Flashing instructions](https://meshtastic.org/docs/getting-started/flashing-firmware/)
+
+Meshtastic® is a registered trademark of Meshtastic LLC.
