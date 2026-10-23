@@ -705,16 +705,7 @@ void ExternalNotificationModule::triggerNexusBell()
 
     if ((moduleConfig.external_notification.alert_bell_buzzer || moduleConfig.external_notification.alert_message_buzzer) &&
         canBuzz()) {
-#ifdef HAS_I2S
-        if (moduleConfig.external_notification.use_i2s_as_buzzer) {
-            audioThread->beginRttl(rtttlConfig.ringtone, strlen_P(rtttlConfig.ringtone));
-        } else
-#endif
-            if (moduleConfig.external_notification.use_pwm) {
-            rtttl::begin(config.device.buzzer_gpio, rtttlConfig.ringtone);
-        } else {
-            setExternalState(2, true);
-        }
+        triggerBuzzerOutput();
     }
 
     setIntervalFromNow(0);
