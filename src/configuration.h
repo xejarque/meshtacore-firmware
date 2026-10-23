@@ -112,16 +112,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #endif
 
 // Experimental: sniff LoRa frames from the MeshCore protocol (meshcore-dev/MeshCore) on the same
-// frequency/SF, without passing them into the Meshtastic routing pipeline. Off by default.
+// frequency/SF, without passing them into the Meshtastic routing pipeline. On by default; -D...=0 opts out.
 #ifndef MESHTASTIC_ENABLE_MESHCORE_SNIFFER
-#define MESHTASTIC_ENABLE_MESHCORE_SNIFFER 0
+#define MESHTASTIC_ENABLE_MESHCORE_SNIFFER 1
 #endif
 
 // Experimental: also re-broadcast MeshCore flood frames (transparent relay, no decryption) so a
 // Meshtastic router node can extend a MeshCore mesh sharing the same frequency and spreading factor.
-// Implies the sniffer. Off by default.
+// Implies the sniffer. On by default; -D...=0 opts out.
 #ifndef MESHTASTIC_ENABLE_MESHCORE_RELAY
-#define MESHTASTIC_ENABLE_MESHCORE_RELAY 0
+#define MESHTASTIC_ENABLE_MESHCORE_RELAY 1
 #endif
 
 #if MESHTASTIC_ENABLE_MESHCORE_RELAY && !MESHTASTIC_ENABLE_MESHCORE_SNIFFER
@@ -133,7 +133,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 // MeshCore GRP_TXT flood, and GRP_TXT frames we can decrypt are delivered to the phone as if sent
 // by a "MeshCore" node. Requires the sniffer (it shares the MeshCore repeater's raw TX path).
 #ifndef MESHTASTIC_ENABLE_MESHCORE_COMPANION
-#define MESHTASTIC_ENABLE_MESHCORE_COMPANION 0
+#define MESHTASTIC_ENABLE_MESHCORE_COMPANION 1
 #endif
 
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION && !MESHTASTIC_ENABLE_MESHCORE_SNIFFER
@@ -142,9 +142,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 // Experimental, SX126x only: receive with a hybrid sync word so one radio hears both Meshtastic (0x2B,
 // register 0x24B4) and MeshCore (0x12, register 0x1424) frames, and transmit each protocol with its own
-// sync word. Unverified on air: measure reception of both networks before relying on it. Off by default.
+// sync word. Unverified on air: measure reception of both networks before relying on it. On by default; -D...=0 opts out.
 #ifndef MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
-#define MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC 0
+#define MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC 1
 #endif
 
 // Raw SX126x sync word register value used in RX when the hybrid sync word is enabled.
