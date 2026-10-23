@@ -160,8 +160,8 @@ class MeshCoreCompanion
     /// True when node is a direct-message contact we hold a public key for.
     bool hasContact(uint32_t nodeNum) { return contacts.findByNodeNum(nodeNum) != nullptr; }
 
-    /// Queue a TXT_MSG for the contact behind nodeNum and wait for its ACK, answering packetId to the client.
-    /// text is cut to MAX_TEXT_LEN on a UTF-8 boundary. False if it could not be queued.
+    /// Queue a TXT_MSG for the contact behind nodeNum and wait for a repeater to re-flood it, then for its ACK, answering
+    /// packetId to the client. text is cut to MAX_TEXT_LEN on a UTF-8 boundary. False if it could not be queued.
     bool sendDirectText(uint32_t nodeNum, uint32_t packetId, const char *text, uint32_t now, RadioInterface *iface);
 
     /// How long a direct message waits for its ACK before the client is told it failed.
@@ -215,11 +215,13 @@ class MeshCoreCompanion
     /// A direct message on air whose ACK we are waiting for.
     struct PendingAck {
         uint32_t ackHash = 0;
+        uint32_t frameHash = 0; // the TXT_MSG as sent: a repeater re-flooding it is the relay echo
         uint32_t packetId = 0;
         uint32_t contactNum = 0;
         uint32_t sentMs = 0;
         bool used = false;
-        bool group = false; // a channel text waiting to be heard back, not a direct message waiting for an ACK
+        bool group = false;   // a channel text waiting to be heard back, not a direct message waiting for an ACK
+        bool relayed = false; // a repeater re-flooded it: the client has been told, the ACK is still awaited
     };
     static constexpr size_t PENDING_ACKS = 8;
     PendingAck pending[PENDING_ACKS];
@@ -231,6 +233,8 @@ class MeshCoreCompanion
     void handlePathAck(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info);
     /// An ACK with this hash arrived (plain or inside a PATH): report the matching direct message delivered.
     void settleAck(uint32_t hash);
+    /// A repeater re-flooded the direct message with this frame hash: report it relayed, through the hop with this hash byte.
+    void settleRelay(uint32_t hash, uint8_t relayHop);
 
     /// Drop the unmessagable node an earlier channel text created for this name, now that the name is a contact.
     void retireGroupNode(const char *name);
@@ -240,9 +244,9 @@ class MeshCoreCompanion
     bool ensureSecret(MeshCoreContact &c);
     void injectDirectText(const MeshCoreContact &c, const char *text, int pathHashCount, float snr, int32_t rssi);
     void queueAck(uint32_t hash);
-    /// Tell the client how a direct message ended, as if the contact itself had answered.
-    void reportDelivery(uint32_t fromNum, uint32_t packetId, meshtastic_Routing_Error err);
-    void addPending(uint32_t ackHash, uint32_t packetId, uint32_t contactNum, bool group = false);
+    /// Tell the client how a direct message ended, as if the contact itself had answered. relayNode >= 0 marks a relay.
+    void reportDelivery(uint32_t fromNum, uint32_t packetId, meshtastic_Routing_Error err, int relayNode = -1);
+    PendingAck *addPending(uint32_t ackHash, uint32_t packetId, uint32_t contactNum, bool group = false);
     /// A repeater re-flooded the channel text with this frame hash: report it delivered.
     void settleEcho(uint32_t hash);
     void announcePosition(uint32_t nodeNum, int32_t latitudeI, int32_t longitudeI);

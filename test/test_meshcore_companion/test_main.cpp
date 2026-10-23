@@ -689,6 +689,163 @@ void test_reply_tag_leaves_text_without_a_recent_match(void)
     TEST_ASSERT_EQUAL_STRING("hola @[Bob] que tal", rest);
 }
 
+// Our TXT_MSG as a repeater re-floods it: same payload, one more two-byte hop on the path.
+static size_t repeaterEcho(const uint8_t *frame, size_t len, uint8_t *echo)
+{
+    echo[0] = frame[0];
+    echo[1] = frame[1] + 1;
+    echo[2] = 0xAB; // the repeater's hop hash, the relay the client is told about
+    echo[3] = 0xCD;
+    memcpy(&echo[4], &frame[2], len - 2);
+    return len + 2;
+}
+
+static meshtastic_Routing_Error routingError(const meshtastic_MeshPacket &p)
+{
+    meshtastic_Routing r = meshtastic_Routing_init_default;
+    TEST_ASSERT_TRUE(pb_decode_from_bytes(p.decoded.payload.bytes, p.decoded.payload.size, &meshtastic_Routing_msg, &r));
+    return r.error_reason;
+}
+
+class CaptureRouter : public Router
+{
+  public:
+    ~CaptureRouter()
+    {
+        delete cryptLock;
+        cryptLock = nullptr;
+    }
+
+    void enqueueReceivedMessage(meshtastic_MeshPacket *p) override
+    {
+        received.push_back(*p);
+        packetPool.release(p);
+    }
+
+    std::vector<meshtastic_MeshPacket> received;
+};
+
+class CaptureRadio : public RadioInterface
+{
+  public:
+    ErrorCode send(meshtastic_MeshPacket *p) override
+    {
+        packetPool.release(p);
+        return ERRNO_OK;
+    }
+    uint32_t getPacketTime(uint32_t totalPacketLen, bool received = false) override { return 100; }
+    bool queueMeshCoreFrame(const uint8_t *bytes, size_t len) override
+    {
+        memcpy(frame, bytes, len);
+        frameLen = len;
+        return true;
+    }
+
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    size_t frameLen = 0;
+};
+
+// Our identity (kSeedA) with one contact, Bob (kSeedB), who has a key. Swaps in a node DB and a capturing router for the test.
+struct DirectSetup {
+    // A RadioInterface sizes its slot time from the region in force, which nothing earlier in this suite sets.
+    struct RegionReady {
+        RegionReady() { initRegion(); }
+    } regionReady;
+    NodeDB *previousNodeDB = nodeDB;
+    Router *previousRouter = router;
+    CaptureRouter capture;
+    MeshCoreCompanion c;
+    CaptureRadio radio;
+    uint8_t pubA[32] = {};
+    uint8_t pubB[32] = {};
+    uint32_t bobNum = 0;
+
+    DirectSetup()
+    {
+        nodeDB = new NodeDB();
+        router = &capture;
+        Ed25519::derivePublicKey(pubA, kSeedA);
+        Ed25519::derivePublicKey(pubB, kSeedB);
+        c.setIdentity(kSeedA, pubA);
+        bobNum = c.contacts.upsert(pubB, "Bob")->nodeNum;
+    }
+
+    ~DirectSetup()
+    {
+        delete nodeDB;
+        nodeDB = previousNodeDB;
+        router = previousRouter;
+    }
+};
+
+// A direct message to a MeshCore contact must reach the client as relayed when a repeater re-floods it, then as delivered when
+// the contact's ACK arrives. Regression guard: without the relay report the client stays on "Sending..." until the ACK.
+void test_direct_relay_echo_reports_relayed_then_delivered(void)
+{
+    DirectSetup s;
+    TEST_ASSERT_TRUE(s.c.sendDirectText(s.bobNum, 42, "hola", 1700000000, &s.radio));
+
+    uint8_t echo[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t echoLen = repeaterEcho(s.radio.frame, s.radio.frameLen, echo);
+    s.c.handleFrame(echo, echoLen, 0, 0);
+    TEST_ASSERT_EQUAL_UINT(1, s.capture.received.size());
+    const meshtastic_MeshPacket &relayed = s.capture.received[0];
+    TEST_ASSERT_EQUAL_UINT32(nodeDB->getNodeNum(), relayed.from);
+    TEST_ASSERT_EQUAL_UINT32(42, relayed.decoded.request_id);
+    TEST_ASSERT_EQUAL_HEX8(0xAB, relayed.relay_node);
+    TEST_ASSERT_EQUAL(meshtastic_Routing_Error_NONE, routingError(relayed));
+
+    s.c.handleFrame(echo, echoLen, 0, 0); // another repeater re-flooding it
+    TEST_ASSERT_EQUAL_UINT(1, s.capture.received.size());
+
+    MeshCoreRepeater::FrameInfo info;
+    TEST_ASSERT_TRUE(MeshCoreRepeater::parse(s.radio.frame, s.radio.frameLen, &info));
+    uint8_t rxSecret[32];
+    TEST_ASSERT_TRUE(MeshCoreCompanion::sharedSecret(kSeedB, s.pubA, rxSecret));
+    char text[MeshCoreCompanion::MAX_TEXT_LEN + 1];
+    uint32_t ts = 0;
+    uint8_t flags = 0;
+    TEST_ASSERT_TRUE(
+        MeshCoreCompanion::decodeDirectText(rxSecret, s.radio.frame, s.radio.frameLen, info, text, sizeof(text), &ts, &flags));
+
+    uint8_t ack[6];
+    const size_t ackLen = MeshCoreCompanion::encodeAck(MeshCoreCompanion::ackHash(ts, flags, text, s.pubA), ack, sizeof(ack));
+    s.c.handleFrame(ack, ackLen, 0, 0);
+    TEST_ASSERT_EQUAL_UINT(2, s.capture.received.size());
+    TEST_ASSERT_EQUAL_UINT32(s.bobNum, s.capture.received[1].from);
+    TEST_ASSERT_EQUAL(meshtastic_Routing_Error_NONE, routingError(s.capture.received[1]));
+}
+
+// A relayed direct message whose ACK never comes stops quietly at the relay, as a Meshtastic DM does once its relay has ACKed it.
+// Regression guard: reporting a failure after "relayed" turns a delivered-to-mesh message into a failed one.
+void test_relayed_direct_message_times_out_silently(void)
+{
+    DirectSetup s;
+    TEST_ASSERT_TRUE(s.c.sendDirectText(s.bobNum, 42, "hola", 1700000000, &s.radio));
+    uint8_t echo[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t echoLen = repeaterEcho(s.radio.frame, s.radio.frameLen, echo);
+    s.c.handleFrame(echo, echoLen, 0, 0);
+    TEST_ASSERT_EQUAL_UINT(1, s.capture.received.size());
+
+    Time::setTestMillis(1000 + MeshCoreCompanion::ACK_TIMEOUT_MS + 1);
+    s.c.service();
+    TEST_ASSERT_EQUAL_UINT(1, s.capture.received.size());
+}
+
+// A direct message that nothing relays or acknowledges is reported as failed once ACK_TIMEOUT_MS has passed.
+// Regression guard: the relayed exemption must not swallow the failure for a message that never left the air.
+void test_unrelayed_direct_message_times_out_as_failed(void)
+{
+    DirectSetup s;
+    TEST_ASSERT_TRUE(s.c.sendDirectText(s.bobNum, 42, "hola", 1700000000, &s.radio));
+
+    Time::setTestMillis(1000 + MeshCoreCompanion::ACK_TIMEOUT_MS + 1);
+    s.c.service();
+    TEST_ASSERT_EQUAL_UINT(1, s.capture.received.size());
+    TEST_ASSERT_EQUAL_UINT32(s.bobNum, s.capture.received[0].from);
+    TEST_ASSERT_EQUAL(meshtastic_Routing_Error_MAX_RETRANSMIT, routingError(s.capture.received[0]));
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -732,6 +889,9 @@ void setup()
     RUN_TEST(test_path_with_another_extra_is_not_an_ack);
     RUN_TEST(test_contact_and_channel_sender_share_one_node);
     RUN_TEST(test_group_text_marks_replies_and_known_mentions);
+    RUN_TEST(test_direct_relay_echo_reports_relayed_then_delivered);
+    RUN_TEST(test_relayed_direct_message_times_out_silently);
+    RUN_TEST(test_unrelayed_direct_message_times_out_as_failed);
     exit(UNITY_END());
 }
 

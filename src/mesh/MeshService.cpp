@@ -468,7 +468,8 @@ ErrorCode MeshService::sendToMesh(meshtastic_MeshPacket *p, RxSource src, bool c
     if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
         p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && meshCoreCompanion.hasContact(p->to)) {
         const bool queued = sendMeshCoreDirectText(p);
-        // Delivery is reported when the contact's ACK arrives (or times out); only a refusal is answered now.
+        // Delivery is reported once a repeater re-floods it (relayed), then when the contact's ACK arrives (or times out).
+        // Only a refusal is answered now.
         if (!queued && routingModule)
             routingModule->sendAckNak(meshtastic_Routing_Error_NO_INTERFACE, getFrom(p), p->id, p->channel, 0);
         if (router) {

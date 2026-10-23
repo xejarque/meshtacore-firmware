@@ -1020,6 +1020,9 @@ void MeshCoreCompanion::handleDirectText(const uint8_t *raw, size_t len, const M
     // TXT_MSG payload: dest hash (1), source hash (1), MAC (2), ciphertext.
     if (!identityReady || info.header_len >= len || info.payload_len < 1 + 1 + 2 + 16)
         return;
+    // A repeater re-flooding our own direct message: the last hop on the path is the repeater that carried it.
+    if (info.path_hash_count > 0)
+        settleRelay(MeshCoreRepeater::hashFrame(raw, len, info), raw[info.header_len - info.path_hash_size]);
     const uint8_t *payload = &raw[info.header_len];
     if (payload[0] != identityPub[0])
         return; // not for us: the repeater relays it, we cannot read it anyway
@@ -1051,7 +1054,7 @@ void MeshCoreCompanion::handleDirectText(const uint8_t *raw, size_t len, const M
     }
 }
 
-void MeshCoreCompanion::reportDelivery(uint32_t fromNum, uint32_t packetId, meshtastic_Routing_Error err)
+void MeshCoreCompanion::reportDelivery(uint32_t fromNum, uint32_t packetId, meshtastic_Routing_Error err, int relayNode)
 {
     meshtastic_Routing r = meshtastic_Routing_init_default;
     r.which_variant = meshtastic_Routing_error_reason_tag;
@@ -1074,11 +1077,13 @@ void MeshCoreCompanion::reportDelivery(uint32_t fromNum, uint32_t packetId, mesh
     p->decoded.has_bitfield = true;
     p->decoded.bitfield = 0;
     hopFields(0, &p->hop_start, &p->hop_limit);
+    if (relayNode >= 0)
+        p->relay_node = (uint8_t)relayNode;
     p->transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
     router->enqueueReceivedMessage(p);
 }
 
-void MeshCoreCompanion::addPending(uint32_t ackHash, uint32_t packetId, uint32_t contactNum, bool group)
+MeshCoreCompanion::PendingAck *MeshCoreCompanion::addPending(uint32_t ackHash, uint32_t packetId, uint32_t contactNum, bool group)
 {
     PendingAck *slot = nullptr;
     for (auto &e : pending) {
@@ -1089,15 +1094,18 @@ void MeshCoreCompanion::addPending(uint32_t ackHash, uint32_t packetId, uint32_t
         if (!slot || (uint32_t)(millis() - e.sentMs) > (uint32_t)(millis() - slot->sentMs))
             slot = &e; // the oldest one gives way
     }
-    if (slot->used)
+    if (slot->used && !slot->relayed)
         reportDelivery(slot->contactNum, slot->packetId, meshtastic_Routing_Error_MAX_RETRANSMIT);
 
     slot->ackHash = ackHash;
+    slot->frameHash = 0;
     slot->packetId = packetId;
     slot->contactNum = contactNum;
     slot->sentMs = millis();
     slot->group = group;
+    slot->relayed = false;
     slot->used = true;
+    return slot;
 }
 
 bool MeshCoreCompanion::trackGroupText(const uint8_t *frame, size_t len, uint32_t packetId)
@@ -1137,10 +1145,12 @@ bool MeshCoreCompanion::sendDirectText(uint32_t nodeNum, uint32_t packetId, cons
     uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
     const size_t frameLen =
         encodeDirectText(c->secret, c->pub[0], identityPub[0], timestamp, TXT_FLAGS_PLAIN, cut, frame, sizeof(frame));
-    if (frameLen == 0 || !iface->queueMeshCoreFrame(frame, frameLen))
+    MeshCoreRepeater::FrameInfo info;
+    if (frameLen == 0 || !MeshCoreRepeater::parse(frame, frameLen, &info) || !iface->queueMeshCoreFrame(frame, frameLen))
         return false;
 
-    addPending(ackHash(timestamp, TXT_FLAGS_PLAIN, cut, identityPub), packetId, nodeNum);
+    PendingAck *slot = addPending(ackHash(timestamp, TXT_FLAGS_PLAIN, cut, identityPub), packetId, nodeNum);
+    slot->frameHash = MeshCoreRepeater::hashFrame(frame, frameLen, info);
     contacts.touch(c);
     dmTx++;
     return true;
@@ -1153,6 +1163,17 @@ void MeshCoreCompanion::settleAck(uint32_t hash)
             e.used = false;
             dmAcked++;
             reportDelivery(e.contactNum, e.packetId, meshtastic_Routing_Error_NONE);
+            return;
+        }
+    }
+}
+
+void MeshCoreCompanion::settleRelay(uint32_t hash, uint8_t relayHop)
+{
+    for (auto &e : pending) {
+        if (e.used && !e.group && !e.relayed && e.frameHash == hash) {
+            e.relayed = true;
+            reportDelivery(nodeDB->getNodeNum(), e.packetId, meshtastic_Routing_Error_NONE, relayHop);
             return;
         }
     }
@@ -1191,7 +1212,9 @@ void MeshCoreCompanion::service()
         if (e.used && !Throttle::isWithinTimespanMs(e.sentMs, ACK_TIMEOUT_MS)) {
             e.used = false;
             (e.group ? groupTimedOut : dmTimedOut)++;
-            reportDelivery(e.contactNum, e.packetId, meshtastic_Routing_Error_MAX_RETRANSMIT);
+            // A relayed message stops here without a failure, as a Meshtastic one does once its relay has ACKed it.
+            if (!e.relayed)
+                reportDelivery(e.contactNum, e.packetId, meshtastic_Routing_Error_MAX_RETRANSMIT);
         }
     }
 }
