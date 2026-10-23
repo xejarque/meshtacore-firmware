@@ -1,4 +1,5 @@
 #include "RadioLibInterface.h"
+#include "ContentionStats.h"
 #include "modules/NexusModule.h"
 #include "MeshTypes.h"
 #include "NodeDB.h"
@@ -473,6 +474,9 @@ void RadioLibInterface::onNotify(uint32_t notification)
                     setTransmitDelay(); // the radio config moved, so re-run the delay and scan on it
                 } else {
                     if (isChannelActive()) { // check if there is currently a LoRa packet on the channel
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+                        meshtasticCadBusy++;
+#endif
                         if (!RadioTxHooks::holdsRadio(txp)) {
                             startReceive(); // try receiving this packet, afterwards we'll be trying to transmit again
                         }
@@ -666,7 +670,10 @@ void RadioLibInterface::completeRawSend()
     rawSending = false;
     uint32_t xmitMsec = getPacketTime(rawTxLen, false);
     airTime->logAirtime(TX_LOG, xmitMsec);
-    txGood++;
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+    meshCoreRepeater.txAirtimeMs += xmitMsec;
+#endif
+    // txGood feeds the Meshtastic num_packets_tx telemetry: MeshCore frames are counted by meshCoreRepeater/Companion.
     rawTxLen = 0;
 }
 
@@ -771,6 +778,28 @@ static void saveMeshCoreContacts()
 #endif
 }
 #endif
+
+size_t RadioLibInterface::formatContentionStats(char *buf, size_t len)
+{
+    ContentionStats s;
+    s.mtRxGood = rxGood;
+    s.mtRxBad = rxBad;
+    s.mtTxGood = txGood;
+    s.mtCadBusy = meshtasticCadBusy;
+    s.mtTxAirtimeMs = meshtasticTxAirtimeMs;
+    s.mtRxAirtimeMs = meshtasticRxAirtimeMs;
+    s.mcSeen = meshCoreRepeater.rxSeen;
+    s.mcDup = meshCoreRepeater.rxDup;
+    s.mcRelayed = meshCoreRepeater.txRelayed;
+    s.mcDropped = meshCoreRepeater.txDropped;
+    s.mcDeferChannel = meshCoreRepeater.deferChannel;
+    s.mcDeferRadio = meshCoreRepeater.deferRadio;
+    s.mcTxAirtimeMs = meshCoreRepeater.txAirtimeMs;
+    s.mcRxAirtimeMs = meshCoreRepeater.rxAirtimeMs;
+    s.channelUtilPercent = airTime->channelUtilizationPercent();
+    s.txUtilPercent = airTime->utilizationTXPercent();
+    return ::formatContentionStats(buf, len, s);
+}
 
 uint32_t RadioLibInterface::meshCoreServiceTick()
 {
@@ -944,6 +973,7 @@ void RadioLibInterface::maybeSendMeshCoreFrame()
     // queued (takePendingFrame copies, not clears) for the next meshCoreRelayTick().
     const bool own = meshCoreRepeater.pendingIsOwn();
     if (!isReceiving || !canSendImmediately()) {
+        meshCoreRepeater.deferRadio++;
         if (logDefer) {
             LOG_DEBUG("MeshCore TX deferred: radio busy");
             lastDeferLogMs = millis();
@@ -951,6 +981,7 @@ void RadioLibInterface::maybeSendMeshCoreFrame()
         return;
     }
     if (isChannelActive()) {
+        meshCoreRepeater.deferChannel++;
         if (logDefer) {
             LOG_DEBUG("MeshCore TX deferred: channel busy");
             lastDeferLogMs = millis();
@@ -972,6 +1003,10 @@ void RadioLibInterface::maybeSendMeshCoreFrame()
 }
 #else
 void RadioLibInterface::maybeSendMeshCoreFrame() {}
+size_t RadioLibInterface::formatContentionStats(char *, size_t)
+{
+    return 0;
+}
 #endif
 
 void RadioLibInterface::handleTransmitInterrupt()
@@ -1006,6 +1041,9 @@ void RadioLibInterface::completeSending()
         // Packet has been sent, count it toward our TX airtime utilization.
         uint32_t xmitMsec = getPacketTime(p);
         airTime->logAirtime(TX_LOG, xmitMsec);
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+        meshtasticTxAirtimeMs += xmitMsec;
+#endif
 
         txGood++;
         if (!isFromUs(p))
@@ -1097,8 +1135,10 @@ void RadioLibInterface::handleReceiveInterrupt()
                                                  getPacketTime(length, false));
             wakeMeshCoreRelay(); // when the adaptive relay delay elapses
             airTime->logAirtime(RX_LOG, rxMsec);
+            meshCoreRepeater.rxAirtimeMs += rxMsec;
             return; // do not deliver to the Meshtastic router
         }
+        meshtasticRxAirtimeMs += rxMsec;
 #endif
         // Skip the 4 headers that are at the beginning of the rxBuf
         int32_t payloadLen = length - sizeof(PacketHeader);

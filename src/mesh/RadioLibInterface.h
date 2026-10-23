@@ -291,6 +291,11 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     uint32_t rxBad = 0, rxGood = 0, txGood = 0, txRelay = 0;
     uint16_t txDrop = 0;
 
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+    // Meshtastic side of the contention measurements (MeshCore's live in meshCoreRepeater): CAD hits before a send, and airtime.
+    uint32_t meshtasticCadBusy = 0, meshtasticTxAirtimeMs = 0, meshtasticRxAirtimeMs = 0;
+#endif
+
     // Nexus LORACHIPSTATS (/nexus LCS): cumulative chip-state samples, one per
     // CHIP_STATE_SAMPLE_INTERVAL_MS (RAM-only, cleared on boot or LCS RESET).
     enum ChipStateSample : uint8_t {
@@ -419,6 +424,8 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
 
     /** Queue a raw MeshCore frame for the next idle radio slot (see RadioInterface::queueMeshCoreFrame). */
     bool queueMeshCoreFrame(const uint8_t *bytes, size_t len) override;
+
+    size_t formatContentionStats(char *buf, size_t len) override;
 
     /** True if a MeshCore frame may go on air now: radio enabled, tx_enabled and within the duty cycle. */
     bool meshCoreTxAllowed();

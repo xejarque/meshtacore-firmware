@@ -11,6 +11,7 @@
 // re-emission per packet, not per path variant) and the ZephCore-style adaptive relay delay.
 #define MESHTASTIC_ENABLE_MESHCORE_SNIFFER 1
 #define MESHTASTIC_ENABLE_MESHCORE_RELAY 1
+#include "mesh/ContentionStats.h"
 #include "mesh/MeshCoreRepeater.cpp"
 
 #include "Arduino.h"
@@ -26,6 +27,55 @@ static const uint8_t kAdvert = 0x04;
 
 // Airtime reported for test frames; the adaptive delay scales with it (see test expectations).
 static const uint32_t kAirtimeMs = 100;
+
+void test_stats_command_matches_only_the_bare_command()
+{
+    TEST_ASSERT_TRUE(isStatsCommand("/stats"));
+    TEST_ASSERT_TRUE(isStatsCommand("  /stats \n"));
+    TEST_ASSERT_FALSE(isStatsCommand("/stats now"));
+    TEST_ASSERT_FALSE(isStatsCommand("/statsx"));
+    TEST_ASSERT_FALSE(isStatsCommand("hello /stats"));
+    TEST_ASSERT_FALSE(isStatsCommand(""));
+    TEST_ASSERT_FALSE(isStatsCommand(nullptr));
+}
+
+void test_stats_reply_fits_a_meshcore_text()
+{
+    ContentionStats s;
+    s.mtRxGood = 1234;
+    s.mtRxBad = 56;
+    s.mtTxGood = 789;
+    s.mtCadBusy = 321;
+    s.mcSeen = 4321;
+    s.mcDup = 2100;
+    s.mcRelayed = 987;
+    s.mcDropped = 12;
+    s.mcDeferChannel = 654;
+    s.mcDeferRadio = 32;
+    s.mtTxAirtimeMs = 120000;
+    s.mtRxAirtimeMs = 900000;
+    s.mcTxAirtimeMs = 60000;
+    s.mcRxAirtimeMs = 700000;
+    s.channelUtilPercent = 12.4f;
+    s.txUtilPercent = 3.2f;
+    char buf[161];
+    const size_t n = formatContentionStats(buf, sizeof(buf), s);
+    TEST_ASSERT_GREATER_THAN(0, n);
+    TEST_ASSERT_LESS_THAN(161, n);
+    TEST_ASSERT_EQUAL_UINT32(strlen(buf), n);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "MT rx 1234 bad 56 tx 789 cad 321"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "MC seen 4321 dup 2100 relay 987 drop 12 busy 654+32"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "air s MT 120/900 MC 60/700"));
+}
+
+void test_stats_reply_is_cut_to_a_small_buffer()
+{
+    ContentionStats s;
+    char buf[16];
+    const size_t n = formatContentionStats(buf, sizeof(buf), s);
+    TEST_ASSERT_EQUAL_UINT32(sizeof(buf) - 1, n);
+    TEST_ASSERT_EQUAL_UINT32(n, strlen(buf));
+}
 
 void setUp(void)
 {
@@ -1412,6 +1462,9 @@ void setup()
     RUN_TEST(test_trace_with_wider_hashes);
     RUN_TEST(test_multipart_ack_is_forwarded_as_plain_ack);
     RUN_TEST(test_multipart_other_types_are_not_forwarded);
+    RUN_TEST(test_stats_command_matches_only_the_bare_command);
+    RUN_TEST(test_stats_reply_fits_a_meshcore_text);
+    RUN_TEST(test_stats_reply_is_cut_to_a_small_buffer);
     exit(UNITY_END());
 }
 

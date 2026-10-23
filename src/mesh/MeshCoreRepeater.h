@@ -167,6 +167,9 @@ class MeshCoreRepeater
     uint32_t rxSeen = 0, rxFlood = 0, rxDup = 0, rxDropped = 0, txRelayed = 0, txDropped = 0, rxDirectForUs = 0,
              discoverReplies = 0;
 
+    // Contention measurements: attempts that found the radio or the channel busy, and the airtime of MeshCore frames.
+    uint32_t deferRadio = 0, deferChannel = 0, txAirtimeMs = 0, rxAirtimeMs = 0;
+
   private:
     static constexpr uint8_t MAX_PATH_HASH_SIZE = 3; // MeshCore allows 1..3
     static constexpr uint8_t MAX_PATH_HASH_COUNT = 63;

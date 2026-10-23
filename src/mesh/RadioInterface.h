@@ -197,6 +197,14 @@ class RadioInterface
         return false;
     }
 
+    /** Contention measurements of both protocols as one short text line; returns its length, 0 if this radio keeps none. */
+    virtual size_t formatContentionStats(char *buf, size_t len)
+    {
+        (void)buf;
+        (void)len;
+        return 0;
+    }
+
     /** Return TX queue status */
     [[nodiscard]] virtual meshtastic_QueueStatus getQueueStatus()
     {
