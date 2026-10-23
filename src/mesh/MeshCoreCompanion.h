@@ -251,7 +251,7 @@ class MeshCoreCompanion
     size_t recentNext = 0;
 
     /// Tell the client about a node we just created or renamed. The node DB alone is not enough: a connected phone only
-    /// learns a node's name from a NODEINFO packet (or on its next config download), and otherwise shows "Meshtastic xxxx".
+    /// learns a node's name from a NODEINFO packet (or on its next config download), and otherwise shows "Meshtacore xxxx".
     void announceUser(uint32_t nodeNum, const meshtastic_User &user);
 
     bool cachedChannelHash(ChannelIndex ch, const uint8_t *key, size_t keyLen, uint8_t *out);

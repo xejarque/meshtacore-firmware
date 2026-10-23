@@ -2182,7 +2182,7 @@ void NodeDB::installDefaultDeviceState()
 #ifdef USERPREFS_CONFIG_OWNER_LONG_NAME
     snprintf(owner.long_name, sizeof(owner.long_name), (const char *)USERPREFS_CONFIG_OWNER_LONG_NAME);
 #else
-    snprintf(owner.long_name, sizeof(owner.long_name), "Meshtastic %04x", getNodeNum() & 0x0ffff);
+    snprintf(owner.long_name, sizeof(owner.long_name), "Meshtacore %04x", getNodeNum() & 0x0ffff);
 #endif
 
     clampLongName(owner.long_name); // vendor userprefs may exceed the local cap
