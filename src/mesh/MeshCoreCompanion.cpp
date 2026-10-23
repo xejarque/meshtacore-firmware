@@ -2,6 +2,10 @@
 
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 
+#ifdef CRYPTO_AES_NO_DECRYPT
+#error "MeshCore needs AES decryption: add -UCRYPTO_AES_NO_DECRYPT to this env (the nRF52 base defines it)"
+#endif
+
 #include "Channels.h"
 #include "NodeDB.h"
 #include "RadioInterface.h"
