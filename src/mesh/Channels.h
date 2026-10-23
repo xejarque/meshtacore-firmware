@@ -93,6 +93,9 @@ class Channels
     /// True if this channel is enabled, named "MC:..." and carries a 16- or 32-byte PSK.
     bool isMeshCoreChannel(ChannelIndex chIndex);
 
+    /// Add the default MeshCore channels to a node that predates them, the first time only. True if the channels changed.
+    bool seedMeshCoreChannelsOnce();
+
     /// Copy the channel's MeshCore PSK into key (zero-padded to 32 bytes). Returns the effective
     /// secret length - 16 when a 32-byte key's second half is all zeroes (MeshCore's 128-bit form) -
     /// or 0 when this is not a MeshCore channel.

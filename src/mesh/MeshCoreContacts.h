@@ -23,8 +23,18 @@ struct MeshCoreContact {
 template <size_t N> class MeshCoreContacts
 {
   public:
-    /// Node number standing in for a contact: 'M' in the top byte, 24 bits hashed from the public key.
-    static uint32_t nodeNumFor(const uint8_t pub[32])
+    /// Node number standing in for a MeshCore name: 'M' in the top byte, 24 bits hashed from the name. A contact and
+    /// the sender of a channel text with the same name share it, so the client shows one node, not two.
+    static uint32_t nodeNumFor(const char *name)
+    {
+        uint32_t h = 2166136261u; // FNV-1a
+        for (const char *p = name; p && *p; p++)
+            h = (h ^ (uint8_t)*p) * 16777619u;
+        return 0x4D000000 | ((h ^ (h >> 24)) & 0x00FFFFFF);
+    }
+
+    /// Node number for a repeater, which has no contact entry: hashed from its public key.
+    static uint32_t nodeNumForKey(const uint8_t pub[32])
     {
         uint32_t h = 2166136261u; // FNV-1a
         for (size_t i = 0; i < 32; i++)
@@ -40,7 +50,7 @@ template <size_t N> class MeshCoreContacts
             c = &entries[victim()];
             *c = MeshCoreContact();
             memcpy(c->pub, pub, 32);
-            c->nodeNum = freeNodeNum(pub);
+            c->nodeNum = freeNodeNum(name);
         }
         if (name) {
             strncpy(c->name, name, sizeof(c->name) - 1);
@@ -116,9 +126,9 @@ template <size_t N> class MeshCoreContacts
     }
 
     /// The hashed node number, moved on if another contact already owns it.
-    uint32_t freeNodeNum(const uint8_t pub[32])
+    uint32_t freeNodeNum(const char *name)
     {
-        uint32_t num = nodeNumFor(pub);
+        uint32_t num = nodeNumFor(name);
         while (findByNodeNum(num) || num == 0x4D430001) // 0x4D430001: the generic "MeshCore" node
             num = 0x4D000000 | ((num + 1) & 0x00FFFFFF);
         return num;

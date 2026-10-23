@@ -2965,6 +2965,13 @@ void NodeDB::loadFromDisk()
         saveToDisk(SEGMENT_MODULECONFIG);
     }
 
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    if (channels.seedMeshCoreChannelsOnce()) {
+        LOG_INFO("MeshCore channels added to the existing channel set");
+        saveToDisk(SEGMENT_CHANNELS);
+    }
+#endif
+
     if (channels.ensureLicensedOperation()) {
         LOG_WARN("Licensed operation removed persisted channel encryption/admin access");
         saveToDisk(SEGMENT_CHANNELS);

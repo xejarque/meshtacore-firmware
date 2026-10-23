@@ -526,7 +526,7 @@ void test_contact_node_carries_the_meshcore_key_and_is_messagable(void)
     MeshCoreCompanion c;
     uint8_t pub[32];
     fillPub(pub, 0x21, 77);
-    const uint32_t num = MeshCoreContacts<4>::nodeNumFor(pub);
+    const uint32_t num = MeshCoreContacts<4>::nodeNumFor("Keyed");
 
     c.ensureSenderNode(num, "Keyed", true, pub);
     meshtastic_NodeInfoLite *lite = nodeDB->getMeshNode(num);
@@ -624,6 +624,40 @@ void test_path_with_another_extra_is_not_an_ack(void)
     TEST_ASSERT_FALSE(MeshCoreCompanion::decodePathAck(secret, frame, len, info, &hash));
 }
 
+void test_contact_and_channel_sender_share_one_node(void)
+{
+    MeshCoreContacts<4> table;
+    uint8_t pub[32];
+    fillPub(pub, 0x31, 5);
+    // The same name gives the same node whether it first spoke in a channel or advertised: one entry in the client.
+    TEST_ASSERT_EQUAL_HEX32(MeshCoreCompanion::senderNodeNum("Alice"), table.upsert(pub, "Alice")->nodeNum);
+}
+
+void test_group_text_marks_replies_and_known_mentions(void)
+{
+    MeshCoreCompanion c;
+    uint8_t pub[32];
+    fillPub(pub, 0x41, 9);
+    c.contacts.upsert(pub, "Carol");
+    c.noteRecentText(1234, "Bob Builder");
+
+    char out[200];
+    c.prepareGroupText("hi", 1234, out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("@[Bob Builder] hi", out);
+
+    c.prepareGroupText("hey @carol and @Bob Builder, @nobody.", 0, out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("hey @[Carol] and @[Bob Builder], @[nobody].", out);
+
+    c.prepareGroupText("@Carolina stays", 0, out, sizeof(out)); // "Carol" is not the whole word: one unknown word
+    TEST_ASSERT_EQUAL_STRING("@[Carolina] stays", out);
+
+    c.prepareGroupText("mail a@b.com or @ alone", 0, out, sizeof(out)); // not at a word start / no name
+    TEST_ASSERT_EQUAL_STRING("mail a@b.com or @ alone", out);
+
+    c.prepareGroupText("already @[Carol]", 99, out, sizeof(out)); // unknown reply id, existing mention
+    TEST_ASSERT_EQUAL_STRING("already @[Carol]", out);
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -663,6 +697,8 @@ void setup()
     RUN_TEST(test_path_ack_round_trip);
     RUN_TEST(test_path_ack_skips_the_walked_path);
     RUN_TEST(test_path_with_another_extra_is_not_an_ack);
+    RUN_TEST(test_contact_and_channel_sender_share_one_node);
+    RUN_TEST(test_group_text_marks_replies_and_known_mentions);
     exit(UNITY_END());
 }
 

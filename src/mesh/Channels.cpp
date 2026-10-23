@@ -3,9 +3,13 @@
 #include "CryptoEngine.h"
 #include "Default.h"
 #include "DisplayFormatters.h"
+#include "FSCommon.h"
 #include "MeshCoreCompanion.h"
 #include "NodeDB.h"
 #include "RadioInterface.h"
+#include "SPILock.h"
+#include "SafeFile.h"
+#include "concurrency/LockGuard.h"
 #include "configuration.h"
 
 #include <assert.h>
@@ -321,20 +325,31 @@ static const uint8_t meshCoreTestPsk[16] = {0x9c, 0xd8, 0xfc, 0xf2, 0x2a, 0x47, 
 static const uint8_t meshCoreBotPsk[16] = {0xeb, 0x50, 0xa1, 0xbc, 0xb3, 0xe4, 0xe5, 0xd7,
                                            0xbf, 0x69, 0xa5, 0x7c, 0x9d, 0xad, 0xa2, 0x11};
 
-static void seedMeshCoreChannels()
+/// Installs the default MeshCore channels that no slot carries yet (by name). Returns true if any was added.
+static bool seedMeshCoreChannels()
 {
     static const struct {
         const char *name;
         const uint8_t *psk;
     } defs[] = {{"MC:Public", meshCorePublicPsk}, {"MC:#test", meshCoreTestPsk}, {"MC:#bot", meshCoreBotPsk}};
 
+    bool added = false;
     for (size_t i = 0; i < sizeof(defs) / sizeof(defs[0]); i++) {
-        ChannelIndex idx = i + 1;
+        bool present = false;
+        for (ChannelIndex k = 0; k < MAX_NUM_CHANNELS && !present; k++)
+            present = strncmp(channels.getByIndex(k).settings.name, defs[i].name, strlen(defs[i].name) + 1) == 0;
+        if (present)
+            continue;
+
+        // First free slot after the primary: DISABLED and unnamed, so a userPrefs channel is never overwritten.
+        ChannelIndex idx = 1;
+        while (idx < MAX_NUM_CHANNELS &&
+               (channels.getByIndex(idx).role != meshtastic_Channel_Role_DISABLED || channels.getByIndex(idx).settings.name[0]))
+            idx++;
         if (idx >= MAX_NUM_CHANNELS)
             break;
+
         meshtastic_Channel &ch = channels.getByIndex(idx);
-        if (ch.role != meshtastic_Channel_Role_DISABLED || ch.settings.name[0])
-            continue; // respect channels already installed by userPrefs
         memset(&ch.settings, 0, sizeof(ch.settings));
         strncpy(ch.settings.name, defs[i].name, sizeof(ch.settings.name) - 1);
         memcpy(ch.settings.psk.bytes, defs[i].psk, 16);
@@ -344,7 +359,29 @@ static void seedMeshCoreChannels()
         ch.has_settings = true;
         ch.role = meshtastic_Channel_Role_SECONDARY;
         channels.fixupChannel(idx);
+        added = true;
     }
+    return added;
+}
+
+bool Channels::seedMeshCoreChannelsOnce()
+{
+#ifdef FSCom
+    static const char *marker = "/prefs/meshcore_channels_seeded";
+    {
+        concurrency::LockGuard g(spiLock);
+        if (FSCom.exists(marker))
+            return false;
+    }
+    // A node updated from plain Meshtastic has none of them. Once only: a user who deletes them keeps them deleted.
+    const bool added = seedMeshCoreChannels();
+    SafeFile out(marker, true);
+    out.write((const uint8_t *)"1", 1);
+    out.close();
+    return added;
+#else
+    return false;
+#endif
 }
 #endif
 

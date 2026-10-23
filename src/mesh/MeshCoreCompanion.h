@@ -120,7 +120,25 @@ class MeshCoreCompanion
     /// messagable=true marks a direct-message contact: the client lets the user write to it. publicKey (32 bytes, the
     /// contact's MeshCore key) goes into the node's key field, because clients only offer a direct message to a node that
     /// has one. The text itself is encrypted by MeshCore, not with that key.
-    void ensureSenderNode(uint32_t nodeNum, const char *name, bool messagable = false, const uint8_t *publicKey = nullptr);
+    void ensureSenderNode(uint32_t nodeNum, const char *name, bool messagable = false, const uint8_t *publicKey = nullptr,
+                          meshtastic_Config_DeviceConfig_Role role = meshtastic_Config_DeviceConfig_Role_CLIENT);
+
+    /// Record a node's position from an ADVERT (degrees x 1e6, as MeshCore sends it) and tell the client. Nothing is done
+    /// for 0,0 (no position) or a position the node DB already holds.
+    void updatePosition(uint32_t nodeNum, int32_t latMicro, int32_t lonMicro);
+
+    /// Remember who wrote a bridged channel text (by the packet id the client sees), so a reply to it can name them.
+    void noteRecentText(uint32_t packetId, const char *sender);
+    const char *recentSender(uint32_t packetId) const;
+
+    /// Rewrite an outgoing channel text the way MeshCore apps expect: "@[name] " in front of a reply (replyId is the packet
+    /// id of the text answered, 0 if none) and "@name" as "@[name]" (a known name whole, otherwise the next word). Returns the
+    /// length.
+    size_t prepareGroupText(const char *text, uint32_t replyId, char *out, size_t cap);
+
+    /// Wait for a repeater to echo the channel text frame we just queued, then tell the client packetId was delivered; if
+    /// nobody does within ACK_TIMEOUT_MS it is reported as failed. False if frame is not a MeshCore frame.
+    bool trackGroupText(const uint8_t *frame, size_t len, uint32_t packetId);
 
     /// Timestamp for the next outgoing text: strictly increasing, so two texts sent within the same
     /// second still encrypt differently and are not dropped as duplicates by repeaters.
@@ -166,7 +184,7 @@ class MeshCoreCompanion
     void noteTransmitted(const uint8_t *raw, size_t len);
 
     uint32_t rxSeen = 0, rxDecoded = 0, rxDup = 0, rxIgnored = 0, txSent = 0;
-    uint32_t contactsLearned = 0, dmRx = 0, dmTx = 0, dmAcked = 0, dmTimedOut = 0;
+    uint32_t contactsLearned = 0, dmRx = 0, dmTx = 0, dmAcked = 0, dmTimedOut = 0, groupEchoed = 0, groupTimedOut = 0;
 
     static constexpr size_t CONTACTS_MAX = 32;
     MeshCoreContacts<CONTACTS_MAX> contacts;
@@ -196,6 +214,7 @@ class MeshCoreCompanion
         uint32_t contactNum = 0;
         uint32_t sentMs = 0;
         bool used = false;
+        bool group = false; // a channel text waiting to be heard back, not a direct message waiting for an ACK
     };
     static constexpr size_t PENDING_ACKS = 8;
     PendingAck pending[PENDING_ACKS];
@@ -210,13 +229,26 @@ class MeshCoreCompanion
 
     /// Drop the unmessagable node an earlier channel text created for this name, now that the name is a contact.
     void retireGroupNode(const char *name);
+    /// Drop the node an earlier build made for this contact under a public-key-derived number.
+    void retireKeyedNode(const uint8_t pub[32], uint32_t keepNum);
 
     bool ensureSecret(MeshCoreContact &c);
     void injectDirectText(const MeshCoreContact &c, const char *text, int pathHashCount, float snr, int32_t rssi);
     void queueAck(uint32_t hash);
     /// Tell the client how a direct message ended, as if the contact itself had answered.
     void reportDelivery(uint32_t fromNum, uint32_t packetId, meshtastic_Routing_Error err);
-    void addPending(uint32_t ackHash, uint32_t packetId, uint32_t contactNum);
+    void addPending(uint32_t ackHash, uint32_t packetId, uint32_t contactNum, bool group = false);
+    /// A repeater re-flooded the channel text with this frame hash: report it delivered.
+    void settleEcho(uint32_t hash);
+    void announcePosition(uint32_t nodeNum, int32_t latitudeI, int32_t longitudeI);
+
+    struct RecentText {
+        uint32_t packetId = 0;
+        char sender[MeshCoreContact::NAME_LEN] = {};
+    };
+    static constexpr size_t RECENT_TEXTS = 32;
+    RecentText recent[RECENT_TEXTS];
+    size_t recentNext = 0;
 
     /// Tell the client about a node we just created or renamed. The node DB alone is not enough: a connected phone only
     /// learns a node's name from a NODEINFO packet (or on its next config download), and otherwise shows "Meshtastic xxxx".

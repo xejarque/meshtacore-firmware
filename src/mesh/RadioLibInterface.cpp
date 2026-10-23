@@ -674,10 +674,12 @@ void RadioLibInterface::completeRawSend()
 static constexpr size_t MESHCORE_SEED_LEN = 32;
 static constexpr uint32_t MESHCORE_IDENTITY_LOAD_MS = 5 * 1000; // identity ready early: discovery needs it
 static constexpr uint32_t MESHCORE_ADVERT_FIRST_MS = 60 * 1000; // first zero-hop ADVERT a minute after boot
-// MeshCore simple_repeater defaults: a zero-hop advert every 2 minutes for direct neighbours, a flood advert
-// every 47 hours for the whole mesh. A flood is re-sent by every node, so it must stay rare.
+// A zero-hop advert every 2 minutes for direct neighbours (MeshCore simple_repeater default); a flood advert for the whole
+// mesh a few minutes after boot, so the node shows up across repeaters without waiting, then every 12 hours. A flood is
+// re-sent by every node, so it must stay rare.
 static constexpr uint32_t MESHCORE_LOCAL_ADVERT_INTERVAL_MS = 2 * 60 * 1000;
-static constexpr uint32_t MESHCORE_FLOOD_ADVERT_INTERVAL_MS = 47UL * 60 * 60 * 1000;
+static constexpr uint32_t MESHCORE_FLOOD_ADVERT_FIRST_MS = 3 * 60 * 1000;
+static constexpr uint32_t MESHCORE_FLOOD_ADVERT_INTERVAL_MS = 12UL * 60 * 60 * 1000;
 static constexpr uint32_t MESHCORE_ADVERT_RETRY_MS = 60 * 1000;           // no identity / no valid time
 static constexpr uint32_t MESHCORE_ADVERT_NUDGE_MS = 1000;                // radio busy: ask again
 static constexpr uint32_t MESHCORE_SERVICE_MS = 5 * 1000;                 // longest wait between housekeeping steps
@@ -1168,9 +1170,8 @@ void RadioLibInterface::startReceive()
     powerMon->setState(meshtastic_PowerMon_State_Lora_RXOn);
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
     if (!meshCoreAdvertThread) {
-        // Like a MeshCore repeater: no flood at boot (a node that reboots often would flood the mesh each time), the
-        // first flood one full interval later; the zero-hop advert for direct neighbours goes out shortly after boot.
-        nextMeshCoreFloodAdvertMs = millis() + MESHCORE_FLOOD_ADVERT_INTERVAL_MS;
+        // The zero-hop advert for direct neighbours goes out shortly after boot, the first flood a few minutes later.
+        nextMeshCoreFloodAdvertMs = millis() + MESHCORE_FLOOD_ADVERT_FIRST_MS;
         nextMeshCoreLocalAdvertMs = millis() + MESHCORE_ADVERT_FIRST_MS;
         meshCoreAdvertThread = new MeshCoreAdvertThread(this);
         meshCoreRelayThread = new MeshCoreRelayThread(this);

@@ -414,9 +414,11 @@ bool MeshService::sendMeshCoreGroupText(const meshtastic_MeshPacket *p)
     }
 
     // encodeGroupText cuts the text on a UTF-8 boundary once the "sender: " prefix is accounted for.
-    char text[sizeof(p->decoded.payload.bytes) + 1];
-    memcpy(text, p->decoded.payload.bytes, p->decoded.payload.size);
-    text[p->decoded.payload.size] = 0;
+    char plain[sizeof(p->decoded.payload.bytes) + 1];
+    memcpy(plain, p->decoded.payload.bytes, p->decoded.payload.size);
+    plain[p->decoded.payload.size] = 0;
+    char text[sizeof(plain) + 64]; // room for the "@[name] " of a reply and the brackets of mentions
+    meshCoreCompanion.prepareGroupText(plain, p->decoded.reply_id, text, sizeof(text));
 
     const char *sender = owner.long_name[0] ? owner.long_name : (owner.short_name[0] ? owner.short_name : "Meshtastic");
     uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
@@ -430,6 +432,7 @@ bool MeshService::sendMeshCoreGroupText(const meshtastic_MeshPacket *p)
     }
     if (truncated)
         LOG_WARN("MeshCore text cut to fit %u bytes with the sender prefix", (unsigned)MeshCoreCompanion::MAX_TEXT_LEN);
+    meshCoreCompanion.trackGroupText(frame, frameLen, p->id);
     LOG_INFO("MeshCore TX ch=%u len=%u", (unsigned)p->channel, (unsigned)frameLen);
     return true;
 }
@@ -487,11 +490,11 @@ ErrorCode MeshService::sendToMesh(meshtastic_MeshPacket *p, RxSource src, bool c
             queued = sendMeshCoreGroupText(p);
         }
 
-        // MeshCore peers cannot ACK a Meshtastic packet; report the local implicit ACK the app
-        // expects for a channel broadcast once the frame is handed to the radio.
+        // MeshCore peers cannot ACK a channel text: it counts as delivered once a repeater is heard re-flooding it
+        // (MeshCoreCompanion::settleEcho), or failed if none is. Only a refusal is answered now.
         if (isGroupText) {
-            if (queued && routingModule)
-                routingModule->sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel, 0);
+            if (!queued && routingModule)
+                routingModule->sendAckNak(meshtastic_Routing_Error_NO_INTERFACE, getFrom(p), p->id, p->channel, 0);
             if (router) {
                 meshtastic_QueueStatus qs = router->getQueueStatus();
                 (void)sendQueueStatusToPhone(qs, queued ? ERRNO_OK : ERRNO_UNKNOWN, mesh_packet_id);
