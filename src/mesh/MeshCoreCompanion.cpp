@@ -1015,6 +1015,11 @@ void MeshCoreCompanion::injectDirectText(const MeshCoreContact &c, const char *t
     p->to = nodeDB->getNodeNum();
     p->id = generatePacketId();
     p->channel = 0;
+    // Clients send a direct message to a node with a key as PKC and file it in that conversation: a reply that is not
+    // marked the same way opens a second chat with the same node.
+    p->pki_encrypted = true;
+    p->public_key.size = 32;
+    memcpy(p->public_key.bytes, c.pub, 32);
     p->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
     const size_t textLen = strlen(text);
