@@ -157,8 +157,8 @@ class MeshCoreCompanion
     const char *recentSender(uint32_t packetId) const;
 
     /// A MeshCore reply opens with "@[name] " naming the text it answers. Returns the packet id of the newest bridged
-    /// text by that name and points *rest past the tag. Returns 0 and leaves *rest at text when there is no tag or no
-    /// recent text.
+    /// text by that name and, when rest is not null, points *rest past the tag. Returns 0 and leaves *rest at text when
+    /// there is no tag or no recent text.
     uint32_t replyTarget(const char *text, const char **rest) const;
 
     /// Rewrite an outgoing channel text the way MeshCore apps expect: "@[name] " in front of a reply (replyId is the packet

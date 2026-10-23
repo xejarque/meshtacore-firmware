@@ -604,7 +604,8 @@ const char *MeshCoreCompanion::recentSender(uint32_t packetId) const
 
 uint32_t MeshCoreCompanion::replyTarget(const char *text, const char **rest) const
 {
-    *rest = text;
+    if (rest)
+        *rest = text;
     if (text[0] != '@' || text[1] != '[')
         return 0;
     const char *close = strchr(text + 2, ']');
@@ -618,7 +619,8 @@ uint32_t MeshCoreCompanion::replyTarget(const char *text, const char **rest) con
     for (size_t i = 1; i <= RECENT_TEXTS; i++) {
         const RecentText &r = recent[(recentNext + RECENT_TEXTS - i) % RECENT_TEXTS];
         if (r.sender[0] && strcmp(r.sender, name) == 0) {
-            *rest = close + 2;
+            if (rest)
+                *rest = close + 2;
             return r.packetId;
         }
     }
@@ -839,19 +841,15 @@ void MeshCoreCompanion::handleGroupText(const uint8_t *raw, size_t len, const Me
         p->to = NODENUM_BROADCAST;
         p->id = generatePacketId();
         // Looked up before this text is noted, so a text can never quote itself.
-        const char *rest = body;
-        const uint32_t replyId = replyTarget(body, &rest);
+        const uint32_t replyId = replyTarget(body, nullptr);
         if (fromNum != PSEUDO_NODE_NUM)
             noteRecentText(p->id, sender);
         p->channel = i;
         p->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
         p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
-        // A quoted reply carries the answered packet id and the text without its "@[name] " tag, as Meshtastic
-        // clients send it.
-        if (replyId) {
+        // A quoted reply carries the answered packet id, and keeps its "@[name] " tag in the body the way MeshCore shows it.
+        if (replyId)
             p->decoded.reply_id = replyId;
-            body = rest;
-        }
         const size_t textLen = strlen(body);
         p->decoded.payload.size = textLen <= sizeof(p->decoded.payload.bytes) ? textLen : sizeof(p->decoded.payload.bytes);
         memcpy(p->decoded.payload.bytes, body, p->decoded.payload.size);
