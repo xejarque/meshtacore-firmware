@@ -18,7 +18,7 @@ InkHUD::LogoApplet::LogoApplet() : concurrency::OSThread("LogoApplet")
         fontTitle = fontMedium;
         textLeft = xstr(APP_VERSION_SHORT);
         textRight = parseShortName(ourNode);
-        textTitle = "Jentastic";
+        textTitle = "Meshtacore";
     } else {
         fontTitle = fontSmall;
         textLeft = "";
