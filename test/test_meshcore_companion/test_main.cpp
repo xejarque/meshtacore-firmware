@@ -11,6 +11,7 @@
 
 #include "Arduino.h"
 #include "TestUtil.h"
+#include "TypeConversions.h"
 #include <unity.h>
 
 // The three seeded MeshCore channel keys (16-byte PSKs).
@@ -517,34 +518,45 @@ void test_direct_send_needs_identity_and_contact(void)
     TEST_ASSERT_FALSE(c.hasContact(0x12345678));
 }
 
-void test_contact_node_carries_the_meshcore_key_and_is_messagable(void)
+void test_contact_user_carries_the_meshcore_key_and_is_messagable(void)
 {
-    // The other tests run without a node DB (the bridge then does nothing); this one needs a real one.
-    NodeDB *previous = nodeDB;
-    nodeDB = new NodeDB();
-
-    MeshCoreCompanion c;
     uint8_t pub[32];
     fillPub(pub, 0x21, 77);
-    const uint32_t num = MeshCoreContacts<4>::nodeNumFor("Keyed");
 
-    c.ensureSenderNode(num, "Keyed", true, pub);
-    meshtastic_NodeInfoLite *lite = nodeDB->getMeshNode(num);
-    TEST_ASSERT_NOT_NULL(lite);
-    TEST_ASSERT_EQUAL(32, lite->public_key.size);
-    TEST_ASSERT_EQUAL_MEMORY(pub, lite->public_key.bytes, 32);
-    TEST_ASSERT_FALSE(nodeInfoLiteIsUnmessagable(lite));
+    const meshtastic_User keyed = MeshCoreCompanion::senderUser("Keyed", true, pub, meshtastic_Config_DeviceConfig_Role_CLIENT);
+    TEST_ASSERT_EQUAL_STRING("Keyed (MC)", keyed.long_name);
+    TEST_ASSERT_EQUAL(32, keyed.public_key.size);
+    TEST_ASSERT_EQUAL_MEMORY(pub, keyed.public_key.bytes, 32);
+    TEST_ASSERT_FALSE(keyed.is_unmessagable);
 
     // A group sender has no key and stays unmessagable.
-    const uint32_t groupNum = MeshCoreCompanion::senderNodeNum("GroupOnly");
-    c.ensureSenderNode(groupNum, "GroupOnly");
-    lite = nodeDB->getMeshNode(groupNum);
-    TEST_ASSERT_NOT_NULL(lite);
-    TEST_ASSERT_EQUAL(0, lite->public_key.size);
-    TEST_ASSERT_TRUE(nodeInfoLiteIsUnmessagable(lite));
+    const meshtastic_User group =
+        MeshCoreCompanion::senderUser("GroupOnly", false, nullptr, meshtastic_Config_DeviceConfig_Role_CLIENT);
+    TEST_ASSERT_EQUAL(0, group.public_key.size);
+    TEST_ASSERT_TRUE(group.is_unmessagable);
+}
 
-    delete nodeDB;
-    nodeDB = previous;
+void test_a_node_is_announced_until_heard_and_again_when_it_changes_or_goes_stale(void)
+{
+    uint8_t pub[32];
+    fillPub(pub, 0x22, 5);
+    const meshtastic_User user = MeshCoreCompanion::senderUser("Rpt", false, pub, meshtastic_Config_DeviceConfig_Role_REPEATER);
+    const uint32_t now = 1000000;
+
+    TEST_ASSERT_TRUE(MeshCoreCompanion::needsAnnounce(nullptr, user, now)); // not in the list yet
+
+    meshtastic_NodeInfoLite lite = meshtastic_NodeInfoLite_init_zero;
+    TypeConversions::CopyUserToNodeInfoLite(&lite, user);
+    lite.last_heard = now;
+    TEST_ASSERT_TRUE(MeshCoreCompanion::needsAnnounce(&lite, user, now)); // in the list, never heard over the radio
+
+    nodeInfoLiteSetHeardSlot(&lite, 1);
+    TEST_ASSERT_FALSE(MeshCoreCompanion::needsAnnounce(&lite, user, now + 60));
+
+    const meshtastic_User renamed = MeshCoreCompanion::senderUser("Rpt2", false, pub, meshtastic_Config_DeviceConfig_Role_REPEATER);
+    TEST_ASSERT_TRUE(MeshCoreCompanion::needsAnnounce(&lite, renamed, now + 60));
+    TEST_ASSERT_TRUE(MeshCoreCompanion::needsAnnounce(&lite, user, now + MeshCoreCompanion::HEARD_REFRESH_SECS));
+    TEST_ASSERT_FALSE(MeshCoreCompanion::needsAnnounce(&lite, user, 0)); // clock untrusted: nothing to compare
 }
 
 void test_contacts_find_a_name_only_when_unique(void)
@@ -882,7 +894,8 @@ void setup()
     RUN_TEST(test_contacts_fingerprint_follows_the_set_not_the_recency);
     RUN_TEST(test_image_is_capped_to_the_most_recent_contacts);
     RUN_TEST(test_direct_send_needs_identity_and_contact);
-    RUN_TEST(test_contact_node_carries_the_meshcore_key_and_is_messagable);
+    RUN_TEST(test_contact_user_carries_the_meshcore_key_and_is_messagable);
+    RUN_TEST(test_a_node_is_announced_until_heard_and_again_when_it_changes_or_goes_stale);
     RUN_TEST(test_contacts_find_a_name_only_when_unique);
     RUN_TEST(test_path_ack_round_trip);
     RUN_TEST(test_path_ack_skips_the_walked_path);

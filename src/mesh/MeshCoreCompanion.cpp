@@ -11,7 +11,6 @@
 #include "RadioInterface.h"
 #include "Router.h"
 #include "Throttle.h"
-#include "TypeConversions.h"
 #include "gps/RTC.h"
 #include "mesh-pb-constants.h"
 #include "meshUtils.h"
@@ -400,7 +399,7 @@ size_t MeshCoreCompanion::encodeAck(uint32_t hash, uint8_t *out, size_t outCap)
     return 6;
 }
 
-void MeshCoreCompanion::announceUser(uint32_t nodeNum, const meshtastic_User &user)
+void MeshCoreCompanion::announceUser(uint32_t nodeNum, const meshtastic_User &user, const MeshCoreRx &rx)
 {
     if (!router)
         return;
@@ -417,16 +416,28 @@ void MeshCoreCompanion::announceUser(uint32_t nodeNum, const meshtastic_User &us
     p->decoded.payload.size =
         pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), &meshtastic_User_msg, &user);
     // Local news for the client, never to be repeated over Meshtastic: a next hop that is not us closes the relay gate. The
-    // router drops a packet whose hop_start is missing, so it carries the same hop fields as a bridged text one hop away.
+    // router drops a packet whose hop_start is missing, so it carries the hop fields of the frame it announces.
     p->decoded.has_bitfield = true;
     p->decoded.bitfield = 0;
-    hopFields(1, &p->hop_start, &p->hop_limit);
+    hopFields(rx.pathHashCount, &p->hop_start, &p->hop_limit);
     const uint8_t ourRelay = nodeDB->getLastByteOfNodeNum(nodeDB->getNodeNum());
     p->next_hop = (uint8_t)(ourRelay + 1);
     if (p->next_hop == NO_NEXT_HOP_PREFERENCE)
         p->next_hop = 1;
     p->transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
+    // Clients show signal strength only for a direct frame; a relayed one shows its hop count.
+    if (rx.pathHashCount == 0) {
+        p->rx_snr = rx.snr;
+        p->has_rx_rssi = true;
+        p->rx_rssi = rx.rssi;
+    }
     router->enqueueReceivedMessage(p);
+}
+
+void MeshCoreCompanion::announceIfNeeded(uint32_t nodeNum, const meshtastic_User &user, const MeshCoreRx &rx)
+{
+    if (nodeDB && needsAnnounce(nodeDB->getMeshNode(nodeNum), user, getValidTime(RTCQualityFromNet)))
+        announceUser(nodeNum, user, rx);
 }
 
 void MeshCoreCompanion::announcePosition(uint32_t nodeNum, int32_t latitudeI, int32_t longitudeI)
@@ -478,12 +489,6 @@ void MeshCoreCompanion::updatePosition(uint32_t nodeNum, int32_t latMicro, int32
 
 void MeshCoreCompanion::ensurePseudoNode()
 {
-    if (!nodeDB)
-        return;
-    meshtastic_NodeInfoLite *lite = nodeDB->getOrCreateMeshNode(PSEUDO_NODE_NUM);
-    if (!lite || nodeInfoLiteHasUser(lite))
-        return;
-
     meshtastic_User user = {};
     strncpy(user.long_name, "MeshCore", sizeof(user.long_name) - 1);
     strncpy(user.short_name, "MC", sizeof(user.short_name) - 1);
@@ -491,8 +496,7 @@ void MeshCoreCompanion::ensurePseudoNode()
     user.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
     user.has_is_unmessagable = true;
     user.is_unmessagable = true;
-    TypeConversions::CopyUserToNodeInfoLite(lite, user);
-    announceUser(PSEUDO_NODE_NUM, user);
+    announceIfNeeded(PSEUDO_NODE_NUM, user, MeshCoreRx());
 }
 
 bool MeshCoreCompanion::splitSender(const char *text, char *nameOut, size_t nameCap, const char **body)
@@ -520,29 +524,16 @@ uint32_t MeshCoreCompanion::senderNodeNum(const char *name)
     return num == PSEUDO_NODE_NUM ? num + 1 : num;
 }
 
-void MeshCoreCompanion::ensureSenderNode(uint32_t nodeNum, const char *name, bool messagable, const uint8_t *publicKey,
-                                         meshtastic_Config_DeviceConfig_Role role)
+meshtastic_User MeshCoreCompanion::senderUser(const char *name, bool messagable, const uint8_t *publicKey,
+                                              meshtastic_Config_DeviceConfig_Role role)
 {
-    if (!nodeDB)
-        return;
-    meshtastic_NodeInfoLite *lite = nodeDB->getOrCreateMeshNode(nodeNum);
-    // A real Meshtastic node that happens to share this number reports a hardware model: never rename it.
-    if (lite && nodeInfoLiteHasUser(lite) && lite->hw_model != meshtastic_HardwareModel_UNSET)
-        return;
-
     // A Meshtacore node shows up twice, as a Meshtastic node and as a MeshCore one with the same name: the suffix tells them
     // apart.
     constexpr char suffix[] = " (MC)";
     char display[sizeof(((meshtastic_User *)nullptr)->long_name)];
-    const size_t nameLen = utf8PrefixLen(name, sizeof(lite->long_name) - 1 - (sizeof(suffix) - 1));
+    const size_t nameLen = utf8PrefixLen(name, sizeof(((meshtastic_NodeInfoLite *)nullptr)->long_name) - 1 - (sizeof(suffix) - 1));
     memcpy(display, name, nameLen);
     memcpy(&display[nameLen], suffix, sizeof(suffix));
-
-    if (!lite ||
-        (nodeInfoLiteHasUser(lite) && strncmp(lite->long_name, display, sizeof(lite->long_name) - 1) == 0 &&
-         nodeInfoLiteIsUnmessagable(lite) == !messagable && lite->role == role && lite->public_key.size == (publicKey ? 32 : 0) &&
-         (!publicKey || memcmp(lite->public_key.bytes, publicKey, 32) == 0)))
-        return;
 
     meshtastic_User user = {};
     strncpy(user.long_name, display, sizeof(user.long_name) - 1);
@@ -555,8 +546,36 @@ void MeshCoreCompanion::ensureSenderNode(uint32_t nodeNum, const char *name, boo
         user.public_key.size = 32;
         memcpy(user.public_key.bytes, publicKey, 32);
     }
-    TypeConversions::CopyUserToNodeInfoLite(lite, user);
-    announceUser(nodeNum, user);
+    return user;
+}
+
+bool MeshCoreCompanion::needsAnnounce(const meshtastic_NodeInfoLite *lite, const meshtastic_User &user, uint32_t now)
+{
+    // Only a packet makes a node heard, so one that is missing or was never heard over the radio gets that packet.
+    if (!lite || !nodeInfoLiteHasUser(lite) || !nodeInfoLiteHasRfHear(lite))
+        return true;
+    if (strncmp(lite->long_name, user.long_name, sizeof(lite->long_name) - 1) != 0 ||
+        nodeInfoLiteIsUnmessagable(lite) != user.is_unmessagable || lite->role != user.role ||
+        lite->public_key.size != user.public_key.size ||
+        memcmp(lite->public_key.bytes, user.public_key.bytes, user.public_key.size) != 0)
+        return true;
+    // Like any packet from a Meshtastic node, a frame moves its last-heard on; spaced out so repeated adverts do not flood the
+    // client.
+    return now > lite->last_heard && lite->last_heard != 0 && now - lite->last_heard >= HEARD_REFRESH_SECS;
+}
+
+void MeshCoreCompanion::ensureSenderNode(uint32_t nodeNum, const char *name, bool messagable, const uint8_t *publicKey,
+                                         meshtastic_Config_DeviceConfig_Role role, const MeshCoreRx &rx)
+{
+    if (!nodeDB)
+        return;
+    const meshtastic_NodeInfoLite *lite = nodeDB->getMeshNode(nodeNum);
+    // A real Meshtastic node that happens to share this number reports a hardware model: never rename it. An ignored one is
+    // dropped by the router, so announcing it would never get it heard.
+    if (lite && ((nodeInfoLiteHasUser(lite) && lite->hw_model != meshtastic_HardwareModel_UNSET) || nodeInfoLiteIsIgnored(lite)))
+        return;
+
+    announceIfNeeded(nodeNum, senderUser(name, messagable, publicKey, role), rx);
 }
 
 void MeshCoreCompanion::hopFields(uint8_t pathHashCount, uint8_t *hopStart, uint8_t *hopLimit)
@@ -737,7 +756,7 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
         handleGroupText(raw, len, info, snr, rssi);
         break;
     case 0x04: // ADVERT
-        handleAdvert(raw, len, info);
+        handleAdvert(raw, len, info, snr, rssi);
         break;
     case 0x02: // TXT_MSG
         handleDirectText(raw, len, info, snr, rssi);
@@ -799,15 +818,18 @@ void MeshCoreCompanion::handleGroupText(const uint8_t *raw, size_t len, const Me
         uint32_t fromNum = PSEUDO_NODE_NUM;
         if (splitSender(text, sender, sizeof(sender), &body)) {
             // Someone we can message shows up as that one node in channels too, instead of a second, unmessagable one.
+            // The sender is announced before the text, and both wait in the router queue in that order: the client has the
+            // name when the text arrives, with or without an advert from them.
+            const MeshCoreRx rx(info.path_hash_count, snr, rssi);
             MeshCoreContact *contact = contacts.findUniqueByName(sender);
             if (contact) {
                 fromNum = contact->nodeNum;
-                ensureSenderNode(fromNum, contact->name, true, contact->pub);
+                ensureSenderNode(fromNum, contact->name, true, contact->pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
             } else {
                 fromNum = senderNodeNum(sender);
                 // Two contacts sharing this name leave it ambiguous: the number may belong to one of them, who stays as is.
                 if (!contacts.findByNodeNum(fromNum))
-                    ensureSenderNode(fromNum, sender);
+                    ensureSenderNode(fromNum, sender, false, nullptr, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
             }
         } else {
             ensurePseudoNode(); // a node-DB reset or eviction may have removed it since boot
@@ -873,7 +895,8 @@ bool MeshCoreCompanion::ensureSecret(MeshCoreContact &c)
     return c.hasSecret;
 }
 
-void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info)
+void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr,
+                                     int32_t rssi)
 {
     // ADVERT payload: public key (32), timestamp (4), signature (64), then app data: a flags byte (node type in the
     // low nibble, 0x10 position, 0x20/0x40 reserved features, 0x80 name) followed by those fields in that order.
@@ -917,6 +940,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
     if (name[0] == 0)
         return;
 
+    const MeshCoreRx rx(info.path_hash_count, snr, rssi);
     if (repeater) {
         // A repeater is not someone to message: it only gets a node, keyed by its public key, and no contact slot.
         uint32_t num = MeshCoreContacts<1>::nodeNumForKey(payload);
@@ -928,7 +952,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
                            strncmp(lite->long_name, name, utf8PrefixLen(name, sizeof(lite->long_name) - 6)) == 0;
         if (!known && !MeshCoreRepeater::verifyAdvert(payload, info.payload_len))
             return;
-        ensureSenderNode(num, name, false, payload, meshtastic_Config_DeviceConfig_Role_REPEATER);
+        ensureSenderNode(num, name, false, payload, meshtastic_Config_DeviceConfig_Role_REPEATER, rx);
         updatePosition(num, latMicro, lonMicro);
         return;
     }
@@ -937,7 +961,8 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
     MeshCoreContact *known = contacts.findByPub(payload);
     if (known && strcmp(known->name, name) == 0) {
         contacts.touch(known);
-        ensureSenderNode(known->nodeNum, known->name, true, known->pub); // brings a node made before keys were set up along
+        // Brings a node made before keys were set up along.
+        ensureSenderNode(known->nodeNum, known->name, true, known->pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
         updatePosition(known->nodeNum, latMicro, lonMicro);
         return;
     }
@@ -947,7 +972,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
     MeshCoreContact *c = contacts.upsert(payload, name);
     if (!known)
         contactsLearned++;
-    ensureSenderNode(c->nodeNum, c->name, true, c->pub);
+    ensureSenderNode(c->nodeNum, c->name, true, c->pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
     retireGroupNode(c->name);
     retireKeyedNode(c->pub, c->nodeNum);
     updatePosition(c->nodeNum, latMicro, lonMicro);
@@ -983,7 +1008,9 @@ void MeshCoreCompanion::injectDirectText(const MeshCoreContact &c, const char *t
     if (!p)
         return;
 
-    ensureSenderNode(c.nodeNum, c.name, true, c.pub); // a node-DB reset or eviction may have removed it
+    // A node-DB reset or eviction may have removed it.
+    ensureSenderNode(c.nodeNum, c.name, true, c.pub, meshtastic_Config_DeviceConfig_Role_CLIENT,
+                     MeshCoreRx(pathHashCount, snr, rssi));
     p->from = c.nodeNum;
     p->to = nodeDB->getNodeNum();
     p->id = generatePacketId();

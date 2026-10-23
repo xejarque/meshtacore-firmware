@@ -13,6 +13,17 @@
 
 class RadioInterface;
 
+/// How a MeshCore frame reached us, carried by the packet that announces the node it came from: the repeaters it crossed
+/// and, when it came straight from the node (none crossed), its signal. Without a frame: one hop and no signal.
+struct MeshCoreRx {
+    uint8_t pathHashCount = 1;
+    float snr = 0;
+    int32_t rssi = 0;
+
+    MeshCoreRx() = default;
+    MeshCoreRx(uint8_t hops, float snrDb, int32_t rssiDbm) : pathHashCount(hops), snr(snrDb), rssi(rssiDbm) {}
+};
+
 /**
  * MeshCore group-text bridge for the Meshtastic client.
  *
@@ -115,13 +126,27 @@ class MeshCoreCompanion
     /// Node number standing in for a MeshCore sender: 'M' in the top byte, 24 bits hashed from the name.
     static uint32_t senderNodeNum(const char *name);
 
-    /// Create or refresh the node for a bridged sender: long name is the name, short name its first 4 bytes
+    /// How long a heard node keeps its last-heard before the next frame from it is announced again.
+    static constexpr uint32_t HEARD_REFRESH_SECS = 10 * 60;
+
+    /// The user a bridged sender is announced with: long name is the name plus " (MC)", short name its first 4 bytes
     /// (never splitting a UTF-8 character).
     /// messagable=true marks a direct-message contact: the client lets the user write to it. publicKey (32 bytes, the
-    /// contact's MeshCore key) goes into the node's key field, because clients only offer a direct message to a node that
+    /// contact's MeshCore key) goes into the user's key field, because clients only offer a direct message to a node that
     /// has one. The text itself is encrypted by MeshCore, not with that key.
+    static meshtastic_User senderUser(const char *name, bool messagable, const uint8_t *publicKey,
+                                      meshtastic_Config_DeviceConfig_Role role);
+
+    /// Whether a frame from the node behind lite (null if unknown) is worth announcing: the node is new, was never heard over
+    /// the radio, differs from user, or was last heard HEARD_REFRESH_SECS ago (now is epoch seconds, 0 when the clock is
+    /// untrusted).
+    static bool needsAnnounce(const meshtastic_NodeInfoLite *lite, const meshtastic_User &user, uint32_t now);
+
+    /// Announce a bridged sender to the router when needsAnnounce says so. The node is born and updated by that packet, as
+    /// any Meshtastic node is by the ones it sends; nothing is written to the node DB here. rx is how the frame was heard.
     void ensureSenderNode(uint32_t nodeNum, const char *name, bool messagable = false, const uint8_t *publicKey = nullptr,
-                          meshtastic_Config_DeviceConfig_Role role = meshtastic_Config_DeviceConfig_Role_CLIENT);
+                          meshtastic_Config_DeviceConfig_Role role = meshtastic_Config_DeviceConfig_Role_CLIENT,
+                          const MeshCoreRx &rx = MeshCoreRx());
 
     /// Record a node's position from an ADVERT (degrees x 1e6, as MeshCore sends it) and tell the client. Nothing is done
     /// for 0,0 (no position) or a position the node DB already holds.
@@ -227,7 +252,7 @@ class MeshCoreCompanion
     PendingAck pending[PENDING_ACKS];
 
     void handleGroupText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi);
-    void handleAdvert(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info);
+    void handleAdvert(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi);
     void handleDirectText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi);
     void handleAck(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info);
     void handlePathAck(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info);
@@ -259,9 +284,11 @@ class MeshCoreCompanion
     RecentText recent[RECENT_TEXTS];
     size_t recentNext = 0;
 
-    /// Tell the client about a node we just created or renamed. The node DB alone is not enough: a connected phone only
-    /// learns a node's name from a NODEINFO packet (or on its next config download), and otherwise shows "Meshtacore xxxx".
-    void announceUser(uint32_t nodeNum, const meshtastic_User &user);
+    /// Tell the router, and through it the client, about a node: a NODEINFO packet from it carrying how the frame was heard.
+    /// That packet is what puts the node in the node DB with its name, last-heard, signal, hops and the LoRa slot it was
+    /// heard on, exactly as for a Meshtastic node.
+    void announceUser(uint32_t nodeNum, const meshtastic_User &user, const MeshCoreRx &rx);
+    void announceIfNeeded(uint32_t nodeNum, const meshtastic_User &user, const MeshCoreRx &rx);
 
     bool cachedChannelHash(ChannelIndex ch, const uint8_t *key, size_t keyLen, uint8_t *out);
     bool wasRecentlySeen(uint32_t hash) const { return dedup.contains(hash); }
