@@ -658,6 +658,37 @@ void test_group_text_marks_replies_and_known_mentions(void)
     TEST_ASSERT_EQUAL_STRING("already @[Carol]", out);
 }
 
+void test_reply_tag_cites_the_newest_text_by_that_name(void)
+{
+    MeshCoreCompanion c;
+    c.noteRecentText(1234, "Bob Builder");
+    c.noteRecentText(1235, "Carol");
+    c.noteRecentText(1236, "Bob Builder");
+
+    const char *rest = nullptr;
+    TEST_ASSERT_EQUAL_UINT32(1236, c.replyTarget("@[Bob Builder] hola", &rest));
+    TEST_ASSERT_EQUAL_STRING("hola", rest);
+
+    TEST_ASSERT_EQUAL_UINT32(1235, c.replyTarget("@[Carol] ok", &rest));
+    TEST_ASSERT_EQUAL_STRING("ok", rest);
+}
+
+void test_reply_tag_leaves_text_without_a_recent_match(void)
+{
+    MeshCoreCompanion c;
+    c.noteRecentText(1234, "Bob");
+
+    const char *rest = nullptr;
+    TEST_ASSERT_EQUAL_UINT32(0, c.replyTarget("@[Nobody] hola", &rest)); // no recent text by that name
+    TEST_ASSERT_EQUAL_STRING("@[Nobody] hola", rest);
+
+    TEST_ASSERT_EQUAL_UINT32(0, c.replyTarget("@[Bob]hola", &rest)); // no space after the tag: not a reply
+    TEST_ASSERT_EQUAL_STRING("@[Bob]hola", rest);
+
+    TEST_ASSERT_EQUAL_UINT32(0, c.replyTarget("hola @[Bob] que tal", &rest)); // a mention in the middle is not a reply
+    TEST_ASSERT_EQUAL_STRING("hola @[Bob] que tal", rest);
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -674,6 +705,8 @@ void setup()
     RUN_TEST(test_rejects_oversized_ciphertext_with_valid_mac);
     RUN_TEST(test_encode_reports_truncation);
     RUN_TEST(test_tx_timestamp_is_strictly_increasing);
+    RUN_TEST(test_reply_tag_cites_the_newest_text_by_that_name);
+    RUN_TEST(test_reply_tag_leaves_text_without_a_recent_match);
     RUN_TEST(test_split_sender_separates_name_and_body);
     RUN_TEST(test_split_sender_rejects_missing_or_empty_name);
     RUN_TEST(test_split_sender_cuts_long_name_on_utf8_boundary);

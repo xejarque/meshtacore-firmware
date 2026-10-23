@@ -583,6 +583,29 @@ const char *MeshCoreCompanion::recentSender(uint32_t packetId) const
     return nullptr;
 }
 
+uint32_t MeshCoreCompanion::replyTarget(const char *text, const char **rest) const
+{
+    *rest = text;
+    if (text[0] != '@' || text[1] != '[')
+        return 0;
+    const char *close = strchr(text + 2, ']');
+    if (!close || close[1] != ' ' || close == text + 2 || close - text - 2 >= MeshCoreContact::NAME_LEN)
+        return 0;
+
+    char name[MeshCoreContact::NAME_LEN];
+    memcpy(name, text + 2, close - text - 2);
+    name[close - text - 2] = 0;
+    // Newest first: the tag names a person, not a message, so the latest text from them is the one answered.
+    for (size_t i = 1; i <= RECENT_TEXTS; i++) {
+        const RecentText &r = recent[(recentNext + RECENT_TEXTS - i) % RECENT_TEXTS];
+        if (r.sender[0] && strcmp(r.sender, name) == 0) {
+            *rest = close + 2;
+            return r.packetId;
+        }
+    }
+    return 0;
+}
+
 /// Length of name when text starts with it (ASCII case-insensitive) and the name ends there; 0 otherwise.
 static size_t mentionMatchLen(const char *text, const char *name)
 {
@@ -793,11 +816,20 @@ void MeshCoreCompanion::handleGroupText(const uint8_t *raw, size_t len, const Me
         p->from = fromNum;
         p->to = NODENUM_BROADCAST;
         p->id = generatePacketId();
+        // Looked up before this text is noted, so a text can never quote itself.
+        const char *rest = body;
+        const uint32_t replyId = replyTarget(body, &rest);
         if (fromNum != PSEUDO_NODE_NUM)
             noteRecentText(p->id, sender);
         p->channel = i;
         p->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
         p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+        // A quoted reply carries the answered packet id and the text without its "@[name] " tag, as Meshtastic
+        // clients send it.
+        if (replyId) {
+            p->decoded.reply_id = replyId;
+            body = rest;
+        }
         const size_t textLen = strlen(body);
         p->decoded.payload.size = textLen <= sizeof(p->decoded.payload.bytes) ? textLen : sizeof(p->decoded.payload.bytes);
         memcpy(p->decoded.payload.bytes, body, p->decoded.payload.size);
