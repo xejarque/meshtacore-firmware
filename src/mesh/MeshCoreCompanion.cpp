@@ -14,6 +14,9 @@
 #include "gps/RTC.h"
 #include "mesh-pb-constants.h"
 #include "meshUtils.h"
+#if !MESHTASTIC_EXCLUDE_TRACEROUTE
+#include "modules/TraceRouteModule.h"
+#endif
 #include <AES.h>
 #include <Curve25519.h>
 #include <SHA256.h>
@@ -354,21 +357,54 @@ size_t MeshCoreCompanion::encodePathAck(const uint8_t secret[32], uint8_t destHa
     return sealDatagram(secret, 0x08, destHash, srcHash, plain, sizeof(plain), out, outCap); // PATH
 }
 
-bool MeshCoreCompanion::decodePathAck(const uint8_t secret[32], const uint8_t *frame, size_t len,
-                                      const MeshCoreRepeater::FrameInfo &info, uint32_t *hashOut)
+bool MeshCoreCompanion::decodePath(const uint8_t secret[32], const uint8_t *frame, size_t len,
+                                   const MeshCoreRepeater::FrameInfo &info, MeshCorePath *path, uint8_t *extraType, uint8_t *extra,
+                                   size_t extraCap, size_t *extraLen)
 {
     uint8_t plain[MAX_CIPHER_LEN];
     size_t plainLen = 0;
-    if (!hashOut || !openDatagram(secret, 0x08, frame, len, info, plain, &plainLen))
+    if (!openDatagram(secret, 0x08, frame, len, info, plain, &plainLen) || plainLen < 2)
         return false;
 
     // path_len (hash size in the top two bits, hop count in the rest), the path, then the extra block.
     size_t at = 0;
     const uint8_t pathLenByte = plain[at++];
-    at += (size_t)((pathLenByte >> 6) + 1) * (pathLenByte & 0x3F);
-    if (at >= plainLen || (plain[at++] & 0x0F) != 0x03 || plainLen - at < 4) // the extra must be an ACK
+    const uint8_t hashSize = (uint8_t)((pathLenByte >> 6) + 1);
+    const size_t pathBytes = (size_t)hashSize * (pathLenByte & 0x3F);
+    if (hashSize > 3 || pathBytes > MeshCoreContact::PATH_BYTES_MAX || at + pathBytes >= plainLen)
         return false;
-    *hashOut = readLe32(&plain[at]);
+
+    if (path) {
+        memcpy(path->bytes, &plain[at], pathBytes);
+        path->len = (uint8_t)pathBytes;
+        path->hashSize = hashSize;
+    }
+    at += pathBytes;
+    if (extraType)
+        *extraType = plain[at++] & 0x0F;
+    else
+        at++;
+    const size_t rest = plainLen - at;
+    if (extraLen)
+        *extraLen = rest;
+    if (extra && extraCap) {
+        const size_t n = rest < extraCap ? rest : extraCap;
+        memcpy(extra, &plain[at], n);
+    }
+    return true;
+}
+
+bool MeshCoreCompanion::decodePathAck(const uint8_t secret[32], const uint8_t *frame, size_t len,
+                                      const MeshCoreRepeater::FrameInfo &info, uint32_t *hashOut)
+{
+    uint8_t extraType = 0;
+    uint8_t extra[8];
+    size_t extraLen = 0;
+    if (!hashOut || !decodePath(secret, frame, len, info, nullptr, &extraType, extra, sizeof(extra), &extraLen))
+        return false;
+    if (extraType != 0x03 || extraLen < 4) // the extra must be an ACK
+        return false;
+    *hashOut = readLe32(extra);
     return true;
 }
 
@@ -397,6 +433,50 @@ size_t MeshCoreCompanion::encodeAck(uint32_t hash, uint8_t *out, size_t outCap)
     out[1] = MeshCoreRepeater::OWN_FLOOD_PATH_LEN_BYTE;
     writeLe32(&out[2], hash);
     return 6;
+}
+
+size_t MeshCoreCompanion::encodeTraceFrame(const uint8_t *path, uint8_t pathBytes, uint8_t pathHashSize, uint32_t tag, uint32_t auth,
+                                           uint8_t *out, size_t outCap, uint8_t *hopsOut)
+{
+    if (!path || !out || pathHashSize == 0 || pathHashSize > 3 || pathBytes == 0 || pathBytes % pathHashSize != 0 ||
+        pathBytes > MeshCoreContact::PATH_BYTES_MAX)
+        return 0;
+
+    const uint8_t hops = pathBytes / pathHashSize;
+    // The packet's path_len byte counts SNR bytes, and MeshCore keeps them in the six low bits: a trace with more than
+    // 63 forwarded nodes could not complete. Real paths are a few hops; refuse what cannot be measured.
+    if (hops > 31 || (size_t)hops > MeshCoreContact::PATH_BYTES_MAX)
+        return 0;
+
+    // TRACE flags encode the hash size as a power of two: 1, 2 and 4 fit. A 3-byte path is cut to 2, as meshcore-cli
+    // does; the hashes are key prefixes, so the shorter form still matches.
+    uint8_t hashSize = pathHashSize;
+    if (hashSize >= 3)
+        hashSize = 2;
+    const uint8_t flags = hashSize == 2 ? 1 : 0;
+
+    const size_t listBytes = ((size_t)hops * 2 - 1) * hashSize;
+    const size_t frameLen = 2 + 9 + listBytes;
+    if (frameLen > outCap || frameLen > MeshCoreRepeater::MAX_FRAME_LEN)
+        return 0;
+
+    out[0] = (0x09 << 2) | 0x02; // TRACE, ROUTE_DIRECT
+    out[1] = 0;                  // path_len: no SNR bytes yet, the path collects them
+    writeLe32(&out[2], tag);
+    writeLe32(&out[6], auth);
+    out[10] = flags;
+
+    // Forward [n1..nk], then back [n(k-1)..n1]. A chat contact does not forward, so the last repeater is the turn-around.
+    uint8_t *list = &out[11];
+    size_t at = 0;
+    for (uint8_t i = 0; i < hops; i++, at += hashSize)
+        memcpy(&list[at], &path[(size_t)i * pathHashSize], hashSize);
+    for (int i = hops - 2; i >= 0; i--, at += hashSize)
+        memcpy(&list[at], &path[(size_t)i * pathHashSize], hashSize);
+
+    if (hopsOut)
+        *hopsOut = hops;
+    return frameLen;
 }
 
 void MeshCoreCompanion::announceUser(uint32_t nodeNum, const meshtastic_User &user, const MeshCoreRx &rx)
@@ -769,6 +849,9 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
     case 0x08: // PATH: how MeshCore answers a flood, with the ACK inside
         handlePathAck(raw, len, info);
         break;
+    case 0x09: // TRACE: the round trip we asked for, with one SNR per hop
+        handleTrace(raw, len, info, snr, rssi);
+        break;
     default:
         break;
     }
@@ -938,6 +1021,11 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
     if (name[0] == 0)
         return;
 
+    // The flood's path runs from the advertiser to us; it is the only route we have until the peer answers a PATH.
+    const uint8_t *advertPath =
+        info.path_hash_count ? &raw[info.header_len - (size_t)info.path_hash_count * info.path_hash_size] : nullptr;
+    const uint8_t advertPathBytes = (uint8_t)(info.path_hash_count * info.path_hash_size);
+
     const MeshCoreRx rx(info.path_hash_count, snr, rssi);
     if (repeater) {
         // A repeater is not someone to message: it only gets a node, keyed by its public key, and no contact slot.
@@ -959,6 +1047,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
     MeshCoreContact *known = contacts.findByPub(payload);
     if (known && strcmp(known->name, name) == 0) {
         contacts.touch(known);
+        rememberPath(*known, advertPath, advertPathBytes, info.path_hash_size, true, millis());
         // Brings a node made before keys were set up along.
         ensureSenderNode(known->nodeNum, known->name, true, known->pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
         updatePosition(known->nodeNum, latMicro, lonMicro);
@@ -970,6 +1059,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
     MeshCoreContact *c = contacts.upsert(payload, name);
     if (!known)
         contactsLearned++;
+    rememberPath(*c, advertPath, advertPathBytes, info.path_hash_size, true, millis());
     ensureSenderNode(c->nodeNum, c->name, true, c->pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
     retireGroupNode(c->name);
     retireKeyedNode(c->pub, c->nodeNum);
@@ -1084,6 +1174,147 @@ void MeshCoreCompanion::handleDirectText(const uint8_t *raw, size_t len, const M
     }
 }
 
+void MeshCoreCompanion::handleTrace(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi)
+{
+    if (info.header_len > len || info.payload_len < 9 || info.path_hash_size != 1)
+        return; // a TRACE path field is one SNR byte per hop; anything else is not one we sent
+
+    const uint8_t *payload = &raw[info.header_len];
+    const uint8_t hashSize = (uint8_t)(1U << (payload[8] & 0x03));
+    const size_t listBytes = info.payload_len - 9;
+    if (hashSize == 0 || hashSize > 8 || listBytes == 0 || listBytes % hashSize != 0)
+        return;
+    const uint8_t hashCount = (uint8_t)(listBytes / hashSize);
+
+    const uint32_t tag = readLe32(payload);
+    PendingTrace *t = nullptr;
+    for (auto &e : traces) {
+        if (e.used && e.tag == tag) {
+            t = &e;
+            break;
+        }
+    }
+    if (!t)
+        return; // another node's trace, or a copy that arrived after the pending timed out
+
+    // The path field collects one SNR byte per node that forwarded: until the last one has, this is an intermediate
+    // copy and the trace is still on the air.
+    if (info.path_hash_count < hashCount)
+        return;
+
+    const uint8_t hops = t->hops;
+    if (hops == 0 || hashCount != (uint8_t)(2 * hops - 1)) {
+        t->used = false; // not the round trip we sent: stop waiting for it
+        traceTimeouts++;
+        return;
+    }
+
+    const uint8_t *snrBytes = &raw[info.header_len - (size_t)info.path_hash_count * info.path_hash_size];
+    int8_t snrs[2 * MeshCoreContact::PATH_BYTES_MAX];
+    for (uint8_t i = 0; i < hashCount; i++)
+        snrs[i] = (int8_t)snrBytes[i];
+
+    traceRx++;
+    buildTraceResult(*t, &payload[9], hashSize, hashCount, snrs, snr, rssi);
+    t->used = false;
+}
+
+void MeshCoreCompanion::buildTraceResult(const PendingTrace &t, const uint8_t *hashes, uint8_t hashSize, uint8_t hashCount,
+                                         const int8_t *snrs, float finalSnr, int32_t rssi)
+{
+    constexpr size_t ROUTE_SLOTS =
+        sizeof(((meshtastic_RouteDiscovery *)nullptr)->route) / sizeof(((meshtastic_RouteDiscovery *)nullptr)->route[0]);
+
+    meshtastic_RouteDiscovery r = meshtastic_RouteDiscovery_init_zero;
+    const uint8_t hops = t.hops;
+
+    // Towards: n1..nk, each SNR measured at that node receiving from the previous hop.
+    for (uint8_t i = 0; i < hops && r.route_count < ROUTE_SLOTS; i++) {
+        r.route[r.route_count++] = nodeNumForHop(&hashes[(size_t)i * hashSize], hashSize);
+        r.snr_towards[r.snr_towards_count++] = snrs[i];
+    }
+    // Back: nk..n1. The leg from the contact to nk is the one it cannot measure (a chat node does not forward, so the
+    // trace turns around at the last repeater); the leg from n1 to us is appended by TraceRouteModule with our own SNR.
+    for (uint8_t i = 0; i < hops && r.route_back_count < ROUTE_SLOTS; i++) {
+        const uint8_t outIdx = hops - 1 - i;
+        r.route_back[r.route_back_count++] = nodeNumForHop(&hashes[(size_t)outIdx * hashSize], hashSize);
+        r.snr_back[r.snr_back_count++] = (i == 0) ? (int8_t)INT8_MIN : snrs[hops + (i - 1)];
+    }
+
+    meshtastic_MeshPacket *p = packetPool.allocZeroed();
+    if (!p)
+        return;
+
+    p->from = t.targetNum;
+    p->to = nodeDB->getNodeNum();
+    p->id = generatePacketId();
+    p->channel = 0;
+    p->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    p->decoded.portnum = meshtastic_PortNum_TRACEROUTE_APP;
+    p->decoded.request_id = t.packetId; // as setReplyTo: the request this answers
+    p->decoded.want_response = false;
+    p->decoded.payload.size =
+        pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), &meshtastic_RouteDiscovery_msg, &r);
+    p->decoded.has_bitfield = true;
+    p->decoded.bitfield = 0;
+    // Delivered locally: hop_start == hop_limit keeps insertUnknownHops quiet, and a next hop that is not ours closes
+    // this synthetic packet's relay gate.
+    hopFields(0, &p->hop_start, &p->hop_limit);
+    const uint8_t ourRelay = nodeDB->getLastByteOfNodeNum(nodeDB->getNodeNum());
+    p->next_hop = (uint8_t)(ourRelay + 1);
+    if (p->next_hop == NO_NEXT_HOP_PREFERENCE)
+        p->next_hop = 1;
+    p->transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
+    p->rx_snr = finalSnr;
+    p->has_rx_rssi = true;
+    p->rx_rssi = rssi;
+
+    LOG_INFO("MeshCore trace from 0x%08x: %u hops, %u towards, %u back", (unsigned)t.targetNum, (unsigned)hops,
+             (unsigned)r.route_count, (unsigned)r.route_back_count);
+
+    // The on-screen traceroute draws its result from this same packet; the router queue takes it to the client.
+#if !MESHTASTIC_EXCLUDE_TRACEROUTE
+    if (traceRouteModule)
+        traceRouteModule->processUpgradedPacket(*p);
+#endif
+    router->enqueueReceivedMessage(p);
+}
+
+uint32_t MeshCoreCompanion::nodeNumForHop(const uint8_t *hash, uint8_t size)
+{
+    if (!hash || size == 0 || size > 32)
+        return syntheticHopNum(hash, size);
+
+    MeshCoreContact *matches[CONTACTS_MAX];
+    const size_t n = contacts.findByPubPrefix(hash, size, matches, CONTACTS_MAX);
+    if (n > 0) {
+        // A 1-byte prefix can name several contacts; the most recently heard is the one on the air.
+        MeshCoreContact *best = matches[0];
+        for (size_t i = 1; i < n; i++)
+            if (matches[i]->lastUsed > best->lastUsed)
+                best = matches[i];
+        return best->nodeNum;
+    }
+
+    // A repeater has no contact slot: its ADVERT announced it with the full key, which the node DB keeps.
+    for (size_t i = 0; nodeDB && i < nodeDB->getNumMeshNodes(); i++) {
+        const meshtastic_NodeInfoLite *lite = nodeDB->getMeshNodeByIndex(i);
+        if (lite && nodeInfoLiteHasUser(lite) && lite->public_key.size == 32 && memcmp(lite->public_key.bytes, hash, size) == 0)
+            return lite->num;
+    }
+    return syntheticHopNum(hash, size);
+}
+
+uint32_t MeshCoreCompanion::syntheticHopNum(const uint8_t *hash, uint8_t size)
+{
+    uint32_t h = 2166136261u; // FNV-1a over the hop prefix
+    for (uint8_t i = 0; hash && i < size; i++)
+        h = (h ^ hash[i]) * 16777619u;
+    h &= 0x00FFFFFF;
+    // 'N': a hop we cannot name, outside the 0x4D contact/repeater range so it cannot collide with one.
+    return 0x4E000000 | (h ? h : 1);
+}
+
 void MeshCoreCompanion::reportDelivery(uint32_t fromNum, uint32_t packetId, meshtastic_Routing_Error err, int relayNode)
 {
     meshtastic_Routing r = meshtastic_Routing_init_default;
@@ -1186,6 +1417,102 @@ bool MeshCoreCompanion::sendDirectText(uint32_t nodeNum, uint32_t packetId, cons
     return true;
 }
 
+void MeshCoreCompanion::rememberPath(MeshCoreContact &c, const uint8_t *path, uint8_t pathBytes, uint8_t hashSize, bool fromAdvert,
+                                     uint32_t nowMs)
+{
+    if (hashSize == 0 || hashSize > 3 || pathBytes > MeshCoreContact::PATH_BYTES_MAX || pathBytes % hashSize != 0)
+        return;
+    if (pathBytes > 0 && !path)
+        return;
+    // The peer described the way to itself in a PATH frame; an ADVERT only fills the gap until one arrives.
+    if (fromAdvert && c.pathValid && !c.pathFromAdvert)
+        return;
+
+    if (pathBytes)
+        memcpy(c.path, path, pathBytes);
+    c.pathBytes = pathBytes;
+    c.pathHashSize = hashSize;
+    c.pathValid = true;
+    c.pathFromAdvert = fromAdvert;
+    c.pathMs = nowMs;
+}
+
+bool MeshCoreCompanion::contactPath(const MeshCoreContact &c, uint8_t *out, size_t cap, uint8_t *pathBytes, uint8_t *hashSize) const
+{
+    if (!out || !pathBytes || !hashSize || !c.pathValid || c.pathHashSize == 0 || c.pathHashSize > 3)
+        return false;
+    // An advert path describes the other direction and may predate a topology change: trust it for a day.
+    if (c.pathFromAdvert && Throttle::hasElapsed(c.pathMs, ADVERT_PATH_MAX_AGE_MS))
+        return false;
+    if (c.pathBytes > cap)
+        return false;
+
+    if (!c.pathFromAdvert) {
+        if (c.pathBytes)
+            memcpy(out, c.path, c.pathBytes);
+    } else {
+        // The advert path runs from the contact to us; the route to it is the same hops backwards.
+        const uint8_t hops = c.pathBytes / c.pathHashSize;
+        for (uint8_t i = 0; i < hops; i++)
+            memcpy(&out[(size_t)i * c.pathHashSize], &c.path[(size_t)(hops - 1 - i) * c.pathHashSize], c.pathHashSize);
+    }
+    *pathBytes = c.pathBytes;
+    *hashSize = c.pathHashSize;
+    return true;
+}
+
+bool MeshCoreCompanion::sendTrace(uint32_t nodeNum, uint32_t packetId, RadioInterface *iface)
+{
+    MeshCoreContact *c = contacts.findByNodeNum(nodeNum);
+    if (!c || !iface)
+        return false;
+
+    uint8_t path[MeshCoreContact::PATH_BYTES_MAX];
+    uint8_t pathBytes = 0;
+    uint8_t hashSize = 1;
+    if (!contactPath(*c, path, sizeof(path), &pathBytes, &hashSize)) {
+        LOG_WARN("MeshCore trace to %s: no route yet", c->name);
+        return false;
+    }
+    if (pathBytes == 0) {
+        // A TRACE with an empty list is delivered to its listeners but never forwarded, so it cannot round-trip.
+        LOG_WARN("MeshCore trace to %s: direct neighbour, a TRACE needs a repeater", c->name);
+        return false;
+    }
+
+    uint32_t tag = generatePacketId();
+    if (tag == 0)
+        tag = 1;
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    uint8_t hops = 0;
+    const size_t frameLen = encodeTraceFrame(path, pathBytes, hashSize, tag, generatePacketId(), frame, sizeof(frame), &hops);
+    if (frameLen == 0 || !iface->queueMeshCoreFrame(frame, frameLen)) {
+        LOG_WARN("MeshCore trace to %s: frame not queued", c->name);
+        return false;
+    }
+
+    PendingTrace *slot = nullptr;
+    for (auto &e : traces) {
+        if (!e.used) {
+            slot = &e;
+            break;
+        }
+        if (!slot || (uint32_t)(millis() - e.sentMs) > (uint32_t)(millis() - slot->sentMs))
+            slot = &e; // the oldest one gives way
+    }
+    slot->tag = tag;
+    slot->packetId = packetId;
+    slot->targetNum = nodeNum;
+    slot->sentMs = millis();
+    slot->hops = hops;
+    slot->used = true;
+
+    contacts.touch(c);
+    traceTx++;
+    LOG_INFO("MeshCore trace to %s: %u hops", c->name, (unsigned)hops);
+    return true;
+}
+
 void MeshCoreCompanion::settleAck(uint32_t hash)
 {
     for (auto &e : pending) {
@@ -1221,9 +1548,16 @@ void MeshCoreCompanion::handlePathAck(const uint8_t *raw, size_t len, const Mesh
     MeshCoreContact *candidates[CONTACTS_MAX];
     const size_t n = contacts.findByHash(payload[1], candidates, CONTACTS_MAX);
     for (size_t i = 0; i < n; i++) {
-        uint32_t hash = 0;
-        if (ensureSecret(*candidates[i]) && decodePathAck(candidates[i]->secret, raw, len, info, &hash)) {
-            settleAck(hash);
+        MeshCorePath path;
+        uint8_t extraType = 0;
+        uint8_t extra[8];
+        size_t extraLen = 0;
+        if (ensureSecret(*candidates[i]) &&
+            decodePath(candidates[i]->secret, raw, len, info, &path, &extraType, extra, sizeof(extra), &extraLen)) {
+            // The peer describes the route to itself; keep it for the next traceroute.
+            rememberPath(*candidates[i], path.bytes, path.len, path.hashSize, false, millis());
+            if (extraType == 0x03 && extraLen >= 4)
+                settleAck(readLe32(extra));
             return;
         }
     }
@@ -1245,6 +1579,16 @@ void MeshCoreCompanion::service()
             // A relayed message stops here without a failure, as a Meshtastic one does once its relay has ACKed it.
             if (!e.relayed)
                 reportDelivery(e.contactNum, e.packetId, meshtastic_Routing_Error_MAX_RETRANSMIT);
+        }
+    }
+
+    for (auto &t : traces) {
+        if (t.used && !Throttle::isWithinTimespanMs(t.sentMs, TRACE_TIMEOUT_MS)) {
+            t.used = false;
+            traceTimeouts++;
+            // The route did not come back (topology changed, or a stale advert path): answer the client as a trace
+            // that got no reply.
+            reportDelivery(t.targetNum, t.packetId, meshtastic_Routing_Error_NO_RESPONSE);
         }
     }
 }

@@ -106,6 +106,32 @@ class MeshCoreCompanion
     static bool decodePathAck(const uint8_t secret[32], const uint8_t *frame, size_t len, const MeshCoreRepeater::FrameInfo &info,
                               uint32_t *hashOut);
 
+    /// A route as a PATH frame carries it, next hop first: hashSize in the top bits of the length byte.
+    struct MeshCorePath {
+        uint8_t bytes[MeshCoreContact::PATH_BYTES_MAX] = {};
+        uint8_t len = 0;
+        uint8_t hashSize = 1;
+    };
+
+    /// Decrypt a PATH frame and split it into the route it reports and its extra block (the ACK, or a response).
+    /// False on a bad MAC or a malformed body. path/extraType are optional; extra gets a copy of at most extraCap bytes.
+    static bool decodePath(const uint8_t secret[32], const uint8_t *frame, size_t len, const MeshCoreRepeater::FrameInfo &info,
+                           MeshCorePath *path, uint8_t *extraType, uint8_t *extra, size_t extraCap, size_t *extraLen);
+
+    /// MeshCore TRACE (payload 0x09), as a chat contact needs it: the round trip [n1..nk, n(k-1)..n1], because a chat
+    /// node does not forward, so the last repeater turns the trace around. Fields: tag(4), auth(4), flags(1), hashes.
+    /// Returns the frame length, or 0 when the path is empty or does not fit. hopsOut gets the outbound hop count.
+    static size_t encodeTraceFrame(const uint8_t *path, uint8_t pathBytes, uint8_t pathHashSize, uint32_t tag, uint32_t auth,
+                                   uint8_t *out, size_t outCap, uint8_t *hopsOut = nullptr);
+
+    /// How long a trace waits for its completed TRACE frame before the client is told it failed. Kept under the on-screen
+    /// traceroute's own 14 s timeout, so the UI shows the failure rather than "timed out".
+    static constexpr uint32_t TRACE_TIMEOUT_MS = 12000;
+
+    /// How old an ADVERT-derived route may be. MeshCore never expires an out_path; an advert path describes the other
+    /// direction, so it is only a guess and is trusted for a day.
+    static constexpr uint32_t ADVERT_PATH_MAX_AGE_MS = 24UL * 60 * 60 * 1000;
+
     /// Encode an ACK flood frame carrying hash. Returns the frame length, or 0 if it does not fit.
     static size_t encodeAck(uint32_t hash, uint8_t *out, size_t outCap);
 
@@ -189,6 +215,11 @@ class MeshCoreCompanion
     /// packetId to the client. text is cut to MAX_TEXT_LEN on a UTF-8 boundary. False if it could not be queued.
     bool sendDirectText(uint32_t nodeNum, uint32_t packetId, const char *text, uint32_t now, RadioInterface *iface);
 
+    /// Queue a MeshCore TRACE to the contact behind nodeNum, using the route learned from its last PATH (or, until one
+    /// arrives, from its last ADVERT). The result comes back through handleFrame() as a RouteDiscovery reply. False when
+    /// there is no usable route, which the caller answers as NO_ROUTE.
+    bool sendTrace(uint32_t nodeNum, uint32_t packetId, RadioInterface *iface);
+
     /// How long a direct message waits for its ACK before the client is told it failed.
     static constexpr uint32_t ACK_TIMEOUT_MS = 30000;
 
@@ -215,6 +246,7 @@ class MeshCoreCompanion
 
     uint32_t rxSeen = 0, rxDecoded = 0, rxDup = 0, rxIgnored = 0, txSent = 0;
     uint32_t contactsLearned = 0, dmRx = 0, dmTx = 0, dmAcked = 0, dmTimedOut = 0, groupEchoed = 0, groupTimedOut = 0;
+    uint32_t traceTx = 0, traceRx = 0, traceTimeouts = 0;
 
     static constexpr size_t CONTACTS_MAX = 32;
     MeshCoreContacts<CONTACTS_MAX> contacts;
@@ -251,15 +283,41 @@ class MeshCoreCompanion
     static constexpr size_t PENDING_ACKS = 8;
     PendingAck pending[PENDING_ACKS];
 
+    /// A TRACE on air, waiting for the completed frame that carries its SNRs. Correlated by tag.
+    struct PendingTrace {
+        uint32_t tag = 0;
+        uint32_t packetId = 0;
+        uint32_t targetNum = 0;
+        uint32_t sentMs = 0;
+        uint8_t hops = 0; // outbound hops, so the result can be split into towards/back
+        bool used = false;
+    };
+    static constexpr size_t PENDING_TRACES = 4;
+    PendingTrace traces[PENDING_TRACES];
+
     void handleGroupText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi);
     void handleAdvert(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi);
     void handleDirectText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi);
+    void handleTrace(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi);
     void handleAck(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info);
     void handlePathAck(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info);
     /// An ACK with this hash arrived (plain or inside a PATH): report the matching direct message delivered.
     void settleAck(uint32_t hash);
     /// A repeater re-flooded the direct message with this frame hash: report it relayed, through the hop with this hash byte.
     void settleRelay(uint32_t hash, uint8_t relayHop);
+
+    /// The route to a contact, next hop first. A PATH-derived route is used as stored; an ADVERT-derived one is the
+    /// reverse of what the advert reported. False when there is none or it is too old to trust.
+    bool contactPath(const MeshCoreContact &c, uint8_t *out, size_t cap, uint8_t *pathBytes, uint8_t *hashSize) const;
+    /// Keep a route on the contact. A PATH frame always wins over an ADVERT: the peer described the way to itself.
+    static void rememberPath(MeshCoreContact &c, const uint8_t *path, uint8_t pathBytes, uint8_t hashSize, bool fromAdvert,
+                             uint32_t nowMs);
+    /// Turn a completed TRACE into the reply the client expects and hand it to the router.
+    void buildTraceResult(const PendingTrace &t, const uint8_t *hashes, uint8_t hashSize, uint8_t hashCount, const int8_t *snrs,
+                          float finalSnr, int32_t rssi);
+    /// Node number for one path hop: a contact's key prefix, a repeater announced by ADVERT, or a synthetic number.
+    uint32_t nodeNumForHop(const uint8_t *hash, uint8_t size);
+    static uint32_t syntheticHopNum(const uint8_t *hash, uint8_t size);
 
     /// Drop the unmessagable node an earlier channel text created for this name, now that the name is a contact.
     void retireGroupNode(const char *name);

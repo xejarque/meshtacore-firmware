@@ -6,7 +6,8 @@
 
 /** A MeshCore peer we can exchange direct messages with, learned from its signed ADVERT. */
 struct MeshCoreContact {
-    static constexpr size_t NAME_LEN = 40; // meshtastic_User.long_name
+    static constexpr size_t NAME_LEN = 40;   // meshtastic_User.long_name
+    static constexpr size_t PATH_BYTES_MAX = 64; // MeshCore MAX_PATH_SIZE
 
     uint8_t pub[32] = {};
     char name[NAME_LEN] = {};
@@ -14,6 +15,15 @@ struct MeshCoreContact {
     uint8_t secret[32] = {}; // ECDH shared secret, valid once hasSecret
     bool hasSecret = false;
     uint32_t lastUsed = 0; // LRU stamp; 0 marks a free slot
+
+    // Route to this contact: the hash sequence a MeshCore TRACE walks, next hop first. Learned from the PATH frame the
+    // peer returns after a flooded message, or, until one arrives, from the path of its last ADVERT (reversed).
+    uint8_t path[PATH_BYTES_MAX] = {};
+    uint8_t pathBytes = 0;      // 0 with pathValid is a direct neighbour
+    uint8_t pathHashSize = 1;   // 1..3 bytes per hash
+    bool pathValid = false;
+    bool pathFromAdvert = false;
+    uint32_t pathMs = 0; // when the route was learned
 };
 
 /**
@@ -96,6 +106,18 @@ template <size_t N> class MeshCoreContacts
         size_t n = 0;
         for (auto &e : entries)
             if (e.lastUsed && e.pub[0] == hash && n < max)
+                out[n++] = &e;
+        return n;
+    }
+
+    /// Contacts whose public key starts with prefix (a MeshCore path hop is a 1..3 byte key prefix).
+    size_t findByPubPrefix(const uint8_t *prefix, size_t len, MeshCoreContact **out, size_t max)
+    {
+        size_t n = 0;
+        if (!prefix || len == 0 || len > 32)
+            return 0;
+        for (auto &e : entries)
+            if (e.lastUsed && memcmp(e.pub, prefix, len) == 0 && n < max)
                 out[n++] = &e;
         return n;
     }

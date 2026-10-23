@@ -463,6 +463,22 @@ ErrorCode MeshService::sendToMesh(meshtastic_MeshPacket *p, RxSource src, bool c
     nodeDB->updateFrom(*p); // update our local DB for this packet (because phone might have sent position packets etc...)
 
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    // A traceroute for a MeshCore contact leaves as a MeshCore TRACE; the companion answers the client with the
+    // RouteDiscovery reply when the trace comes back.
+    if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+        p->decoded.portnum == meshtastic_PortNum_TRACEROUTE_APP && meshCoreCompanion.hasContact(p->to)) {
+        RadioInterface *iface = router ? router->getRadioIface() : nullptr;
+        const bool queued = meshCoreCompanion.sendTrace(p->to, p->id, iface);
+        if (!queued && routingModule)
+            routingModule->sendAckNak(meshtastic_Routing_Error_NO_ROUTE, getFrom(p), p->id, p->channel, 0);
+        if (router) {
+            meshtastic_QueueStatus qs = router->getQueueStatus();
+            (void)sendQueueStatusToPhone(qs, queued ? ERRNO_OK : ERRNO_UNKNOWN, mesh_packet_id);
+        }
+        releaseToPool(p);
+        return queued ? ERRNO_OK : ERRNO_UNKNOWN;
+    }
+
     // A text for a MeshCore contact leaves as a TXT_MSG. Only contacts we hold a key for: any other node number is a
     // Meshtastic node, whatever its top byte.
     if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&

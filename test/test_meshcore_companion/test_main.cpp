@@ -636,6 +636,78 @@ void test_path_with_another_extra_is_not_an_ack(void)
     TEST_ASSERT_FALSE(MeshCoreCompanion::decodePathAck(secret, frame, len, info, &hash));
 }
 
+void test_decode_path_returns_the_route_and_the_extra(void)
+{
+    uint8_t secret[32], pubA[32], pubB[32];
+    sharedBetweenTestSeeds(secret, pubA, pubB);
+
+    // 2-byte hashes, 2 hops: the peer's report of the way to itself.
+    const uint8_t plain[] = {0x42, 0x11, 0x22, 0x33, 0x44, 0x03, 0x78, 0x56, 0x34, 0x12};
+    uint8_t frame[80];
+    const size_t len = sealDatagram(secret, 0x08, pubA[0], pubB[0], plain, sizeof(plain), frame, sizeof(frame));
+    MeshCoreRepeater::FrameInfo info;
+    TEST_ASSERT_TRUE(MeshCoreRepeater::parse(frame, len, &info));
+
+    MeshCoreCompanion::MeshCorePath path;
+    uint8_t extraType = 0xFF;
+    uint8_t extra[8] = {};
+    size_t extraLen = 0;
+    TEST_ASSERT_TRUE(MeshCoreCompanion::decodePath(secret, frame, len, info, &path, &extraType, extra, sizeof(extra), &extraLen));
+    TEST_ASSERT_EQUAL_UINT8(4, path.len);
+    TEST_ASSERT_EQUAL_UINT8(2, path.hashSize);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(&plain[1], path.bytes, 4);
+    TEST_ASSERT_EQUAL_HEX8(0x03, extraType);
+    TEST_ASSERT_GREATER_OR_EQUAL(4, extraLen);
+    TEST_ASSERT_EQUAL_HEX8(0x78, extra[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x12, extra[3]);
+}
+
+// A TRACE for a chat contact is the round trip [n1..nk, n(k-1)..n1]: its last repeater turns it around because a chat
+// node does not forward.
+void test_trace_frame_is_a_round_trip(void)
+{
+    const uint8_t path[] = {0x11, 0x22, 0x33, 0x44}; // two 2-byte hops
+    uint8_t frame[64];
+    uint8_t hops = 0;
+    const size_t len = MeshCoreCompanion::encodeTraceFrame(path, sizeof(path), 2, 0xAABBCCDD, 0x01020304, frame, sizeof(frame), &hops);
+
+    TEST_ASSERT_EQUAL(17, len); // 2 header + 9 trace fields + 3 hashes of 2 bytes
+    TEST_ASSERT_EQUAL_UINT8(2, hops);
+    TEST_ASSERT_EQUAL_HEX8(0x26, frame[0]); // TRACE, route direct
+    TEST_ASSERT_EQUAL_HEX8(0, frame[1]);    // no SNR bytes yet
+    TEST_ASSERT_EQUAL_HEX8(0xDD, frame[2]);
+    TEST_ASSERT_EQUAL_HEX8(0xAA, frame[5]);
+    TEST_ASSERT_EQUAL_HEX8(0x04, frame[6]);
+    TEST_ASSERT_EQUAL_HEX8(0x01, frame[9]);
+    TEST_ASSERT_EQUAL_HEX8(1, frame[10]); // 2-byte hashes
+    const uint8_t expected[] = {0x11, 0x22, 0x33, 0x44, 0x11, 0x22};
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(expected, &frame[11], sizeof(expected));
+}
+
+void test_trace_frame_cuts_three_byte_hashes_to_two(void)
+{
+    const uint8_t path[] = {0x11, 0x12, 0x13, 0x21, 0x22, 0x23}; // two 3-byte hops
+    uint8_t frame[64];
+    uint8_t hops = 0;
+    const size_t len = MeshCoreCompanion::encodeTraceFrame(path, sizeof(path), 3, 1, 2, frame, sizeof(frame), &hops);
+    TEST_ASSERT_EQUAL(17, len);
+    TEST_ASSERT_EQUAL_UINT8(2, hops);
+    TEST_ASSERT_EQUAL_HEX8(1, frame[10]); // cut to 2-byte hashes
+    const uint8_t expected[] = {0x11, 0x12, 0x21, 0x22, 0x11, 0x12};
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(expected, &frame[11], sizeof(expected));
+}
+
+void test_trace_frame_refuses_paths_it_cannot_measure(void)
+{
+    uint8_t frame[64];
+    uint8_t path[64] = {};
+    TEST_ASSERT_EQUAL(0, MeshCoreCompanion::encodeTraceFrame(path, 0, 1, 1, 2, frame, sizeof(frame))); // no repeater
+    TEST_ASSERT_EQUAL(0, MeshCoreCompanion::encodeTraceFrame(path, 3, 2, 1, 2, frame, sizeof(frame))); // not whole hashes
+    memset(path, 1, sizeof(path));
+    TEST_ASSERT_EQUAL(0, MeshCoreCompanion::encodeTraceFrame(path, 32, 1, 1, 2, frame, sizeof(frame))); // 32 hops: > 63 SNRs
+    TEST_ASSERT_EQUAL(0, MeshCoreCompanion::encodeTraceFrame(path, 2, 1, 1, 2, frame, 10));             // no room
+}
+
 void test_contact_and_channel_sender_share_one_node(void)
 {
     MeshCoreContacts<4> table;
@@ -858,6 +930,135 @@ void test_unrelayed_direct_message_times_out_as_failed(void)
     TEST_ASSERT_EQUAL(meshtastic_Routing_Error_MAX_RETRANSMIT, routingError(s.capture.received[0]));
 }
 
+static void giveRoute(MeshCoreContact *c, const uint8_t *path, uint8_t bytes, uint8_t hashSize, bool fromAdvert)
+{
+    memcpy(c->path, path, bytes);
+    c->pathBytes = bytes;
+    c->pathHashSize = hashSize;
+    c->pathValid = true;
+    c->pathFromAdvert = fromAdvert;
+    c->pathMs = millis();
+}
+
+// A PATH frame from the peer describes the way to it; the next traceroute can use it instead of flooding.
+void test_path_frame_teaches_the_route_to_a_contact(void)
+{
+    DirectSetup s;
+    TEST_ASSERT_TRUE(s.c.sendDirectText(s.bobNum, 7, "hola", 1700000000, &s.radio));
+
+    uint8_t secret[32];
+    TEST_ASSERT_TRUE(MeshCoreCompanion::sharedSecret(kSeedB, s.pubA, secret));
+    const uint8_t plain[] = {0x42, 0x11, 0x22, 0x33, 0x44, 0x03, 0x78, 0x56, 0x34, 0x12}; // 2-byte hashes, 2 hops, ACK
+    uint8_t frame[80];
+    const size_t len = sealDatagram(secret, 0x08, s.pubA[0], s.pubB[0], plain, sizeof(plain), frame, sizeof(frame));
+    s.c.handleFrame(frame, len, 0, 0);
+
+    MeshCoreContact *bob = s.c.contacts.findByPub(s.pubB);
+    TEST_ASSERT_TRUE(bob->pathValid);
+    TEST_ASSERT_FALSE(bob->pathFromAdvert);
+    TEST_ASSERT_EQUAL_UINT8(4, bob->pathBytes);
+    TEST_ASSERT_EQUAL_UINT8(2, bob->pathHashSize);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(&plain[1], bob->path, 4);
+}
+
+void test_trace_needs_a_route_and_a_repeater(void)
+{
+    DirectSetup s;
+    TEST_ASSERT_FALSE(s.c.sendTrace(s.bobNum, 1, &s.radio)); // no route learned yet
+
+    MeshCoreContact *bob = s.c.contacts.findByPub(s.pubB);
+    bob->pathBytes = 0;
+    bob->pathHashSize = 1;
+    bob->pathValid = true;
+    bob->pathFromAdvert = false;
+    TEST_ASSERT_FALSE(s.c.sendTrace(s.bobNum, 2, &s.radio)); // a direct neighbour: an empty TRACE cannot come back
+
+    TEST_ASSERT_FALSE(s.c.sendTrace(0x12345678, 3, &s.radio)); // not a MeshCore contact
+}
+
+// The completed TRACE carries one SNR per node that forwarded. The outbound half is route/snr_towards; the return
+// half is route_back/snr_back, whose first leg (contact to the last repeater) a chat node cannot measure.
+void test_trace_reply_splits_the_round_trip(void)
+{
+    DirectSetup s;
+    MeshCoreContact *bob = s.c.contacts.findByPub(s.pubB);
+    const uint8_t route[] = {0x11, 0x22, 0x33, 0x44}; // two 2-byte hops
+    giveRoute(bob, route, sizeof(route), 2, false);
+
+    TEST_ASSERT_TRUE(s.c.sendTrace(s.bobNum, 42, &s.radio));
+    TEST_ASSERT_EQUAL_UINT8(17, s.radio.frameLen);
+    TEST_ASSERT_EQUAL_HEX8(0x26, s.radio.frame[0]); // TRACE, route direct
+
+    // n1, n2 and n1 again forward it, each appending its receive SNR to the path field.
+    const int8_t snr0 = 10, snr1 = -8, snr2 = 4;
+    uint8_t done[MeshCoreRepeater::MAX_FRAME_LEN];
+    done[0] = s.radio.frame[0];
+    done[1] = 3;
+    done[2] = (uint8_t)snr0;
+    done[3] = (uint8_t)snr1;
+    done[4] = (uint8_t)snr2;
+    memcpy(&done[5], &s.radio.frame[2], s.radio.frameLen - 2);
+    s.c.handleFrame(done, s.radio.frameLen + 3, 7.5f, -60);
+
+    TEST_ASSERT_EQUAL_UINT(1, s.capture.received.size());
+    const meshtastic_MeshPacket &reply = s.capture.received[0];
+    TEST_ASSERT_EQUAL_HEX32(s.bobNum, reply.from);
+    TEST_ASSERT_EQUAL_HEX32(nodeDB->getNodeNum(), reply.to);
+    TEST_ASSERT_EQUAL_UINT32(42, reply.decoded.request_id);
+
+    meshtastic_RouteDiscovery r = meshtastic_RouteDiscovery_init_zero;
+    TEST_ASSERT_TRUE(pb_decode_from_bytes(reply.decoded.payload.bytes, reply.decoded.payload.size,
+                                          &meshtastic_RouteDiscovery_msg, &r));
+    TEST_ASSERT_EQUAL_UINT8(2, r.route_count);
+    TEST_ASSERT_EQUAL_UINT8(2, r.snr_towards_count);
+    TEST_ASSERT_EQUAL_INT8(snr0, r.snr_towards[0]);
+    TEST_ASSERT_EQUAL_INT8(snr1, r.snr_towards[1]);
+    TEST_ASSERT_EQUAL_HEX8(0x4E, r.route[0] >> 24); // hops we cannot name get a synthetic 'N' number
+    TEST_ASSERT_EQUAL_HEX8(0x4E, r.route[1] >> 24);
+    TEST_ASSERT_NOT_EQUAL(r.route[0], r.route[1]);
+
+    TEST_ASSERT_EQUAL_UINT8(2, r.route_back_count);
+    TEST_ASSERT_EQUAL_HEX32(r.route[1], r.route_back[0]);
+    TEST_ASSERT_EQUAL_HEX32(r.route[0], r.route_back[1]);
+    TEST_ASSERT_EQUAL_UINT8(2, r.snr_back_count);
+    TEST_ASSERT_EQUAL_INT8(INT8_MIN, r.snr_back[0]);
+    TEST_ASSERT_EQUAL_INT8(snr2, r.snr_back[1]);
+}
+
+// An ADVERT path runs from the contact to us; the route to it is the same hops backwards, and a day-old one is not
+// trusted.
+void test_trace_uses_and_expires_the_advert_route(void)
+{
+    DirectSetup s;
+    MeshCoreContact *bob = s.c.contacts.findByPub(s.pubB);
+    const uint8_t advertRoute[] = {0xAA, 0xBB};
+    giveRoute(bob, advertRoute, sizeof(advertRoute), 1, true);
+
+    TEST_ASSERT_TRUE(s.c.sendTrace(s.bobNum, 44, &s.radio));
+    TEST_ASSERT_EQUAL_UINT8(14, s.radio.frameLen);
+    const uint8_t expected[] = {0xBB, 0xAA, 0xBB}; // reversed, then mirrored
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(expected, &s.radio.frame[11], sizeof(expected));
+
+    Time::setTestMillis(1000 + MeshCoreCompanion::ADVERT_PATH_MAX_AGE_MS + 1);
+    TEST_ASSERT_FALSE(s.c.sendTrace(s.bobNum, 45, &s.radio));
+}
+
+void test_trace_without_a_reply_reports_no_response(void)
+{
+    DirectSetup s;
+    MeshCoreContact *bob = s.c.contacts.findByPub(s.pubB);
+    const uint8_t route[] = {0x11, 0x22};
+    giveRoute(bob, route, sizeof(route), 1, false);
+    TEST_ASSERT_TRUE(s.c.sendTrace(s.bobNum, 43, &s.radio));
+    TEST_ASSERT_EQUAL_UINT(0, s.capture.received.size());
+
+    Time::setTestMillis(1000 + MeshCoreCompanion::TRACE_TIMEOUT_MS + 1);
+    s.c.service();
+    TEST_ASSERT_EQUAL_UINT(1, s.capture.received.size());
+    TEST_ASSERT_EQUAL_UINT32(43, s.capture.received[0].decoded.request_id);
+    TEST_ASSERT_EQUAL(meshtastic_Routing_Error_NO_RESPONSE, routingError(s.capture.received[0]));
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -900,6 +1101,15 @@ void setup()
     RUN_TEST(test_path_ack_round_trip);
     RUN_TEST(test_path_ack_skips_the_walked_path);
     RUN_TEST(test_path_with_another_extra_is_not_an_ack);
+    RUN_TEST(test_decode_path_returns_the_route_and_the_extra);
+    RUN_TEST(test_trace_frame_is_a_round_trip);
+    RUN_TEST(test_trace_frame_cuts_three_byte_hashes_to_two);
+    RUN_TEST(test_trace_frame_refuses_paths_it_cannot_measure);
+    RUN_TEST(test_path_frame_teaches_the_route_to_a_contact);
+    RUN_TEST(test_trace_needs_a_route_and_a_repeater);
+    RUN_TEST(test_trace_reply_splits_the_round_trip);
+    RUN_TEST(test_trace_uses_and_expires_the_advert_route);
+    RUN_TEST(test_trace_without_a_reply_reports_no_response);
     RUN_TEST(test_contact_and_channel_sender_share_one_node);
     RUN_TEST(test_group_text_marks_replies_and_known_mentions);
     RUN_TEST(test_direct_relay_echo_reports_relayed_then_delivered);
