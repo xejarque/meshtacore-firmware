@@ -70,8 +70,8 @@ Good fits: clubs and events that run both ecosystems, Meshtastic solar or repeat
 ### Build and flash
 
 ```bash
-git clone --branch meshtacore https://github.com/xejarque/Meshtacore.git
-cd Meshtacore
+git clone --branch meshtacore https://github.com/xejarque/meshtacore-firmware.git
+cd meshtacore-firmware
 pio run -e thinknode_m1_meshcore
 pio run -e thinknode_m1_meshcore -t upload --upload-port <port>
 ```
