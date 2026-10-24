@@ -6,6 +6,7 @@
 #define MESHTASTIC_ENABLE_MESHCORE_SNIFFER 1
 #define MESHTASTIC_ENABLE_MESHCORE_RELAY 0
 #define MESHTASTIC_ENABLE_MESHCORE_COMPANION 1
+#define MESHTASTIC_MESHCORE_PATH_COMMAND 1
 #include "mesh/MeshCoreCompanion.cpp"
 #include "mesh/MeshCoreRepeater.cpp"
 
@@ -858,6 +859,275 @@ void test_unrelayed_direct_message_times_out_as_failed(void)
     TEST_ASSERT_EQUAL(meshtastic_Routing_Error_MAX_RETRANSMIT, routingError(s.capture.received[0]));
 }
 
+#if MESHTASTIC_MESHCORE_PATH_COMMAND
+// A ".path" reply is answered from RAM: it never reaches the radio, and the report describes the text it answers.
+struct GroupSetup {
+    struct RegionReady {
+        RegionReady() { initRegion(); }
+    } regionReady;
+    NodeDB *previousNodeDB = nodeDB;
+    Router *previousRouter = router;
+    meshtastic_Channel previousChannel = {};
+    CaptureRouter capture;
+    MeshCoreCompanion c;
+
+    GroupSetup()
+    {
+        previousChannel = channels.getByIndex(0);
+        nodeDB = new NodeDB();
+        router = &capture;
+        meshtastic_Channel &ch = channels.getByIndex(0);
+        ch = meshtastic_Channel();
+        ch.has_settings = true;
+        ch.role = meshtastic_Channel_Role_PRIMARY;
+        ch.settings.psk.size = sizeof(kPublicKey);
+        memcpy(ch.settings.psk.bytes, kPublicKey, sizeof(kPublicKey));
+        strncpy(ch.settings.name, "MC:Public", sizeof(ch.settings.name) - 1);
+    }
+
+    ~GroupSetup()
+    {
+        channels.getByIndex(0) = previousChannel;
+        delete nodeDB;
+        nodeDB = previousNodeDB;
+        router = previousRouter;
+    }
+};
+
+// A repeater the node DB knows: name plus the public key its path hash is the prefix of.
+static void addRepeater(const uint8_t pub[32], const char *name)
+{
+    meshtastic_NodeInfoLite *n = nodeDB->getOrCreateMeshNode(MeshCoreContacts<1>::nodeNumForKey(pub));
+    TEST_ASSERT_NOT_NULL(n);
+    strncpy(n->long_name, name, sizeof(n->long_name) - 1);
+    n->public_key.size = 32;
+    memcpy(n->public_key.bytes, pub, 32);
+}
+
+// The same frame with a path spliced in: header, path_len, path, payload (see repeaterEcho).
+static size_t withPath(const uint8_t *frame, size_t len, uint8_t *out, uint8_t hashSize, const uint8_t *hops, uint8_t count)
+{
+    out[0] = frame[0];
+    out[1] = (uint8_t)(((hashSize - 1) << 6) | count);
+    memcpy(&out[2], hops, (size_t)hashSize * count);
+    memcpy(&out[2 + (size_t)hashSize * count], &frame[2], len - 2);
+    return len + (size_t)hashSize * count;
+}
+
+static meshtastic_MeshPacket textPacket(uint8_t channel, uint32_t replyId, const char *text)
+{
+    meshtastic_MeshPacket p = {};
+    p.id = 0x1234;
+    p.channel = channel;
+    p.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    p.decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+    p.decoded.reply_id = replyId;
+    p.decoded.payload.size = strlen(text);
+    memcpy(p.decoded.payload.bytes, text, p.decoded.payload.size);
+    return p;
+}
+
+static const char *reportText(const meshtastic_MeshPacket &p, char *buf, size_t cap)
+{
+    const size_t n = p.decoded.payload.size < cap - 1 ? p.decoded.payload.size : cap - 1;
+    memcpy(buf, p.decoded.payload.bytes, n);
+    buf[n] = 0;
+    return buf;
+}
+
+// A channel text with two resolvable hops: the reply names them and carries the measured signal.
+void test_path_command_answers_locally(void)
+{
+    GroupSetup s;
+    const uint8_t pubA[32] = {0x11, 0x22};
+    const uint8_t pubB[32] = {0x33, 0x44};
+    addRepeater(pubA, "Alpha");
+    addRepeater(pubB, "Bravo");
+
+    const uint32_t packetId = 0x00ABC123;
+    const uint8_t hops[] = {0x11, 0x22, 0x33, 0x44};
+    const uint32_t fromNum = MeshCoreCompanion::senderNodeNum("Alice");
+    s.c.noteHeardText(packetId, fromNum, 0, hops, 2, 2, 1, -9.0f, -98);
+
+    // The node the report names: the client had it announced with the " (MC)" suffix, which the report drops.
+    meshtastic_NodeInfoLite *alice = nodeDB->getOrCreateMeshNode(fromNum);
+    alice->bitfield |= NODEINFO_BITFIELD_HAS_USER_MASK;
+    strncpy(alice->long_name, "Alice (MC)", sizeof(alice->long_name) - 1);
+
+    const size_t before = s.capture.received.size();
+    meshtastic_MeshPacket command = textPacket(0, packetId, ".path");
+    TEST_ASSERT_TRUE(s.c.handlePathCommand(&command, false));
+
+    bool delivery = false;
+    for (size_t i = before; i < s.capture.received.size(); i++) {
+        const meshtastic_MeshPacket &q = s.capture.received[i];
+        if (q.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+            q.decoded.portnum == meshtastic_PortNum_ROUTING_APP && q.decoded.request_id == command.id)
+            delivery = true;
+    }
+    TEST_ASSERT_TRUE(delivery);
+
+    const meshtastic_MeshPacket &report = s.capture.received.back();
+    TEST_ASSERT_EQUAL_UINT32(MeshCoreCompanion::PSEUDO_NODE_NUM, report.from);
+    TEST_ASSERT_EQUAL_UINT32(NODENUM_BROADCAST, report.to);
+    TEST_ASSERT_EQUAL_UINT32(packetId, report.decoded.reply_id);
+    TEST_ASSERT_EQUAL_UINT8(0, report.channel);
+
+    char body[256];
+    reportText(report, body, sizeof(body));
+    TEST_ASSERT_NOT_NULL(strstr(body, "🛰️"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "de **Alice**"));
+    TEST_ASSERT_NULL(strstr(body, "(MC)"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Alpha"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Bravo"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "SNR -9.0 dB"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "RSSI -98 dBm"));
+}
+
+// Without a reply target the newest text on the channel is reported.
+void test_path_command_falls_back_to_newest(void)
+{
+    GroupSetup s;
+    const uint8_t hops[] = {0xAB, 0xCD};
+    const uint32_t packetId = 0x00ABC456;
+    s.c.noteHeardText(packetId, MeshCoreCompanion::senderNodeNum("Alice"), 0, hops, 2, 1, 1, -5.0f, -80);
+
+    meshtastic_MeshPacket command = textPacket(0, 0, ".path");
+    TEST_ASSERT_TRUE(s.c.handlePathCommand(&command, false));
+    TEST_ASSERT_EQUAL_UINT32(packetId, s.capture.received.back().decoded.reply_id);
+}
+
+// Nothing heard yet: a short local notice, and the command still does not go out.
+void test_path_command_without_data_is_a_hint(void)
+{
+    GroupSetup s;
+    meshtastic_MeshPacket command = textPacket(0, 0, ".path");
+    TEST_ASSERT_TRUE(s.c.handlePathCommand(&command, false));
+
+    char body[256];
+    reportText(s.capture.received.back(), body, sizeof(body));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Sin datos"));
+}
+
+// Anything that is not exactly the command is left to the normal send path.
+void test_path_command_ignores_other_text(void)
+{
+    GroupSetup s;
+    meshtastic_MeshPacket dotted = textPacket(0, 0, ".paths");
+    TEST_ASSERT_FALSE(s.c.handlePathCommand(&dotted, false));
+    meshtastic_MeshPacket bare = textPacket(0, 0, "path");
+    TEST_ASSERT_FALSE(s.c.handlePathCommand(&bare, false));
+    meshtastic_MeshPacket withArgs = textPacket(0, 0, ".path foo");
+    TEST_ASSERT_FALSE(s.c.handlePathCommand(&withArgs, false));
+    meshtastic_MeshPacket otherChannel = textPacket(1, 0, ".path"); // not a MeshCore channel
+    TEST_ASSERT_FALSE(s.c.handlePathCommand(&otherChannel, false));
+    TEST_ASSERT_TRUE(s.capture.received.empty());
+}
+
+// An unknown hop, or one several nodes claim, is shown as hex rather than as a guess.
+void test_path_report_uses_hex_for_unknown_and_ambiguous_hops(void)
+{
+    GroupSetup s;
+    const uint8_t twinA[32] = {0x77, 0x01};
+    const uint8_t twinB[32] = {0x77, 0x02};
+    addRepeater(twinA, "Twin A");
+    addRepeater(twinB, "Twin B");
+
+    MeshCoreCompanion::HeardPath entry;
+    entry.hopCount = 2;
+    entry.hashSize = 1;
+    entry.routeType = 1;
+    entry.snr = -5.0f;
+    entry.rssi = -80;
+    const uint8_t hops[] = {0x99, 0x77};
+    memcpy(entry.path, hops, sizeof(hops));
+
+    char body[256];
+    TEST_ASSERT_TRUE(MeshCoreCompanion::formatPathReport(entry, nullptr, body, sizeof(body)) > 0);
+    TEST_ASSERT_NOT_NULL(strstr(body, "`99`"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "`77`"));
+    TEST_ASSERT_NULL(strstr(body, "Twin A"));
+}
+
+// Long paths stay inside the client's payload budget and say how many hops they left out.
+void test_path_report_fits_the_payload(void)
+{
+    GroupSetup s;
+    MeshCoreCompanion::HeardPath entry;
+    entry.hopCount = 12;
+    entry.hashSize = 2;
+    entry.routeType = 1;
+    entry.snr = -5.0f;
+    entry.rssi = -80;
+    for (size_t i = 0; i < sizeof(entry.path); i++)
+        entry.path[i] = (uint8_t)(0x40 + i);
+
+    char body[256];
+    const size_t len = MeshCoreCompanion::formatPathReport(entry, nullptr, body, sizeof(body));
+    TEST_ASSERT_TRUE(len > 0);
+    TEST_ASSERT_TRUE(len <= sizeof(((meshtastic_MeshPacket *)nullptr)->decoded.payload.bytes));
+    TEST_ASSERT_EQUAL_UINT(strlen(body), len);
+    TEST_ASSERT_NOT_NULL(strstr(body, "… +"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "SNR -5.0 dB")); // the signal line survives a full path
+}
+
+// A direct message is answered in the same chat, from the contact and with its key, as a PKI reply.
+void test_path_command_answers_a_direct_message(void)
+{
+    DirectSetup s;
+    uint8_t secret[32], frame[MeshCoreRepeater::MAX_FRAME_LEN], path[MeshCoreRepeater::MAX_FRAME_LEN];
+    TEST_ASSERT_TRUE(MeshCoreCompanion::sharedSecret(kSeedB, s.pubA, secret)); // Bob writing to us
+    const size_t len =
+        MeshCoreCompanion::encodeDirectText(secret, s.pubA[0], s.pubB[0], 1, 0, "hola", frame, sizeof(frame));
+    const uint8_t hops[] = {0xAB, 0xCD};
+    const size_t pathLen = withPath(frame, len, path, 2, hops, 1);
+    s.c.handleFrame(path, pathLen, -7.5f, -95);
+
+    TEST_ASSERT_TRUE(!s.capture.received.empty());
+    const meshtastic_MeshPacket original = s.capture.received.back();
+    TEST_ASSERT_EQUAL(meshtastic_PortNum_TEXT_MESSAGE_APP, original.decoded.portnum);
+
+    meshtastic_MeshPacket command = textPacket(0, original.id, ".path");
+    command.to = s.bobNum;
+    TEST_ASSERT_TRUE(s.c.handlePathCommand(&command, true));
+
+    const meshtastic_MeshPacket &report = s.capture.received.back();
+    TEST_ASSERT_EQUAL_UINT32(s.bobNum, report.from);
+    TEST_ASSERT_EQUAL_UINT32(nodeDB->getNodeNum(), report.to);
+    TEST_ASSERT_TRUE(report.pki_encrypted);
+    TEST_ASSERT_EQUAL_UINT32(original.id, report.decoded.reply_id);
+    TEST_ASSERT_EQUAL_MEMORY(s.pubB, report.public_key.bytes, 32);
+
+    char body[256];
+    reportText(report, body, sizeof(body));
+    TEST_ASSERT_NOT_NULL(strstr(body, "🛰️"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "SNR -7.5 dB"));
+}
+
+// A name carrying markdown delimiters or control bytes cannot break the report's formatting.
+void test_path_report_sanitizes_node_names(void)
+{
+    GroupSetup s;
+    const uint8_t pub[32] = {0x42, 0x43};
+    addRepeater(pub, "Bad*Name\n[with] `tricks`");
+
+    MeshCoreCompanion::HeardPath entry;
+    entry.hopCount = 1;
+    entry.hashSize = 2;
+    entry.routeType = 1;
+    entry.snr = -5.0f;
+    entry.rssi = -80;
+    const uint8_t hops[] = {0x42, 0x43};
+    memcpy(entry.path, hops, sizeof(hops));
+
+    char body[256];
+    TEST_ASSERT_TRUE(MeshCoreCompanion::formatPathReport(entry, nullptr, body, sizeof(body)) > 0);
+    TEST_ASSERT_NULL(strstr(body, "Bad*"));
+    TEST_ASSERT_NULL(strstr(body, "[with]"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "BadName"));
+}
+#endif
+
 void setup()
 {
     initializeTestEnvironment();
@@ -905,6 +1175,16 @@ void setup()
     RUN_TEST(test_direct_relay_echo_reports_relayed_then_delivered);
     RUN_TEST(test_relayed_direct_message_times_out_silently);
     RUN_TEST(test_unrelayed_direct_message_times_out_as_failed);
+#if MESHTASTIC_MESHCORE_PATH_COMMAND
+    RUN_TEST(test_path_command_answers_locally);
+    RUN_TEST(test_path_command_falls_back_to_newest);
+    RUN_TEST(test_path_command_without_data_is_a_hint);
+    RUN_TEST(test_path_command_ignores_other_text);
+    RUN_TEST(test_path_report_uses_hex_for_unknown_and_ambiguous_hops);
+    RUN_TEST(test_path_report_fits_the_payload);
+    RUN_TEST(test_path_command_answers_a_direct_message);
+    RUN_TEST(test_path_report_sanitizes_node_names);
+#endif
     exit(UNITY_END());
 }
 

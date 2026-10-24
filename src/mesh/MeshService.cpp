@@ -403,6 +403,12 @@ ErrorCode MeshService::sendQueueStatusToPhone(const meshtastic_QueueStatus &qs, 
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 bool MeshService::sendMeshCoreGroupText(const meshtastic_MeshPacket *p)
 {
+#if MESHTASTIC_MESHCORE_PATH_COMMAND
+    // A ".path" reply is answered from RAM, never on air (and works without a valid clock).
+    if (meshCoreCompanion.handlePathCommand(p, false))
+        return true;
+#endif
+
     uint8_t key[32];
     const size_t keyLen = channels.getMeshCoreKey(p->channel, key);
 
@@ -441,6 +447,11 @@ bool MeshService::sendMeshCoreGroupText(const meshtastic_MeshPacket *p)
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 bool MeshService::sendMeshCoreDirectText(const meshtastic_MeshPacket *p)
 {
+#if MESHTASTIC_MESHCORE_PATH_COMMAND
+    if (meshCoreCompanion.handlePathCommand(p, true))
+        return true;
+#endif
+
     // MeshCore timestamps are wall-clock: without a valid time the peer would reject or misorder the message.
     const uint32_t now = getValidTime(RTCQualityFromNet);
     char text[sizeof(p->decoded.payload.bytes) + 1];

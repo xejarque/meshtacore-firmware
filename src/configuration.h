@@ -140,6 +140,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #error "MESHTASTIC_ENABLE_MESHCORE_COMPANION requires MESHTASTIC_ENABLE_MESHCORE_SNIFFER"
 #endif
 
+// Experimental: answer a local ".path"/".ruta" command with the repeaters a MeshCore text crossed. The command
+// is never transmitted. On by default wherever the companion is; -D...=0 opts out.
+#ifndef MESHTASTIC_MESHCORE_PATH_COMMAND
+#define MESHTASTIC_MESHCORE_PATH_COMMAND MESHTASTIC_ENABLE_MESHCORE_COMPANION
+#endif
+
+#if MESHTASTIC_MESHCORE_PATH_COMMAND && !MESHTASTIC_ENABLE_MESHCORE_COMPANION
+#error "MESHTASTIC_MESHCORE_PATH_COMMAND requires MESHTASTIC_ENABLE_MESHCORE_COMPANION"
+#endif
+
 // Experimental, SX126x only: receive with a hybrid sync word so one radio hears both Meshtastic (0x2B,
 // register 0x24B4) and MeshCore (0x12, register 0x1424) frames, and transmit each protocol with its own
 // sync word. Unverified on air: measure reception of both networks before relying on it. On by default; -D...=0 opts out.
