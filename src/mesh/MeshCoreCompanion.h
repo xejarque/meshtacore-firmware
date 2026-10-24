@@ -117,8 +117,9 @@ class MeshCoreCompanion
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
     /// How a bridged text was heard, kept so ".path" can report it. RAM only: the ring evicts it, a reboot loses it.
     struct HeardPath {
-        uint32_t packetId = 0; // the id the client sees; a reply points at it
-        uint32_t fromNum = 0;  // sender node, to find the newest text from a contact
+        uint32_t packetId = 0;  // the id the client sees; a reply points at it
+        uint32_t frameHash = 0; // hashFrame(): the same text over another route carries the same hash
+        uint32_t fromNum = 0;   // sender node, to find the newest text from a contact
         float snr = 0;
         int32_t rssi = 0;
         uint8_t channel = 0;
@@ -127,20 +128,24 @@ class MeshCoreCompanion
         uint8_t hopCount = 0;
         uint8_t path[16] = {}; // 8 two-byte hops; a longer path is summarised as "+N"
     };
-    static constexpr size_t PATH_MEMORY = 8;
+    /// One route per copy of a text: a flood reaches us over several, and ".path" lists them all.
+    static constexpr size_t PATH_MEMORY = 16;
 
-    /// Record how a bridged text was heard, so ".path" can report it. The receive path calls this once per text;
-    /// path holds hopCount hashes of hashSize bytes.
-    void noteHeardText(uint32_t packetId, uint32_t fromNum, uint8_t channel, const uint8_t *path, uint8_t hashSize,
-                       uint8_t hopCount, uint8_t routeType, float snr, int32_t rssi);
+    /**
+     * Record one route by which a bridged text was heard, so ".path" can report it. The same route heard again only
+     * refreshes its signal. packetId is the id the client sees on the first copy; a later copy passes 0 and borrows
+     * it from the routes already recorded for frameHash.
+     */
+    void noteHeardRoute(uint32_t packetId, uint32_t frameHash, uint32_t fromNum, uint8_t channel, const uint8_t *path,
+                        uint8_t hashSize, uint8_t hopCount, uint8_t routeType, float snr, int32_t rssi);
 
     /// Answer a local ".path"/".ruta" the client sent: true when it was answered here and must not be transmitted.
     /// direct = a text for a MeshCore contact (TXT_MSG), false = a broadcast on a MeshCore channel (GRP_TXT).
     bool handlePathCommand(const meshtastic_MeshPacket *p, bool direct);
 
-    /// The report text, names resolved against the node DB and the contact table, hex for anything ambiguous.
-    /// Public for tests.
-    size_t formatPathReport(const HeardPath &heard, const char *sender, char *out, size_t cap) const;
+    /// The report text for every known route, shortest first. Names come from the node DB and the contact table;
+    /// anything ambiguous is shown as hex. Public for tests.
+    size_t formatPathReport(const HeardPath *const *routes, size_t count, const char *sender, char *out, size_t cap) const;
 #endif
 
     /// Create the synthetic "MeshCore" node if it is missing, so the client has a sender name to render.
@@ -300,8 +305,9 @@ class MeshCoreCompanion
     /// contact is the sender when direct; hop count and signal mirror the frame being reported.
     uint32_t injectText(uint32_t fromNum, uint32_t to, uint8_t channel, const char *text, uint32_t replyId, bool direct,
                         const MeshCoreContact *contact, uint8_t pathHashCount, float snr, int32_t rssi);
-    void injectDirectText(const MeshCoreContact &c, const char *text, const uint8_t *raw,
-                          const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi);
+    /// Inject a received direct text; returns the packet id the client sees, or 0 when it could not be injected.
+    uint32_t injectDirectText(const MeshCoreContact &c, const char *text, const MeshCoreRepeater::FrameInfo &info, float snr,
+                              int32_t rssi);
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
     HeardPath heard[PATH_MEMORY];
     size_t heardNext = 0;

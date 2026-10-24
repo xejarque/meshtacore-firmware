@@ -935,6 +935,13 @@ static const char *reportText(const meshtastic_MeshPacket &p, char *buf, size_t 
     return buf;
 }
 
+static size_t formatOneRoute(MeshCoreCompanion &c, const MeshCoreCompanion::HeardPath &entry, const char *sender, char *out,
+                             size_t cap)
+{
+    const MeshCoreCompanion::HeardPath *routes[] = {&entry};
+    return c.formatPathReport(routes, 1, sender, out, cap);
+}
+
 // A channel text with two resolvable hops: the reply names them and carries the measured signal.
 void test_path_command_answers_locally(void)
 {
@@ -947,7 +954,7 @@ void test_path_command_answers_locally(void)
     const uint32_t packetId = 0x00ABC123;
     const uint8_t hops[] = {0x11, 0x22, 0x33, 0x44};
     const uint32_t fromNum = MeshCoreCompanion::senderNodeNum("Alice");
-    s.c.noteHeardText(packetId, fromNum, 0, hops, 2, 2, 1, -9.0f, -98);
+    s.c.noteHeardRoute(packetId, 0x00A1B2C3, fromNum, 0, hops, 2, 2, 1, -9.0f, -98);
 
     // The node the report names: the client had it announced with the " (MC)" suffix, which the report drops.
     meshtastic_NodeInfoLite *alice = nodeDB->getOrCreateMeshNode(fromNum);
@@ -981,7 +988,7 @@ void test_path_command_answers_locally(void)
     TEST_ASSERT_NOT_NULL(strstr(body, "Alpha"));
     TEST_ASSERT_NOT_NULL(strstr(body, "Bravo"));
     TEST_ASSERT_NOT_NULL(strstr(body, "SNR -9.0 dB"));
-    TEST_ASSERT_NOT_NULL(strstr(body, "RSSI -98 dBm"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "1 camino"));
 }
 
 // Without a reply target the newest text on the channel is reported.
@@ -990,7 +997,7 @@ void test_path_command_falls_back_to_newest(void)
     GroupSetup s;
     const uint8_t hops[] = {0xAB, 0xCD};
     const uint32_t packetId = 0x00ABC456;
-    s.c.noteHeardText(packetId, MeshCoreCompanion::senderNodeNum("Alice"), 0, hops, 2, 1, 1, -5.0f, -80);
+    s.c.noteHeardRoute(packetId, 0x00A1B2C4, MeshCoreCompanion::senderNodeNum("Alice"), 0, hops, 2, 1, 1, -5.0f, -80);
 
     meshtastic_MeshPacket command = textPacket(0, 0, ".path");
     TEST_ASSERT_TRUE(s.c.handlePathCommand(&command, false));
@@ -1043,7 +1050,7 @@ void test_path_report_uses_hex_for_unknown_and_ambiguous_hops(void)
     memcpy(entry.path, hops, sizeof(hops));
 
     char body[256];
-    TEST_ASSERT_TRUE(s.c.formatPathReport(entry, nullptr, body, sizeof(body)) > 0);
+    TEST_ASSERT_TRUE(formatOneRoute(s.c, entry, nullptr, body, sizeof(body)) > 0);
     TEST_ASSERT_NOT_NULL(strstr(body, "`99`"));
     TEST_ASSERT_NOT_NULL(strstr(body, "`77`"));
     TEST_ASSERT_NULL(strstr(body, "Twin A"));
@@ -1065,7 +1072,7 @@ void test_path_report_falls_back_to_a_contact_key(void)
     memcpy(entry.path, pub, 2);
 
     char body[256];
-    TEST_ASSERT_TRUE(s.c.formatPathReport(entry, nullptr, body, sizeof(body)) > 0);
+    TEST_ASSERT_TRUE(formatOneRoute(s.c, entry, nullptr, body, sizeof(body)) > 0);
     TEST_ASSERT_NOT_NULL(strstr(body, "Contact RPT"));
 }
 
@@ -1083,12 +1090,12 @@ void test_path_report_fits_the_payload(void)
         entry.path[i] = (uint8_t)(0x40 + i);
 
     char body[256];
-    const size_t len = s.c.formatPathReport(entry, nullptr, body, sizeof(body));
+    const size_t len = formatOneRoute(s.c, entry, nullptr, body, sizeof(body));
     TEST_ASSERT_TRUE(len > 0);
     TEST_ASSERT_TRUE(len <= sizeof(((meshtastic_MeshPacket *)nullptr)->decoded.payload.bytes));
     TEST_ASSERT_EQUAL_UINT(strlen(body), len);
-    TEST_ASSERT_NOT_NULL(strstr(body, "… +"));
-    TEST_ASSERT_NOT_NULL(strstr(body, "SNR -5.0 dB")); // the signal line survives a full path
+    TEST_ASSERT_NOT_NULL(strstr(body, "› …")); // the chain is elided, not split
+    TEST_ASSERT_NOT_NULL(strstr(body, "SNR -5.0 dB")); // the signal survives a long path
 }
 
 // A direct message is answered in the same chat, from the contact and with its key, as a PKI reply.
@@ -1124,6 +1131,47 @@ void test_path_command_answers_a_direct_message(void)
     TEST_ASSERT_NOT_NULL(strstr(body, "SNR -7.5 dB"));
 }
 
+// The same text can reach us by several routes: ".path" lists them all, the shortest first.
+void test_path_command_lists_every_route(void)
+{
+    DirectSetup s;
+    uint8_t secret[32], frame[MeshCoreRepeater::MAX_FRAME_LEN], longPath[MeshCoreRepeater::MAX_FRAME_LEN],
+        shortPath[MeshCoreRepeater::MAX_FRAME_LEN];
+    TEST_ASSERT_TRUE(MeshCoreCompanion::sharedSecret(kSeedB, s.pubA, secret)); // Bob writing to us
+    const size_t len =
+        MeshCoreCompanion::encodeDirectText(secret, s.pubA[0], s.pubB[0], 1, 0, "hola", frame, sizeof(frame));
+
+    const uint8_t longHops[] = {0x11, 0x22, 0x33, 0x44};
+    const uint8_t shortHops[] = {0x55, 0x66};
+    const size_t longLen = withPath(frame, len, longPath, 2, longHops, 2);
+    const size_t shortLen = withPath(frame, len, shortPath, 2, shortHops, 1);
+
+    s.c.handleFrame(longPath, longLen, -7.5f, -95); // two repeaters
+    TEST_ASSERT_TRUE(!s.capture.received.empty());
+    const meshtastic_MeshPacket original = s.capture.received.back();
+    const size_t injected = s.capture.received.size();
+
+    s.c.handleFrame(shortPath, shortLen, -4.0f, -70); // same text, one repeater
+    TEST_ASSERT_EQUAL_UINT(injected, s.capture.received.size()); // a route, not a second message
+
+    meshtastic_MeshPacket command = textPacket(0, original.id, ".path");
+    command.to = s.bobNum;
+    TEST_ASSERT_TRUE(s.c.handlePathCommand(&command, true));
+
+    char body[256];
+    reportText(s.capture.received.back(), body, sizeof(body));
+    TEST_ASSERT_NOT_NULL(strstr(body, "2 caminos"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "1 salto"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "2 saltos"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "SNR -4.0 dB"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "SNR -7.5 dB"));
+    const char *shorter = strstr(body, "`5566`");
+    const char *longer = strstr(body, "`1122`");
+    TEST_ASSERT_NOT_NULL(shorter);
+    TEST_ASSERT_NOT_NULL(longer);
+    TEST_ASSERT_TRUE(shorter < longer); // the shortest route comes first
+}
+
 // A name carrying markdown delimiters or control bytes cannot break the report's formatting.
 void test_path_report_sanitizes_node_names(void)
 {
@@ -1141,7 +1189,7 @@ void test_path_report_sanitizes_node_names(void)
     memcpy(entry.path, hops, sizeof(hops));
 
     char body[256];
-    TEST_ASSERT_TRUE(s.c.formatPathReport(entry, nullptr, body, sizeof(body)) > 0);
+    TEST_ASSERT_TRUE(formatOneRoute(s.c, entry, nullptr, body, sizeof(body)) > 0);
     TEST_ASSERT_NULL(strstr(body, "Bad*"));
     TEST_ASSERT_NULL(strstr(body, "[with]"));
     TEST_ASSERT_NOT_NULL(strstr(body, "BadName"));
@@ -1204,6 +1252,7 @@ void setup()
     RUN_TEST(test_path_report_falls_back_to_a_contact_key);
     RUN_TEST(test_path_report_fits_the_payload);
     RUN_TEST(test_path_command_answers_a_direct_message);
+    RUN_TEST(test_path_command_lists_every_route);
     RUN_TEST(test_path_report_sanitizes_node_names);
 #endif
     exit(UNITY_END());
