@@ -90,6 +90,20 @@ template <size_t N> class MeshCoreContacts
         return nullptr;
     }
 
+    /// The contact whose public key starts with hash, or null when none or several match.
+    const MeshCoreContact *findByPrefix(const uint8_t *hash, uint8_t size) const
+    {
+        const MeshCoreContact *found = nullptr;
+        for (const auto &e : entries) {
+            if (!e.lastUsed || memcmp(e.pub, hash, size) != 0)
+                continue;
+            if (found)
+                return nullptr; // an ambiguous hash is not named
+            found = &e;
+        }
+        return found;
+    }
+
     /// Contacts whose public key starts with hash (the 1-byte hash collides, so there can be several).
     size_t findByHash(uint8_t hash, MeshCoreContact **out, size_t max)
     {

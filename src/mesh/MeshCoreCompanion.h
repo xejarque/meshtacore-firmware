@@ -138,8 +138,9 @@ class MeshCoreCompanion
     /// direct = a text for a MeshCore contact (TXT_MSG), false = a broadcast on a MeshCore channel (GRP_TXT).
     bool handlePathCommand(const meshtastic_MeshPacket *p, bool direct);
 
-    /// The report text, names resolved against the node DB and hex for anything ambiguous. Public for tests.
-    static size_t formatPathReport(const HeardPath &heard, const char *sender, char *out, size_t cap);
+    /// The report text, names resolved against the node DB and the contact table, hex for anything ambiguous.
+    /// Public for tests.
+    size_t formatPathReport(const HeardPath &heard, const char *sender, char *out, size_t cap) const;
 #endif
 
     /// Create the synthetic "MeshCore" node if it is missing, so the client has a sender name to render.
@@ -307,6 +308,9 @@ class MeshCoreCompanion
     const HeardPath *heardFind(uint32_t packetId) const;
     /// Newest text on this channel, or newest from this contact when fromNum is non-zero.
     const HeardPath *heardNewest(uint8_t channel, uint32_t fromNum) const;
+    /// The node behind a path hash: the node DB first (repeaters live there), then the DM contacts, whose keys
+    /// outlive a node DB eviction. Null when nothing or several claim it.
+    const char *pathHopName(const uint8_t *hash, uint8_t size) const;
 #endif
     void queueAck(uint32_t hash);
     /// Tell the client how a direct message ended, as if the contact itself had answered. relayNode >= 0 marks a relay.

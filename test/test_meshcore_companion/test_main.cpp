@@ -1043,10 +1043,30 @@ void test_path_report_uses_hex_for_unknown_and_ambiguous_hops(void)
     memcpy(entry.path, hops, sizeof(hops));
 
     char body[256];
-    TEST_ASSERT_TRUE(MeshCoreCompanion::formatPathReport(entry, nullptr, body, sizeof(body)) > 0);
+    TEST_ASSERT_TRUE(s.c.formatPathReport(entry, nullptr, body, sizeof(body)) > 0);
     TEST_ASSERT_NOT_NULL(strstr(body, "`99`"));
     TEST_ASSERT_NOT_NULL(strstr(body, "`77`"));
     TEST_ASSERT_NULL(strstr(body, "Twin A"));
+}
+
+// A hop the node DB no longer holds is still named by the DM contact whose key prefix it is.
+void test_path_report_falls_back_to_a_contact_key(void)
+{
+    GroupSetup s;
+    const uint8_t pub[32] = {0xC7, 0xC8};
+    s.c.contacts.upsert(pub, "Contact RPT");
+
+    MeshCoreCompanion::HeardPath entry;
+    entry.hopCount = 1;
+    entry.hashSize = 2;
+    entry.routeType = 1;
+    entry.snr = -5.0f;
+    entry.rssi = -80;
+    memcpy(entry.path, pub, 2);
+
+    char body[256];
+    TEST_ASSERT_TRUE(s.c.formatPathReport(entry, nullptr, body, sizeof(body)) > 0);
+    TEST_ASSERT_NOT_NULL(strstr(body, "Contact RPT"));
 }
 
 // Long paths stay inside the client's payload budget and say how many hops they left out.
@@ -1063,7 +1083,7 @@ void test_path_report_fits_the_payload(void)
         entry.path[i] = (uint8_t)(0x40 + i);
 
     char body[256];
-    const size_t len = MeshCoreCompanion::formatPathReport(entry, nullptr, body, sizeof(body));
+    const size_t len = s.c.formatPathReport(entry, nullptr, body, sizeof(body));
     TEST_ASSERT_TRUE(len > 0);
     TEST_ASSERT_TRUE(len <= sizeof(((meshtastic_MeshPacket *)nullptr)->decoded.payload.bytes));
     TEST_ASSERT_EQUAL_UINT(strlen(body), len);
@@ -1121,7 +1141,7 @@ void test_path_report_sanitizes_node_names(void)
     memcpy(entry.path, hops, sizeof(hops));
 
     char body[256];
-    TEST_ASSERT_TRUE(MeshCoreCompanion::formatPathReport(entry, nullptr, body, sizeof(body)) > 0);
+    TEST_ASSERT_TRUE(s.c.formatPathReport(entry, nullptr, body, sizeof(body)) > 0);
     TEST_ASSERT_NULL(strstr(body, "Bad*"));
     TEST_ASSERT_NULL(strstr(body, "[with]"));
     TEST_ASSERT_NOT_NULL(strstr(body, "BadName"));
@@ -1181,6 +1201,7 @@ void setup()
     RUN_TEST(test_path_command_without_data_is_a_hint);
     RUN_TEST(test_path_command_ignores_other_text);
     RUN_TEST(test_path_report_uses_hex_for_unknown_and_ambiguous_hops);
+    RUN_TEST(test_path_report_falls_back_to_a_contact_key);
     RUN_TEST(test_path_report_fits_the_payload);
     RUN_TEST(test_path_command_answers_a_direct_message);
     RUN_TEST(test_path_report_sanitizes_node_names);

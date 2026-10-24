@@ -722,7 +722,20 @@ const MeshCoreCompanion::HeardPath *MeshCoreCompanion::heardNewest(uint8_t chann
     return nullptr;
 }
 
-size_t MeshCoreCompanion::formatPathReport(const HeardPath &entry, const char *sender, char *out, size_t cap)
+const char *MeshCoreCompanion::pathHopName(const uint8_t *hash, uint8_t size) const
+{
+    const meshtastic_NodeInfoLite *n = pathHopNode(hash, size);
+    // The DM contact table keeps its keys independently of the node DB, so a hop evicted from the hot store can
+    // still be named by the contact it belongs to.
+    const MeshCoreContact *c = contacts.findByPrefix(hash, size);
+    if (n && c) // both claim the hash: only trust it when they are the same key
+        return memcmp(n->public_key.bytes, c->pub, 32) == 0 ? n->long_name : nullptr;
+    if (n)
+        return n->long_name;
+    return c ? c->name : nullptr;
+}
+
+size_t MeshCoreCompanion::formatPathReport(const HeardPath &entry, const char *sender, char *out, size_t cap) const
 {
     if (!out || cap < 2)
         return 0;
@@ -766,8 +779,8 @@ size_t MeshCoreCompanion::formatPathReport(const HeardPath &entry, const char *s
             snprintf(plainNum, sizeof(plainNum), "%u.", (unsigned)(i + 1));
             num = plainNum;
         }
-        const meshtastic_NodeInfoLite *n = pathHopNode(hash, entry.hashSize);
-        if (n && cleanLabel(n->long_name, label, sizeof(label), 12) > 0) {
+        const char *name = pathHopName(hash, entry.hashSize);
+        if (name && cleanLabel(name, label, sizeof(label), 12) > 0) {
             snprintf(hop, sizeof(hop), "\n%s **%s**", num, label);
         } else {
             char hex[7] = {};
@@ -809,6 +822,25 @@ bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool d
     const HeardPath *entry = heardFind(p->decoded.reply_id);
     if (!entry)
         entry = heardNewest(p->channel, direct ? p->to : 0);
+
+    size_t nodes = 0, keyed = 0, named = 0;
+    if (nodeDB) {
+        nodes = nodeDB->getNumMeshNodes();
+        for (size_t i = 0; i < nodes; i++) {
+            const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
+            if (n && n->public_key.size == 32)
+                keyed++;
+        }
+    }
+    if (entry) {
+        const size_t stored = entry->hashSize ? sizeof(entry->path) / entry->hashSize : 0;
+        const size_t total = entry->hopCount < stored ? entry->hopCount : stored;
+        for (size_t i = 0; i < total; i++)
+            if (pathHopName(&entry->path[i * entry->hashSize], entry->hashSize))
+                named++;
+    }
+    LOG_INFO("MeshCore .path: %u hops x %u B, %u/%u nodes keyed, %u named", (unsigned)(entry ? entry->hopCount : 0),
+             (unsigned)(entry ? entry->hashSize : 0), (unsigned)keyed, (unsigned)nodes, (unsigned)named);
 
     char report[sizeof(p->decoded.payload.bytes) + 1];
     if (entry)
