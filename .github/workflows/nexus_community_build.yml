@@ -1,0 +1,217 @@
+name: Nexus Community Build
+
+# Builds the `community` firmware set (auto-discovered MeshCore envs) on every
+# push to meshtacore, and refreshes a rolling DRAFT release with the result.
+# Publishing stays manual. All flag and target logic lives in build-nexus.sh and
+# bin/nexus_community_targets.py - this file only schedules and ships.
+
+on:
+  push:
+    branches: [meshtacore]
+    paths:
+      - "src/**"
+      - "variants/**"
+      - "platformio.ini"
+      - "build-nexus.sh"
+      - "nexus-keys-lib.sh"
+      - "bin/**"
+      - ".github/workflows/nexus_community_build.yml"
+  # inputs are empty on push, which means auto-discovered targets and a rolling
+  # draft; both become overridable only from here.
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "Space-separated target override (empty = auto-discover)"
+        required: false
+        default: ""
+        type: string
+      tag:
+        description: "Snapshot tag for a keepable draft (empty = rolling draft)"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: nexus-community-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: 3.x
+          cache: pip
+      - run: pip install -U platformio
+      - name: Resolve targets
+        id: m
+        env:
+          OVERRIDE: ${{ inputs.targets }}
+        run: |
+          if [[ -n "$OVERRIDE" ]]; then
+            MATRIX=$(python3 -c 'import json,sys; print(json.dumps([{"board": t} for t in sys.argv[1].split()]))' "$OVERRIDE")
+          else
+            MATRIX=$(python3 bin/nexus_community_targets.py)
+          fi
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "$MATRIX" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: targets
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJson(needs.targets.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: 3.x
+
+      # Every community env extends nrf52840_base, so one key covers them all.
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-nrf52840-${{ hashFiles('platformio.ini', 'variants/nrf52840/**/platformio.ini') }}
+          restore-keys: |
+            pio-${{ runner.os }}-nrf52840-
+
+      - run: pip install -U platformio
+
+      - name: Build ${{ matrix.target.board }}
+        run: ./build-nexus.sh community --targets "${{ matrix.target.board }}" --no-clean
+
+      - name: Store artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: nexus-community-${{ matrix.target.board }}-${{ github.sha }}
+          overwrite: true
+          retention-days: 14
+          path: outbuilds/community-jt-firmware/*
+
+  draft-release:
+    name: Refresh draft release
+    needs: [targets, build]
+    # A single failed target must not block shipping the ones that compiled.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read version
+        id: version
+        env:
+          BUILD_LOCATION: local
+        run: echo "long=$(./bin/buildinfo.py long)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: nexus-community-*
+          merge-multiple: true
+          path: ./artifacts
+          if-no-artifacts-found: ignore
+
+      # Fail closed: the rolling draft is overwritten below, so an empty
+      # download would replace a working bundle with nothing.
+      - name: Verify artifacts
+        run: |
+          shopt -s nullglob
+          files=(./artifacts/firmware-*)
+          echo "Artifact files: ${#files[@]}"
+          (( ${#files[@]} > 0 )) || { echo "::error::No firmware artifacts downloaded."; exit 1; }
+
+      - name: Resolve release tag and asset name
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SNAPSHOT: ${{ inputs.tag }}
+          VERSION: ${{ steps.version.outputs.long }}
+        run: |
+          TAG="${SNAPSHOT:-nexus-community-latest}"
+          # A published release belongs to a shipped build: never overwrite its
+          # assets (this repo is public). Retag the rolling draft, and refuse
+          # outright when the published tag was requested explicitly.
+          if gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null | grep -q false; then
+            if [[ -n "$SNAPSHOT" ]]; then
+              echo "::error::Release '$TAG' is published; refusing to overwrite it. Use a new tag."
+              exit 1
+            fi
+            TAG="nexus-community-${VERSION}"
+            SNAPSHOT="$TAG"
+            echo "Rolling tag already published; drafting \`$TAG\` instead." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # The rolling draft reuses one fixed asset name so a re-run overwrites
+          # in place instead of piling up one zip per commit. A requested
+          # snapshot keeps the version in the name, which is the point of it.
+          if [[ -n "$SNAPSHOT" ]]; then
+            ASSET="nexus-community-firmware-${VERSION}.zip"
+          else
+            ASSET="nexus-community-firmware.zip"
+          fi
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
+          echo "Tag: \`$TAG\` — asset: \`$ASSET\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # -j is safe: every name carries the env (firmware-<env>-<version>.{uf2,zip}).
+      # If a pattern with a shared basename is ever added, drop -j (upstream hit
+      # zip exit 16 on Meshtastic_nRF52_factory_erase_*.uf2 this way).
+      - name: Zip bundle
+        run: |
+          ASSET="${{ steps.tag.outputs.asset }}"
+          zip -j -9 -r "./$ASSET" ./artifacts
+          ls -l "./$ASSET"
+
+      - name: Write release notes
+        env:
+          MATRIX: ${{ needs.targets.outputs.matrix }}
+          VERSION: ${{ steps.version.outputs.long }}
+        run: |
+          TARGETS=$(printf '%s' "$MATRIX" | python3 -c 'import json,sys; print(", ".join(r["board"] for r in json.load(sys.stdin)))')
+          cat > ./notes.md <<EOF
+          Community firmware - \`$VERSION\`
+
+          - Commit: \`${{ github.sha }}\`
+          - Targets: $TARGETS
+          - Run: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+          Flashing: copy the matching \`firmware-<target>-<version>.uf2\` onto the
+          device in UF2/DFU mode.
+          EOF
+          cat ./notes.md
+
+      - name: Upload to existing draft
+        if: steps.tag.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ steps.tag.outputs.tag }}" "./${{ steps.tag.outputs.asset }}" --clobber
+
+      - name: Create draft release
+        if: steps.tag.outputs.exists != 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Nexus Community Build
+          draft: true
+          prerelease: true
+          body_path: ./notes.md
+          files: ./nexus-community-firmware*.zip

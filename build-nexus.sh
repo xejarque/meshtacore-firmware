@@ -44,6 +44,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Prefer the official PlatformIO venv: its bundled Python (3.11) satisfies Core 6.2, while
+# Homebrew's `pio` now runs on Python 3.15 and every build fails on its version check.
+PIO="$HOME/.platformio/penv/bin/pio"
+command -v "$PIO" >/dev/null 2>&1 || PIO="pio"
+
 LIB_FILE="$SCRIPT_DIR/nexus-keys-lib.sh"
 OUT_ROOT="$SCRIPT_DIR/outbuilds"
 
@@ -69,6 +74,9 @@ source "$LIB_FILE"
 BUILDER_JENNY="jenny|jenny-firmware|default|Jenny|Jenny2|yes|no"
 BUILDER_ADMINS="admins|jt-firmware|none|Nexus|JenT|no|no"           # Nexus-28006 (2026-09-16): APP_REPO for admins is `jt-firmware` (short for jentastic-firmware), NOT `jentastic-firmware`.
 BUILDER_JAVI="javi|nexus-firmware|none|Nexus|Nexus2|yes|no"
+# Community: public image, no personal keys, no baked trusted-channel names (operators
+# enable their own via the runtime TRUSTED command; the Nexus/Nexus2 fallback applies).
+BUILDER_COMMUNITY="community|jt-firmware|none|||no|no"
 
 # -----------------------------------------------------------------------------
 # Default target lists per builder (mirrors legacy scripts)
@@ -76,6 +84,10 @@ BUILDER_JAVI="javi|nexus-firmware|none|Nexus|Nexus2|yes|no"
 TARGETS_JENNY="heltec-v3 heltec-v4 station-g2 station-g3 tracker-t1000-e rak_wismeshtag seeed-xiao-s3 heltec-vision-master-e290-inkhud seeed_wio_tracker_L1 seeed_xiao_nrf52840_kit seeed_mesh_tracker_X1 rak3401-1watt nrf52_promicro_diy_tcxo nrf52_promicro_diy_sx1262"
 TARGETS_ADMINS="nrf52_promicro_diy_tcxo nrf52_promicro_diy_sx1262-noscreen xiaowa-esp32c3 t-deck-tft heltec-v4 seeed_solar_node rak_wismeshtag tracker-t1000-e seeed_mesh_tracker_X1 rak3401-1watt"
 TARGETS_JAVI="nrf52_promicro_diy_tcxo nrf52_promicro_diy_sx1262-noscreen station-g2 rak3401-1watt"
+# community has no fixed list: it is derived from the variant flags by
+# bin/nexus_community_targets.py so a new MeshCore env cannot be forgotten.
+# This is only the fallback for when that discovery cannot run.
+TARGETS_COMMUNITY="nrf52_promicro_diy_tcxo_meshcore heltec-mesh-node-t114-meshcore-slim"
 
 # -----------------------------------------------------------------------------
 # State
@@ -83,6 +95,7 @@ TARGETS_JAVI="nrf52_promicro_diy_tcxo nrf52_promicro_diy_sx1262-noscreen station
 REQUESTED_BUILDER=""
 EXTRA_FLAGS=""
 DRY_RUN=false
+NO_CLEAN=false
 TARGETS_OVERRIDE=""
 # EVIL: 0 = explicit no, 1 = explicit yes, -1 = use builder default
 EVIL_OVERRIDE=-1
@@ -105,6 +118,9 @@ Builders:
   jenny       jenny-firmware repo, 4 default keys (Eevee, Bloom, Mew, Fennekin)
   admins      jt-firmware repo, NO keys (unless --default-keys)
   javi        nexus-firmware repo, NO keys (unless --default-keys)
+  community   jt-firmware repo, NO keys, NO baked channel names, NO ADV (public build).
+              Targets are auto-discovered from the variant flags
+              (bin/nexus_community_targets.py), override with --targets.
   all         Build all three builders sequentially
 
 Options:
@@ -127,6 +143,8 @@ Options:
   -t <pio-target>             Append an extra PlatformIO target to "pio run" (e.g. "upload", "monitor").
                               Example: -t upload -> pio run -e t-deck-tft -t upload
   --dry-run                   Print what would be built without invoking pio.
+  --no-clean                  Skip "pio run -t clean" before each build (useful on CI,
+                              where the workspace is already clean).
   --list-keys                 List available master keys and exit.
   -h, --help                  Show this help.
 
@@ -225,6 +243,9 @@ parse_args() {
                 ;;
             --dry-run)
                 DRY_RUN=true
+                ;;
+            --no-clean)
+                NO_CLEAN=true
                 ;;
             -h|--help)
                 usage
@@ -332,7 +353,9 @@ build_one() {
     if [[ "$DRY_RUN" == "true" ]]; then
         local dry_extra=""
         [[ -n "$pio_extra" ]] && dry_extra=" -t $pio_extra"
-        echo "🔍 DRY-RUN: would run: pio run -e $target -t clean && pio run -e $target$dry_extra (with flags above)"
+        local dry_clean="pio run -e $target -t clean && "
+        [[ "$NO_CLEAN" == "true" ]] && dry_clean=""
+        echo "🔍 DRY-RUN: would run: ${dry_clean}pio run -e $target$dry_extra (with flags above)"
         return 0
     fi
 
@@ -342,11 +365,13 @@ build_one() {
 
     local t0
     t0=$(date +%s)
-    if ! pio run -e "$target" -t clean; then
-        echo "❌ Clean failed for $target" >&2
-        return 1
+    if [[ "$NO_CLEAN" != "true" ]]; then
+        if ! "$PIO" run -e "$target" -t clean; then
+            echo "❌ Clean failed for $target" >&2
+            return 1
+        fi
     fi
-    if ! pio run "${pio_run_tail[@]}"; then
+    if ! "$PIO" run "${pio_run_tail[@]}"; then
         echo "❌ Build failed for $target" >&2
         return 1
     fi
@@ -416,6 +441,21 @@ run_builder() {
     local targets="${!targets_var:-$TARGETS_OVERRIDE}"
     if [[ -n "$TARGETS_OVERRIDE" ]]; then
         targets="$TARGETS_OVERRIDE"
+    fi
+
+    # community is defined by the variant flags, not by a list: ask the
+    # discovery helper so a newly added MeshCore env cannot be left out.
+    if [[ "$builder_name" == "community" && -z "$TARGETS_OVERRIDE" ]]; then
+        local py="$HOME/.platformio/penv/bin/python"
+        command -v "$py" >/dev/null 2>&1 || py="python3"
+        local discovered=""
+        if discovered=$("$py" "$SCRIPT_DIR/bin/nexus_community_targets.py" --space 2>/dev/null) \
+            && [[ -n "$discovered" ]]; then
+            targets="$discovered"
+        else
+            echo "⚠️  Discovery failed (platformio not importable?); using the static" \
+                 "TARGETS_COMMUNITY fallback, which may be stale." >&2
+        fi
     fi
 
     # Effective key mode
@@ -533,6 +573,7 @@ case "$REQUESTED_BUILDER" in
     jenny)   run_builder "$BUILDER_JENNY" ;;
     admins)  run_builder "$BUILDER_ADMINS" ;;
     javi)    run_builder "$BUILDER_JAVI" ;;
+    community) run_builder "$BUILDER_COMMUNITY" ;;
     all)
         run_builder "$BUILDER_JENNY"
         run_builder "$BUILDER_ADMINS"
