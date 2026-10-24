@@ -28,6 +28,9 @@ EXCLUDE_ENVS = (
   # exist to debug one board on the bench, not to ship to operators.
   "thinknode_m1_meshcore_debug",
   "thinknode_m1_meshcore_rxtest",
+  # Overflows the M1's 1 MB flash by ~83 KB with MeshCore default-on; the
+  # flash-saving cut is thinknode_m1_meshcore_slim, which does fit.
+  "thinknode_m1_meshcore",
 )
 
 

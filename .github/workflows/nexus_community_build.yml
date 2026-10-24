@@ -123,7 +123,6 @@ jobs:
           pattern: nexus-community-*
           merge-multiple: true
           path: ./artifacts
-          if-no-artifacts-found: ignore
 
       # Fail closed: the rolling draft is overwritten below, so an empty
       # download would replace a working bundle with nothing.
