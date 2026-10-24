@@ -50,7 +50,9 @@ jobs:
         with:
           python-version: 3.x
           cache: pip
-      - run: pip install -U platformio
+      # pioarduino 55.03.311 needs Core 6.1.19 (tool-scons 4.40801.0); Core 6.2
+      # ships 4.41101.0, which no longer has SCons.Tool.FortranCommon.
+      - run: pip install "platformio==6.1.19"
       - name: Resolve targets
         id: m
         env:
@@ -90,7 +92,9 @@ jobs:
           restore-keys: |
             pio-${{ runner.os }}-nexus-
 
-      - run: pip install -U platformio
+      # pioarduino 55.03.311 needs Core 6.1.19 (tool-scons 4.40801.0); Core 6.2
+      # ships 4.41101.0, which no longer has SCons.Tool.FortranCommon.
+      - run: pip install "platformio==6.1.19"
 
       - name: Build ${{ matrix.target.board }}
         run: ./build-nexus.sh community --targets "${{ matrix.target.board }}" --no-clean

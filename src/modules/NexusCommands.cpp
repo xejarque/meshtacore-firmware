@@ -335,6 +335,7 @@ static const char* nexus_strcasestr(const char* haystack, const char* needle) {
     return NULL;
 }
 
+#if !MESHTASTIC_EXCLUDE_GPS
 // GNSS model name lookup (used by /nexus GPS command).
 // Pulls in gps/GPS.h enum values — kept here as TU-local static rather
 // than moving to the header, to avoid dragging GPS.h into every
@@ -359,6 +360,7 @@ static const char* getGnssModelName(int model) {
         default: return "GENERIC";
     }
 }
+#endif
 
 // Base64 encoder for /nexus export paths (masks, keys, streams).
 // Uses a local `table` for url_safe vs standard alphabet — does NOT depend
@@ -7121,6 +7123,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     else if (strcasecmp(cmd, "SENDPOS") == 0) {
         // Logic: Send a proper Position packet back to the commander.
         // If DM, send as PKI back to sender. If Channel, send to broadcast on that channel.
+#if !MESHTASTIC_EXCLUDE_GPS
         if (positionModule) {
             bool isDM = (mp.to == myNodeInfo.my_node_num);
             positionModule->sendOurPosition(isDM ? mp.from : NODENUM_BROADCAST, false, mp.channel);
@@ -7128,6 +7131,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         } else {
             snprintf(replyMsg, sizeof(replyMsg), "JT: PositionModule not available.");
         }
+#else
+        snprintf(replyMsg, sizeof(replyMsg), "JT: PositionModule not available.");
+#endif
     }
     else if (strncasecmp(cmd, "SENDNODE", 8) == 0 || strncasecmp(cmd, "SN", 2) == 0 ||
              strncasecmp(cmd, "SENDMYNODE", 10) == 0 || strncasecmp(cmd, "SMN", 3) == 0 ||

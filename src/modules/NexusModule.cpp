@@ -3761,6 +3761,7 @@ void NexusModule::formatSensorsInfo(char *buf, size_t bufSize)
         n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "  Env (live):   (none)\n");
     }
 
+#if !MESHTASTIC_EXCLUDE_GPS
     // GPS status (uses global gpsStatus + gps instance)
     if (gpsStatus && gps && gps->isConnected()) {
         n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0,
@@ -3782,6 +3783,7 @@ void NexusModule::formatSensorsInfo(char *buf, size_t bufSize)
     } else {
         n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "  GPS:          (none)\n");
     }
+#endif
     (void)n;
 }
 
