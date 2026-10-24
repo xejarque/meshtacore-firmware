@@ -1,9 +1,10 @@
 name: Nexus Community Build
 
-# Builds the `community` firmware set (auto-discovered MeshCore envs) on every
-# push to meshtacore, and refreshes a rolling DRAFT release with the result.
-# Publishing stays manual. All flag and target logic lives in build-nexus.sh and
-# bin/nexus_community_targets.py - this file only schedules and ships.
+# Builds the `community` firmware set (the shared nexus-targets.txt list) on
+# every push to meshtacore, and refreshes a rolling DRAFT release with the
+# result. Publishing stays manual. All flag and target logic lives in
+# build-nexus.sh and bin/nexus_community_targets.py - this file only schedules
+# and ships.
 
 on:
   push:
@@ -14,14 +15,15 @@ on:
       - "platformio.ini"
       - "build-nexus.sh"
       - "nexus-keys-lib.sh"
+      - "nexus-targets.txt"
       - "bin/**"
       - ".github/workflows/nexus_community_build.yml"
-  # inputs are empty on push, which means auto-discovered targets and a rolling
+  # inputs are empty on push, which means the shared target list and a rolling
   # draft; both become overridable only from here.
   workflow_dispatch:
     inputs:
       targets:
-        description: "Space-separated target override (empty = auto-discover)"
+        description: "Space-separated target override (empty = nexus-targets.txt)"
         required: false
         default: ""
         type: string
@@ -79,14 +81,14 @@ jobs:
         with:
           python-version: 3.x
 
-      # Every community env extends nrf52840_base, so one key covers them all.
+      # The shared list covers nRF52 and ESP32, so the cache spans both trees.
       - name: Cache PlatformIO packages
         uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: pio-${{ runner.os }}-nrf52840-${{ hashFiles('platformio.ini', 'variants/nrf52840/**/platformio.ini') }}
+          key: pio-${{ runner.os }}-nexus-${{ hashFiles('platformio.ini', 'variants/**/platformio.ini', 'nexus-targets.txt') }}
           restore-keys: |
-            pio-${{ runner.os }}-nrf52840-
+            pio-${{ runner.os }}-nexus-
 
       - run: pip install -U platformio
 

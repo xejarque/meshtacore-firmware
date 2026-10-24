@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Nexus-28006 (2026-09-16): APP_REPO must stay `jenny-firmware`
-# (not `jentastic-firmware`) — matches the BUILDER_JENNY line
+# (not `jentastic-firmware`) - matches the BUILDER_JENNY line
 # in build-nexus.sh:68.
 export APP_REPO=jenny-firmware
 
@@ -13,12 +13,12 @@ export APP_REPO=jenny-firmware
 # either edit the four arrays below OR use the newer build-nexus.sh which
 # supports parameterized key selection.
 #
-# Slot 1 -> Eevee     (Personal node — primary)
-# Slot 2 -> Bloom     (Tactical node — secondary)
-# Slot 3 -> Mew       (Stealth node — trusted companion)
-# Slot 4 -> Fennekin  (Backup node — recovery identity)
+# Slot 1 -> Eevee     (Personal node - primary)
+# Slot 2 -> Bloom     (Tactical node - secondary)
+# Slot 3 -> Mew       (Stealth node - trusted companion)
+# Slot 4 -> Fennekin  (Backup node - recovery identity)
 #
-# Mirror of NEXUS_KEYS.md (currently excludes Uxie — 4-slot firmware limit).
+# Mirror of NEXUS_KEYS.md (currently excludes Uxie - 4-slot firmware limit).
 # -----------------------------------------------------------------------------
 KEY_EEVEE="{ 0x9a, 0xd2, 0x47, 0xb0, 0x2f, 0x4f, 0xa5, 0x08, 0x95, 0x3f, 0x5c, 0x1b, 0x6e, 0x13, 0x93, 0x98, 0x2c, 0xb3, 0xd6, 0xf3, 0x19, 0x3b, 0x87, 0xa5, 0xc8, 0x33, 0x2d, 0xce, 0x67, 0xae, 0x9d, 0x15 }"
 KEY_BLOOM="{ 0x6c, 0x5c, 0xa6, 0xe8, 0xfa, 0x3f, 0xe9, 0x46, 0x19, 0x6b, 0x82, 0x14, 0xa7, 0xe2, 0xd9, 0x96, 0xed, 0x6a, 0xe1, 0x10, 0xe4, 0xe5, 0xf3, 0xe8, 0xc6, 0x1b, 0xfb, 0xc4, 0x9e, 0x8b, 0x8f, 0x61 }"
@@ -29,12 +29,18 @@ export PLATFORMIO_BUILD_FLAGS="-DHAS_NEXUS=1 -DNEXUS_ENABLE_ADV -DAPP_REPO=\$APP
 
 
 
-export TARGETS="heltec-v3 heltec-v4 t-beam-1w t-deck-tft station-g2 tracker-t1000-e rak_wismeshtag"
+# PlatformIO venv: its bundled Python satisfies Core 6.2; Homebrew's `pio` is on 3.15 and fails the version check.
+PIO="$HOME/.platformio/penv/bin/pio"
+command -v "$PIO" >/dev/null 2>&1 || PIO="pio"
+
+TARGETS_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/nexus-targets.txt"
+[[ -f "$TARGETS_FILE" ]] || { echo "Missing $TARGETS_FILE" >&2; exit 1; }
+export TARGETS="$(grep -vE '^[[:space:]]*(#|$)' "$TARGETS_FILE" | tr '\n' ' ')"
 
 for a in $TARGETS
 do
 	echo Bulding $a
-	time pio run -e $a -t clean
-	time pio run -e $a
+	time "$PIO" run -e $a -t clean
+	time "$PIO" run -e $a
 	date
 done

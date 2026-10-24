@@ -79,15 +79,14 @@ BUILDER_JAVI="javi|nexus-firmware|none|Nexus|Nexus2|yes|no"
 BUILDER_COMMUNITY="community|jt-firmware|none|||no|no"
 
 # -----------------------------------------------------------------------------
-# Default target lists per builder (mirrors legacy scripts)
+# Shared target list: every builder ships the same set of boards
 # -----------------------------------------------------------------------------
-TARGETS_JENNY="heltec-v3 heltec-v4 station-g2 station-g3 tracker-t1000-e rak_wismeshtag seeed-xiao-s3 heltec-vision-master-e290-inkhud seeed_wio_tracker_L1 seeed_xiao_nrf52840_kit seeed_mesh_tracker_X1 rak3401-1watt nrf52_promicro_diy_tcxo nrf52_promicro_diy_sx1262"
-TARGETS_ADMINS="nrf52_promicro_diy_tcxo nrf52_promicro_diy_sx1262-noscreen xiaowa-esp32c3 t-deck-tft heltec-v4 seeed_solar_node rak_wismeshtag tracker-t1000-e seeed_mesh_tracker_X1 rak3401-1watt"
-TARGETS_JAVI="nrf52_promicro_diy_tcxo nrf52_promicro_diy_sx1262-noscreen station-g2 rak3401-1watt"
-# community has no fixed list: it is derived from the variant flags by
-# bin/nexus_community_targets.py so a new MeshCore env cannot be forgotten.
-# This is only the fallback for when that discovery cannot run.
-TARGETS_COMMUNITY="nrf52_promicro_diy_tcxo_meshcore heltec-mesh-node-t114-meshcore-slim"
+TARGETS_FILE="$SCRIPT_DIR/nexus-targets.txt"
+if [[ ! -f "$TARGETS_FILE" ]]; then
+    echo "❌ Error: target list not found at $TARGETS_FILE" >&2
+    exit 1
+fi
+TARGETS="$(grep -vE '^[[:space:]]*(#|$)' "$TARGETS_FILE" | tr '\n' ' ')"
 
 # -----------------------------------------------------------------------------
 # State
@@ -119,8 +118,7 @@ Builders:
   admins      jt-firmware repo, NO keys (unless --default-keys)
   javi        nexus-firmware repo, NO keys (unless --default-keys)
   community   jt-firmware repo, NO keys, NO baked channel names, NO ADV (public build).
-              Targets are auto-discovered from the variant flags
-              (bin/nexus_community_targets.py), override with --targets.
+              All builders use the shared list in nexus-targets.txt.
   all         Build all three builders sequentially
 
 Options:
@@ -436,26 +434,10 @@ run_builder() {
     local default_private="${_fields[6]:-no}"
     unset _fields
 
-    # Targets
-    local targets_var="TARGETS_${builder_name^^}"
-    local targets="${!targets_var:-$TARGETS_OVERRIDE}"
+    # Targets: every builder uses the shared list unless --targets overrides it.
+    local targets="$TARGETS"
     if [[ -n "$TARGETS_OVERRIDE" ]]; then
         targets="$TARGETS_OVERRIDE"
-    fi
-
-    # community is defined by the variant flags, not by a list: ask the
-    # discovery helper so a newly added MeshCore env cannot be left out.
-    if [[ "$builder_name" == "community" && -z "$TARGETS_OVERRIDE" ]]; then
-        local py="$HOME/.platformio/penv/bin/python"
-        command -v "$py" >/dev/null 2>&1 || py="python3"
-        local discovered=""
-        if discovered=$("$py" "$SCRIPT_DIR/bin/nexus_community_targets.py" --space 2>/dev/null) \
-            && [[ -n "$discovered" ]]; then
-            targets="$discovered"
-        else
-            echo "⚠️  Discovery failed (platformio not importable?); using the static" \
-                 "TARGETS_COMMUNITY fallback, which may be stale." >&2
-        fi
     fi
 
     # Effective key mode
@@ -589,4 +571,4 @@ esac
 echo ""
 echo "🎉 All builds complete."
 echo "   Output root: $OUT_ROOT/"
-ls -la "$OUT_ROOT/" 2>/dev/null || echo "   (no output directories created — did you --dry-run?)"
+ls -la "$OUT_ROOT/" 2>/dev/null || echo "   (no output directories created - did you --dry-run?)"

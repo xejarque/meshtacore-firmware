@@ -1,55 +1,32 @@
 #!/usr/bin/env python3
 
-"""Discover the firmware envs shipped by the 'community' builder.
+"""Emit the shared Nexus target list (nexus-targets.txt) as a CI matrix.
 
-An env belongs to the community set when its effective build_flags enable the
-MeshCore feature switch (MESHTASTIC_ENABLE_MESHCORE, matched as a prefix so the
-_SNIFFER/_RELAY/_COMPANION/_HYBRID_SYNC variants all match). Flags inherited
-through 'extends' count, which a grep over variants/ would miss. A define set to
-0 is a deliberate opt-out and does not qualify - that is how the native test
-envs spell it.
+nexus-targets.txt is the single source of truth for every builder. MeshCore is
+enabled by default in src/configuration.h, so an env opts out explicitly with
+-DMESHTASTIC_ENABLE_MESHCORE_*=0 in its own platformio.ini.
 """
 
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from platformio.project.config import ProjectConfig
 
-MARKER = "MESHTASTIC_ENABLE_MESHCORE"
-
-# Public builds we ship that are not MeshCore envs.
-EXTRA_ENVS = ("gat562_mesh_trial_tracker",)
-
-# Deliberate opt-outs. Add an env here (with a reason) instead of hiding it in
-# the workflow, so discovery stays fail-closed.
-EXCLUDE_ENVS = (
-  # Throwaway diagnostic builds (MODEM/serial tracing, RX bench harness). They
-  # exist to debug one board on the bench, not to ship to operators.
-  "thinknode_m1_meshcore_debug",
-  "thinknode_m1_meshcore_rxtest",
-  # Overflows the M1's 1 MB flash by ~83 KB with MeshCore default-on; the
-  # flash-saving cut is thinknode_m1_meshcore_slim, which does fit.
-  "thinknode_m1_meshcore",
-)
+TARGETS_FILE = Path(__file__).resolve().parent.parent / "nexus-targets.txt"
 
 
-def enables_meshcore(flag):
-  """True when any -D define of the marker inside the flag is not set to 0.
-
-  One build_flags entry may hold several defines ('-DA=1 -DB=0'), so the
-  entry has to be split before the value can be read.
-  """
-  for token in str(flag).split():
-    if not token.startswith(f"-D{MARKER}"):
-      continue
-    _, _, value = token.partition("=")
-    if value != "0":
-      return True
-  return False
+def read_targets(path):
+  targets = []
+  for line in path.read_text(encoding="utf-8").splitlines():
+    target = line.split("#", 1)[0].strip()
+    if target:
+      targets.append(target)
+  return targets
 
 
-parser = argparse.ArgumentParser(description="Discover the community targets")
+parser = argparse.ArgumentParser(description="Emit the shared Nexus target list")
 parser.add_argument(
   "--space",
   action="store_true",
@@ -57,25 +34,18 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-cfg = ProjectConfig.get_instance()
-known_envs = cfg.envs()
-
-targets = sorted(
-  name
-  for name in known_envs
-  if any(enables_meshcore(flag) for flag in cfg.get(f"env:{name}", "build_flags"))
-)
-targets = sorted((set(targets) | set(EXTRA_ENVS)) - set(EXCLUDE_ENVS))
+try:
+  targets = read_targets(TARGETS_FILE)
+except OSError as exc:
+  print(f"error: cannot read {TARGETS_FILE}: {exc}", file=sys.stderr)
+  sys.exit(1)
 
 # Fail closed: an empty matrix would build nothing and still publish a release.
 if not targets:
-  print(
-    f"error: no community targets found (no env enables {MARKER},"
-    " or platformio is not importable)",
-    file=sys.stderr,
-  )
+  print(f"error: no targets listed in {TARGETS_FILE}", file=sys.stderr)
   sys.exit(1)
 
+known_envs = set(ProjectConfig.get_instance().envs())
 missing = [name for name in targets if name not in known_envs]
 if missing:
   print(f"error: targets without an [env:] stanza: {missing}", file=sys.stderr)
@@ -84,4 +54,4 @@ if missing:
 if args.space:
   print(" ".join(targets))
 else:
-  print(json.dumps([{"board": name} for name in targets]))
+  print(json.dumps([{"board": target} for target in targets]))
