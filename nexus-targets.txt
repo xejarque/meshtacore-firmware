@@ -25,6 +25,7 @@ seeed_xiao_nrf52840_kit
 heltec-mesh-node-t114
 nrf52_promicro_diy_tcxo
 nrf52_promicro_diy_sx1262
+gat562_mesh_trial_tracker
 thinknode_m1
 wio-tracker-wm1110
 
