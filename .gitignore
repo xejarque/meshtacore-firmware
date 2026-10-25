@@ -80,3 +80,6 @@ build/wasm/
 build/wasm-obj/
 build/wasm-*.log
 .emsdk/
+
+# Command Code session state
+.commandcode/

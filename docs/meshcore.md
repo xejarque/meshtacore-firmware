@@ -193,18 +193,26 @@ app data:
   name (optional)
 ```
 
-The signature covers `public key || timestamp || app data`, exactly the bytes MeshCore verifies. `buildAdvert()` produces either a flood ADVERT or a zero-hop direct one (`route = DIRECT`, empty path), like `Mesh::sendZeroHop`.
+The signature covers `public key || timestamp || app data`, exactly the bytes MeshCore verifies. `buildAdvert()` produces either a flood ADVERT or a zero-hop direct one (`route = DIRECT`, empty path, like `Mesh::sendZeroHop`); the schedule only sends floods.
 
 The announced node type follows the Meshtastic role: `ROUTER`, `ROUTER_LATE` and `REPEATER` advertise as repeaters, every other role advertises as a chat node, which is what MeshCore applications will start a conversation with.
+
+### Relay alias
+
+A node that relays while its main key announces itself as a chat node signs the hop it appends to the path with a second Ed25519 key, the *relay alias*: `SHA256("meshtastic-meshcore-relay" || seed || attempt)`, derived from the stored seed and never written anywhere (the attempt counter only moves when MeshCore would reject the derived key). MeshCore applications name a path hop only from a contact they hold as a repeater, so the alias also sends a repeater-typed ADVERT, with the same name plus ` (relay)`, in the same slot as the main flood. Without it the hop shows as an unknown repeater and the key prefix; with it the hop resolves to the node's name while the chat identity stays in the clients' contact list. A repeater-typed main identity (`ROUTER`, `ROUTER_LATE`, `REPEATER`) needs no alias, and a node that does not relay (`CLIENT_MUTE`, or rebroadcast `NONE`) derives none.
+
+Direct frames and traces whose next hop is the alias are forwarded like any other (a hop naming the main key still is, because a peer messaging the chat contact addresses us by it); the alias only claims a hop while it is announced. An own alias ADVERT heard back is neither relayed nor learned as a contact. Neighbour discovery answers with the alias for a repeater request and with the main key for a chat one, so a filter covering both gets two replies and spends two slots of the shared rate limit (four replies per two minutes).
+
+The alias is a repeater persona only: direct messages addressed to it are not answered (the companion reads only the main key), so a MeshCore client that logs in to the ` (relay)` contact gets no reply. Use the chat contact to message the node.
 
 ### Scheduling
 
 A dedicated thread runs the advert and housekeeping service:
 
 - identity is loaded about 5 seconds after boot;
-- the first zero-hop ADVERT goes out 60 seconds after boot, then every 2 minutes;
-- the first flood ADVERT goes out one full interval after boot, then every 47 hours;
-- no flood is sent at boot, so a node that reboots often does not flood the mesh each time;
+- the first ADVERT is a flood 3 minutes after boot, then every 12 hours;
+- every ADVERT is a flood: it reaches the direct neighbours too, and it is the only kind worth the airtime;
+- when a relay alias is in use, its ADVERT is queued on the next tick, once the main one is on air; it bypasses the 12-hour deadline while pending, and gives up after three failed queue attempts until the next slot;
 - an ADVERT is postponed while there is no valid wall-clock time, because MeshCore clients order adverts by timestamp;
 - the name is the Meshtastic owner long name, with a `Meshtastic-xxxx` fallback when the owner is empty.
 

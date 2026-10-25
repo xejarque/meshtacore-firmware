@@ -6,6 +6,7 @@
 #include "Throttle.h"
 #include "UptimeClock.h"
 #include "meshUtils.h"
+#include <SHA256.h>
 #include <string.h>
 
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
@@ -55,6 +56,10 @@
 // MeshCore CONTROL subtypes (simple_repeater MyMesh.cpp)
 #define MC_CTL_DISCOVER_REQ 0x80
 #define MC_CTL_DISCOVER_RESP 0x90
+
+// Domain separator for the relay alias seed: the alias must never collide with the chat key or with any other use of
+// the seed.
+static const char MC_ALIAS_DOMAIN[] = "meshtastic-meshcore-relay";
 
 static bool isKnownPayloadType(uint8_t type)
 {
@@ -260,8 +265,7 @@ void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, float
     }
 
     // Our own ADVERT coming back (Mesh::onRecvPacket drops a SELF advert before anything else).
-    if (info.payload_type == MC_PAYLOAD_TYPE_ADVERT && hasIdentityKey &&
-        memcmp(&raw[info.header_len], identityPub, MC_PUB_KEY_SIZE) == 0)
+    if (info.payload_type == MC_PAYLOAD_TYPE_ADVERT && isOwnIdentity(&raw[info.header_len], MC_PUB_KEY_SIZE))
         return;
 
     uint32_t hash = hashFrame(raw, len, info);
@@ -306,7 +310,7 @@ bool MeshCoreRepeater::isNextHopForUs(const uint8_t *raw, const FrameInfo &info)
     if (!hasIdentityKey || info.path_hash_count == 0)
         return false;
     const size_t pathStart = info.header_len - (size_t)info.path_hash_count * info.path_hash_size;
-    return memcmp(&raw[pathStart], identityPub, info.path_hash_size) == 0;
+    return isPathHopForUs(&raw[pathStart], info.path_hash_size);
 }
 
 size_t MeshCoreRepeater::rewritePath(const uint8_t *raw, size_t len, const FrameInfo &info, bool appendSelf, uint8_t *out,
@@ -327,7 +331,7 @@ size_t MeshCoreRepeater::rewritePath(const uint8_t *raw, size_t len, const Frame
     if (appendSelf) {
         memcpy(&out[i], &raw[pathLenAt + 1], pathBytes);
         i += pathBytes;
-        memcpy(&out[i], identityPub, hashSize); // a path hash is the public key prefix (Identity::copyHashTo)
+        memcpy(&out[i], pathPub(), hashSize); // a path hash is the public key prefix (Identity::copyHashTo)
         i += hashSize;
     } else {
         memcpy(&out[i], &raw[pathLenAt + 1 + hashSize], pathBytes - hashSize); // drop the first hop: us
@@ -388,7 +392,7 @@ void MeshCoreRepeater::handleTrace(const uint8_t *raw, size_t len, const FrameIn
     const size_t offset = (size_t)info.path_hash_count * hashSize;
     if (traceHeadLen + offset + hashSize > info.payload_len) // end of the list: we are the destination, nothing to forward
         return;
-    if (memcmp(&payload[traceHeadLen + offset], identityPub, hashSize) != 0)
+    if (!isPathHopForUs(&payload[traceHeadLen + offset], hashSize))
         return;
     if (len + 1 > MAX_FRAME_LEN)
         return;
@@ -461,8 +465,6 @@ void MeshCoreRepeater::handleControl(const uint8_t *raw, size_t len, const Frame
     const uint8_t *req = &raw[info.header_len];
     if (!hasIdentityKey || info.payload_len < 6 || (req[0] & 0xF0) != MC_CTL_DISCOVER_REQ)
         return;
-    if ((req[1] & (1 << nodeType)) == 0)
-        return;
     uint32_t since = 0;
     if (info.payload_len >= 10)
         memcpy(&since, &req[6], 4);
@@ -471,34 +473,54 @@ void MeshCoreRepeater::handleControl(const uint8_t *raw, size_t len, const Frame
     if (config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE)
         return;
 
+    // The filter is a bitmask of node types and every answer carries one key with one type, so we answer with the
+    // identity announced as the type asked for: the alias for a repeater request, the main key for our own type. A
+    // request covering both gets two answers with the same tag.
+    const bool wantAlias = usesAlias() && (req[1] & (1 << ADV_TYPE_REPEATER)) != 0;
+    const bool wantMain = (req[1] & (1 << nodeType)) != 0;
+    if (!wantAlias && !wantMain)
+        return;
+
     const uint32_t now = Time::getMillis();
     if (!Throttle::isWithinTimespanMs(discoverWindowStartMs, DISCOVER_WINDOW_MS)) {
         discoverWindowStartMs = now;
         discoverRepliesInWindow = 0;
     }
+
+    // The alias goes first: it is the identity that names us in a path.
+    const bool prefixOnly = (req[0] & 0x01) != 0;
+    if (wantAlias)
+        queueDiscoverReply(aliasPub, ADV_TYPE_REPEATER, prefixOnly, snr, &req[2], airtimeMs);
+    if (wantMain)
+        queueDiscoverReply(identityPub, nodeType, prefixOnly, snr, &req[2], airtimeMs);
+}
+
+bool MeshCoreRepeater::queueDiscoverReply(const uint8_t pub[32], uint8_t type, bool prefixOnly, float snr, const uint8_t tag[4],
+                                          uint32_t airtimeMs)
+{
     if (discoverRepliesInWindow >= DISCOVER_MAX_REPLIES)
-        return;
+        return false;
 
     // NODE_DISCOVER_RESP: type|our node type, request SNR x4, the request tag, then our key (8-byte prefix if asked).
-    const bool prefixOnly = (req[0] & 0x01) != 0;
     const size_t keyLen = prefixOnly ? 8 : MC_PUB_KEY_SIZE;
     uint8_t frame[2 + 6 + MC_PUB_KEY_SIZE];
     frame[0] = (MC_PAYLOAD_TYPE_CONTROL << 2) | MC_ROUTE_DIRECT;
     frame[1] = 0x00; // zero hop
-    frame[2] = MC_CTL_DISCOVER_RESP | nodeType;
+    frame[2] = MC_CTL_DISCOVER_RESP | type;
     frame[3] = (uint8_t)(int8_t)(snr * 4);
-    memcpy(&frame[4], &req[2], 4);
-    memcpy(&frame[8], identityPub, keyLen);
+    memcpy(&frame[4], tag, 4);
+    memcpy(&frame[8], pub, keyLen);
 
     // Several repeaters answer the same request: MeshCore widens its random delay x4 to spread them out.
     uint32_t spread = 4 * (uint32_t)(JITTER_AIRTIME_MULT * 0.5f * (float)airtimeMs);
     if (spread > 4 * JITTER_CAP_MS)
         spread = 4 * JITTER_CAP_MS;
-    if (queueOwnFrame(frame, 8 + keyLen, DELAY_FLOOR_MS + (uint32_t)random(0, (long)spread + 1))) {
-        LOG_INFO("MeshCore discover reply queued");
-        discoverRepliesInWindow++;
-        discoverReplies++;
-    }
+    if (!queueOwnFrame(frame, 8 + keyLen, DELAY_FLOOR_MS + (uint32_t)random(0, (long)spread + 1)))
+        return false;
+    LOG_INFO("MeshCore discover reply queued");
+    discoverRepliesInWindow++;
+    discoverReplies++;
+    return true;
 }
 #endif
 
@@ -907,18 +929,63 @@ bool MeshCoreRepeater::setIdentitySeed(const uint8_t seed[32])
     memcpy(identitySeed, seed, sizeof(identitySeed));
     memcpy(identityPub, pub, sizeof(identityPub));
     hasIdentityKey = true;
+    deriveAliasIdentity();
     return true;
 }
 
-size_t MeshCoreRepeater::buildAdvert(uint8_t *out, size_t outLen, const char *name, uint32_t timestamp, bool flood)
+void MeshCoreRepeater::deriveAliasIdentity()
 {
-    if (!hasIdentityKey)
+    // SHA256(domain || seed || attempt): deterministic, so the alias survives reboots with the chat key and needs no
+    // file of its own. The attempt counter only moves on the ~1/128 chance that MeshCore rejects the derived public key.
+    for (uint8_t attempt = 0; attempt < 8; attempt++) {
+        SHA256 sha;
+        sha.reset();
+        sha.update(MC_ALIAS_DOMAIN, sizeof(MC_ALIAS_DOMAIN) - 1);
+        sha.update(identitySeed, sizeof(identitySeed));
+        sha.update(&attempt, 1);
+        sha.finalize(aliasSeed, sizeof(aliasSeed));
+        Ed25519::derivePublicKey(aliasPub, aliasSeed);
+        if (aliasPub[0] != 0x00 && aliasPub[0] != 0xFF) {
+            hasAliasKey = true;
+            return;
+        }
+    }
+    hasAliasKey = false;
+}
+
+bool MeshCoreRepeater::isOwnIdentity(const uint8_t *pub, size_t len) const
+{
+    if (!hasIdentityKey || len == 0 || len > MC_PUB_KEY_SIZE)
+        return false;
+    return memcmp(pub, identityPub, len) == 0 || (hasAliasKey && memcmp(pub, aliasPub, len) == 0);
+}
+
+bool MeshCoreRepeater::isPathHopForUs(const uint8_t *hash, size_t len) const
+{
+    if (!hasIdentityKey || len == 0 || len > MC_PUB_KEY_SIZE)
+        return false;
+    // The chat contact a peer holds names us by the main key, the repeater one by the alias: accept both prefixes, but
+    // only while the alias is announced, so a disabled alias cannot claim somebody else's 1-byte hop.
+    if (memcmp(hash, identityPub, len) == 0)
+        return true;
+    return usesAlias() && memcmp(hash, aliasPub, len) == 0;
+}
+
+size_t MeshCoreRepeater::buildAdvert(uint8_t *out, size_t outLen, const char *name, uint32_t timestamp, bool flood,
+                                     bool asRepeater)
+{
+    if (!hasIdentityKey || (asRepeater && !hasAliasKey))
         return 0;
+
+    // A repeater advert speaks for the relay alias; the main identity keeps announcing whatever type it is given.
+    const uint8_t *pub = asRepeater ? aliasPub : identityPub;
+    const uint8_t *seed = asRepeater ? aliasSeed : identitySeed;
+    const uint8_t type = asRepeater ? ADV_TYPE_REPEATER : nodeType;
 
     // App data: type byte (our node type, with the name flag when there is a name), then the UTF-8 name.
     uint8_t appData[MAX_ADVERT_DATA_SIZE];
     size_t appLen = 1;
-    appData[0] = nodeType;
+    appData[0] = type;
     if (name && name[0] != 0) {
         size_t nameLen = strlen(name);
         if (nameLen > MAX_ADVERT_DATA_SIZE - 1)
@@ -939,7 +1006,7 @@ size_t MeshCoreRepeater::buildAdvert(uint8_t *out, size_t outLen, const char *na
     out[0] = (MC_PAYLOAD_TYPE_ADVERT << 2) | (flood ? MC_ROUTE_FLOOD : MC_ROUTE_DIRECT);
     out[1] = flood ? OWN_FLOOD_PATH_LEN_BYTE : 0x00;
     size_t i = 2;
-    memcpy(&out[i], identityPub, MC_PUB_KEY_SIZE);
+    memcpy(&out[i], pub, MC_PUB_KEY_SIZE);
     i += MC_PUB_KEY_SIZE;
     memcpy(&out[i], &timestamp, 4); // little-endian, as MeshCore writes it
     i += 4;
@@ -950,13 +1017,13 @@ size_t MeshCoreRepeater::buildAdvert(uint8_t *out, size_t outLen, const char *na
     // Signed message: pub || timestamp || app_data, the same bytes MeshCore verifies.
     uint8_t message[MC_PUB_KEY_SIZE + 4 + MAX_ADVERT_DATA_SIZE];
     size_t msgLen = 0;
-    memcpy(&message[msgLen], identityPub, MC_PUB_KEY_SIZE);
+    memcpy(&message[msgLen], pub, MC_PUB_KEY_SIZE);
     msgLen += MC_PUB_KEY_SIZE;
     memcpy(&message[msgLen], &timestamp, 4);
     msgLen += 4;
     memcpy(&message[msgLen], appData, appLen);
     msgLen += appLen;
-    Ed25519::sign(signature, identitySeed, identityPub, message, msgLen);
+    Ed25519::sign(signature, seed, pub, message, msgLen);
 
     return total;
 }

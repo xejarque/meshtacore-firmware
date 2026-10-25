@@ -1239,6 +1239,48 @@ void test_path_report_sanitizes_node_names(void)
 }
 #endif
 
+// The relay alias is this node, not another repeater: hearing its own repeater-typed ADVERT back must not add a node.
+void test_own_alias_advert_is_not_learned_as_a_contact()
+{
+    struct AliasSetup {
+        NodeDB *previousNodeDB = nodeDB;
+        Router *previousRouter = router;
+        CaptureRouter capture;
+        MeshCoreCompanion c;
+        MeshCoreRepeater repeater;
+
+        AliasSetup()
+        {
+            nodeDB = new NodeDB();
+            router = &capture;
+            uint8_t seed[32];
+            for (int i = 0; i < 32; i++)
+                seed[i] = (uint8_t)(0x33 ^ i);
+            while (!repeater.setIdentitySeed(seed))
+                seed[0]++;
+            c.setIdentity(seed, repeater.getIdentityPub());
+            c.setRelayAliasPub(repeater.getAliasPub());
+        }
+
+        ~AliasSetup()
+        {
+            delete nodeDB;
+            nodeDB = previousNodeDB;
+            router = previousRouter;
+        }
+    } s;
+
+    TEST_ASSERT_TRUE(s.repeater.hasAliasIdentity());
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = s.repeater.buildAdvert(frame, sizeof(frame), "Xavi (relay)", 1792521507, true, true);
+    TEST_ASSERT_GREATER_THAN(0, len);
+
+    const size_t nodesBefore = nodeDB->getNumMeshNodes();
+    s.c.handleFrame(frame, len, 5, -60);
+    TEST_ASSERT_EQUAL_UINT32(nodesBefore, nodeDB->getNumMeshNodes());
+    TEST_ASSERT_NULL(s.c.contacts.findByPub(s.repeater.getAliasPub()));
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -1273,6 +1315,7 @@ void setup()
     RUN_TEST(test_contacts_image_round_trip_keeps_keys_and_names);
     RUN_TEST(test_contacts_image_rejects_garbage);
     RUN_TEST(test_contacts_fingerprint_follows_the_set_not_the_recency);
+    RUN_TEST(test_own_alias_advert_is_not_learned_as_a_contact);
     RUN_TEST(test_image_is_capped_to_the_most_recent_contacts);
     RUN_TEST(test_direct_send_needs_identity_and_contact);
     RUN_TEST(test_contact_user_carries_the_meshcore_key_and_is_messagable);

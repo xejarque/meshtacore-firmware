@@ -40,6 +40,9 @@ class MeshCoreRepeater
     /** MeshCore MAX_PATH_SIZE: the flood path budget in bytes, shared by every MeshCore node. */
     static constexpr size_t MAX_PATH_SIZE = 64;
 
+    /** Longest name an ADVERT can carry: its app data is one flags byte plus the name (MAX_ADVERT_DATA_SIZE). */
+    static constexpr size_t ADVERT_NAME_MAX = 31;
+
     /** Parsed view of a MeshCore frame header (see MeshCore Dispatcher::tryParsePacket). */
     struct FrameInfo {
         uint8_t route_type;   // 0x00 transport-flood, 0x01 flood, 0x02 direct, 0x03 transport-direct
@@ -140,15 +143,36 @@ class MeshCoreRepeater
     const uint8_t *getIdentityPub() const { return identityPub; }
     const uint8_t *getIdentitySeed() const { return identitySeed; }
 
+    /**
+     * Relay alias: a second Ed25519 identity derived from the same seed. MeshCore applications only name a path hop
+     * from a contact they hold as a repeater, and our chat ADVERT already claims the main key as a chat node. When the
+     * node relays while announcing itself as chat, the hash it appends to the path is the alias prefix and its ADVERT is
+     * a repeater one, so the hop resolves to this node's name. A repeater-typed main identity needs no alias.
+     *
+     * aliasEnabled is written by the ADVERT thread and read by the relay thread. A relay that reads it mid-toggle puts
+     * either hash on the path, and both are ours, so no synchronisation is needed.
+     */
+    bool hasAliasIdentity() const { return hasAliasKey; }
+    const uint8_t *getAliasPub() const { return aliasPub; }
+    void setAliasEnabled(bool on) { aliasEnabled = on; }
+    bool usesAlias() const { return aliasEnabled && hasAliasKey; }
+
+    /** Public key whose prefix goes on the path: the alias when enabled, else our main key. */
+    const uint8_t *pathPub() const { return usesAlias() ? aliasPub : identityPub; }
+
+    /** True when this node forwards MeshCore frames at all: role and rebroadcast policy allow it. */
+    bool canRelay() const;
+
     /** Check an ADVERT payload's Ed25519 signature over pub_key || timestamp || app_data. */
     static bool verifyAdvert(const uint8_t *payload, size_t payloadLen);
 
     /**
-     * Encode an ADVERT for this node: repeater type, signed over pub||timestamp||app_data exactly as MeshCore's
-     * Mesh::createAdvert does. flood=false gives a zero-hop advert (route DIRECT, empty path) that only direct
-     * neighbours hear, like a MeshCore repeater's local advert. Returns the frame length, or 0 if it does not fit.
+     * Encode an ADVERT for this node, signed over pub||timestamp||app_data exactly as MeshCore's Mesh::createAdvert does.
+     * flood=false gives a zero-hop advert (route DIRECT, empty path) that only direct neighbours hear, like a MeshCore
+     * repeater's local advert. asRepeater signs it with the relay alias and announces ADV_TYPE_REPEATER, whatever
+     * nodeType says. Returns the frame length, or 0 if it does not fit or there is no alias to sign with.
      */
-    size_t buildAdvert(uint8_t *out, size_t outLen, const char *name, uint32_t timestamp, bool flood);
+    size_t buildAdvert(uint8_t *out, size_t outLen, const char *name, uint32_t timestamp, bool flood, bool asRepeater = false);
 
     /**
      * Queue one of our own frames (ADVERT, discovery reply, companion text), due after delayMs. Not counted as a relay
@@ -248,6 +272,12 @@ class MeshCoreRepeater
     bool hasIdentityKey = false;
     uint8_t nodeType = ADV_TYPE_REPEATER;
 
+    // Second identity for the path, derived from the same seed (see the public accessors).
+    uint8_t aliasSeed[32] = {0};
+    uint8_t aliasPub[32] = {0};
+    bool hasAliasKey = false;
+    bool aliasEnabled = false;
+
     uint32_t emaX256 = 0;
     uint16_t finalizedSamples = 0;
     uint32_t lastRelayMs = 0;
@@ -283,7 +313,19 @@ class MeshCoreRepeater
     void handleMultipartAck(const uint8_t *raw, size_t len, const FrameInfo &info, uint32_t airtimeMs);
     static uint32_t directDelayMs(uint32_t airtimeMs);
     void onDupeHeard(uint32_t hash);
-    bool canRelay() const;
+
+    /** Derive the relay alias from the installed seed (deterministic: nothing extra to persist). */
+    void deriveAliasIdentity();
+
+    /** True when pub starts with any identity we ever held: an ADVERT of ours that came back, even across a role change. */
+    bool isOwnIdentity(const uint8_t *pub, size_t len) const;
+
+    /** True when hash is a path hop that names us: the main key, plus the alias once we announce it. */
+    bool isPathHopForUs(const uint8_t *hash, size_t len) const;
+
+    /** Queue one NODE_DISCOVER_RESP for one of our identities, subject to the discovery rate limit. */
+    bool queueDiscoverReply(const uint8_t pub[32], uint8_t type, bool prefixOnly, float snr, const uint8_t tag[4],
+                            uint32_t airtimeMs);
 
     /** Queue a frame to relay; false (and nothing remembered) when the queue is full of better frames. */
     bool queueRelay(const uint8_t *raw, size_t len, uint32_t hash32, uint32_t airtimeMs, uint32_t delayMs, uint8_t priority,

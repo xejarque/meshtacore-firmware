@@ -1050,6 +1050,190 @@ void test_discover_request_gets_a_reply()
     TEST_ASSERT_EQUAL_UINT32(0, repeater.txRelayed);
 }
 
+// --- relay alias: the second identity that puts a name on the hop we append ---
+
+// The alias is derived from the chat seed, so it survives reboots with no extra file, and stays unused until the radio
+// turns it on (a repeater-typed identity needs none).
+void test_relay_alias_is_derived_and_off_until_enabled()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    TEST_ASSERT_TRUE(repeater.hasAliasIdentity());
+    TEST_ASSERT_FALSE(repeater.usesAlias());
+    TEST_ASSERT_EQUAL_MEMORY(repeater.getIdentityPub(), repeater.pathPub(), 32);
+    TEST_ASSERT_TRUE(memcmp(repeater.getIdentityPub(), repeater.getAliasPub(), 32) != 0);
+    // MeshCore rejects a key whose 1-byte path hash would be 0x00 or 0xFF.
+    TEST_ASSERT_TRUE(repeater.getAliasPub()[0] != 0x00 && repeater.getAliasPub()[0] != 0xFF);
+
+    MeshCoreRepeater again;
+    giveIdentity(again);
+    TEST_ASSERT_EQUAL_MEMORY(repeater.getAliasPub(), again.getAliasPub(), 32);
+
+    repeater.setAliasEnabled(true);
+    TEST_ASSERT_TRUE(repeater.usesAlias());
+    TEST_ASSERT_EQUAL_MEMORY(repeater.getAliasPub(), repeater.pathPub(), 32);
+}
+
+// The hop we append is the alias prefix: a client that holds it as a repeater can name the path.
+void test_flood_relay_appends_the_alias_when_enabled()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    repeater.setAliasEnabled(true);
+
+    uint8_t buf[64];
+    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, 0x10);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    uint8_t out[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t outLen = repeater.takePendingFrame(out, sizeof(out));
+    TEST_ASSERT_EQUAL_UINT32(len + 1, outLen);
+    TEST_ASSERT_EQUAL_HEX8(0x03, out[1]); // 3 hops now
+    TEST_ASSERT_EQUAL_HEX8(repeater.getAliasPub()[0], out[4]);
+}
+
+// A direct frame routed through the alias is still ours to forward (removeSelfFromPath).
+void test_direct_frame_addressed_to_the_alias_is_forwarded()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    repeater.setAliasEnabled(true);
+
+    uint8_t buf[16];
+    size_t i = 0;
+    buf[i++] = (kTxtMsg << 2) | 0x02; // DIRECT
+    buf[i++] = 0x02;                  // 2 hops of 1 byte
+    buf[i++] = repeater.getAliasPub()[0];
+    buf[i++] = 0x77;
+    for (int p = 0; p < 6; p++)
+        buf[i++] = (uint8_t)(0xB0 + p);
+    repeater.handleReceivedFrame(buf, i, 5, kAirtimeMs);
+
+    uint8_t out[MeshCoreRepeater::MAX_FRAME_LEN];
+    TEST_ASSERT_EQUAL_UINT32(i - 1, repeater.takePendingFrame(out, sizeof(out)));
+    TEST_ASSERT_EQUAL_HEX8(0x01, out[1]);
+    TEST_ASSERT_EQUAL_HEX8(0x77, out[2]);
+}
+
+// A hop names us only through an identity we announce: with the alias off nobody can know its prefix, so a frame
+// carrying it is somebody else's route and stays untouched.
+void test_alias_hop_is_not_ours_while_the_alias_is_off()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    TEST_ASSERT_NOT_EQUAL(repeater.getIdentityPub()[0], repeater.getAliasPub()[0]); // else the hop reads as the main key
+
+    uint8_t buf[16];
+    size_t i = 0;
+    buf[i++] = (kTxtMsg << 2) | 0x02; // DIRECT
+    buf[i++] = 0x02;                  // 2 hops of 1 byte
+    buf[i++] = repeater.getAliasPub()[0];
+    buf[i++] = 0x77;
+    for (int p = 0; p < 6; p++)
+        buf[i++] = (uint8_t)(0xB0 + p);
+
+    repeater.handleReceivedFrame(buf, i, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+
+    repeater.setAliasEnabled(true); // announced now: the same frame is ours to forward
+    repeater.handleReceivedFrame(buf, i, 5, kAirtimeMs);
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+}
+
+// The alias ADVERT announces a repeater and is signed by the alias key, so a client keeps it as one (with its name).
+void test_alias_advert_is_signed_by_the_alias()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = repeater.buildAdvert(frame, sizeof(frame), "Xavi (relay)", 1792521507, true, true);
+    TEST_ASSERT_GREATER_THAN(0, len);
+    TEST_ASSERT_EQUAL_HEX8(0x82, frame[102]); // repeater (2) with the name flag
+    TEST_ASSERT_EQUAL_MEMORY(repeater.getAliasPub(), &frame[2], 32);
+
+    const size_t appLen = len - 102;
+    uint8_t message[32 + 4 + 32];
+    memcpy(message, &frame[2], 32);
+    memcpy(&message[32], &frame[34], 4);
+    memcpy(&message[36], &frame[102], appLen);
+    TEST_ASSERT_TRUE(Ed25519::verify(&frame[38], repeater.getAliasPub(), message, 36 + appLen));
+    TEST_ASSERT_FALSE(Ed25519::verify(&frame[38], repeater.getIdentityPub(), message, 36 + appLen));
+}
+
+// Our own alias ADVERT heard back is ours: not something to relay.
+void test_own_alias_advert_echo_is_not_relayed()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    repeater.setAliasEnabled(true);
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = repeater.buildAdvert(frame, sizeof(frame), "Xavi (relay)", 1792521507, true, true);
+    repeater.handleReceivedFrame(frame, len, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+}
+
+// Discovery answers with the identity announced as the type asked for: the alias for a repeater scan (it is the key on
+// the path), the main key for a chat scan. A filter covering both gets one answer per identity.
+void test_discover_answers_the_identity_of_the_type_asked()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    // What the radio does for a CLIENT-role node: the main key announces chat, the alias speaks for the relay.
+    repeater.setNodeType(MeshCoreRepeater::ADV_TYPE_CHAT);
+    repeater.setAliasEnabled(true);
+
+    auto makeReq = [](uint8_t *buf, uint8_t filter) {
+        buf[0] = (0x0B << 2) | 0x02; // CONTROL, DIRECT
+        buf[1] = 0x00;               // zero hop
+        buf[2] = 0x80;               // NODE_DISCOVER_REQ, full key
+        buf[3] = filter;
+        buf[4] = 0xDE;
+        buf[5] = 0xAD;
+        buf[6] = 0xBE;
+        buf[7] = 0xEF;
+        memset(&buf[8], 0, 4); // since = 0
+        return (size_t)12;
+    };
+
+    uint8_t req[12];
+    uint8_t out[MeshCoreRepeater::MAX_FRAME_LEN];
+
+    size_t reqLen = makeReq(req, 1 << 2); // repeaters
+    repeater.handleReceivedFrame(req, reqLen, 6.0f, kAirtimeMs);
+    Time::advanceTestMillis(3000);
+    TEST_ASSERT_EQUAL_UINT32(2 + 6 + 32, repeater.takePendingFrame(out, sizeof(out)));
+    TEST_ASSERT_EQUAL_HEX8(0x92, out[2]); // DISCOVER_RESP | repeater
+    TEST_ASSERT_EQUAL_MEMORY(repeater.getAliasPub(), &out[8], 32);
+    repeater.clearPendingFrame();
+
+    Time::advanceTestMillis(121000); // new reply window (4 per 2 minutes)
+    reqLen = makeReq(req, 1 << 1);   // chat
+    repeater.handleReceivedFrame(req, reqLen, 6.0f, kAirtimeMs);
+    Time::advanceTestMillis(3000);
+    TEST_ASSERT_EQUAL_UINT32(2 + 6 + 32, repeater.takePendingFrame(out, sizeof(out)));
+    TEST_ASSERT_EQUAL_HEX8(0x91, out[2]); // DISCOVER_RESP | chat
+    TEST_ASSERT_EQUAL_MEMORY(repeater.getIdentityPub(), &out[8], 32);
+    repeater.clearPendingFrame();
+
+    Time::advanceTestMillis(121000);
+    reqLen = makeReq(req, (1 << 1) | (1 << 2)); // both
+    repeater.handleReceivedFrame(req, reqLen, 6.0f, kAirtimeMs);
+    Time::advanceTestMillis(3000);
+    bool sawAlias = false, sawChat = false;
+    for (int n = 0; n < 2; n++) {
+        TEST_ASSERT_GREATER_THAN_UINT32(0, repeater.takePendingFrame(out, sizeof(out)));
+        if (out[2] == 0x92) {
+            sawAlias = true;
+            TEST_ASSERT_EQUAL_MEMORY(repeater.getAliasPub(), &out[8], 32);
+        } else if (out[2] == 0x91) {
+            sawChat = true;
+            TEST_ASSERT_EQUAL_MEMORY(repeater.getIdentityPub(), &out[8], 32);
+        }
+        repeater.clearPendingFrame();
+    }
+    TEST_ASSERT_TRUE(sawAlias);
+    TEST_ASSERT_TRUE(sawChat);
+}
+
 // No identity: relay stays transparent, discovery is ignored.
 void test_without_identity_relay_is_transparent()
 {
@@ -1445,6 +1629,13 @@ void setup()
     RUN_TEST(test_flood_relay_appends_our_hash);
     RUN_TEST(test_direct_frame_forwarded_only_as_next_hop);
     RUN_TEST(test_discover_request_gets_a_reply);
+    RUN_TEST(test_relay_alias_is_derived_and_off_until_enabled);
+    RUN_TEST(test_flood_relay_appends_the_alias_when_enabled);
+    RUN_TEST(test_direct_frame_addressed_to_the_alias_is_forwarded);
+    RUN_TEST(test_alias_hop_is_not_ours_while_the_alias_is_off);
+    RUN_TEST(test_alias_advert_is_signed_by_the_alias);
+    RUN_TEST(test_own_alias_advert_echo_is_not_relayed);
+    RUN_TEST(test_discover_answers_the_identity_of_the_type_asked);
     RUN_TEST(test_without_identity_relay_is_transparent);
     RUN_TEST(test_ed25519_matches_rfc8032);
     RUN_TEST(test_identity_with_reserved_hash_is_rejected);

@@ -455,6 +455,13 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     concurrency::OSThread *meshCoreAdvertThread = nullptr;
     // Next flood ADVERT. Zero-hop adverts are not sent: a flood reaches the direct neighbours as well.
     uint32_t nextMeshCoreFloodAdvertMs = 0;
+    // The alias flood that belongs with the current flood ADVERT is still to be queued (one own frame at a time).
+    bool meshCoreAliasFloodPending = false;
+    // Queue attempts spent on that alias flood, so a persistent failure does not retry every minute until the next slot.
+    uint8_t meshCoreAliasFloodAttempts = 0;
+
+    /** Keep the announced MeshCore type and the relay alias in step with the Meshtastic role and rebroadcast policy. */
+    void updateMeshCoreRole();
 
   public:
     /**

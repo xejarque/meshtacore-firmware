@@ -684,6 +684,13 @@ static constexpr uint32_t MESHCORE_IDENTITY_LOAD_MS = 5 * 1000; // identity read
 // without waiting, then every 12 hours. A flood is re-sent by every node, so it must stay rare.
 static constexpr uint32_t MESHCORE_FLOOD_ADVERT_FIRST_MS = 3 * 60 * 1000;
 static constexpr uint32_t MESHCORE_FLOOD_ADVERT_INTERVAL_MS = 12UL * 60 * 60 * 1000;
+// A node that relays while announcing itself as a chat node also floods a repeater-typed ADVERT signed with its relay
+// alias: MeshCore applications only name a path hop from a contact held as a repeater, so without it the hop we append
+// shows as an unknown repeater. It rides the same slot as the main flood, one own frame at a time, so the cost is one
+// extra flood per interval.
+static const char MESHCORE_ALIAS_SUFFIX[] = " (relay)";
+// The alias flood bypasses the 12 h deadline while it is pending, so a queue that keeps refusing it must give up.
+static constexpr uint8_t MESHCORE_ALIAS_ADVERT_MAX_ATTEMPTS = 3;
 static constexpr uint32_t MESHCORE_ADVERT_RETRY_MS = 60 * 1000;           // no identity / no valid time
 static constexpr uint32_t MESHCORE_ADVERT_NUDGE_MS = 1000;                // radio busy: ask again
 static constexpr uint32_t MESHCORE_SERVICE_MS = 5 * 1000;                 // longest wait between housekeeping steps
@@ -805,6 +812,8 @@ uint32_t RadioLibInterface::meshCoreServiceTick()
     if (meshCoreRepeater.hasIdentity() && !meshCoreCompanion.hasIdentity()) {
         meshCoreCompanion.setIdentity(meshCoreRepeater.getIdentitySeed(), meshCoreRepeater.getIdentityPub());
     }
+    if (meshCoreRepeater.hasAliasIdentity())
+        meshCoreCompanion.setRelayAliasPub(meshCoreRepeater.getAliasPub());
     if (meshCoreCompanion.hasIdentity() && !meshCoreContactsLoaded) {
         meshCoreContactsLoaded = true;
         loadMeshCoreContacts();
@@ -826,6 +835,20 @@ uint32_t RadioLibInterface::meshCoreServiceTick()
     return next < MESHCORE_SERVICE_MS ? next : MESHCORE_SERVICE_MS;
 }
 
+// The announced MeshCore type follows the Meshtastic role: a router is a repeater, anything else a companion to
+// message. A node that relays under a chat identity also needs the alias, so the hop it appends belongs to a repeater
+// ADVERT; a repeater-typed identity needs none, and a mute node relays nothing.
+void RadioLibInterface::updateMeshCoreRole()
+{
+    const uint8_t mainType = MeshCoreRepeater::nodeTypeForRole(config.device.role);
+    meshCoreRepeater.setNodeType(mainType);
+    meshCoreRepeater.setAliasEnabled(mainType != MeshCoreRepeater::ADV_TYPE_REPEATER && meshCoreRepeater.canRelay());
+    if (!meshCoreRepeater.usesAlias()) {
+        meshCoreAliasFloodPending = false;
+        meshCoreAliasFloodAttempts = 0;
+    }
+}
+
 uint32_t RadioLibInterface::meshCoreAdvertTick()
 {
     if (!meshCoreRepeater.hasIdentity()) {
@@ -839,7 +862,13 @@ uint32_t RadioLibInterface::meshCoreAdvertTick()
         }
         const uint8_t *pub = meshCoreRepeater.getIdentityPub();
         LOG_INFO("MeshCore identity ready, pub=%02x%02x%02x%02x...", pub[0], pub[1], pub[2], pub[3]);
+        if (meshCoreRepeater.hasAliasIdentity()) {
+            // The hash clients show for this node in a path is this prefix, the relay alias.
+            const uint8_t *alias = meshCoreRepeater.getAliasPub();
+            LOG_INFO("MeshCore relay alias ready, pub=%02x%02x%02x%02x...", alias[0], alias[1], alias[2], alias[3]);
+        }
     }
+    updateMeshCoreRole();
 
     // One of our frames is queued but not on air yet: nudge the relay thread until it goes. A nudge that finds
     // the relay already scheduled changes nothing, so the next tick can repeat it.
@@ -848,10 +877,11 @@ uint32_t RadioLibInterface::meshCoreAdvertTick()
         return MESHCORE_ADVERT_NUDGE_MS;
     }
 
-    const bool floodDue = Throttle::deadlinePassed(nextMeshCoreFloodAdvertMs);
-    if (!floodDue) {
-        const uint32_t now = millis();
-        return nextMeshCoreFloodAdvertMs - now;
+    // The alias flood is queued on the tick after the main one, once that frame is on air.
+    const bool aliasAdvert = meshCoreRepeater.usesAlias() && meshCoreAliasFloodPending;
+    if (!aliasAdvert && !Throttle::deadlinePassed(nextMeshCoreFloodAdvertMs)) {
+        const uint32_t nowMs = millis();
+        return nextMeshCoreFloodAdvertMs - nowMs;
     }
 
     // MeshCore clients order adverts by timestamp, so it must be a real time - but any source will do.
@@ -868,18 +898,45 @@ uint32_t RadioLibInterface::meshCoreAdvertTick()
         snprintf(fallbackName, sizeof(fallbackName), "Meshtastic-%04x", (unsigned)(nodeDB->getNodeNum() & 0xFFFF));
         name = fallbackName;
     }
-    uint8_t raw[MeshCoreRepeater::MAX_FRAME_LEN];
-    // The Meshtastic role decides how MeshCore sees us: a router is a repeater, anything else a companion to message.
-    meshCoreRepeater.setNodeType(MeshCoreRepeater::nodeTypeForRole(config.device.role));
+
+    // The alias advert keeps the same name with a suffix, so the hop it names reads as this node's relay persona.
+    char aliasName[MeshCoreRepeater::ADVERT_NAME_MAX + 1];
+    if (meshCoreRepeater.usesAlias()) {
+        constexpr size_t suffixLen = sizeof(MESHCORE_ALIAS_SUFFIX) - 1;
+        size_t keep = strlen(name);
+        if (keep > MeshCoreRepeater::ADVERT_NAME_MAX - suffixLen) {
+            keep = MeshCoreRepeater::ADVERT_NAME_MAX - suffixLen;
+            while (keep > 0 && ((uint8_t)name[keep] & 0xC0) == 0x80)
+                keep--; // never split a multi-byte character
+        }
+        snprintf(aliasName, sizeof(aliasName), "%.*s%s", (int)keep, name, MESHCORE_ALIAS_SUFFIX);
+    }
+
     // Flood only: it reaches the direct neighbours too, and every node re-sends it, so it is the only kind worth
     // spending airtime on.
-    size_t len = meshCoreRepeater.buildAdvert(raw, sizeof(raw), name, now, true);
+    uint8_t raw[MeshCoreRepeater::MAX_FRAME_LEN];
+    const char *advertName = aliasAdvert ? aliasName : name;
+    const size_t len = meshCoreRepeater.buildAdvert(raw, sizeof(raw), advertName, now, true, aliasAdvert);
     if (len == 0 || !meshCoreRepeater.queueOwnFrame(raw, len)) {
         LOG_WARN("MeshCore ADVERT could not be built or queued");
+        // The alias flood has no deadline of its own: stop retrying it every minute until the next 12 h slot.
+        if (aliasAdvert && ++meshCoreAliasFloodAttempts >= MESHCORE_ALIAS_ADVERT_MAX_ATTEMPTS) {
+            LOG_WARN("MeshCore relay-alias ADVERT abandoned after %u attempts", (unsigned)meshCoreAliasFloodAttempts);
+            meshCoreAliasFloodPending = false;
+            meshCoreAliasFloodAttempts = 0;
+        }
         return MESHCORE_ADVERT_RETRY_MS;
     }
-    LOG_INFO("MeshCore flood ADVERT queued (%u bytes, name=%s, ts=%u)", (unsigned)len, name, (unsigned)now);
-    nextMeshCoreFloodAdvertMs = millis() + MESHCORE_FLOOD_ADVERT_INTERVAL_MS;
+    LOG_INFO("MeshCore %sflood ADVERT queued (%u bytes, name=%s, ts=%u)", aliasAdvert ? "relay-alias " : "", (unsigned)len,
+             advertName, (unsigned)now);
+    meshCoreAliasFloodAttempts = 0;
+    if (aliasAdvert) {
+        meshCoreAliasFloodPending = false;
+    } else {
+        nextMeshCoreFloodAdvertMs = millis() + MESHCORE_FLOOD_ADVERT_INTERVAL_MS;
+        // The alias flood follows as soon as this one is on air.
+        meshCoreAliasFloodPending = meshCoreRepeater.usesAlias();
+    }
     wakeMeshCoreRelay();
     return MESHCORE_ADVERT_NUDGE_MS;
 }

@@ -1331,7 +1331,14 @@ void MeshCoreCompanion::setIdentity(const uint8_t seed[32], const uint8_t pub[32
     memcpy(identitySeed, seed, sizeof(identitySeed));
     memcpy(identityPub, pub, sizeof(identityPub));
     identityReady = true;
+    aliasReady = false; // a new seed means a new alias; the radio installs the derived one on its next service tick
     contacts.forEach([](MeshCoreContact &c) { c.hasSecret = false; }); // secrets were derived for another identity
+}
+
+void MeshCoreCompanion::setRelayAliasPub(const uint8_t pub[32])
+{
+    memcpy(aliasPub, pub, sizeof(aliasPub));
+    aliasReady = true;
 }
 
 bool MeshCoreCompanion::ensureSecret(MeshCoreContact &c)
@@ -1351,8 +1358,8 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
         return;
 
     const uint8_t *payload = &raw[info.header_len];
-    if (memcmp(payload, identityPub, 32) == 0)
-        return; // our own advert coming back
+    if (memcmp(payload, identityPub, 32) == 0 || (aliasReady && memcmp(payload, aliasPub, 32) == 0))
+        return; // our own advert coming back, either identity
 
     const uint8_t flags = payload[appDataAt];
     const uint8_t type = flags & 0x0F;

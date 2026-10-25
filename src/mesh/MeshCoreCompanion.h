@@ -219,6 +219,8 @@ class MeshCoreCompanion
 
     /// Install our MeshCore identity (Ed25519 seed and public key); direct messages need it.
     void setIdentity(const uint8_t seed[32], const uint8_t pub[32]);
+    /// The relay alias belongs to this node too: its ADVERT is ours coming back, not a repeater to learn.
+    void setRelayAliasPub(const uint8_t pub[32]);
     bool hasIdentity() const { return identityReady; }
 
     /// True when node is a direct-message contact we hold a public key for.
@@ -275,6 +277,8 @@ class MeshCoreCompanion
     uint8_t identitySeed[32] = {};
     uint8_t identityPub[32] = {};
     bool identityReady = false;
+    uint8_t aliasPub[32] = {};
+    bool aliasReady = false;
 
     /// A direct message on air whose ACK we are waiting for.
     struct PendingAck {
