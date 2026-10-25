@@ -49,19 +49,12 @@ heltec-wireless-paper
 heltec-wireless-tracker
 heltec-wireless-tracker-v2
 heltec-wsl-v3
-hydra
-m5stack-core
 m5stack-unitc6l
 meshnology_w10
 meshnology_w12
-meshtastic-diy-v1
 mini-epaper-s3
-nano-g1
-nano-g1-explorer
 picomputer-s3
 picomputer-s3-tft
-radiomaster_900_bandit_nano
-rak11200
 rak3312
 rak_wismesh_tap_v2
 rak_wismesh_tap_v2-tft
@@ -69,7 +62,6 @@ seeed-sensecap-indicator
 seeed-sensecap-indicator-tft
 seeed-xiao-s3
 seeed_wio_tracker_L2-tft
-station-g1
 station-g2
 station-g3
 t-beam-1w
