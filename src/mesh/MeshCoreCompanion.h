@@ -126,7 +126,7 @@ class MeshCoreCompanion
         uint8_t routeType = 0;
         uint8_t hashSize = 0;
         uint8_t hopCount = 0;
-        uint8_t path[16] = {}; // 8 two-byte hops; a longer path is summarised as "+N"
+        uint8_t path[64] = {}; // MeshCore MAX_PATH_SIZE, so every hop of the route is kept and reported
     };
     /// One route per copy of a text: a flood reaches us over several, and ".path" lists them all.
     static constexpr size_t PATH_MEMORY = 16;
@@ -143,9 +143,14 @@ class MeshCoreCompanion
     /// direct = a text for a MeshCore contact (TXT_MSG), false = a broadcast on a MeshCore channel (GRP_TXT).
     bool handlePathCommand(const meshtastic_MeshPacket *p, bool direct);
 
-    /// The report text for every known route, shortest first. Names come from the node DB and the contact table;
-    /// anything ambiguous is shown as hex. Public for tests.
-    size_t formatPathReport(const HeardPath *const *routes, size_t count, const char *sender, char *out, size_t cap) const;
+    /// Receives one client-sized piece of the report. Nothing is ever truncated: a report longer than one message is
+    /// split into as many pieces as it needs.
+    using ReportSink = void (*)(void *ctx, const char *text, size_t len);
+
+    /// Render every known route, shortest first, into client-sized pieces through sink. Names come from the node DB
+    /// and the contact table; several candidates for one hash are listed. Public for tests.
+    size_t formatPathReport(const HeardPath *const *routes, size_t count, const char *sender, ReportSink sink,
+                            void *ctx) const;
 #endif
 
     /// Create the synthetic "MeshCore" node if it is missing, so the client has a sender name to render.
@@ -314,9 +319,23 @@ class MeshCoreCompanion
     const HeardPath *heardFind(uint32_t packetId) const;
     /// Newest text on this channel, or newest from this contact when fromNum is non-zero.
     const HeardPath *heardNewest(uint8_t channel, uint32_t fromNum) const;
-    /// The node behind a path hash: the node DB first (repeaters live there), then the DM contacts, whose keys
-    /// outlive a node DB eviction. Null when nothing or several claim it.
-    const char *pathHopName(const uint8_t *hash, uint8_t size) const;
+    /// Names behind a path hash: the node DB first (repeaters live there), then the DM contacts, whose keys outlive
+    /// a node DB eviction. Duplicates (the same node listed twice) collapse, so an ambiguous hash still shows names.
+    /// Returns the total found; up to max names are written to out.
+    size_t pathHopNames(const uint8_t *hash, uint8_t size, const char **out, size_t max) const;
+
+    /// Everything injectReportChunk() needs to send one report piece as a text from the right sender.
+    struct ReportInject {
+        MeshCoreCompanion *self;
+        uint32_t fromNum, to, replyId;
+        uint8_t channel;
+        bool direct;
+        const MeshCoreContact *contact;
+        uint8_t hops;
+        float snr;
+        int32_t rssi;
+    };
+    static void injectReportChunk(void *ctx, const char *text, size_t len);
 #endif
     void queueAck(uint32_t hash);
     /// Tell the client how a direct message ended, as if the contact itself had answered. relayNode >= 0 marks a relay.

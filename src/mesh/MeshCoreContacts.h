@@ -90,18 +90,27 @@ template <size_t N> class MeshCoreContacts
         return nullptr;
     }
 
-    /// The contact whose public key starts with hash, or null when none or several match.
-    const MeshCoreContact *findByPrefix(const uint8_t *hash, uint8_t size) const
+    /// Names of the contacts whose public key starts with hash, duplicates collapsed. Returns the total found;
+    /// up to max names are written to out.
+    size_t findNamesByPrefix(const uint8_t *hash, uint8_t size, const char **out, size_t max) const
     {
-        const MeshCoreContact *found = nullptr;
+        size_t total = 0;
         for (const auto &e : entries) {
             if (!e.lastUsed || memcmp(e.pub, hash, size) != 0)
                 continue;
-            if (found)
-                return nullptr; // an ambiguous hash is not named
-            found = &e;
+            bool seen = false;
+            for (size_t k = 0; k < total && k < max; k++)
+                if (strcmp(out[k], e.name) == 0) {
+                    seen = true;
+                    break;
+                }
+            if (!seen) {
+                if (total < max && out)
+                    out[total] = e.name;
+                total++;
+            }
         }
-        return found;
+        return total;
     }
 
     /// Contacts whose public key starts with hash (the 1-byte hash collides, so there can be several).

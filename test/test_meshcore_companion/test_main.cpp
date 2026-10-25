@@ -935,11 +935,50 @@ static const char *reportText(const meshtastic_MeshPacket &p, char *buf, size_t 
     return buf;
 }
 
+struct ReportCapture {
+    char text[4096] = {};
+    size_t len = 0;
+    unsigned chunks = 0;
+};
+
+static void captureChunk(void *ctx, const char *text, size_t len)
+{
+    auto *c = static_cast<ReportCapture *>(ctx);
+    TEST_ASSERT_TRUE(len <= sizeof(((meshtastic_MeshPacket *)nullptr)->decoded.payload.bytes));
+    if (c->chunks++ && c->len + 1 < sizeof(c->text))
+        c->text[c->len++] = '\n'; // separate messages in the app
+    for (size_t i = 0; i < len && c->len + 1 < sizeof(c->text); i++)
+        c->text[c->len++] = text[i];
+    c->text[c->len] = 0;
+}
+
 static size_t formatOneRoute(MeshCoreCompanion &c, const MeshCoreCompanion::HeardPath &entry, const char *sender, char *out,
                              size_t cap)
 {
     const MeshCoreCompanion::HeardPath *routes[] = {&entry};
-    return c.formatPathReport(routes, 1, sender, out, cap);
+    ReportCapture capture;
+    c.formatPathReport(routes, 1, sender, captureChunk, &capture);
+    const size_t n = strlen(capture.text) < cap - 1 ? strlen(capture.text) : cap - 1;
+    memcpy(out, capture.text, n);
+    out[n] = 0;
+    return n;
+}
+
+/// Every text injected from index `from` on, i.e. all the pieces of one report.
+static void collectReports(const CaptureRouter &capture, size_t from, char *buf, size_t cap)
+{
+    size_t o = 0;
+    for (size_t i = from; i < capture.received.size(); i++) {
+        const meshtastic_MeshPacket &p = capture.received[i];
+        if (p.which_payload_variant != meshtastic_MeshPacket_decoded_tag ||
+            p.decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP)
+            continue;
+        if (o && o + 1 < cap)
+            buf[o++] = '\n';
+        for (size_t k = 0; k < p.decoded.payload.size && o + 1 < cap; k++)
+            buf[o++] = (char)p.decoded.payload.bytes[k];
+    }
+    buf[o] = 0;
 }
 
 // A channel text with two resolvable hops: the reply names them and carries the measured signal.
@@ -1037,8 +1076,10 @@ void test_path_report_uses_hex_for_unknown_and_ambiguous_hops(void)
     GroupSetup s;
     const uint8_t twinA[32] = {0x77, 0x01};
     const uint8_t twinB[32] = {0x77, 0x02};
+    const uint8_t twinA2[32] = {0x77, 0x03}; // same name as twinA: the same node listed twice must collapse
     addRepeater(twinA, "Twin A");
     addRepeater(twinB, "Twin B");
+    addRepeater(twinA2, "Twin A");
 
     MeshCoreCompanion::HeardPath entry;
     entry.hopCount = 2;
@@ -1051,9 +1092,9 @@ void test_path_report_uses_hex_for_unknown_and_ambiguous_hops(void)
 
     char body[256];
     TEST_ASSERT_TRUE(formatOneRoute(s.c, entry, nullptr, body, sizeof(body)) > 0);
-    TEST_ASSERT_NOT_NULL(strstr(body, "`99`"));
-    TEST_ASSERT_NOT_NULL(strstr(body, "`77`"));
-    TEST_ASSERT_NULL(strstr(body, "Twin A"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "`99`")); // no node claims it
+    TEST_ASSERT_NOT_NULL(strstr(body, "Twin A|Twin B")); // ambiguous: both candidates, no duplicate
+    TEST_ASSERT_NULL(strstr(body, "`77`"));
 }
 
 // A hop the node DB no longer holds is still named by the DM contact whose key prefix it is.
@@ -1076,12 +1117,12 @@ void test_path_report_falls_back_to_a_contact_key(void)
     TEST_ASSERT_NOT_NULL(strstr(body, "Contact RPT"));
 }
 
-// Long paths stay inside the client's payload budget and say how many hops they left out.
-void test_path_report_fits_the_payload(void)
+// A report longer than one message is split into several: nothing is cut off.
+void test_path_report_splits_without_cutting(void)
 {
     GroupSetup s;
     MeshCoreCompanion::HeardPath entry;
-    entry.hopCount = 12;
+    entry.hopCount = 32; // the full 64-byte MeshCore path, two bytes per hop
     entry.hashSize = 2;
     entry.routeType = 1;
     entry.snr = -5.0f;
@@ -1089,13 +1130,14 @@ void test_path_report_fits_the_payload(void)
     for (size_t i = 0; i < sizeof(entry.path); i++)
         entry.path[i] = (uint8_t)(0x40 + i);
 
-    char body[256];
-    const size_t len = formatOneRoute(s.c, entry, nullptr, body, sizeof(body));
-    TEST_ASSERT_TRUE(len > 0);
-    TEST_ASSERT_TRUE(len <= sizeof(((meshtastic_MeshPacket *)nullptr)->decoded.payload.bytes));
-    TEST_ASSERT_EQUAL_UINT(strlen(body), len);
-    TEST_ASSERT_NOT_NULL(strstr(body, "› …")); // the chain is elided, not split
-    TEST_ASSERT_NOT_NULL(strstr(body, "SNR -5.0 dB")); // the signal survives a long path
+    const MeshCoreCompanion::HeardPath *routes[] = {&entry};
+    ReportCapture capture;
+    TEST_ASSERT_TRUE(s.c.formatPathReport(routes, 1, nullptr, captureChunk, &capture) >= 2);
+
+    TEST_ASSERT_NOT_NULL(strstr(capture.text, "`4041`")); // the first hop
+    TEST_ASSERT_NOT_NULL(strstr(capture.text, "`7e7f`")); // and the last one: nothing was dropped
+    TEST_ASSERT_NOT_NULL(strstr(capture.text, "SNR -5.0 dB"));
+    TEST_ASSERT_NULL(strstr(capture.text, "…"));
 }
 
 // A direct message is answered in the same chat, from the contact and with its key, as a PKI reply.
@@ -1156,10 +1198,11 @@ void test_path_command_lists_every_route(void)
 
     meshtastic_MeshPacket command = textPacket(0, original.id, ".path");
     command.to = s.bobNum;
+    const size_t beforeReport = s.capture.received.size();
     TEST_ASSERT_TRUE(s.c.handlePathCommand(&command, true));
 
-    char body[256];
-    reportText(s.capture.received.back(), body, sizeof(body));
+    char body[1024];
+    collectReports(s.capture, beforeReport, body, sizeof(body));
     TEST_ASSERT_NOT_NULL(strstr(body, "2 caminos"));
     TEST_ASSERT_NOT_NULL(strstr(body, "1 salto"));
     TEST_ASSERT_NOT_NULL(strstr(body, "2 saltos"));
@@ -1250,7 +1293,7 @@ void setup()
     RUN_TEST(test_path_command_ignores_other_text);
     RUN_TEST(test_path_report_uses_hex_for_unknown_and_ambiguous_hops);
     RUN_TEST(test_path_report_falls_back_to_a_contact_key);
-    RUN_TEST(test_path_report_fits_the_payload);
+    RUN_TEST(test_path_report_splits_without_cutting);
     RUN_TEST(test_path_command_answers_a_direct_message);
     RUN_TEST(test_path_command_lists_every_route);
     RUN_TEST(test_path_report_sanitizes_node_names);

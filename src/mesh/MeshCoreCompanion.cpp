@@ -131,6 +131,9 @@ struct TextBuf {
 static const char *const KEYCAPS[9] = {
     "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣",
 };
+
+/// Most names shown for one hop; a wider match is summarised as "+N".
+static constexpr size_t PATH_HOP_NAMES_MAX = 3;
 #endif
 
 static size_t aesEncrypt(const uint8_t secret[32], const uint8_t *src, size_t len, uint8_t *dst)
@@ -747,99 +750,212 @@ const MeshCoreCompanion::HeardPath *MeshCoreCompanion::heardNewest(uint8_t chann
     return nullptr;
 }
 
-const char *MeshCoreCompanion::pathHopName(const uint8_t *hash, uint8_t size) const
+size_t MeshCoreCompanion::pathHopNames(const uint8_t *hash, uint8_t size, const char **out, size_t max) const
 {
-    const meshtastic_NodeInfoLite *n = pathHopNode(hash, size);
+    size_t total = 0;
+    auto addName = [&](const char *name) {
+        if (!name || !name[0])
+            return;
+        for (size_t k = 0; k < total && k < max; k++)
+            if (strcmp(out[k], name) == 0)
+                return; // the same node listed twice is not a second candidate
+        if (total < max && out)
+            out[total] = name;
+        total++;
+    };
+
+    if (nodeDB) {
+        for (size_t i = 0; i < nodeDB->getNumMeshNodes(); i++) {
+            const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
+            if (!n || n->public_key.size != 32 || n->long_name[0] == 0 ||
+                memcmp(n->public_key.bytes, hash, size) != 0)
+                continue;
+            addName(n->long_name);
+        }
+    }
     // The DM contact table keeps its keys independently of the node DB, so a hop evicted from the hot store can
     // still be named by the contact it belongs to.
-    const MeshCoreContact *c = contacts.findByPrefix(hash, size);
-    if (n && c) // both claim the hash: only trust it when they are the same key
-        return memcmp(n->public_key.bytes, c->pub, 32) == 0 ? n->long_name : nullptr;
-    if (n)
-        return n->long_name;
-    return c ? c->name : nullptr;
+    const char *contactNames[PATH_HOP_NAMES_MAX];
+    const size_t contactCount = contacts.findNamesByPrefix(hash, size, contactNames, PATH_HOP_NAMES_MAX);
+    for (size_t i = 0; i < contactCount && i < PATH_HOP_NAMES_MAX; i++)
+        addName(contactNames[i]);
+    return total;
 }
 
-size_t MeshCoreCompanion::formatPathReport(const HeardPath *const *routes, size_t count, const char *sender, char *out,
-                                           size_t cap) const
+/// "A|B" for the names behind a hop, or "" when none. Duplicates collapse; beyond two names the rest become "+N".
+static void formatHopLabel(const char *const *names, size_t count, char *out, size_t cap)
 {
-    if (!out || cap < 2 || !routes || count == 0)
-        return 0;
+    if (!out || cap == 0)
+        return;
     out[0] = 0;
-    TextBuf b{out, cap};
+    char cleaned[PATH_HOP_NAMES_MAX][16];
+    size_t have = 0;
+    for (size_t i = 0; i < count && i < PATH_HOP_NAMES_MAX; i++)
+        if (cleanLabel(names[i], cleaned[have], sizeof(cleaned[have]), 12) > 0)
+            have++;
+    if (have == 0)
+        return;
 
-    if (!b.addf("%s", count == 1 ? "🛰️ *Ruta*" : "🛰️ *Rutas*"))
+    const size_t limit = have > 2 ? 2 : have;
+    size_t o = 0;
+    for (size_t i = 0; i < limit; i++) {
+        if (i && o + 1 < cap)
+            out[o++] = '|';
+        const size_t l = strlen(cleaned[i]);
+        if (o + l + 1 >= cap)
+            break;
+        memcpy(&out[o], cleaned[i], l);
+        o += l;
+    }
+    if (have > limit) {
+        const int n = snprintf(&out[o], cap - o, "+%u", (unsigned)(have - limit));
+        if (n > 0 && (size_t)n < cap - o)
+            o += (size_t)n;
+    }
+    out[o] = 0;
+}
+
+static constexpr size_t REPORT_CHUNK_CAP = sizeof(((meshtastic_MeshPacket *)nullptr)->decoded.payload.bytes);
+
+/**
+ * Packs the report into client-sized messages. A piece ends at a line, word or UTF-8 boundary - never inside a
+ * character - and nothing is dropped: whatever does not fit starts the next message.
+ */
+struct ReportWriter {
+    MeshCoreCompanion::ReportSink sink;
+    void *ctx;
+    char buf[REPORT_CHUNK_CAP + 1] = {};
+    size_t len = 0;
+    unsigned parts = 0;
+
+    void flush()
+    {
+        if (!len)
+            return;
+        sink(ctx, buf, len);
+        parts++;
+        len = 0;
+        buf[0] = 0;
+    }
+
+    void add(const char *text)
+    {
+        size_t n = strlen(text);
+        while (n) {
+            if (len == 0 && parts > 0) { // a piece that continues a split report
+                memcpy(buf, "↳ ", 4);
+                len = 4;
+                buf[len] = 0;
+            }
+            const size_t room = REPORT_CHUNK_CAP - len;
+            if (n <= room) {
+                memcpy(&buf[len], text, n);
+                len += n;
+                buf[len] = 0;
+                return;
+            }
+            size_t cut = room;
+            while (cut > 0 && ((uint8_t)text[cut] & 0xC0) == 0x80)
+                cut--; // never split a UTF-8 character
+            size_t space = cut;
+            while (space > 0 && text[space] != ' ' && text[space] != '\n')
+                space--;
+            if (space > 0)
+                cut = space;
+            if (cut == 0)
+                break; // unreachable with valid text; never spin on a boundary
+            memcpy(&buf[len], text, cut);
+            len += cut;
+            buf[len] = 0;
+            flush();
+            text += cut;
+            n -= cut;
+            if (*text == ' ' || *text == '\n')
+                text++, n--;
+        }
+    }
+
+    void addf(const char *fmt, ...)
+    {
+        char tmp[64];
+        va_list ap;
+        va_start(ap, fmt);
+        vsnprintf(tmp, sizeof(tmp), fmt, ap);
+        va_end(ap);
+        add(tmp);
+    }
+};
+
+size_t MeshCoreCompanion::formatPathReport(const HeardPath *const *routes, size_t count, const char *sender,
+                                           ReportSink sink, void *ctx) const
+{
+    if (!routes || count == 0 || !sink)
         return 0;
+
+    ReportWriter w{sink, ctx};
+    if (count == 1)
+        w.add("🛰️ *Ruta*");
+    else
+        w.add("🛰️ *Rutas*");
     char label[40];
     if (sender && cleanLabel(sender, label, sizeof(label), sizeof(label) - 1) > 0) {
         const size_t l = strlen(label);
         if (l > 5 && strcmp(&label[l - 5], " (MC)") == 0)
             label[l - 5] = 0; // the suffix that tells a MeshCore node from the Meshtastic one of the same name
-        if (label[0] && !b.addf(" de **%s**", label))
-            return b.len;
+        if (label[0])
+            w.addf(" de **%s**", label);
     }
     if (count == 1)
-        b.addf(" · 1 camino");
+        w.add(" · 1 camino");
     else
-        b.addf(" · %u caminos", (unsigned)count);
+        w.addf(" · %u caminos", (unsigned)count);
 
-    size_t shown = 0;
-    for (; shown < count; shown++) {
-        const HeardPath &route = *routes[shown];
-        char line[160];
-        TextBuf lb{line, sizeof(line)};
-        char plainNum[8] = {};
-        const char *num = shown < 9 ? KEYCAPS[shown] : nullptr;
-        if (!num) {
-            snprintf(plainNum, sizeof(plainNum), "%u.", (unsigned)(shown + 1));
-            num = plainNum;
-        }
+    for (size_t r = 0; r < count; r++) {
+        const HeardPath &route = *routes[r];
+        char num[8] = {};
+        if (r < 9)
+            snprintf(num, sizeof(num), "%s", KEYCAPS[r]);
+        else
+            snprintf(num, sizeof(num), "%u.", (unsigned)(r + 1));
 
+        w.add("\n");
         if (route.hopCount == 0) {
-            lb.addf("%s directo", num);
+            w.addf("%s directo", num);
         } else {
-            lb.addf("%s %u %s", num, (unsigned)route.hopCount, route.hopCount == 1 ? "salto" : "saltos");
+            w.addf("%s %u %s", num, (unsigned)route.hopCount, route.hopCount == 1 ? "salto" : "saltos");
             const size_t stored = route.hashSize ? sizeof(route.path) / route.hashSize : 0;
             const size_t total = route.hopCount < stored ? route.hopCount : stored;
-            if (total) {
-                lb.addf(" · ");
-                size_t hop = 0;
-                for (; hop < total; hop++) {
-                    const uint8_t *hash = &route.path[hop * route.hashSize];
-                    char one[40];
-                    const char *name = pathHopName(hash, route.hashSize);
-                    if (name && cleanLabel(name, label, sizeof(label), 12) > 0) {
-                        snprintf(one, sizeof(one), hop ? " › **%s**" : "**%s**", label);
-                    } else {
-                        char hex[7] = {};
-                        for (size_t j = 0; j < route.hashSize; j++)
-                            snprintf(&hex[j * 2], 3, "%02x", (unsigned)hash[j]);
-                        snprintf(one, sizeof(one), hop ? " › `%s`" : "`%s`", hex);
-                    }
-                    if (!lb.addf("%s", one))
-                        break;
+            if (total)
+                w.add(" · ");
+            for (size_t hop = 0; hop < total; hop++) {
+                if (hop)
+                    w.add(" › ");
+                const uint8_t *hash = &route.path[hop * route.hashSize];
+                const char *names[PATH_HOP_NAMES_MAX];
+                const size_t nameCount = pathHopNames(hash, route.hashSize, names, PATH_HOP_NAMES_MAX);
+                char one[48];
+                formatHopLabel(names, nameCount, one, sizeof(one));
+                if (one[0]) {
+                    w.addf("**%s**", one);
+                } else {
+                    char hex[7] = {};
+                    for (size_t j = 0; j < route.hashSize; j++)
+                        snprintf(&hex[j * 2], 3, "%02x", (unsigned)hash[j]);
+                    w.addf("`%s`", hex);
                 }
-                if (hop < route.hopCount)
-                    lb.addf(" › …");
             }
         }
-        lb.addf(" · SNR %.1f dB", (double)route.snr);
+        w.addf(" · SNR %.1f dB · RSSI %d dBm", (double)route.snr, (int)route.rssi);
+    }
+    w.flush();
+    return w.parts;
+}
 
-        // Leave room for the "… +N caminos" line when there are routes left out.
-        const size_t reserve = shown + 1 < count ? 16 : 0;
-        if (b.len + lb.len + reserve >= cap)
-            break;
-        if (!b.addf("\n%s", line))
-            break;
-    }
-    if (shown < count) {
-        const size_t left = count - shown;
-        if (left == 1)
-            b.addf("\n… +1 camino");
-        else
-            b.addf("\n… +%u caminos", (unsigned)left);
-    }
-    return b.len;
+void MeshCoreCompanion::injectReportChunk(void *ctx, const char *text, size_t len)
+{
+    auto *r = static_cast<ReportInject *>(ctx);
+    r->self->injectText(r->fromNum, r->to, r->channel, text, r->replyId, r->direct, r->contact, r->hops, r->snr, r->rssi);
+    LOG_INFO("MeshCore .path report piece: %u B", (unsigned)len);
 }
 
 bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool direct)
@@ -895,21 +1011,17 @@ bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool d
     for (size_t r = 0; r < routeCount; r++) {
         const size_t stored = routes[r]->hashSize ? sizeof(routes[r]->path) / routes[r]->hashSize : 0;
         const size_t total = routes[r]->hopCount < stored ? routes[r]->hopCount : stored;
-        for (size_t i = 0; i < total; i++)
-            if (pathHopName(&routes[r]->path[i * routes[r]->hashSize], routes[r]->hashSize))
+        for (size_t i = 0; i < total; i++) {
+            const char *names[PATH_HOP_NAMES_MAX];
+            if (pathHopNames(&routes[r]->path[i * routes[r]->hashSize], routes[r]->hashSize, names, PATH_HOP_NAMES_MAX))
                 named++;
+        }
     }
     LOG_INFO("MeshCore .path: %u routes, %u/%u nodes keyed, %u hops named", (unsigned)routeCount, (unsigned)keyed,
              (unsigned)nodes, (unsigned)named);
 
-    char report[sizeof(p->decoded.payload.bytes) + 1];
-    if (entry)
-        formatPathReport(routes, routeCount, pathSenderName(entry->fromNum), report, sizeof(report));
-    else
-        snprintf(report, sizeof(report), "🛰️ *Sin datos*: no he visto la ruta de ese mensaje.");
-    sanitizeUtf8(report, sizeof(report));
-
-    // Never on air: mark the command delivered and answer it here, in the same channel / chat.
+    // Never on air: mark the command delivered and answer it here, in the same channel / chat. A long report goes out
+    // as several messages, so the sender must be in place before the first piece is streamed.
     reportDelivery(direct ? p->to : PSEUDO_NODE_NUM, p->id, meshtastic_Routing_Error_NONE);
     const MeshCoreContact *c = direct ? contacts.findByNodeNum(p->to) : nullptr;
     if (direct) {
@@ -920,9 +1032,24 @@ bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool d
     } else {
         ensurePseudoNode();
     }
-    injectText(c ? c->nodeNum : PSEUDO_NODE_NUM, direct ? nodeDB->getNodeNum() : NODENUM_BROADCAST,
-               direct ? 0 : p->channel, report, entry ? entry->packetId : p->id, direct, c,
-               best ? best->hopCount : 0, best ? best->snr : 0, best ? best->rssi : 0);
+
+    const uint32_t fromNum = c ? c->nodeNum : PSEUDO_NODE_NUM;
+    const uint32_t to = direct ? nodeDB->getNodeNum() : NODENUM_BROADCAST;
+    const uint8_t channel = direct ? 0 : p->channel;
+    const uint32_t replyId = entry ? entry->packetId : p->id;
+    const uint8_t hops = best ? best->hopCount : 0;
+    const float snr = best ? best->snr : 0;
+    const int32_t rssi = best ? best->rssi : 0;
+
+    if (entry) {
+        ReportInject inject = {this, fromNum, to, replyId, channel, direct, c, hops, snr, rssi};
+        formatPathReport(routes, routeCount, pathSenderName(entry->fromNum), injectReportChunk, &inject);
+    } else {
+        char report[sizeof(p->decoded.payload.bytes) + 1];
+        snprintf(report, sizeof(report), "🛰️ *Sin datos*: no he visto la ruta de ese mensaje.");
+        sanitizeUtf8(report, sizeof(report));
+        injectText(fromNum, to, channel, report, replyId, direct, c, hops, snr, rssi);
+    }
     LOG_INFO("MeshCore path command answered locally (direct=%d, routes=%u)", direct, (unsigned)routeCount);
     return true;
 }
