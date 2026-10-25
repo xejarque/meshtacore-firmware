@@ -453,9 +453,8 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
 
     /** Owns the ADVERT schedule; the radio thread's single notification slot cannot hold a long timer. */
     concurrency::OSThread *meshCoreAdvertThread = nullptr;
-    // Next flood / zero-hop ADVERT. The zero-hop one is due at the first tick (MESHCORE_ADVERT_FIRST_MS after boot).
+    // Next flood ADVERT. Zero-hop adverts are not sent: a flood reaches the direct neighbours as well.
     uint32_t nextMeshCoreFloodAdvertMs = 0;
-    uint32_t nextMeshCoreLocalAdvertMs = 0;
 
   public:
     /**

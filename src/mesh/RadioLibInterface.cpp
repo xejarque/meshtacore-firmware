@@ -680,11 +680,8 @@ void RadioLibInterface::completeRawSend()
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
 static constexpr size_t MESHCORE_SEED_LEN = 32;
 static constexpr uint32_t MESHCORE_IDENTITY_LOAD_MS = 5 * 1000; // identity ready early: discovery needs it
-static constexpr uint32_t MESHCORE_ADVERT_FIRST_MS = 60 * 1000; // first zero-hop ADVERT a minute after boot
-// A zero-hop advert every 2 minutes for direct neighbours (MeshCore simple_repeater default); a flood advert for the whole
-// mesh a few minutes after boot, so the node shows up across repeaters without waiting, then every 12 hours. A flood is
-// re-sent by every node, so it must stay rare.
-static constexpr uint32_t MESHCORE_LOCAL_ADVERT_INTERVAL_MS = 2 * 60 * 1000;
+// Flood adverts only, which reach the direct neighbours too: the first a few minutes after boot so the node shows up
+// without waiting, then every 12 hours. A flood is re-sent by every node, so it must stay rare.
 static constexpr uint32_t MESHCORE_FLOOD_ADVERT_FIRST_MS = 3 * 60 * 1000;
 static constexpr uint32_t MESHCORE_FLOOD_ADVERT_INTERVAL_MS = 12UL * 60 * 60 * 1000;
 static constexpr uint32_t MESHCORE_ADVERT_RETRY_MS = 60 * 1000;           // no identity / no valid time
@@ -852,11 +849,9 @@ uint32_t RadioLibInterface::meshCoreAdvertTick()
     }
 
     const bool floodDue = Throttle::deadlinePassed(nextMeshCoreFloodAdvertMs);
-    const bool localDue = Throttle::deadlinePassed(nextMeshCoreLocalAdvertMs);
-    if (!floodDue && !localDue) {
+    if (!floodDue) {
         const uint32_t now = millis();
-        const uint32_t toFlood = nextMeshCoreFloodAdvertMs - now, toLocal = nextMeshCoreLocalAdvertMs - now;
-        return toFlood < toLocal ? toFlood : toLocal;
+        return nextMeshCoreFloodAdvertMs - now;
     }
 
     // MeshCore clients order adverts by timestamp, so it must be a real time - but any source will do.
@@ -866,7 +861,6 @@ uint32_t RadioLibInterface::meshCoreAdvertTick()
         return MESHCORE_ADVERT_RETRY_MS;
     }
 
-    // A flood also reaches the direct neighbours, so it stands in for the local advert that is due with it.
     // MeshCore clients ignore an advert without a name (BaseChatMesh::onAdvertRecv).
     char fallbackName[20];
     const char *name = owner.long_name;
@@ -877,17 +871,15 @@ uint32_t RadioLibInterface::meshCoreAdvertTick()
     uint8_t raw[MeshCoreRepeater::MAX_FRAME_LEN];
     // The Meshtastic role decides how MeshCore sees us: a router is a repeater, anything else a companion to message.
     meshCoreRepeater.setNodeType(MeshCoreRepeater::nodeTypeForRole(config.device.role));
-    size_t len = meshCoreRepeater.buildAdvert(raw, sizeof(raw), name, now, floodDue);
+    // Flood only: it reaches the direct neighbours too, and every node re-sends it, so it is the only kind worth
+    // spending airtime on.
+    size_t len = meshCoreRepeater.buildAdvert(raw, sizeof(raw), name, now, true);
     if (len == 0 || !meshCoreRepeater.queueOwnFrame(raw, len)) {
         LOG_WARN("MeshCore ADVERT could not be built or queued");
         return MESHCORE_ADVERT_RETRY_MS;
     }
-    LOG_INFO("MeshCore %s ADVERT queued (%u bytes, name=%s, ts=%u)", floodDue ? "flood" : "zero-hop", (unsigned)len, name,
-             (unsigned)now);
-    const uint32_t queuedAt = millis();
-    if (floodDue)
-        nextMeshCoreFloodAdvertMs = queuedAt + MESHCORE_FLOOD_ADVERT_INTERVAL_MS;
-    nextMeshCoreLocalAdvertMs = queuedAt + MESHCORE_LOCAL_ADVERT_INTERVAL_MS;
+    LOG_INFO("MeshCore flood ADVERT queued (%u bytes, name=%s, ts=%u)", (unsigned)len, name, (unsigned)now);
+    nextMeshCoreFloodAdvertMs = millis() + MESHCORE_FLOOD_ADVERT_INTERVAL_MS;
     wakeMeshCoreRelay();
     return MESHCORE_ADVERT_NUDGE_MS;
 }
@@ -1210,9 +1202,8 @@ void RadioLibInterface::startReceive()
     powerMon->setState(meshtastic_PowerMon_State_Lora_RXOn);
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
     if (!meshCoreAdvertThread) {
-        // The zero-hop advert for direct neighbours goes out shortly after boot, the first flood a few minutes later.
+        // The first flood advert goes out a few minutes after boot, once the identity and the clock are ready.
         nextMeshCoreFloodAdvertMs = millis() + MESHCORE_FLOOD_ADVERT_FIRST_MS;
-        nextMeshCoreLocalAdvertMs = millis() + MESHCORE_ADVERT_FIRST_MS;
         meshCoreAdvertThread = new MeshCoreAdvertThread(this);
         meshCoreRelayThread = new MeshCoreRelayThread(this);
     }
