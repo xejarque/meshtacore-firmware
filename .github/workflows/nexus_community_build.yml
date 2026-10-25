@@ -179,7 +179,7 @@ jobs:
           SNAPSHOT: ${{ inputs.tag }}
           VERSION: ${{ steps.version.outputs.long }}
         run: |
-          TAG="${SNAPSHOT:-nexus-community-latest}"
+          TAG="${SNAPSHOT:-meshtacore-community-latest}"
           # A published release belongs to a shipped build: never overwrite its
           # assets (this repo is public). Retag the rolling draft, and refuse
           # outright when the published tag was requested explicitly.
@@ -188,7 +188,7 @@ jobs:
               echo "::error::Release '$TAG' is published; refusing to overwrite it. Use a new tag."
               exit 1
             fi
-            TAG="nexus-community-${VERSION}"
+            TAG="meshtacore-community-${VERSION}"
             echo "Rolling tag already published; drafting \`$TAG\` instead." >> "$GITHUB_STEP_SUMMARY"
           fi
           if gh release view "$TAG" > /dev/null 2>&1; then
@@ -240,7 +240,7 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: Nexus Community Build
+          name: Meshtacore Community Build
           draft: true
           prerelease: true
           body_path: ./notes.md
