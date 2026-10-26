@@ -650,6 +650,12 @@ const MeshCoreCompanion::HeardPath *MeshCoreCompanion::heardFind(uint32_t packet
     return nullptr;
 }
 
+/// A node the companion announced for a MeshCore peer: our number range, a MeshCore key and no Meshtastic hardware.
+static bool isMeshCoreNode(const meshtastic_NodeInfoLite *n)
+{
+    return n && (n->num >> 24) == 0x4D && n->public_key.size == 32 && n->hw_model == meshtastic_HardwareModel_UNSET;
+}
+
 size_t MeshCoreCompanion::pathHopNames(const uint8_t *hash, uint8_t size, const char **out, size_t max) const
 {
     size_t total = 0;
@@ -664,21 +670,19 @@ size_t MeshCoreCompanion::pathHopNames(const uint8_t *hash, uint8_t size, const 
         total++;
     };
 
-    if (nodeDB) {
-        for (size_t i = 0; i < nodeDB->getNumMeshNodes(); i++) {
-            const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
-            if (!n || n->public_key.size != 32 || n->long_name[0] == 0 ||
-                memcmp(n->public_key.bytes, hash, size) != 0)
-                continue;
-            addName(n->long_name);
-        }
-    }
-    // The MeshCore node store keeps its keys independently of the node DB, so a hop evicted from the hot store can
-    // still be named by the node it belongs to.
     const MeshCoreNode *known[PATH_HOP_NAMES_MAX];
     const size_t knownCount = nodes.findByPrefix(hash, size, known, PATH_HOP_NAMES_MAX);
     for (size_t i = 0; i < knownCount && i < PATH_HOP_NAMES_MAX; i++)
         addName(known[i]->name);
+    // MeshCore nodes announced before the store existed are only in the node DB. A Meshtastic node's key has nothing to
+    // do with a MeshCore hash, so only MeshCore nodes are looked at.
+    for (size_t i = 0; nodeDB && i < nodeDB->getNumMeshNodes(); i++) {
+        const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
+        if (!isMeshCoreNode(n) || n->long_name[0] == 0 || memcmp(n->public_key.bytes, hash, size) != 0)
+            continue;
+        if (!nodes.find(n->public_key.bytes))
+            addName(n->long_name);
+    }
     return total;
 }
 
@@ -912,15 +916,7 @@ bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool d
     }
     const HeardPath *best = routeCount ? routes[0] : nullptr;
 
-    size_t nodes = 0, keyed = 0, named = 0;
-    if (nodeDB) {
-        nodes = nodeDB->getNumMeshNodes();
-        for (size_t i = 0; i < nodes; i++) {
-            const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
-            if (n && n->public_key.size == 32)
-                keyed++;
-        }
-    }
+    size_t named = 0;
     for (size_t r = 0; r < routeCount; r++) {
         const size_t stored = routes[r]->hashSize ? sizeof(routes[r]->path) / routes[r]->hashSize : 0;
         const size_t total = routes[r]->hopCount < stored ? routes[r]->hopCount : stored;
@@ -930,8 +926,8 @@ bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool d
                 named++;
         }
     }
-    LOG_INFO("MeshCore .path: %u routes, %u/%u nodes keyed, %u hops named", (unsigned)routeCount, (unsigned)keyed,
-             (unsigned)nodes, (unsigned)named);
+    LOG_INFO("MeshCore .path: %u routes, %u MeshCore nodes known, %u hops named", (unsigned)routeCount,
+             (unsigned)nodes.count(), (unsigned)named);
 
     // Never on air: mark the command delivered and answer it here, in the same channel / chat. A long report goes out
     // as several messages, so the sender must be in place before the first piece is streamed.
@@ -1282,12 +1278,35 @@ MeshCoreNode *MeshCoreCompanion::contactByNodeNum(uint32_t nodeNum)
 MeshCoreNode *MeshCoreCompanion::learnContact(const uint8_t pub[32], const char *name)
 {
     MeshCoreNode *n = nodes.upsert(pub);
+    if (n->type != MeshCoreNode::CHAT)
+        n->nodeNum = 0; // a repeater turned chat takes the number contacts get, from its name
     n->type = MeshCoreNode::CHAT;
     if (name)
         n->setName(name);
     if (n->nodeNum == 0) // a contact keeps its number across renames, as the client keeps its conversation
         nodes.assignNodeNum(n, MeshCoreNodeStore<1>::nodeNumForName(n->name), PSEUDO_NODE_NUM);
     return n;
+}
+
+MeshCoreNode *MeshCoreCompanion::learnRepeater(const uint8_t pub[32], const char *name)
+{
+    MeshCoreNode *n = nodes.upsert(pub);
+    if (n->type != MeshCoreNode::REPEATER)
+        n->nodeNum = 0; // a chat identity turned repeater takes the number repeaters get, from its key
+    n->type = MeshCoreNode::REPEATER;
+    n->setName(name);
+    if (n->nodeNum == 0)
+        nodes.assignNodeNum(n, MeshCoreNodeStore<1>::nodeNumForKey(pub), PSEUDO_NODE_NUM);
+    return n;
+}
+
+void MeshCoreCompanion::noteAdvert(MeshCoreNode *n, uint32_t advertTime, int32_t latMicro, int32_t lonMicro)
+{
+    n->lastAdvert = advertTime;
+    if (latMicro != 0 || lonMicro != 0) { // 0,0 is "no position", not the Gulf of Guinea
+        n->latitudeMicro = latMicro;
+        n->longitudeMicro = lonMicro;
+    }
 }
 
 void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr,
@@ -1336,19 +1355,18 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
         return;
 
     const MeshCoreRx rx(info.path_hash_count, snr, rssi);
+    const uint32_t advertTime = readLe32(&payload[32]);
     if (repeater) {
-        // A repeater is not someone to message: it only gets a node, keyed by its public key, and no contact slot.
-        uint32_t num = MeshCoreNodeStore<1>::nodeNumForKey(payload);
-        if (num == PSEUDO_NODE_NUM)
-            num++;
-        const meshtastic_NodeInfoLite *lite = nodeDB ? nodeDB->getMeshNode(num) : nullptr;
-        const bool known = lite && nodeInfoLiteHasUser(lite) && lite->public_key.size == 32 &&
-                           memcmp(lite->public_key.bytes, payload, 32) == 0 &&
-                           strncmp(lite->long_name, name, utf8PrefixLen(name, sizeof(lite->long_name) - 6)) == 0;
-        if (!known && !MeshCoreRepeater::verifyAdvert(payload, info.payload_len))
+        // A repeater is not someone to message: numbered from its key, and announced unmessagable.
+        const MeshCoreNode *known = nodes.find(payload);
+        const bool trusted =
+            known && known->type == MeshCoreNode::REPEATER && strncmp(known->name, name, MeshCoreNode::NAME_LEN - 1) == 0;
+        if (!trusted && !MeshCoreRepeater::verifyAdvert(payload, info.payload_len))
             return;
-        ensureSenderNode(num, name, false, payload, meshtastic_Config_DeviceConfig_Role_REPEATER, rx);
-        updatePosition(num, latMicro, lonMicro);
+        MeshCoreNode *n = learnRepeater(payload, name);
+        noteAdvert(n, advertTime, latMicro, lonMicro);
+        ensureSenderNode(n->nodeNum, n->name, false, n->pub, meshtastic_Config_DeviceConfig_Role_REPEATER, rx);
+        updatePosition(n->nodeNum, latMicro, lonMicro);
         return;
     }
 
@@ -1356,6 +1374,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
     MeshCoreNode *known = contactByPub(payload);
     if (known && strncmp(known->name, name, MeshCoreNode::NAME_LEN - 1) == 0) {
         nodes.touch(known);
+        noteAdvert(known, advertTime, latMicro, lonMicro);
         // Brings a node made before keys were set up along.
         ensureSenderNode(known->nodeNum, known->name, true, known->pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
         updatePosition(known->nodeNum, latMicro, lonMicro);
@@ -1365,6 +1384,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
         return;
 
     MeshCoreNode *c = learnContact(payload, name);
+    noteAdvert(c, advertTime, latMicro, lonMicro);
     if (!known)
         contactsLearned++;
     ensureSenderNode(c->nodeNum, c->name, true, c->pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);

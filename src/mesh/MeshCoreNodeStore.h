@@ -110,13 +110,8 @@ template <size_t N> class MeshCoreNodeStore
         return n;
     }
 
-    MeshCoreNode *find(const uint8_t pub[32])
-    {
-        for (auto &e : entries)
-            if (e.lastMod && memcmp(e.pub, pub, 32) == 0)
-                return &e;
-        return nullptr;
-    }
+    MeshCoreNode *find(const uint8_t pub[32]) { return const_cast<MeshCoreNode *>(findEntry(pub)); }
+    const MeshCoreNode *find(const uint8_t pub[32]) const { return findEntry(pub); }
 
     MeshCoreNode *findByNodeNum(uint32_t nodeNum)
     {
@@ -210,6 +205,14 @@ template <size_t N> class MeshCoreNodeStore
 
   private:
     MeshCoreNode entries[N];
+
+    const MeshCoreNode *findEntry(const uint8_t pub[32]) const
+    {
+        for (const auto &e : entries)
+            if (e.lastMod && memcmp(e.pub, pub, 32) == 0)
+                return &e;
+        return nullptr;
+    }
 
     template <typename Entries, typename Out>
     static size_t collectByPrefix(Entries &all, const uint8_t *prefix, uint8_t size, Out **out, size_t max)

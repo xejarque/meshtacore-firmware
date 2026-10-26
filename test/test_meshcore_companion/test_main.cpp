@@ -1285,6 +1285,72 @@ void test_path_report_sanitizes_node_names(void)
     TEST_ASSERT_NULL(strstr(body, "[with]"));
     TEST_ASSERT_NOT_NULL(strstr(body, "BadName"));
 }
+
+// A repeater's ADVERT lands in the MeshCore node store, numbered from its key as repeater nodes always were (so the client
+// keeps the node it shows), and ".path" names its hop from there even when the node DB does not hold it. Regression guard:
+// repeaters kept only in the node DB lose their name the moment a busy Meshtastic mesh evicts them.
+void test_repeater_advert_is_stored_and_names_its_hop()
+{
+    GroupSetup s;
+    uint8_t seed[32];
+    for (int i = 0; i < 32; i++)
+        seed[i] = (uint8_t)(0x5A ^ i);
+    uint8_t ourPub[32];
+    Ed25519::derivePublicKey(ourPub, seed);
+    s.c.setIdentity(seed, ourPub);
+
+    MeshCoreRepeater other;
+    uint8_t otherSeed[32];
+    for (int i = 0; i < 32; i++)
+        otherSeed[i] = (uint8_t)(0xC3 ^ i);
+    while (!other.setIdentitySeed(otherSeed))
+        otherSeed[0]++;
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = other.buildAdvert(frame, sizeof(frame), "Montjuic RPT", 1792521507, true, true);
+    TEST_ASSERT_GREATER_THAN(0, len);
+    s.c.handleFrame(frame, len, 5, -60);
+
+    const MeshCoreNode *n = s.c.nodes.find(other.getAliasPub());
+    TEST_ASSERT_NOT_NULL(n);
+    TEST_ASSERT_EQUAL_UINT8(MeshCoreNode::REPEATER, n->type);
+    TEST_ASSERT_EQUAL_STRING("Montjuic RPT", n->name);
+    TEST_ASSERT_EQUAL_HEX32(MeshCoreNodeStore<1>::nodeNumForKey(other.getAliasPub()), n->nodeNum);
+    TEST_ASSERT_EQUAL_UINT32(1792521507, n->lastAdvert);
+    TEST_ASSERT_FALSE(s.c.hasContact(n->nodeNum)); // a repeater is listed, not messaged
+    TEST_ASSERT_NULL(nodeDB->getMeshNode(n->nodeNum)); // the capturing router never filed the announce
+
+    MeshCoreCompanion::HeardPath entry;
+    entry.hopCount = 1;
+    entry.hashSize = 2;
+    entry.routeType = 1;
+    memcpy(entry.path, other.getAliasPub(), 2);
+    char body[256];
+    TEST_ASSERT_TRUE(formatOneRoute(s.c, entry, nullptr, body, sizeof(body)) > 0);
+    TEST_ASSERT_NOT_NULL(strstr(body, "Montjuic RPT"));
+}
+
+// A Meshtastic node whose key happens to start with a MeshCore hop hash is not that hop: its key is a Curve25519 key of
+// another network. Regression guard: naming MeshCore hops from every keyed node in the node DB.
+void test_path_report_ignores_meshtastic_keys()
+{
+    GroupSetup s;
+    const uint8_t pub[32] = {0x5D, 0x6E};
+    meshtastic_NodeInfoLite *n = nodeDB->getOrCreateMeshNode(0x12345678);
+    strncpy(n->long_name, "Meshtastic node", sizeof(n->long_name) - 1);
+    n->hw_model = meshtastic_HardwareModel_HELTEC_V3;
+    n->public_key.size = 32;
+    memcpy(n->public_key.bytes, pub, 32);
+
+    MeshCoreCompanion::HeardPath entry;
+    entry.hopCount = 1;
+    entry.hashSize = 2;
+    entry.routeType = 1;
+    memcpy(entry.path, pub, 2);
+    char body[256];
+    TEST_ASSERT_TRUE(formatOneRoute(s.c, entry, nullptr, body, sizeof(body)) > 0);
+    TEST_ASSERT_NULL(strstr(body, "Meshtastic node"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "`5d6e`"));
+}
 #endif
 
 // The relay alias is this node, not another repeater: hearing its own repeater-typed ADVERT back must not add a node.
@@ -1389,6 +1455,8 @@ void setup()
     RUN_TEST(test_path_command_lists_every_route);
     RUN_TEST(test_path_report_keeps_whole_names);
     RUN_TEST(test_path_report_sanitizes_node_names);
+    RUN_TEST(test_repeater_advert_is_stored_and_names_its_hop);
+    RUN_TEST(test_path_report_ignores_meshtastic_keys);
 #endif
     exit(UNITY_END());
 }

@@ -230,6 +230,8 @@ class MeshCoreCompanion
 
     /// Learn or refresh a chat contact, numbered from its name the first time and keeping that number afterwards.
     MeshCoreNode *learnContact(const uint8_t pub[32], const char *name);
+    /// Learn or refresh a repeater, numbered from its public key.
+    MeshCoreNode *learnRepeater(const uint8_t pub[32], const char *name);
 
     /// Queue a TXT_MSG for the contact behind nodeNum and wait for a repeater to re-flood it, then for its ACK, answering
     /// packetId to the client. text is cut to MAX_TEXT_LEN on a UTF-8 boundary. clientPki says which of the client's two
@@ -322,6 +324,8 @@ class MeshCoreCompanion
     MeshCoreNode *contactByNodeNum(uint32_t nodeNum);
     /// Copy the client's favourite stars from the node DB, which is where it sets them.
     void syncFavorites();
+    /// Keep what an ADVERT says about n: its timestamp and, when it carries one, its position.
+    void noteAdvert(MeshCoreNode *n, uint32_t advertTime, int32_t latMicro, int32_t lonMicro);
     /// Inject a bridged text as received: the one place that builds the synthetic packet, for both channels and DMs.
     /// contact is the sender when direct; hop count and signal mirror the frame being reported.
     uint32_t injectText(uint32_t fromNum, uint32_t to, uint8_t channel, const char *text, uint32_t replyId, bool direct,
