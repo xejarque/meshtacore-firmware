@@ -12,6 +12,10 @@ typedef uint32_t PacketId; // A packet sequence number
 #define NODENUM_BROADCAST UINT32_MAX
 #define NODENUM_BROADCAST_NO_LORA                                                                                                \
     1 // Reserved to only deliver packets over high speed (non-lora) transports, such as MQTT or BLE mesh (not yet implemented)
+// The one synthetic node the firmware speaks as: MeshCore bridged texts and the ".path" reports are signed with it.
+#define NODENUM_SYSTEM_BOT 0x4D430001
+#define SYSTEM_BOT_LONG_NAME "System Bot"
+#define SYSTEM_BOT_SHORT_NAME "SYS"
 #define ERRNO_OK 0
 #define ERRNO_NO_INTERFACES 33
 #define ERRNO_UNKNOWN 32                   // pick something that doesn't conflict with RH_ROUTER_ERROR_UNABLE_TO_DELIVER

@@ -6,6 +6,7 @@
 
 #include "Channels.h"
 #include "MeshCoreDedup.h"
+#include "MeshTypes.h"
 #include "MeshCoreNodeFile.h"
 #include "MeshCoreNodeStore.h"
 #include "MeshCoreRepeater.h"
@@ -37,8 +38,8 @@ struct MeshCoreRx {
 class MeshCoreCompanion
 {
   public:
-    /// Node number all bridged MeshCore messages appear to come from.
-    static constexpr uint32_t PSEUDO_NODE_NUM = 0x4D430001;
+    /// Node number all bridged MeshCore messages appear to come from: the system bot, shared with the ".path" reports.
+    static constexpr uint32_t PSEUDO_NODE_NUM = NODENUM_SYSTEM_BOT;
 
     /// MeshCore MAX_TEXT_LEN: the encrypted body's limit, including the "name: " prefix.
     static constexpr size_t MAX_TEXT_LEN = 160;
@@ -131,6 +132,7 @@ class MeshCoreCompanion
         uint8_t routeType = 0;
         uint8_t hashSize = 0;
         uint8_t hopCount = 0;
+        bool own = false;      // our own transmission: the echoes of it borrow its id, but it is no route itself
         uint8_t path[64] = {}; // MeshCore MAX_PATH_SIZE, so every hop of the route is kept and reported
     };
     /// One route per copy of a text: a flood reaches us over several, and ".path" lists them all.
@@ -143,6 +145,9 @@ class MeshCoreCompanion
      */
     void noteHeardRoute(uint32_t packetId, uint32_t frameHash, uint32_t fromNum, uint8_t channel, const uint8_t *path,
                         uint8_t hashSize, uint8_t hopCount, uint8_t routeType, float snr, int32_t rssi);
+
+    /// Record a text we transmitted, so the repeaters that re-flood it are heard as its routes. Carries no route itself.
+    void noteSentText(uint32_t packetId, uint32_t frameHash, uint32_t fromNum, uint8_t channel);
 
     /// Answer a local ".path"/".ruta" the client sent: true when it was answered here and must not be transmitted.
     /// direct = a text for a MeshCore contact (TXT_MSG), false = a broadcast on a MeshCore channel (GRP_TXT).
@@ -212,7 +217,7 @@ class MeshCoreCompanion
 
     /// Wait for a repeater to echo the channel text frame we just queued, then tell the client packetId was delivered; if
     /// nobody does within ACK_TIMEOUT_MS it is reported as failed. False if frame is not a MeshCore frame.
-    bool trackGroupText(const uint8_t *frame, size_t len, uint32_t packetId);
+    bool trackGroupText(const uint8_t *frame, size_t len, uint32_t packetId, uint8_t channel);
 
     /// Timestamp for the next outgoing text: strictly increasing, so two texts sent within the same
     /// second still encrypt differently and are not dropped as duplicates by repeaters.

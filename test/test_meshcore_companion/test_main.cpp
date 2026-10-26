@@ -1202,6 +1202,72 @@ void test_path_command_answers_a_direct_message(void)
     TEST_ASSERT_NOT_NULL(strstr(body, "Mensaje directo · hace ")); // a DM, not MeshCore channel 0
 }
 
+// A channel text we sent, re-flooded by a repeater, is answered with that repeater as its route. Regression guard: our own
+// transmission had no entry, so every ".path" on it answered "Sin datos" whatever the repeaters did.
+void test_path_command_answers_our_channel_text_with_its_echo(void)
+{
+    GroupSetup s;
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN], echo[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len =
+        MeshCoreCompanion::encodeGroupText(kPublicKey, sizeof(kPublicKey), "Alice", 1700000000, "hola", frame, sizeof(frame));
+    TEST_ASSERT_GREATER_THAN(0, len);
+    const uint32_t packetId = 0x00ABC777;
+    s.c.noteTransmitted(frame, len);
+    TEST_ASSERT_TRUE(s.c.trackGroupText(frame, len, packetId, 0));
+
+    const size_t echoLen = repeaterEcho(frame, len, echo);
+    s.c.handleFrame(echo, echoLen, -4.0f, -90);
+    char texts[256];
+    collectReports(s.capture, 0, texts, sizeof(texts));
+    TEST_ASSERT_EQUAL_STRING("", texts); // the echo is no new text, only a route
+
+    meshtastic_MeshPacket command = textPacket(0, packetId, ".path");
+    TEST_ASSERT_TRUE(s.c.handlePathCommand(&command, false));
+    char body[256];
+    reportText(s.capture.received.back(), body, sizeof(body));
+    TEST_ASSERT_NOT_NULL(strstr(body, "🛰️ Ruta"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "SNR -4.0 dB"));
+    TEST_ASSERT_NULL(strstr(body, "Sin datos"));
+    TEST_ASSERT_NULL(strstr(body, "rutas")); // one echo, one route
+}
+
+// Our channel text that no repeater has re-flooded yet has no route: ".path" says so, it does not stay silent.
+void test_path_command_own_text_without_echo_is_no_data(void)
+{
+    GroupSetup s;
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len =
+        MeshCoreCompanion::encodeGroupText(kPublicKey, sizeof(kPublicKey), "Alice", 1700000000, "hola", frame, sizeof(frame));
+    const uint32_t packetId = 0x00ABC778;
+    s.c.noteTransmitted(frame, len);
+    TEST_ASSERT_TRUE(s.c.trackGroupText(frame, len, packetId, 0));
+
+    meshtastic_MeshPacket command = textPacket(0, packetId, ".path");
+    TEST_ASSERT_TRUE(s.c.handlePathCommand(&command, false));
+    char body[256];
+    reportText(s.capture.received.back(), body, sizeof(body));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Sin datos"));
+}
+
+// A direct message we sent, re-flooded by a repeater, is answered with that route, as for any text we heard.
+void test_path_command_answers_our_direct_message_with_its_echo(void)
+{
+    DirectSetup s;
+    TEST_ASSERT_TRUE(s.c.sendDirectText(s.bobNum, 42, "hola", 1700000000, &s.radio));
+    uint8_t echo[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t echoLen = repeaterEcho(s.radio.frame, s.radio.frameLen, echo);
+    s.c.handleFrame(echo, echoLen, -4.0f, -90);
+
+    meshtastic_MeshPacket command = textPacket(0, 42, ".path");
+    command.to = s.bobNum;
+    TEST_ASSERT_TRUE(s.c.handlePathCommand(&command, true));
+    char body[256];
+    reportText(s.capture.received.back(), body, sizeof(body));
+    TEST_ASSERT_NOT_NULL(strstr(body, "🛰️ Ruta"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Mensaje directo"));
+    TEST_ASSERT_NULL(strstr(body, "Sin datos"));
+}
+
 // The same text can reach us by several routes: ".path" lists them all, the shortest first.
 void test_path_command_lists_every_route(void)
 {
@@ -1514,6 +1580,9 @@ void setup()
     RUN_TEST(test_path_report_splits_without_cutting);
     RUN_TEST(test_direct_reply_lands_in_the_chat_the_user_writes_from);
     RUN_TEST(test_path_command_answers_a_direct_message);
+    RUN_TEST(test_path_command_answers_our_channel_text_with_its_echo);
+    RUN_TEST(test_path_command_own_text_without_echo_is_no_data);
+    RUN_TEST(test_path_command_answers_our_direct_message_with_its_echo);
     RUN_TEST(test_path_command_lists_every_route);
     RUN_TEST(test_path_report_keeps_whole_names);
     RUN_TEST(test_path_report_sanitizes_node_names);

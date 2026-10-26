@@ -234,8 +234,8 @@ void MeshtasticPathCommand::ensureReportNode()
         return;
 
     meshtastic_User user = {};
-    strncpy(user.long_name, "Ruta", sizeof(user.long_name) - 1);
-    strncpy(user.short_name, "RT", sizeof(user.short_name) - 1);
+    strncpy(user.long_name, SYSTEM_BOT_LONG_NAME, sizeof(user.long_name) - 1);
+    strncpy(user.short_name, SYSTEM_BOT_SHORT_NAME, sizeof(user.short_name) - 1);
     user.hw_model = meshtastic_HardwareModel_UNSET;
     user.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
     user.has_is_unmessagable = true;

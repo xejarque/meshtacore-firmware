@@ -499,8 +499,8 @@ void MeshCoreCompanion::updatePosition(uint32_t nodeNum, int32_t latMicro, int32
 void MeshCoreCompanion::ensurePseudoNode()
 {
     meshtastic_User user = {};
-    strncpy(user.long_name, "MeshCore", sizeof(user.long_name) - 1);
-    strncpy(user.short_name, "MC", sizeof(user.short_name) - 1);
+    strncpy(user.long_name, SYSTEM_BOT_LONG_NAME, sizeof(user.long_name) - 1);
+    strncpy(user.short_name, SYSTEM_BOT_SHORT_NAME, sizeof(user.short_name) - 1);
     user.hw_model = meshtastic_HardwareModel_UNSET;
     user.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
     user.has_is_unmessagable = true;
@@ -613,7 +613,8 @@ void MeshCoreCompanion::noteHeardRoute(uint32_t packetId, uint32_t frameHash, ui
         if (!owner)
             owner = &h;
         // The same route heard twice only refreshes its signal: a flood arrives once per route, not once per copy.
-        if (h.hashSize == hashSize && h.hopCount == hopCount && (keep == 0 || (path && memcmp(h.path, path, keep) == 0))) {
+        if (!h.own && h.hashSize == hashSize && h.hopCount == hopCount &&
+            (keep == 0 || (path && memcmp(h.path, path, keep) == 0))) {
             h.snr = snr;
             h.rssi = rssi;
             return;
@@ -643,6 +644,19 @@ void MeshCoreCompanion::noteHeardRoute(uint32_t packetId, uint32_t frameHash, ui
     h.heardMs = millis();
     if (keep && path)
         memcpy(h.path, path, keep);
+}
+
+void MeshCoreCompanion::noteSentText(uint32_t packetId, uint32_t frameHash, uint32_t fromNum, uint8_t channel)
+{
+    HeardPath &h = heard[heardNext];
+    heardNext = (heardNext + 1) % PATH_MEMORY;
+    h = HeardPath();
+    h.packetId = packetId;
+    h.frameHash = frameHash;
+    h.fromNum = fromNum;
+    h.channel = channel;
+    h.heardMs = millis();
+    h.own = true;
 }
 
 const MeshCoreCompanion::HeardPath *MeshCoreCompanion::heardFind(uint32_t packetId) const
@@ -895,7 +909,7 @@ bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool d
     if (!p->decoded.reply_id)
         return false;
 
-    // The text being replied to: every copy heard of it is a route.
+    // The text being replied to: every copy heard of it is a route. Our own transmission is the entry they hang from, not one.
     const HeardPath *entry = heardFind(p->decoded.reply_id);
 
     // Every copy of that text is a separate route: the report lists them all, the shortest first.
@@ -903,7 +917,7 @@ bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool d
     size_t routeCount = 0;
     if (entry) {
         for (const HeardPath &h : heard)
-            if (h.packetId && h.frameHash == entry->frameHash && routeCount < PATH_MEMORY)
+            if (h.packetId && !h.own && h.frameHash == entry->frameHash && routeCount < PATH_MEMORY)
                 routes[routeCount++] = &h;
         for (size_t i = 1; i < routeCount; i++) { // insertion sort: tiny, and stable on equal hop counts
             const HeardPath *key = routes[i];
@@ -940,7 +954,8 @@ bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool d
     const float snr = best ? best->snr : 0;
     const int32_t rssi = best ? best->rssi : 0;
 
-    if (entry) {
+    // A text of ours nobody has re-flooded yet has an entry but no route: that is no data either.
+    if (routeCount) {
         ReportInject inject = {this, fromNum, to, replyId, channel, direct, c, hops, snr, rssi};
         formatPathReport(routes, routeCount, pathSenderName(entry->fromNum), injectReportChunk, &inject);
     } else {
@@ -1505,14 +1520,21 @@ void MeshCoreCompanion::handleDirectText(const uint8_t *raw, size_t len, const M
     // TXT_MSG payload: dest hash (1), source hash (1), MAC (2), ciphertext.
     if (!identityReady || info.header_len >= len || info.payload_len < 1 + 1 + 2 + 16)
         return;
+    const uint32_t hash = MeshCoreRepeater::hashFrame(raw, len, info);
     // A repeater re-flooding our own direct message: the last hop on the path is the repeater that carried it.
     if (info.path_hash_count > 0)
-        settleRelay(MeshCoreRepeater::hashFrame(raw, len, info), raw[info.header_len - info.path_hash_size]);
+        settleRelay(hash, raw[info.header_len - info.path_hash_size]);
     const uint8_t *payload = &raw[info.header_len];
-    if (payload[0] != identityPub[0])
+    if (payload[0] != identityPub[0]) {
+#if MESHTASTIC_MESHCORE_PATH_COMMAND
+        // A re-flood of a direct message we sent is still a route to it, even though it is not for us.
+        if (info.path_hash_count > 0)
+            noteHeardRoute(0, hash, 0, 0, pathOf(raw, info), info.path_hash_size, info.path_hash_count, info.route_type,
+                           snr, rssi);
+#endif
         return; // not for us: the repeater relays it, we cannot read it anyway
+    }
 
-    const uint32_t hash = MeshCoreRepeater::hashFrame(raw, len, info);
     if (wasRecentlySeen(hash)) {
         rxDup++;
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
@@ -1604,12 +1626,16 @@ MeshCoreCompanion::PendingAck *MeshCoreCompanion::addPending(uint32_t ackHash, u
     return slot;
 }
 
-bool MeshCoreCompanion::trackGroupText(const uint8_t *frame, size_t len, uint32_t packetId)
+bool MeshCoreCompanion::trackGroupText(const uint8_t *frame, size_t len, uint32_t packetId, uint8_t channel)
 {
     MeshCoreRepeater::FrameInfo info;
     if (!frame || !MeshCoreRepeater::parse(frame, len, &info))
         return false;
-    addPending(MeshCoreRepeater::hashFrame(frame, len, info), packetId, PSEUDO_NODE_NUM, true);
+    const uint32_t hash = MeshCoreRepeater::hashFrame(frame, len, info);
+    addPending(hash, packetId, PSEUDO_NODE_NUM, true);
+#if MESHTASTIC_MESHCORE_PATH_COMMAND
+    noteSentText(packetId, hash, nodeDB->getNodeNum(), channel);
+#endif
     return true;
 }
 
@@ -1649,6 +1675,9 @@ bool MeshCoreCompanion::sendDirectText(uint32_t nodeNum, uint32_t packetId, cons
 
     PendingAck *slot = addPending(ackHash(timestamp, TXT_FLAGS_PLAIN, cut, identityPub), packetId, nodeNum);
     slot->frameHash = MeshCoreRepeater::hashFrame(frame, frameLen, info);
+#if MESHTASTIC_MESHCORE_PATH_COMMAND
+    noteSentText(packetId, slot->frameHash, nodeDB->getNodeNum(), HeardPath::DIRECT_CHANNEL);
+#endif
     nodes.touch(c);
     nodes.noteDirectMessage(c);
     c->flags = clientPki ? (c->flags & ~MeshCoreNode::PLAIN_DM_CHAT) : (c->flags | MeshCoreNode::PLAIN_DM_CHAT);

@@ -4,6 +4,7 @@
 
 #if MESHTASTIC_PATH_COMMAND
 
+#include "MeshTypes.h"
 #include "mesh/generated/meshtastic/mesh.pb.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -35,8 +36,10 @@ class MeshtasticPathCommand
         bool direct = false;
     };
 
-    /// Node number a channel report is signed with, so it does not look like a text the user sent.
-    static constexpr uint32_t REPORT_NODE_NUM = 0x52555441; // "RUTA"
+    /// Node number a channel report is signed with, so it does not look like a text the user sent: the system bot.
+    static constexpr uint32_t REPORT_NODE_NUM = NODENUM_SYSTEM_BOT;
+    /// The "Ruta" node earlier builds signed reports with. Dropped from the NodeDB at boot so it stops taking a slot.
+    static constexpr uint32_t LEGACY_REPORT_NODE_NUM = 0x52555441; // "RUTA"
 
     /// Record a heard text. Remote Meshtastic texts only; MeshCore channels keep their own routes.
     void noteHeard(const meshtastic_MeshPacket &p);

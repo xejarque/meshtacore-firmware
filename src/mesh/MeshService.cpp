@@ -91,6 +91,11 @@ void MeshService::init()
     if (gps)
         gpsObserver.observe(&gps->newStatus);
 #endif
+#if MESHTASTIC_PATH_COMMAND
+    // Reports used to be signed by their own "Ruta" node: drop that leftover so it stops taking a NodeDB slot.
+    if (nodeDB->getMeshNode(MeshtasticPathCommand::LEGACY_REPORT_NODE_NUM))
+        nodeDB->removeNodeByNum(MeshtasticPathCommand::LEGACY_REPORT_NODE_NUM);
+#endif
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
     meshCoreCompanion.ensurePseudoNode();
 #endif
@@ -452,7 +457,7 @@ bool MeshService::sendMeshCoreGroupText(const meshtastic_MeshPacket *p)
     }
     if (truncated)
         LOG_WARN("MeshCore text cut to fit %u bytes with the sender prefix", (unsigned)MeshCoreCompanion::MAX_TEXT_LEN);
-    meshCoreCompanion.trackGroupText(frame, frameLen, p->id);
+    meshCoreCompanion.trackGroupText(frame, frameLen, p->id, p->channel);
     LOG_INFO("MeshCore TX ch=%u len=%u", (unsigned)p->channel, (unsigned)frameLen);
     return true;
 }
