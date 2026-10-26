@@ -23,6 +23,7 @@
 #include "NodeDB.h"
 #include "Power.h"
 #include "PowerMon.h"
+#include "QspiFlashFS.h"
 #include "error.h"
 #include "main.h"
 #include "meshUtils.h"
@@ -487,6 +488,10 @@ void nrf52Setup()
 
     r = nrfx_wdt_channel_alloc(&nrfx_wdt, &nrfx_wdt_channel_id_nrf52_main);
     assert(r == NRFX_SUCCESS);
+
+#if defined(HAS_QSPI_FLASH_FS) && defined(MESHTASTIC_QSPI_FS_SELFTEST)
+    qspiFlashFsSelfTest();
+#endif
 }
 
 // Waits out any flash write another task has in flight, drains the shared page cache, and keeps
