@@ -322,8 +322,9 @@ class MeshCoreCompanion
     const uint8_t *secretFor(const MeshCoreNode &n);
     MeshCoreNode *contactByPub(const uint8_t pub[32]);
     MeshCoreNode *contactByNodeNum(uint32_t nodeNum);
-    /// Copy the client's favourite stars from the node DB, which is where it sets them.
-    void syncFavorites();
+    /// Mark our nodes in the node DB as MeshCore (evicted early) and copy back the client's favourite stars, which it sets
+    /// there.
+    void syncWithNodeDB();
     /// Keep what an ADVERT says about n: its timestamp and, when it carries one, its position.
     void noteAdvert(MeshCoreNode *n, uint32_t advertTime, int32_t latMicro, int32_t lonMicro);
     /// Inject a bridged text as received: the one place that builds the synthetic packet, for both channels and DMs.

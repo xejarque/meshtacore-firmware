@@ -1329,6 +1329,32 @@ void test_repeater_advert_is_stored_and_names_its_hop()
     TEST_ASSERT_NOT_NULL(strstr(body, "Montjuic RPT"));
 }
 
+// The companion marks the node DB copies of its MeshCore peers so a full DB gives them up first (NodeDB eviction is tested in
+// test_nodedb_blocked). Only keyed peers: a channel sender has no key and is evicted early anyway, and a Meshtastic node
+// sharing the number reports hardware and is left alone. Regression guard: unmarked copies competing with Meshtastic nodes.
+void test_meshcore_copies_in_the_node_db_are_marked()
+{
+    GroupSetup s;
+    const uint8_t pub[32] = {0x61, 0x62};
+    const uint32_t num = s.c.learnContact(pub, "Dana")->nodeNum;
+    const uint32_t eveNum = MeshCoreCompanion::senderNodeNum("Eve");
+    const uint32_t otherNum = 0x4D777777;
+    // As the router would have filed the announces. Each creation may move the DB, so nodes are looked up again below.
+    nodeDB->getOrCreateMeshNode(num);
+    nodeDB->getOrCreateMeshNode(eveNum);
+    nodeDB->getOrCreateMeshNode(otherNum)->hw_model = meshtastic_HardwareModel_HELTEC_V3;
+
+    s.c.ensureSenderNode(num, "Dana", true, pub);
+    s.c.ensureSenderNode(eveNum, "Eve");
+    TEST_ASSERT_TRUE(nodeInfoLiteIsMeshCore(nodeDB->getMeshNode(num)));
+    TEST_ASSERT_FALSE(nodeInfoLiteIsMeshCore(nodeDB->getMeshNode(eveNum)));
+
+    nodeInfoLiteSetBit(nodeDB->getMeshNode(num), NODEINFO_BITFIELD_IS_MESHCORE_MASK, false);
+    s.c.contactsFingerprint(); // the save sweep marks whatever the announce created since
+    TEST_ASSERT_TRUE(nodeInfoLiteIsMeshCore(nodeDB->getMeshNode(num)));
+    TEST_ASSERT_FALSE(nodeInfoLiteIsMeshCore(nodeDB->getMeshNode(otherNum)));
+}
+
 // A Meshtastic node whose key happens to start with a MeshCore hop hash is not that hop: its key is a Curve25519 key of
 // another network. Regression guard: naming MeshCore hops from every keyed node in the node DB.
 void test_path_report_ignores_meshtastic_keys()
@@ -1457,6 +1483,7 @@ void setup()
     RUN_TEST(test_path_report_sanitizes_node_names);
     RUN_TEST(test_repeater_advert_is_stored_and_names_its_hop);
     RUN_TEST(test_path_report_ignores_meshtastic_keys);
+    RUN_TEST(test_meshcore_copies_in_the_node_db_are_marked);
 #endif
     exit(UNITY_END());
 }

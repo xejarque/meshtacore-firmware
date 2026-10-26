@@ -1,5 +1,5 @@
 // Tests for the NodeDB hot-store migration and favourite/ignored (blocked)
-// retention paths - src/mesh/NodeDB.cpp.
+// retention paths - src/mesh/NodeDB.cpp - and for the MeshCore copies evicted first.
 #include "MeshTypes.h" // BEFORE TestUtil.h - provides WARM_NODE_COUNT / MAX_NUM_NODES via mesh-pb-constants.h
 #include "TestUtil.h"
 #include <unity.h>
@@ -236,6 +236,27 @@ static void test_eviction_preservesFavorite(void)
     TEST_ASSERT_NOT_NULL(db->getMeshNode(0x99990000));
 }
 
+// A MeshCore peer's node is a copy: the companion keeps the original in its own store and announces it again when needed.
+// It must give way before any Meshtastic node, keyed or not, however old, or a busy MeshCore mesh pushes the Meshtastic
+// one out of the hot store. A favourite stays a favourite, MeshCore or not.
+static void test_eviction_takesMeshCoreCopiesFirst(void)
+{
+    db->seedSelf();
+    for (int i = 1; i < MAX_NUM_NODES - 2; i++) // Meshtastic nodes, all keyed and older than the MeshCore ones
+        db->push(3000 + i, /*last_heard=*/i, false, false, /*withUser=*/true, /*withKey=*/true);
+    db->push(0x4D000001, /*last_heard=*/50000, /*favorite=*/true, false, true, true);
+    db->push(0x4D000002, /*last_heard=*/60000, false, false, true, true);
+    for (NodeNum num : {(NodeNum)0x4D000001, (NodeNum)0x4D000002})
+        nodeInfoLiteSetBit(db->getMeshNode(num), NODEINFO_BITFIELD_IS_MESHCORE_MASK, true);
+    TEST_ASSERT_EQUAL_INT(MAX_NUM_NODES, (int)db->getNumMeshNodes());
+
+    TEST_ASSERT_NOT_NULL(db->getOrCreateMeshNode(0x99990000)); // forces an eviction
+
+    TEST_ASSERT_NULL(db->getMeshNode(0x4D000002));     // the MeshCore copy went, though the newest
+    TEST_ASSERT_NOT_NULL(db->getMeshNode(0x4D000001)); // the favourite one stayed
+    TEST_ASSERT_NOT_NULL(db->getMeshNode(3000 + 1));   // and so did the oldest Meshtastic node
+}
+
 // A node heard during this boot is newer than every persisted epoch, including valid epochs after
 // 2038. Ranking both domains in one uint32_t incorrectly evicts the current-boot node first.
 static void test_eviction_prefersCurrentBootStampOverPost2038Epoch(void)
@@ -445,6 +466,7 @@ NDB_TEST_ENTRY void setup()
     RUN_TEST(test_migration_dropsShortKeyOnDemotion);
     RUN_TEST(test_eviction_preservesFavorite);
     RUN_TEST(test_eviction_prefersCurrentBootStampOverPost2038Epoch);
+    RUN_TEST(test_eviction_takesMeshCoreCopiesFirst);
     RUN_TEST(test_ignored_survivesEvictionAndCleanup);
     RUN_TEST(test_protectedCap_refusesBeyondLimit);
     RUN_TEST(test_removeNodeByNum_absentNodeOnFullDb);

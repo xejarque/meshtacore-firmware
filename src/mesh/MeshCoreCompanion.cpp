@@ -578,11 +578,15 @@ void MeshCoreCompanion::ensureSenderNode(uint32_t nodeNum, const char *name, boo
 {
     if (!nodeDB)
         return;
-    const meshtastic_NodeInfoLite *lite = nodeDB->getMeshNode(nodeNum);
+    meshtastic_NodeInfoLite *lite = nodeDB->getMeshNode(nodeNum);
     // A real Meshtastic node that happens to share this number reports a hardware model: never rename it. An ignored one is
     // dropped by the router, so announcing it would never get it heard.
     if (lite && ((nodeInfoLiteHasUser(lite) && lite->hw_model != meshtastic_HardwareModel_UNSET) || nodeInfoLiteIsIgnored(lite)))
         return;
+    // A keyed peer lives in the node store too: its node DB copy may go first when the DB is full. The node is born from the
+    // announce below, so a new one gets the mark on its next frame, or on the next save sweep.
+    if (lite && publicKey)
+        nodeInfoLiteSetBit(lite, NODEINFO_BITFIELD_IS_MESHCORE_MASK, true);
 
     announceIfNeeded(nodeNum, senderUser(name, messagable, publicKey, role), rx);
 }
@@ -1705,19 +1709,22 @@ void MeshCoreCompanion::service()
     }
 }
 
-void MeshCoreCompanion::syncFavorites()
+void MeshCoreCompanion::syncWithNodeDB()
 {
-    // The client stars a node in the node DB; a contact evicted from there keeps the flag it had.
     nodes.forEach([](MeshCoreNode &n) {
-        const meshtastic_NodeInfoLite *lite = nodeDB && n.type == MeshCoreNode::CHAT ? nodeDB->getMeshNode(n.nodeNum) : nullptr;
-        if (lite)
+        meshtastic_NodeInfoLite *lite = nodeDB ? nodeDB->getMeshNode(n.nodeNum) : nullptr;
+        if (!lite || lite->hw_model != meshtastic_HardwareModel_UNSET)
+            return; // evicted (the store keeps what it had), or a Meshtastic node sharing the number
+        nodeInfoLiteSetBit(lite, NODEINFO_BITFIELD_IS_MESHCORE_MASK, true);
+        // The client stars a node in the node DB; a contact evicted from there keeps the flag it had.
+        if (n.type == MeshCoreNode::CHAT)
             n.flags = nodeInfoLiteIsFavorite(lite) ? (n.flags | MeshCoreNode::FAVORITE) : (n.flags & ~MeshCoreNode::FAVORITE);
     });
 }
 
 size_t MeshCoreCompanion::exportContacts(uint8_t *buf, size_t cap)
 {
-    syncFavorites();
+    syncWithNodeDB();
     return MeshCoreNodeFile::save(nodes, buf, cap);
 }
 
@@ -1743,7 +1750,7 @@ size_t MeshCoreCompanion::importContacts(const uint8_t *buf, size_t len)
 
 uint32_t MeshCoreCompanion::contactsFingerprint()
 {
-    syncFavorites();
+    syncWithNodeDB();
     return MeshCoreNodeFile::fingerprint(nodes);
 }
 

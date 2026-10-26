@@ -886,7 +886,11 @@ extern uint32_t error_address;
 #define NODEINFO_BITFIELD_HEARD_SLOT_SHIFT 12
 #define NODEINFO_BITFIELD_HEARD_SLOT_BITS 12
 #define NODEINFO_BITFIELD_HEARD_SLOT_MASK (((1u << NODEINFO_BITFIELD_HEARD_SLOT_BITS) - 1) << NODEINFO_BITFIELD_HEARD_SLOT_SHIFT)
-// Bits 24..31 reserved for future single-bit flags.
+// A node the MeshCore companion announced for a MeshCore peer. It has a copy in the companion's own store, so it is
+// evicted as early as a node without a key and never takes a Meshtastic node's slot.
+#define NODEINFO_BITFIELD_IS_MESHCORE_SHIFT 24
+#define NODEINFO_BITFIELD_IS_MESHCORE_MASK (1u << NODEINFO_BITFIELD_IS_MESHCORE_SHIFT)
+// Bits 25..31 reserved for future single-bit flags.
 
 // Convenience accessors so call sites read like the old struct fields.
 inline bool nodeInfoLiteHasUser(const meshtastic_NodeInfoLite *n)
@@ -896,6 +900,10 @@ inline bool nodeInfoLiteHasUser(const meshtastic_NodeInfoLite *n)
 inline bool nodeInfoLiteViaMqtt(const meshtastic_NodeInfoLite *n)
 {
     return n && (n->bitfield & NODEINFO_BITFIELD_VIA_MQTT_MASK);
+}
+inline bool nodeInfoLiteIsMeshCore(const meshtastic_NodeInfoLite *n)
+{
+    return n && (n->bitfield & NODEINFO_BITFIELD_IS_MESHCORE_MASK);
 }
 inline bool nodeInfoLiteIsFavorite(const meshtastic_NodeInfoLite *n)
 {

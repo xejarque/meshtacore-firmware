@@ -4525,8 +4525,8 @@ meshtastic_NodeInfoLite *NodeDB::getOrCreateMeshNode(NodeNum n)
                     oldest = candRecency;
                     oldestIndex = i;
                 }
-                // The oldest "boring" node
-                if (!isFavoriteNode && !isIgnored && cand->public_key.size == 0 &&
+                // The oldest "boring" node: no key, or a MeshCore peer the companion keeps a copy of anyway
+                if (!isFavoriteNode && !isIgnored && (cand->public_key.size == 0 || nodeInfoLiteIsMeshCore(cand)) &&
                     (oldestBoringIndex == -1 || evictionRecencyOlder(candRecency, oldestBoring))) {
                     oldestBoring = candRecency;
                     oldestBoringIndex = i;
