@@ -152,10 +152,13 @@ void test_answers_locally_with_route_info(void)
     TEST_ASSERT_NOT_NULL(strstr(body, "🛰️"));
     TEST_ASSERT_NOT_NULL(strstr(body, "de **Ana**"));
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, "2️⃣"), body); // the glyph is the hop count
-    TEST_ASSERT_NOT_NULL(strstr(body, "probablemente **Repetidor X**"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "probablemente Repetidor X"));
     TEST_ASSERT_NOT_NULL(strstr(body, "SNR 6.5 dB"));
     TEST_ASSERT_NOT_NULL(strstr(body, "RSSI -95 dBm"));
-    TEST_ASSERT_NOT_NULL(strstr(body, "Canal **LongFast**"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Canal LongFast · hace "));
+    TEST_ASSERT_NOT_NULL(strstr(body, "_Meshtastic no da los saltos intermedios._"));
+    // Bold is for the sender only: one pair of markers in the whole report.
+    TEST_ASSERT_NULL(strstr(strstr(body, "**Ana**") + 7, "**"));
 }
 
 // The local frame must never be relayed: a real hop_start, and a next hop that is not us.
@@ -372,7 +375,7 @@ void test_report_keeps_whole_names(void)
     char body[256];
     bodyOf(capture->received.back(), body, sizeof(body));
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, "de **Remitente Largo**"), body);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, "**Repetidor Muy Largo**"), body);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, "Repetidor Muy Largo"), body);
     TEST_ASSERT_NULL(strstr(body, "(MC)"));
     TEST_ASSERT_NOT_NULL(strstr(body, "3️⃣"));    // the glyph is the hop count
     TEST_ASSERT_NULL(strstr(body, "3 saltos")); // and the text does not repeat it

@@ -1015,7 +1015,13 @@ void test_path_command_answers_locally(void)
     TEST_ASSERT_NOT_NULL(strstr(body, "Alpha"));
     TEST_ASSERT_NOT_NULL(strstr(body, "Bravo"));
     TEST_ASSERT_NOT_NULL(strstr(body, "SNR -9.0 dB"));
-    TEST_ASSERT_NOT_NULL(strstr(body, "1 ruta"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "🛰️ Ruta de **Alice**"));
+    TEST_ASSERT_NULL(strstr(body, "rutas")); // a count only when there is more than one route
+    // Where and when, as the Meshtastic report says it.
+    TEST_ASSERT_NOT_NULL(strstr(body, "Canal MC:Public · hace "));
+    // Bold is for the sender only: one pair of markers.
+    TEST_ASSERT_NULL(strstr(body, "**Alpha**"));
+    TEST_ASSERT_NULL(strstr(strstr(body, "**Alice**") + 9, "**"));
 }
 
 // Only a reply is answered: without a reply target the ".path" is an ordinary text, not intercepted or injected.
@@ -1123,7 +1129,7 @@ void test_path_report_splits_without_cutting(void)
     TEST_ASSERT_TRUE(s.c.formatPathReport(routes, 1, nullptr, captureChunk, &capture) >= 2);
 
     TEST_ASSERT_NOT_NULL(strstr(capture.text, "`4041`")); // the first hop
-    TEST_ASSERT_NOT_NULL(strstr(capture.text, "`7e7f`")); // and the last one: nothing was dropped
+    TEST_ASSERT_NOT_NULL(strstr(capture.text, "`7E7F`")); // and the last one: nothing was dropped
     TEST_ASSERT_NOT_NULL(strstr(capture.text, "SNR -5.0 dB"));
     TEST_ASSERT_NULL(strstr(capture.text, "…"));
 }
@@ -1193,6 +1199,7 @@ void test_path_command_answers_a_direct_message(void)
     reportText(report, body, sizeof(body));
     TEST_ASSERT_NOT_NULL(strstr(body, "🛰️"));
     TEST_ASSERT_NOT_NULL(strstr(body, "SNR -7.5 dB"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Mensaje directo · hace ")); // a DM, not MeshCore channel 0
 }
 
 // The same text can reach us by several routes: ".path" lists them all, the shortest first.
@@ -1255,7 +1262,8 @@ void test_path_report_keeps_whole_names(void)
     char body[256];
     TEST_ASSERT_TRUE(formatOneRoute(s.c, entry, "Sender Largo Sin Sufijo", body, sizeof(body)) > 0);
     TEST_ASSERT_NOT_NULL(strstr(body, "de **Sender Largo Sin Sufijo**"));
-    TEST_ASSERT_NOT_NULL(strstr(body, "**Repetidor Largo**"));
+    TEST_ASSERT_NOT_NULL(strstr(body, " Repetidor Largo"));
+    TEST_ASSERT_NULL(strstr(body, "**Repetidor Largo**"));
     TEST_ASSERT_NULL(strstr(body, "(MC)"));
     // The glyph carries the hop count; match the two forms the text would take, not a bare " salto" that a node name
     // could contain.
@@ -1403,7 +1411,7 @@ void test_path_report_ignores_meshtastic_keys()
     char body[256];
     TEST_ASSERT_TRUE(formatOneRoute(s.c, entry, nullptr, body, sizeof(body)) > 0);
     TEST_ASSERT_NULL(strstr(body, "Meshtastic node"));
-    TEST_ASSERT_NOT_NULL(strstr(body, "`5d6e`"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "`5D6E`"));
 }
 #endif
 

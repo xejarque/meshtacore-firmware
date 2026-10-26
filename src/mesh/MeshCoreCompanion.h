@@ -119,9 +119,12 @@ class MeshCoreCompanion
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
     /// How a bridged text was heard, kept so ".path" can report it. RAM only: the ring evicts it, a reboot loses it.
     struct HeardPath {
+        static constexpr uint8_t DIRECT_CHANNEL = 0xFF; // channel of a direct message: no MeshCore channel has this index
+
         uint32_t packetId = 0;  // the id the client sees; a reply points at it
         uint32_t frameHash = 0; // hashFrame(): the same text over another route carries the same hash
         uint32_t fromNum = 0;   // sender node, to find the newest text from a contact
+        uint32_t heardMs = 0;
         float snr = 0;
         int32_t rssi = 0;
         uint8_t channel = 0;

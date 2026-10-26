@@ -640,6 +640,7 @@ void MeshCoreCompanion::noteHeardRoute(uint32_t packetId, uint32_t frameHash, ui
     h.hopCount = hopCount;
     h.snr = snr;
     h.rssi = rssi;
+    h.heardMs = millis();
     if (keep && path)
         memcpy(h.path, path, keep);
 }
@@ -820,20 +821,16 @@ size_t MeshCoreCompanion::formatPathReport(const HeardPath *const *routes, size_
 
     ReportWriter w{sink, ctx};
 
-    char who[48];
-    if (!cleanPathLabel(sender, who, sizeof(who), sizeof(who) - 1))
-        who[0] = 0;
-    stripMeshCoreSuffix(who);
     char header[128];
-    if (who[0])
-        snprintf(header, sizeof(header), "🛰️ %u %s de **%s**", (unsigned)count, count == 1 ? "ruta" : "rutas", who);
-    else
-        snprintf(header, sizeof(header), "🛰️ %u %s", (unsigned)count, count == 1 ? "ruta" : "rutas");
+    formatReportHeader(header, sizeof(header), sender, count);
     w.token(header, true);
+    uint32_t firstHeardMs = routes[0]->heardMs;
 
     for (size_t r = 0; r < count; r++) {
         const HeardPath &route = *routes[r];
         char token[128];
+        if ((int32_t)(route.heardMs - firstHeardMs) < 0)
+            firstHeardMs = route.heardMs; // the text is as old as its first copy
 
         // The glyph is the hop count: no "N salto(s)" text to repeat it.
         if (route.hopCount == 0) {
@@ -853,20 +850,20 @@ size_t MeshCoreCompanion::formatPathReport(const HeardPath *const *routes, size_
                 const size_t nameCount = pathHopNames(hash, route.hashSize, names, PATH_HOP_NAMES_MAX);
                 char one[96];
                 formatHopLabel(names, nameCount, one, sizeof(one));
-                if (one[0]) {
-                    snprintf(token, sizeof(token), hop ? " › **%s**" : " **%s**", one);
-                } else {
-                    char hex[9] = {};
-                    for (size_t j = 0; j < route.hashSize && j < 4; j++)
-                        snprintf(&hex[j * 2], 3, "%02x", (unsigned)hash[j]);
-                    snprintf(token, sizeof(token), hop ? " › `%s`" : " `%s`", hex);
-                }
+                if (!one[0])
+                    formatHopHex(hash, route.hashSize, one, sizeof(one));
+                snprintf(token, sizeof(token), hop ? " › %s" : " %s", one);
                 w.token(token);
             }
         }
-        snprintf(token, sizeof(token), " · SNR %.1f dB · RSSI %d dBm", (double)route.snr, (int)route.rssi);
+        formatSignal(token, sizeof(token), route.snr, true, route.rssi);
         w.token(token);
     }
+    const bool direct = routes[0]->channel == HeardPath::DIRECT_CHANNEL;
+    char where[96];
+    formatHeardWhere(where, sizeof(where), direct, direct ? nullptr : channels.getName(routes[0]->channel), routes[0]->channel,
+                     false, (millis() - firstHeardMs) / 1000);
+    w.token(where, true);
     w.flush();
     return w.parts;
 }
@@ -920,18 +917,7 @@ bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool d
     }
     const HeardPath *best = routeCount ? routes[0] : nullptr;
 
-    size_t named = 0;
-    for (size_t r = 0; r < routeCount; r++) {
-        const size_t stored = routes[r]->hashSize ? sizeof(routes[r]->path) / routes[r]->hashSize : 0;
-        const size_t total = routes[r]->hopCount < stored ? routes[r]->hopCount : stored;
-        for (size_t i = 0; i < total; i++) {
-            const char *names[PATH_HOP_NAMES_MAX];
-            if (pathHopNames(&routes[r]->path[i * routes[r]->hashSize], routes[r]->hashSize, names, PATH_HOP_NAMES_MAX))
-                named++;
-        }
-    }
-    LOG_INFO("MeshCore .path: %u routes, %u MeshCore nodes known, %u hops named", (unsigned)routeCount,
-             (unsigned)nodes.count(), (unsigned)named);
+    LOG_INFO("MeshCore .path: %u routes, %u MeshCore nodes known", (unsigned)routeCount, (unsigned)nodes.count());
 
     // Never on air: mark the command delivered and answer it here, in the same channel / chat. A long report goes out
     // as several messages, so the sender must be in place before the first piece is streamed.
@@ -1555,7 +1541,8 @@ void MeshCoreCompanion::handleDirectText(const uint8_t *raw, size_t len, const M
         const uint32_t packetId = injectDirectText(*c, text, info, snr, rssi);
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
         if (packetId)
-            noteHeardRoute(packetId, hash, c->nodeNum, 0, pathOf(raw, info), info.path_hash_size, info.path_hash_count,
+            noteHeardRoute(packetId, hash, c->nodeNum, HeardPath::DIRECT_CHANNEL, pathOf(raw, info), info.path_hash_size,
+                           info.path_hash_count,
                            info.route_type, snr, rssi);
 #endif
         queueAck(ackHash(timestamp, flags, text, c->pub));

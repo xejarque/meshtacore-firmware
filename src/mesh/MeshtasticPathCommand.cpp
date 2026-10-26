@@ -150,18 +150,8 @@ size_t MeshtasticPathCommand::formatReport(const Heard &e, char *out, size_t cap
     TextBuf msg{out, cap};
     char line[160];
 
-    // Sender. Bold only when there is a name: an absent one must not leave markers behind.
-    {
-        TextBuf t{line, sizeof(line)};
-        t.addf("🛰️ Ruta");
-        char label[48];
-        if (cleanPathLabel(senderName(e.from), label, sizeof(label), sizeof(label) - 1) > 0) {
-            stripMeshCoreSuffix(label);
-            if (label[0])
-                t.addf(" de **%s**", label);
-        }
-        msg.addf("%s", line);
-    }
+    formatReportHeader(line, sizeof(line), senderName(e.from), 1);
+    msg.addf("%s", line);
 
     // Route. The glyph is the hop count, so the text does not repeat it.
     {
@@ -172,9 +162,9 @@ size_t MeshtasticPathCommand::formatReport(const Heard &e, char *out, size_t cap
         } else if (e.hops < 0) {
             t.addf("❔ saltos desconocidos");
             if (relayName(e.relay, label, sizeof(label)))
-                t.addf(" · probablemente **%s**", label);
+                t.addf(" · probablemente %s", label);
             else if (e.relay != NO_RELAY_NODE)
-                t.addf(" · `%02x`", (unsigned)e.relay);
+                t.addf(" · `%02X`", (unsigned)e.relay);
         } else {
             if (const char *glyph = hopGlyph(e.hops))
                 t.addf("%s ", glyph);
@@ -182,38 +172,24 @@ size_t MeshtasticPathCommand::formatReport(const Heard &e, char *out, size_t cap
                 t.addf("%u saltos ", (unsigned)e.hops);
             // One name claims the byte only among the nodes we know: the relay may be another one, so it is a guess.
             if (relayName(e.relay, label, sizeof(label)))
-                t.addf("probablemente **%s**", label);
+                t.addf("probablemente %s", label);
             else if (e.relay != NO_RELAY_NODE)
-                t.addf("`%02x`", (unsigned)e.relay);
+                t.addf("`%02X`", (unsigned)e.relay);
             else
                 t.addf("repetidor desconocido");
         }
-        t.addf(" · SNR %.1f dB", (double)e.snr);
-        if (e.hasRssi)
-            t.addf(" · RSSI %d dBm", (int)e.rssi);
+        char signal[48];
+        formatSignal(signal, sizeof(signal), e.snr, e.hasRssi, e.rssi);
+        t.addf("%s", signal);
         msg.addf("\n%s", line);
     }
 
-    // Where it was heard.
-    {
-        TextBuf t{line, sizeof(line)};
-        if (e.direct) {
-            t.addf("Mensaje directo");
-        } else {
-            char label[48];
-            if (cleanPathLabel(channels.getName(e.channel), label, sizeof(label), sizeof(label) - 1) > 0)
-                t.addf("Canal **%s**", label);
-            else
-                t.addf("Canal %u", (unsigned)e.channel);
-        }
-        if (e.viaMqtt)
-            t.addf(" · vía MQTT");
-        t.addf(" · hace %u s", (unsigned)((Time::getMillis() - e.heardMs) / 1000));
-        msg.addf("\n%s", line);
-    }
+    formatHeardWhere(line, sizeof(line), e.direct, channels.getName(e.channel), e.channel, e.viaMqtt,
+                     (Time::getMillis() - e.heardMs) / 1000);
+    msg.addf("\n%s", line);
 
     // The one thing Meshtastic cannot tell us. Dropped whole rather than cut when the payload is full.
-    msg.addf("\nMeshtastic no da los saltos intermedios.");
+    msg.addf("\n_Meshtastic no da los saltos intermedios._");
 
     sanitizeUtf8(out, cap);
     return strlen(out);
