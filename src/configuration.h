@@ -677,6 +677,17 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define MESHTASTIC_EXCLUDE_ADMIN 1
 #endif
 
+// Experimental: answer a local ".path"/".ruta" command on a Meshtastic channel or direct message. Meshtastic frames
+// carry no per-hop hashes, so the report can only show the hop count, the last relay and the signal - not the whole
+// path. The command is never transmitted. On by default; -D...=0 opts out.
+#ifndef MESHTASTIC_PATH_COMMAND
+#define MESHTASTIC_PATH_COMMAND (!MESHTASTIC_EXCLUDE_TEXTMESSAGE)
+#endif
+
+#if MESHTASTIC_PATH_COMMAND && MESHTASTIC_EXCLUDE_TEXTMESSAGE
+#error "MESHTASTIC_PATH_COMMAND requires the TextMessageModule that records the heard texts"
+#endif
+
 // Store & Forward is implemented only for ESP32 and Portduino
 #if !defined(ARCH_ESP32) && !defined(ARCH_PORTDUINO) && !defined(MESHTASTIC_EXCLUDE_STOREFORWARD)
 #define MESHTASTIC_EXCLUDE_STOREFORWARD 1

@@ -8,6 +8,7 @@
 
 #include "Channels.h"
 #include "NodeDB.h"
+#include "PathReport.h"
 #include "RadioInterface.h"
 #include "Router.h"
 #include "Throttle.h"
@@ -49,36 +50,6 @@ static const uint8_t *pathOf(const uint8_t *raw, const MeshCoreRepeater::FrameIn
 }
 
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
-static void trimInPlace(char *s)
-{
-    char *start = s;
-    while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n')
-        start++;
-    if (start != s)
-        memmove(s, start, strlen(start) + 1);
-    size_t len = strlen(s);
-    while (len > 0 && (s[len - 1] == ' ' || s[len - 1] == '\t' || s[len - 1] == '\r' || s[len - 1] == '\n'))
-        s[--len] = 0;
-}
-
-/// A node DB name as a markdown label: no delimiters or control bytes, cut on a UTF-8 boundary.
-static size_t cleanLabel(const char *src, char *out, size_t cap, size_t maxBytes)
-{
-    if (!src || !out || cap == 0)
-        return 0;
-    size_t o = 0;
-    for (const char *p = src; *p && o + 1 < cap; p++) {
-        const char c = *p;
-        if ((uint8_t)c < 0x20 || c == '*' || c == '_' || c == '~' || c == '`' || c == '[' || c == ']')
-            continue;
-        out[o++] = c;
-    }
-    out[o] = 0;
-    const size_t keep = utf8PrefixLen(out, maxBytes);
-    out[keep] = 0;
-    return keep;
-}
-
 /// The node whose public key starts with this path hash, or null when none or several claim it.
 static const meshtastic_NodeInfoLite *pathHopNode(const uint8_t *hash, uint8_t size)
 {
@@ -105,32 +76,6 @@ static const char *pathSenderName(uint32_t nodeNum)
     const meshtastic_NodeInfoLite *n = nodeDB->getMeshNode(nodeNum);
     return n && nodeInfoLiteHasUser(n) && n->long_name[0] ? n->long_name : nullptr;
 }
-
-/// snprintf into a bounded buffer; a token that does not fit is rolled back instead of splitting UTF-8.
-struct TextBuf {
-    char *out;
-    size_t cap;
-    size_t len = 0;
-
-    bool addf(const char *fmt, ...)
-    {
-        va_list ap;
-        va_start(ap, fmt);
-        const size_t room = cap - len;
-        const int n = room > 1 ? vsnprintf(out + len, room, fmt, ap) : -1;
-        va_end(ap);
-        if (n < 0 || (size_t)n >= room) {
-            out[len] = 0;
-            return false;
-        }
-        len += (size_t)n;
-        return true;
-    }
-};
-
-static const char *const KEYCAPS[9] = {
-    "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣",
-};
 
 /// Most names shown for one hop; a wider match is summarised as "+N".
 static constexpr size_t PATH_HOP_NAMES_MAX = 3;
@@ -788,11 +733,15 @@ static void formatHopLabel(const char *const *names, size_t count, char *out, si
     if (!out || cap == 0)
         return;
     out[0] = 0;
-    char cleaned[PATH_HOP_NAMES_MAX][16];
+    char cleaned[PATH_HOP_NAMES_MAX][40];
     size_t have = 0;
-    for (size_t i = 0; i < count && i < PATH_HOP_NAMES_MAX; i++)
-        if (cleanLabel(names[i], cleaned[have], sizeof(cleaned[have]), 12) > 0)
+    for (size_t i = 0; i < count && i < PATH_HOP_NAMES_MAX; i++) {
+        if (cleanPathLabel(names[i], cleaned[have], sizeof(cleaned[have]), sizeof(cleaned[have]) - 1) == 0)
+            continue;
+        stripMeshCoreSuffix(cleaned[have]);
+        if (cleaned[have][0])
             have++;
+    }
     if (have == 0)
         return;
 
@@ -818,8 +767,9 @@ static void formatHopLabel(const char *const *names, size_t count, char *out, si
 static constexpr size_t REPORT_CHUNK_CAP = sizeof(((meshtastic_MeshPacket *)nullptr)->decoded.payload.bytes);
 
 /**
- * Packs the report into client-sized messages. A piece ends at a line, word or UTF-8 boundary - never inside a
- * character - and nothing is dropped: whatever does not fit starts the next message.
+ * Packs the report into client-sized messages. Text is added one atomic token at a time - a glyph, a hex hop, a bold
+ * name, a " · SNR ..." group - and a token always opens and closes inside the same message. A line that does not fit
+ * continues in the next message, so nothing is cut and clients never see unmatched markdown markers.
  */
 struct ReportWriter {
     MeshCoreCompanion::ReportSink sink;
@@ -838,15 +788,45 @@ struct ReportWriter {
         buf[0] = 0;
     }
 
-    void add(const char *text)
+    void startPart()
+    {
+        if (len == 0 && parts > 0) { // a piece that continues a split report
+            memcpy(buf, "↳ ", 4);
+            len = 4;
+            buf[len] = 0;
+        }
+    }
+
+    /// Append one token; firstOfLine also consumes the newline owed before it. A token that cannot fit alone is the
+    /// only thing that gets split, and that needs a name or hop far longer than the report allows.
+    void token(const char *text, bool firstOfLine = false)
+    {
+        const size_t n = strlen(text);
+        if (firstOfLine && len) {
+            if (len + 1 + n > REPORT_CHUNK_CAP)
+                flush();
+            else {
+                buf[len++] = '\n';
+                buf[len] = 0;
+            }
+        }
+        if (len + n > REPORT_CHUNK_CAP)
+            flush();
+        startPart();
+        if (len + n > REPORT_CHUNK_CAP) {
+            addSplit(text);
+            return;
+        }
+        memcpy(&buf[len], text, n);
+        len += n;
+        buf[len] = 0;
+    }
+
+    void addSplit(const char *text)
     {
         size_t n = strlen(text);
         while (n) {
-            if (len == 0 && parts > 0) { // a piece that continues a split report
-                memcpy(buf, "↳ ", 4);
-                len = 4;
-                buf[len] = 0;
-            }
+            startPart();
             const size_t room = REPORT_CHUNK_CAP - len;
             if (n <= room) {
                 memcpy(&buf[len], text, n);
@@ -857,32 +837,15 @@ struct ReportWriter {
             size_t cut = room;
             while (cut > 0 && ((uint8_t)text[cut] & 0xC0) == 0x80)
                 cut--; // never split a UTF-8 character
-            size_t space = cut;
-            while (space > 0 && text[space] != ' ' && text[space] != '\n')
-                space--;
-            if (space > 0)
-                cut = space;
             if (cut == 0)
-                break; // unreachable with valid text; never spin on a boundary
+                cut = room;
             memcpy(&buf[len], text, cut);
             len += cut;
             buf[len] = 0;
             flush();
             text += cut;
             n -= cut;
-            if (*text == ' ' || *text == '\n')
-                text++, n--;
         }
-    }
-
-    void addf(const char *fmt, ...)
-    {
-        char tmp[64];
-        va_list ap;
-        va_start(ap, fmt);
-        vsnprintf(tmp, sizeof(tmp), fmt, ap);
-        va_end(ap);
-        add(tmp);
     }
 };
 
@@ -893,59 +856,53 @@ size_t MeshCoreCompanion::formatPathReport(const HeardPath *const *routes, size_
         return 0;
 
     ReportWriter w{sink, ctx};
-    if (count == 1)
-        w.add("🛰️ *Ruta*");
+
+    char who[48];
+    if (!cleanPathLabel(sender, who, sizeof(who), sizeof(who) - 1))
+        who[0] = 0;
+    stripMeshCoreSuffix(who);
+    char header[128];
+    if (who[0])
+        snprintf(header, sizeof(header), "🛰️ %u %s de **%s**", (unsigned)count, count == 1 ? "ruta" : "rutas", who);
     else
-        w.add("🛰️ *Rutas*");
-    char label[40];
-    if (sender && cleanLabel(sender, label, sizeof(label), sizeof(label) - 1) > 0) {
-        const size_t l = strlen(label);
-        if (l > 5 && strcmp(&label[l - 5], " (MC)") == 0)
-            label[l - 5] = 0; // the suffix that tells a MeshCore node from the Meshtastic one of the same name
-        if (label[0])
-            w.addf(" de **%s**", label);
-    }
-    if (count == 1)
-        w.add(" · 1 camino");
-    else
-        w.addf(" · %u caminos", (unsigned)count);
+        snprintf(header, sizeof(header), "🛰️ %u %s", (unsigned)count, count == 1 ? "ruta" : "rutas");
+    w.token(header, true);
 
     for (size_t r = 0; r < count; r++) {
         const HeardPath &route = *routes[r];
-        char num[8] = {};
-        if (r < 9)
-            snprintf(num, sizeof(num), "%s", KEYCAPS[r]);
-        else
-            snprintf(num, sizeof(num), "%u.", (unsigned)(r + 1));
+        char token[128];
 
-        w.add("\n");
+        // The glyph is the hop count: no "N salto(s)" text to repeat it.
         if (route.hopCount == 0) {
-            w.addf("%s directo", num);
+            w.token("⚡ directo", true);
         } else {
-            w.addf("%s %u %s", num, (unsigned)route.hopCount, route.hopCount == 1 ? "salto" : "saltos");
+            if (const char *glyph = hopGlyph(route.hopCount))
+                snprintf(token, sizeof(token), "%s", glyph);
+            else
+                snprintf(token, sizeof(token), "%u saltos", (unsigned)route.hopCount);
+            w.token(token, true);
+
             const size_t stored = route.hashSize ? sizeof(route.path) / route.hashSize : 0;
             const size_t total = route.hopCount < stored ? route.hopCount : stored;
-            if (total)
-                w.add(" · ");
             for (size_t hop = 0; hop < total; hop++) {
-                if (hop)
-                    w.add(" › ");
                 const uint8_t *hash = &route.path[hop * route.hashSize];
                 const char *names[PATH_HOP_NAMES_MAX];
                 const size_t nameCount = pathHopNames(hash, route.hashSize, names, PATH_HOP_NAMES_MAX);
-                char one[48];
+                char one[96];
                 formatHopLabel(names, nameCount, one, sizeof(one));
                 if (one[0]) {
-                    w.addf("**%s**", one);
+                    snprintf(token, sizeof(token), hop ? " › **%s**" : " **%s**", one);
                 } else {
-                    char hex[7] = {};
-                    for (size_t j = 0; j < route.hashSize; j++)
+                    char hex[9] = {};
+                    for (size_t j = 0; j < route.hashSize && j < 4; j++)
                         snprintf(&hex[j * 2], 3, "%02x", (unsigned)hash[j]);
-                    w.addf("`%s`", hex);
+                    snprintf(token, sizeof(token), hop ? " › `%s`" : " `%s`", hex);
                 }
+                w.token(token);
             }
         }
-        w.addf(" · SNR %.1f dB · RSSI %d dBm", (double)route.snr, (int)route.rssi);
+        snprintf(token, sizeof(token), " · SNR %.1f dB · RSSI %d dBm", (double)route.snr, (int)route.rssi);
+        w.token(token);
     }
     w.flush();
     return w.parts;

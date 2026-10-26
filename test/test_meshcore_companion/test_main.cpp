@@ -1027,7 +1027,7 @@ void test_path_command_answers_locally(void)
     TEST_ASSERT_NOT_NULL(strstr(body, "Alpha"));
     TEST_ASSERT_NOT_NULL(strstr(body, "Bravo"));
     TEST_ASSERT_NOT_NULL(strstr(body, "SNR -9.0 dB"));
-    TEST_ASSERT_NOT_NULL(strstr(body, "1 camino"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "1 ruta"));
 }
 
 // Without a reply target the newest text on the channel is reported.
@@ -1203,9 +1203,9 @@ void test_path_command_lists_every_route(void)
 
     char body[1024];
     collectReports(s.capture, beforeReport, body, sizeof(body));
-    TEST_ASSERT_NOT_NULL(strstr(body, "2 caminos"));
-    TEST_ASSERT_NOT_NULL(strstr(body, "1 salto"));
-    TEST_ASSERT_NOT_NULL(strstr(body, "2 saltos"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "2 rutas"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "2️⃣")); // the glyph is the hop count of a route
+    TEST_ASSERT_NOT_NULL(strstr(body, "1️⃣"));
     TEST_ASSERT_NOT_NULL(strstr(body, "SNR -4.0 dB"));
     TEST_ASSERT_NOT_NULL(strstr(body, "SNR -7.5 dB"));
     const char *shorter = strstr(body, "`5566`");
@@ -1213,6 +1213,32 @@ void test_path_command_lists_every_route(void)
     TEST_ASSERT_NOT_NULL(shorter);
     TEST_ASSERT_NOT_NULL(longer);
     TEST_ASSERT_TRUE(shorter < longer); // the shortest route comes first
+}
+
+// A long name is reported whole and the " (MC)" suffix is dropped, so the bold markers always close inside the message.
+void test_path_report_keeps_whole_names(void)
+{
+    GroupSetup s;
+    const uint8_t pub[32] = {0x5A, 0x5B};
+    addRepeater(pub, "Repetidor Largo (MC)");
+
+    MeshCoreCompanion::HeardPath entry;
+    entry.hopCount = 1;
+    entry.hashSize = 2;
+    entry.routeType = 1;
+    entry.snr = -5.0f;
+    entry.rssi = -80;
+    memcpy(entry.path, pub, 2);
+
+    char body[256];
+    TEST_ASSERT_TRUE(formatOneRoute(s.c, entry, "Sender Largo Sin Sufijo", body, sizeof(body)) > 0);
+    TEST_ASSERT_NOT_NULL(strstr(body, "de **Sender Largo Sin Sufijo**"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "**Repetidor Largo**"));
+    TEST_ASSERT_NULL(strstr(body, "(MC)"));
+    // The glyph carries the hop count; match the two forms the text would take, not a bare " salto" that a node name
+    // could contain.
+    TEST_ASSERT_NULL(strstr(body, "1 salto"));
+    TEST_ASSERT_NULL(strstr(body, " saltos"));
 }
 
 // A name carrying markdown delimiters or control bytes cannot break the report's formatting.
@@ -1339,6 +1365,7 @@ void setup()
     RUN_TEST(test_path_report_splits_without_cutting);
     RUN_TEST(test_path_command_answers_a_direct_message);
     RUN_TEST(test_path_command_lists_every_route);
+    RUN_TEST(test_path_report_keeps_whole_names);
     RUN_TEST(test_path_report_sanitizes_node_names);
 #endif
     exit(UNITY_END());

@@ -58,6 +58,7 @@ test_hop_start_policy	writes=config.proto,module.proto,device.proto,channels.pro
 test_mesh_beacon	writes=module.proto	exercises the beacon's module-config save path
 test_mesh_module	writes=config.proto,module.proto,device.proto,channels.proto,nodes.proto,warm.dat	module framework tests construct a NodeDB
 test_meshcore_companion	writes=config.proto,module.proto,device.proto,channels.proto,nodes.proto,warm.dat	constructs a NodeDB and puts repeater and sender nodes in it so a path hash can be resolved to a name; the constructor persists a default set and evictions reach the warm tier
+test_meshtastic_path_command	writes=config.proto,module.proto,device.proto,channels.proto,nodes.proto,warm.dat	each test builds a NodeDB and puts sender and relay nodes in it; the constructor persists a default set whenever the prefs directory is empty, and the node-DB save reaches the warm tier
 test_mqtt	writes=config.proto,module.proto,device.proto,channels.proto,nodes.proto errors=1000..12000	constructs a NodeDB for node lookups in the MQTT paths
 test_muted_source	writes=config.proto,module.proto,device.proto,channels.proto,nodes.proto	constructs a NodeDB (isToUs needs nodeDB->getNodeNum(), and the DM branch looks the sender up), whose constructor persists a default set when the prefs directory is empty
 test_nexthop_routing	writes=config.proto,module.proto,device.proto,channels.proto,nodes.proto	next-hop selection reads and updates the node DB

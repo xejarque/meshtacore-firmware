@@ -23,6 +23,9 @@
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 #include "MeshCoreCompanion.h"
 #endif
+#if MESHTASTIC_PATH_COMMAND
+#include "MeshtasticPathCommand.h"
+#endif
 #include "modules/AdminModule.h"
 #include "modules/NodeInfoModule.h"
 #include "modules/PositionModule.h"
@@ -514,6 +517,18 @@ ErrorCode MeshService::sendToMesh(meshtastic_MeshPacket *p, RxSource src, bool c
         }
         releaseToPool(p);
         return queued ? ERRNO_OK : ERRNO_UNKNOWN;
+    }
+#endif
+
+#if MESHTASTIC_PATH_COMMAND
+    // A ".path" the client sends on a Meshtastic channel or DM is answered from RAM, never on air.
+    if (src == RX_SRC_USER && meshtasticPathCommand.handleCommand(p)) {
+        releaseToPool(p);
+        if (router) {
+            meshtastic_QueueStatus qs = router->getQueueStatus();
+            (void)sendQueueStatusToPhone(qs, ERRNO_OK, mesh_packet_id);
+        }
+        return ERRNO_OK;
     }
 #endif
 
