@@ -529,7 +529,7 @@ bool MeshCoreCompanion::splitSender(const char *text, char *nameOut, size_t name
 
 uint32_t MeshCoreCompanion::senderNodeNum(const char *name)
 {
-    const uint32_t num = MeshCoreContacts<1>::nodeNumFor(name);
+    const uint32_t num = MeshCoreNodeStore<1>::nodeNumForName(name);
     return num == PSEUDO_NODE_NUM ? num + 1 : num;
 }
 
@@ -673,12 +673,12 @@ size_t MeshCoreCompanion::pathHopNames(const uint8_t *hash, uint8_t size, const 
             addName(n->long_name);
         }
     }
-    // The DM contact table keeps its keys independently of the node DB, so a hop evicted from the hot store can
-    // still be named by the contact it belongs to.
-    const char *contactNames[PATH_HOP_NAMES_MAX];
-    const size_t contactCount = contacts.findNamesByPrefix(hash, size, contactNames, PATH_HOP_NAMES_MAX);
-    for (size_t i = 0; i < contactCount && i < PATH_HOP_NAMES_MAX; i++)
-        addName(contactNames[i]);
+    // The MeshCore node store keeps its keys independently of the node DB, so a hop evicted from the hot store can
+    // still be named by the node it belongs to.
+    const MeshCoreNode *known[PATH_HOP_NAMES_MAX];
+    const size_t knownCount = nodes.findByPrefix(hash, size, known, PATH_HOP_NAMES_MAX);
+    for (size_t i = 0; i < knownCount && i < PATH_HOP_NAMES_MAX; i++)
+        addName(known[i]->name);
     return total;
 }
 
@@ -936,7 +936,7 @@ bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool d
     // Never on air: mark the command delivered and answer it here, in the same channel / chat. A long report goes out
     // as several messages, so the sender must be in place before the first piece is streamed.
     reportDelivery(direct ? p->to : PSEUDO_NODE_NUM, p->id, meshtastic_Routing_Error_NONE);
-    const MeshCoreContact *c = direct ? contacts.findByNodeNum(p->to) : nullptr;
+    const MeshCoreNode *c = direct ? contactByNodeNum(p->to) : nullptr;
     if (direct) {
         if (!c)
             return true; // the contact is gone; the command still must not go out
@@ -992,10 +992,10 @@ uint32_t MeshCoreCompanion::replyTarget(const char *text, const char **rest) con
     if (text[0] != '@' || text[1] != '[')
         return 0;
     const char *close = strchr(text + 2, ']');
-    if (!close || close[1] != ' ' || close == text + 2 || close - text - 2 >= MeshCoreContact::NAME_LEN)
+    if (!close || close[1] != ' ' || close == text + 2 || close - text - 2 >= MeshCoreNode::NAME_LEN)
         return 0;
 
-    char name[MeshCoreContact::NAME_LEN];
+    char name[MeshCoreNode::NAME_LEN];
     memcpy(name, text + 2, close - text - 2);
     name[close - text - 2] = 0;
     // Newest first: the tag names a person, not a message, so the latest text from them is the one answered.
@@ -1048,10 +1048,10 @@ size_t MeshCoreCompanion::prepareGroupText(const char *text, uint32_t replyId, c
     for (const char *p = text; *p;) {
         const bool wordStart = p == text || p[-1] == ' ' || p[-1] == '\n';
         if (*p == '@' && p[1] != '[' && p[1] != ' ' && p[1] != 0 && wordStart) {
-            char best[MeshCoreContact::NAME_LEN] = {};
+            char best[MeshCoreNode::NAME_LEN] = {};
             size_t bestLen = 0;
             auto consider = [&](const char *name, size_t nameLen) {
-                char known[MeshCoreContact::NAME_LEN];
+                char known[MeshCoreNode::NAME_LEN];
                 if (nameLen == 0 || nameLen >= sizeof(known))
                     return;
                 memcpy(known, name, nameLen);
@@ -1062,7 +1062,10 @@ size_t MeshCoreCompanion::prepareGroupText(const char *text, uint32_t replyId, c
                     memcpy(best, known, nameLen + 1);
                 }
             };
-            contacts.forEach([&](MeshCoreContact &c) { consider(c.name, strlen(c.name)); });
+            nodes.forEach([&](MeshCoreNode &n) {
+                if (n.type == MeshCoreNode::CHAT)
+                    consider(n.name, strlen(n.name));
+            });
             for (const RecentText &r : recent)
                 consider(r.sender, strlen(r.sender));
             // Nodes of MeshCore people kept in the node DB (shown as "name (MC)") outlive the recent-senders list.
@@ -1203,14 +1206,14 @@ void MeshCoreCompanion::handleGroupText(const uint8_t *raw, size_t len, const Me
             // The sender is announced before the text, and both wait in the router queue in that order: the client has the
             // name when the text arrives, with or without an advert from them.
             const MeshCoreRx rx(info.path_hash_count, snr, rssi);
-            MeshCoreContact *contact = contacts.findUniqueByName(sender);
+            MeshCoreNode *contact = nodes.findUniqueByName(sender, MeshCoreNode::CHAT);
             if (contact) {
                 fromNum = contact->nodeNum;
                 ensureSenderNode(fromNum, contact->name, true, contact->pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
             } else {
                 fromNum = senderNodeNum(sender);
                 // Two contacts sharing this name leave it ambiguous: the number may belong to one of them, who stays as is.
-                if (!contacts.findByNodeNum(fromNum))
+                if (!nodes.findByNodeNum(fromNum))
                     ensureSenderNode(fromNum, sender, false, nullptr, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
             }
         } else {
@@ -1245,7 +1248,7 @@ void MeshCoreCompanion::setIdentity(const uint8_t seed[32], const uint8_t pub[32
     memcpy(identityPub, pub, sizeof(identityPub));
     identityReady = true;
     aliasReady = false; // a new seed means a new alias; the radio installs the derived one on its next service tick
-    contacts.forEach([](MeshCoreContact &c) { c.hasSecret = false; }); // secrets were derived for another identity
+    secrets.clear(); // they were derived for another identity
 }
 
 void MeshCoreCompanion::setRelayAliasPub(const uint8_t pub[32])
@@ -1254,11 +1257,37 @@ void MeshCoreCompanion::setRelayAliasPub(const uint8_t pub[32])
     aliasReady = true;
 }
 
-bool MeshCoreCompanion::ensureSecret(MeshCoreContact &c)
+const uint8_t *MeshCoreCompanion::secretFor(const MeshCoreNode &n)
 {
-    if (!c.hasSecret)
-        c.hasSecret = identityReady && sharedSecret(identitySeed, c.pub, c.secret);
-    return c.hasSecret;
+    if (!identityReady)
+        return nullptr;
+    if (const uint8_t *cached = secrets.find(n.pub))
+        return cached;
+    uint8_t secret[32];
+    return sharedSecret(identitySeed, n.pub, secret) ? secrets.put(n.pub, secret) : nullptr;
+}
+
+MeshCoreNode *MeshCoreCompanion::contactByPub(const uint8_t pub[32])
+{
+    MeshCoreNode *n = nodes.find(pub);
+    return n && n->type == MeshCoreNode::CHAT ? n : nullptr;
+}
+
+MeshCoreNode *MeshCoreCompanion::contactByNodeNum(uint32_t nodeNum)
+{
+    MeshCoreNode *n = nodes.findByNodeNum(nodeNum);
+    return n && n->type == MeshCoreNode::CHAT ? n : nullptr;
+}
+
+MeshCoreNode *MeshCoreCompanion::learnContact(const uint8_t pub[32], const char *name)
+{
+    MeshCoreNode *n = nodes.upsert(pub);
+    n->type = MeshCoreNode::CHAT;
+    if (name)
+        n->setName(name);
+    if (n->nodeNum == 0) // a contact keeps its number across renames, as the client keeps its conversation
+        nodes.assignNodeNum(n, MeshCoreNodeStore<1>::nodeNumForName(n->name), PSEUDO_NODE_NUM);
+    return n;
 }
 
 void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr,
@@ -1296,7 +1325,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
     if (at >= info.payload_len)
         return;
 
-    char name[MeshCoreContact::NAME_LEN];
+    char name[MeshCoreNode::NAME_LEN];
     size_t nameLen = info.payload_len - at;
     if (nameLen > sizeof(name) - 1)
         nameLen = sizeof(name) - 1;
@@ -1309,7 +1338,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
     const MeshCoreRx rx(info.path_hash_count, snr, rssi);
     if (repeater) {
         // A repeater is not someone to message: it only gets a node, keyed by its public key, and no contact slot.
-        uint32_t num = MeshCoreContacts<1>::nodeNumForKey(payload);
+        uint32_t num = MeshCoreNodeStore<1>::nodeNumForKey(payload);
         if (num == PSEUDO_NODE_NUM)
             num++;
         const meshtastic_NodeInfoLite *lite = nodeDB ? nodeDB->getMeshNode(num) : nullptr;
@@ -1324,9 +1353,9 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
     }
 
     // A contact we already trust under the same name only needs its LRU stamp refreshed: skip the signature check.
-    MeshCoreContact *known = contacts.findByPub(payload);
-    if (known && strcmp(known->name, name) == 0) {
-        contacts.touch(known);
+    MeshCoreNode *known = contactByPub(payload);
+    if (known && strncmp(known->name, name, MeshCoreNode::NAME_LEN - 1) == 0) {
+        nodes.touch(known);
         // Brings a node made before keys were set up along.
         ensureSenderNode(known->nodeNum, known->name, true, known->pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
         updatePosition(known->nodeNum, latMicro, lonMicro);
@@ -1335,7 +1364,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
     if (!MeshCoreRepeater::verifyAdvert(payload, info.payload_len))
         return;
 
-    MeshCoreContact *c = contacts.upsert(payload, name);
+    MeshCoreNode *c = learnContact(payload, name);
     if (!known)
         contactsLearned++;
     ensureSenderNode(c->nodeNum, c->name, true, c->pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
@@ -1348,7 +1377,7 @@ void MeshCoreCompanion::retireGroupNode(const char *name)
 {
     // The node made for this name before it was a contact: ours (no hardware model, unmessagable), not a favourite.
     const uint32_t num = senderNodeNum(name);
-    if (contacts.findByNodeNum(num))
+    if (nodes.findByNodeNum(num))
         return; // the contact took over this very node: nothing left to retire
     const meshtastic_NodeInfoLite *lite = nodeDB ? nodeDB->getMeshNode(num) : nullptr;
     if (lite && nodeInfoLiteHasUser(lite) && lite->hw_model == meshtastic_HardwareModel_UNSET &&
@@ -1359,7 +1388,7 @@ void MeshCoreCompanion::retireGroupNode(const char *name)
 void MeshCoreCompanion::retireKeyedNode(const uint8_t pub[32], uint32_t keepNum)
 {
     // Earlier builds numbered a contact's node from its public key; that node carries the same key and no hardware model.
-    const uint32_t num = MeshCoreContacts<1>::nodeNumForKey(pub);
+    const uint32_t num = MeshCoreNodeStore<1>::nodeNumForKey(pub);
     if (num == keepNum || !nodeDB)
         return;
     const meshtastic_NodeInfoLite *lite = nodeDB->getMeshNode(num);
@@ -1369,7 +1398,7 @@ void MeshCoreCompanion::retireKeyedNode(const uint8_t pub[32], uint32_t keepNum)
 }
 
 uint32_t MeshCoreCompanion::injectText(uint32_t fromNum, uint32_t to, uint8_t channel, const char *text, uint32_t replyId,
-                                       bool direct, const MeshCoreContact *contact, uint8_t pathHashCount, float snr,
+                                       bool direct, const MeshCoreNode *contact, uint8_t pathHashCount, float snr,
                                        int32_t rssi)
 {
     meshtastic_MeshPacket *p = packetPool.allocZeroed();
@@ -1418,7 +1447,7 @@ uint32_t MeshCoreCompanion::injectText(uint32_t fromNum, uint32_t to, uint8_t ch
     return id;
 }
 
-uint32_t MeshCoreCompanion::injectDirectText(const MeshCoreContact &c, const char *text,
+uint32_t MeshCoreCompanion::injectDirectText(const MeshCoreNode &c, const char *text,
                                              const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi)
 {
     // A node-DB reset or eviction may have removed it.
@@ -1459,18 +1488,20 @@ void MeshCoreCompanion::handleDirectText(const uint8_t *raw, size_t len, const M
     }
 
     // The source hash is one byte, so several contacts can share it: the MAC tells which one wrote it.
-    MeshCoreContact *candidates[CONTACTS_MAX];
-    const size_t n = contacts.findByHash(payload[1], candidates, CONTACTS_MAX);
-    for (size_t i = 0; i < n; i++) {
-        MeshCoreContact *c = candidates[i];
+    MeshCoreNode *candidates[HASH_CANDIDATES_MAX];
+    const size_t n = nodes.findByPrefix(&payload[1], 1, candidates, HASH_CANDIDATES_MAX);
+    for (size_t i = 0; i < n && i < HASH_CANDIDATES_MAX; i++) {
+        MeshCoreNode *c = candidates[i];
         char text[MAX_TEXT_LEN + 1];
         uint32_t timestamp = 0;
         uint8_t flags = 0;
-        if (!ensureSecret(*c) || !decodeDirectText(c->secret, raw, len, info, text, sizeof(text), &timestamp, &flags))
+        const uint8_t *secret = c->type == MeshCoreNode::CHAT ? secretFor(*c) : nullptr;
+        if (!secret || !decodeDirectText(secret, raw, len, info, text, sizeof(text), &timestamp, &flags))
             continue;
 
         rememberFrame(hash);
-        contacts.touch(c);
+        nodes.touch(c);
+        nodes.noteDirectMessage(c);
         dmRx++;
         LOG_INFO("MeshCore direct text from %s ts=%u len=%u", c->name, timestamp, (unsigned)strlen(text));
         const uint32_t packetId = injectDirectText(*c, text, info, snr, rssi);
@@ -1561,8 +1592,9 @@ void MeshCoreCompanion::settleEcho(uint32_t hash)
 
 bool MeshCoreCompanion::sendDirectText(uint32_t nodeNum, uint32_t packetId, const char *text, uint32_t now, RadioInterface *iface)
 {
-    MeshCoreContact *c = contacts.findByNodeNum(nodeNum);
-    if (!c || !identityReady || !iface || now == 0 || !text || !ensureSecret(*c))
+    MeshCoreNode *c = contactByNodeNum(nodeNum);
+    const uint8_t *secret = c && iface && now != 0 && text ? secretFor(*c) : nullptr;
+    if (!secret)
         return false;
 
     // The ACK hashes the text as the peer will read it, so cut it the way encodeDirectText does.
@@ -1574,14 +1606,15 @@ bool MeshCoreCompanion::sendDirectText(uint32_t nodeNum, uint32_t packetId, cons
     const uint32_t timestamp = nextTxTimestamp(now);
     uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
     const size_t frameLen =
-        encodeDirectText(c->secret, c->pub[0], identityPub[0], timestamp, TXT_FLAGS_PLAIN, cut, frame, sizeof(frame));
+        encodeDirectText(secret, c->pub[0], identityPub[0], timestamp, TXT_FLAGS_PLAIN, cut, frame, sizeof(frame));
     MeshCoreRepeater::FrameInfo info;
     if (frameLen == 0 || !MeshCoreRepeater::parse(frame, frameLen, &info) || !iface->queueMeshCoreFrame(frame, frameLen))
         return false;
 
     PendingAck *slot = addPending(ackHash(timestamp, TXT_FLAGS_PLAIN, cut, identityPub), packetId, nodeNum);
     slot->frameHash = MeshCoreRepeater::hashFrame(frame, frameLen, info);
-    contacts.touch(c);
+    nodes.touch(c);
+    nodes.noteDirectMessage(c);
     dmTx++;
     return true;
 }
@@ -1618,11 +1651,12 @@ void MeshCoreCompanion::handlePathAck(const uint8_t *raw, size_t len, const Mesh
     if (payload[0] != identityPub[0])
         return;
 
-    MeshCoreContact *candidates[CONTACTS_MAX];
-    const size_t n = contacts.findByHash(payload[1], candidates, CONTACTS_MAX);
-    for (size_t i = 0; i < n; i++) {
+    MeshCoreNode *candidates[HASH_CANDIDATES_MAX];
+    const size_t n = nodes.findByPrefix(&payload[1], 1, candidates, HASH_CANDIDATES_MAX);
+    for (size_t i = 0; i < n && i < HASH_CANDIDATES_MAX; i++) {
         uint32_t hash = 0;
-        if (ensureSecret(*candidates[i]) && decodePathAck(candidates[i]->secret, raw, len, info, &hash)) {
+        const uint8_t *secret = candidates[i]->type == MeshCoreNode::CHAT ? secretFor(*candidates[i]) : nullptr;
+        if (secret && decodePathAck(secret, raw, len, info, &hash)) {
             settleAck(hash);
             return;
         }
@@ -1649,89 +1683,46 @@ void MeshCoreCompanion::service()
     }
 }
 
-static constexpr uint8_t SAVED_MAGIC[3] = {'M', 'C', 'C'};
-static constexpr uint8_t SAVED_VERSION = 1;
+void MeshCoreCompanion::syncFavorites()
+{
+    // The client stars a node in the node DB; a contact evicted from there keeps the flag it had.
+    nodes.forEach([](MeshCoreNode &n) {
+        const meshtastic_NodeInfoLite *lite = nodeDB && n.type == MeshCoreNode::CHAT ? nodeDB->getMeshNode(n.nodeNum) : nullptr;
+        if (lite)
+            n.flags = nodeInfoLiteIsFavorite(lite) ? (n.flags | MeshCoreNode::FAVORITE) : (n.flags & ~MeshCoreNode::FAVORITE);
+    });
+}
 
 size_t MeshCoreCompanion::exportContacts(uint8_t *buf, size_t cap)
 {
-    if (!buf || cap < SAVED_IMAGE_MAX)
-        return 0;
-
-    // The most recently used contacts, newest first: the table can hold more than the file.
-    const MeshCoreContact *picked[SAVED_MAX];
-    size_t count = 0;
-    for (; count < SAVED_MAX; count++) {
-        const MeshCoreContact *best = nullptr;
-        contacts.forEach([&](MeshCoreContact &c) {
-            for (size_t i = 0; i < count; i++)
-                if (picked[i] == &c)
-                    return;
-            if (!best || c.lastUsed > best->lastUsed)
-                best = &c;
-        });
-        if (!best)
-            break;
-        picked[count] = best;
-    }
-
-    memcpy(buf, SAVED_MAGIC, sizeof(SAVED_MAGIC));
-    buf[3] = SAVED_VERSION;
-    buf[4] = (uint8_t)count;
-    for (size_t i = 0; i < count; i++) {
-        uint8_t *rec = &buf[5 + i * SAVED_RECORD_LEN];
-        memcpy(rec, picked[i]->pub, 32);
-        memcpy(&rec[32], picked[i]->name, MeshCoreContact::NAME_LEN);
-    }
-    return 5 + count * SAVED_RECORD_LEN;
+    syncFavorites();
+    return MeshCoreNodeFile::save(nodes, buf, cap);
 }
 
 size_t MeshCoreCompanion::importContacts(const uint8_t *buf, size_t len)
 {
-    if (!buf || len < 5 || memcmp(buf, SAVED_MAGIC, sizeof(SAVED_MAGIC)) != 0 || buf[3] != SAVED_VERSION)
-        return 0;
-    const size_t count = buf[4];
-    if (count > SAVED_MAX || len != 5 + count * SAVED_RECORD_LEN)
-        return 0;
-
-    // Saved newest first: load oldest first so the newest ends up the most recently used.
-    size_t loaded = 0;
-    for (size_t i = count; i-- > 0;) {
-        const uint8_t *rec = &buf[5 + i * SAVED_RECORD_LEN];
-        if (identityReady && memcmp(rec, identityPub, 32) == 0)
-            continue;
-        char name[MeshCoreContact::NAME_LEN];
-        memcpy(name, &rec[32], sizeof(name));
-        name[sizeof(name) - 1] = 0;
-        MeshCoreContact *c = contacts.upsert(rec, name);
-        ensureSenderNode(c->nodeNum, c->name, true, c->pub);
-        retireGroupNode(c->name);
-        retireKeyedNode(c->pub, c->nodeNum);
-        loaded++;
+    const size_t loaded = MeshCoreNodeFile::load(nodes, buf, len);
+    if (identityReady) {
+        nodes.remove(identityPub);
+        if (aliasReady)
+            nodes.remove(aliasPub);
     }
+    nodes.forEach([&](MeshCoreNode &n) {
+        if (n.type != MeshCoreNode::CHAT)
+            return;
+        if (n.nodeNum == 0) // migrated from the contacts file, which kept no numbers
+            nodes.assignNodeNum(&n, MeshCoreNodeStore<1>::nodeNumForName(n.name), PSEUDO_NODE_NUM);
+        ensureSenderNode(n.nodeNum, n.name, true, n.pub);
+        retireGroupNode(n.name);
+        retireKeyedNode(n.pub, n.nodeNum);
+    });
     return loaded;
 }
 
 uint32_t MeshCoreCompanion::contactsFingerprint()
 {
-    // Public keys and names only: the LRU order changes with every advert and is not worth a flash write.
-    uint32_t h = 2166136261u; // FNV-1a
-    auto mix = [&](const uint8_t *p, size_t n) {
-        for (size_t i = 0; i < n; i++)
-            h = (h ^ p[i]) * 16777619u;
-    };
-    uint32_t sum = 0, count = 0;
-    contacts.forEach([&](MeshCoreContact &c) {
-        uint32_t ch = 2166136261u;
-        for (size_t i = 0; i < 32; i++)
-            ch = (ch ^ c.pub[i]) * 16777619u;
-        for (const char *q = c.name; *q; q++)
-            ch = (ch ^ (uint8_t)*q) * 16777619u;
-        sum += ch; // order independent: a slot being reused must not look like a change
-        count++;
-    });
-    mix((const uint8_t *)&sum, sizeof(sum));
-    mix((const uint8_t *)&count, sizeof(count));
-    return h;
+    syncFavorites();
+    return MeshCoreNodeFile::fingerprint(nodes);
 }
 
 void MeshCoreCompanion::noteTransmitted(const uint8_t *raw, size_t len)

@@ -359,92 +359,78 @@ static void fillPub(uint8_t pub[32], uint8_t first, uint8_t seed)
     pub[0] = first;
 }
 
-void test_contacts_upsert_refreshes_name_and_keeps_node_num(void)
+void test_contacts_keep_their_node_num_across_a_rename(void)
 {
-    MeshCoreContacts<4> table;
+    MeshCoreCompanion c;
     uint8_t pub[32];
     fillPub(pub, 0x10, 1);
 
-    MeshCoreContact *a = table.upsert(pub, "Alice");
+    MeshCoreNode *a = c.learnContact(pub, "Alice");
     const uint32_t num = a->nodeNum;
     TEST_ASSERT_EQUAL_HEX8(0x4D, num >> 24);
 
-    MeshCoreContact *again = table.upsert(pub, "Alicia");
+    // The client files the conversation under the node number: a rename must not open a second one.
+    MeshCoreNode *again = c.learnContact(pub, "Alicia");
     TEST_ASSERT_EQUAL_PTR(a, again);
     TEST_ASSERT_EQUAL_STRING("Alicia", again->name);
     TEST_ASSERT_EQUAL_HEX32(num, again->nodeNum);
-    TEST_ASSERT_EQUAL_PTR(a, table.findByNodeNum(num));
-}
-
-void test_contacts_evict_least_recently_used(void)
-{
-    MeshCoreContacts<2> table;
-    uint8_t a[32], b[32], c[32];
-    fillPub(a, 1, 10);
-    fillPub(b, 2, 20);
-    fillPub(c, 3, 30);
-
-    table.upsert(a, "A");
-    table.upsert(b, "B");
-    table.touch(table.findByPub(a)); // B is now the oldest
-    table.upsert(c, "C");
-
-    TEST_ASSERT_NOT_NULL(table.findByPub(a));
-    TEST_ASSERT_NULL(table.findByPub(b));
-    TEST_ASSERT_NOT_NULL(table.findByPub(c));
-}
-
-void test_contacts_share_a_one_byte_hash(void)
-{
-    MeshCoreContacts<4> table;
-    uint8_t a[32], b[32], c[32];
-    fillPub(a, 0x42, 1);
-    fillPub(b, 0x42, 50);
-    fillPub(c, 0x43, 90);
-    table.upsert(a, "A");
-    table.upsert(b, "B");
-    table.upsert(c, "C");
-
-    MeshCoreContact *found[4];
-    TEST_ASSERT_EQUAL(2, table.findByHash(0x42, found, 4));
-    TEST_ASSERT_EQUAL(1, table.findByHash(0x43, found, 4));
-    TEST_ASSERT_EQUAL(0, table.findByHash(0x44, found, 4));
+    TEST_ASSERT_TRUE(c.hasContact(num));
 }
 
 void test_contacts_never_reuse_the_pseudo_node_num(void)
 {
-    MeshCoreContacts<32> table;
+    MeshCoreCompanion c;
     for (int i = 0; i < 32; i++) {
         uint8_t pub[32];
         fillPub(pub, i, i * 7);
-        MeshCoreContact *c = table.upsert(pub, "x");
-        TEST_ASSERT_NOT_EQUAL(MeshCoreCompanion::PSEUDO_NODE_NUM, c->nodeNum);
-        TEST_ASSERT_EQUAL_PTR(c, table.findByNodeNum(c->nodeNum));
+        MeshCoreNode *n = c.learnContact(pub, "x"); // one name: every contact after the first must move on
+        TEST_ASSERT_NOT_EQUAL(MeshCoreCompanion::PSEUDO_NODE_NUM, n->nodeNum);
+        TEST_ASSERT_EQUAL_PTR(n, c.nodes.findByNodeNum(n->nodeNum));
     }
 }
 
-void test_contacts_image_round_trip_keeps_keys_and_names(void)
+void test_contacts_image_round_trip_keeps_keys_names_and_numbers(void)
 {
     MeshCoreCompanion writer;
     uint8_t a[32], b[32];
     fillPub(a, 1, 10);
     fillPub(b, 2, 20);
-    writer.contacts.upsert(a, "Alice");
-    writer.contacts.upsert(b, "Bob");
+    writer.learnContact(a, "Alice");
+    writer.learnContact(b, "Bob");
 
-    uint8_t image[MeshCoreCompanion::SAVED_IMAGE_MAX];
+    uint8_t image[MeshCoreNodeFile::IMAGE_MAX];
     const size_t n = writer.exportContacts(image, sizeof(image));
-    TEST_ASSERT_EQUAL(5 + 2 * MeshCoreCompanion::SAVED_RECORD_LEN, n);
+    TEST_ASSERT_EQUAL(MeshCoreNodeFile::HEADER_LEN + 2 * MeshCoreNodeFile::RECORD_LEN, n);
 
     MeshCoreCompanion reader;
     TEST_ASSERT_EQUAL(2, reader.importContacts(image, n));
-    MeshCoreContact *ra = reader.contacts.findByPub(a);
-    MeshCoreContact *rb = reader.contacts.findByPub(b);
+    MeshCoreNode *ra = reader.nodes.find(a);
+    MeshCoreNode *rb = reader.nodes.find(b);
     TEST_ASSERT_NOT_NULL(ra);
     TEST_ASSERT_NOT_NULL(rb);
     TEST_ASSERT_EQUAL_STRING("Alice", ra->name);
     TEST_ASSERT_EQUAL_STRING("Bob", rb->name);
-    TEST_ASSERT_EQUAL_HEX32(writer.contacts.findByPub(a)->nodeNum, ra->nodeNum);
+    TEST_ASSERT_EQUAL_HEX32(writer.nodes.find(a)->nodeNum, ra->nodeNum);
+    TEST_ASSERT_TRUE(reader.hasContact(ra->nodeNum));
+}
+
+void test_contacts_file_of_earlier_builds_is_migrated(void)
+{
+    // The version 1 image: magic, version, count, then public key and a 40-byte name per contact, newest first.
+    uint8_t image[5 + 72] = {'M', 'C', 'C', 1, 1};
+    uint8_t pub[32];
+    fillPub(pub, 0x33, 3);
+    memcpy(&image[5], pub, 32);
+    strcpy((char *)&image[5 + 32], "Alice");
+
+    MeshCoreCompanion c;
+    TEST_ASSERT_EQUAL(1, c.importContacts(image, sizeof(image)));
+    const MeshCoreNode *n = c.nodes.find(pub);
+    TEST_ASSERT_NOT_NULL(n);
+    TEST_ASSERT_EQUAL_STRING("Alice", n->name);
+    // The number the contact had before the upgrade, so the client keeps the conversation it already shows.
+    TEST_ASSERT_EQUAL_HEX32(MeshCoreCompanion::senderNodeNum("Alice"), n->nodeNum);
+    TEST_ASSERT_TRUE(c.hasContact(n->nodeNum));
 }
 
 void test_contacts_image_rejects_garbage(void)
@@ -453,10 +439,10 @@ void test_contacts_image_rejects_garbage(void)
     uint8_t junk[64] = {};
     TEST_ASSERT_EQUAL(0, c.importContacts(junk, sizeof(junk)));
 
-    uint8_t image[MeshCoreCompanion::SAVED_IMAGE_MAX];
+    uint8_t image[MeshCoreNodeFile::IMAGE_MAX];
     uint8_t a[32];
     fillPub(a, 1, 10);
-    c.contacts.upsert(a, "Alice");
+    c.learnContact(a, "Alice");
     const size_t n = c.exportContacts(image, sizeof(image));
 
     MeshCoreCompanion other;
@@ -471,40 +457,42 @@ void test_contacts_fingerprint_follows_the_set_not_the_recency(void)
     uint8_t a[32], b[32];
     fillPub(a, 1, 10);
     fillPub(b, 2, 20);
-    c.contacts.upsert(a, "Alice");
+    c.learnContact(a, "Alice");
     const uint32_t one = c.contactsFingerprint();
 
-    c.contacts.touch(c.contacts.findByPub(a));
+    c.nodes.touch(c.nodes.find(a));
     TEST_ASSERT_EQUAL_HEX32(one, c.contactsFingerprint());
 
-    c.contacts.upsert(b, "Bob");
+    c.learnContact(b, "Bob");
     TEST_ASSERT_NOT_EQUAL(one, c.contactsFingerprint());
     const uint32_t two = c.contactsFingerprint();
 
-    c.contacts.upsert(a, "Alicia");
+    c.learnContact(a, "Alicia");
     TEST_ASSERT_NOT_EQUAL(two, c.contactsFingerprint());
 }
 
-void test_image_is_capped_to_the_most_recent_contacts(void)
+void test_image_keeps_conversations_over_newer_contacts(void)
 {
     MeshCoreCompanion c;
-    for (int i = 0; i < 20; i++) {
+    uint8_t chat[32];
+    fillPub(chat, 0x01, 0);
+    c.nodes.noteDirectMessage(c.learnContact(chat, "friend"));
+    for (int i = 0; i < 20; i++) { // all newer than the conversation, and more than the image holds
         uint8_t pub[32];
-        fillPub(pub, i + 1, i * 3);
-        c.contacts.upsert(pub, "n");
+        fillPub(pub, i + 2, i * 3);
+        c.learnContact(pub, "n");
     }
-    uint8_t image[MeshCoreCompanion::SAVED_IMAGE_MAX];
+    uint8_t image[MeshCoreNodeFile::IMAGE_MAX];
     const size_t n = c.exportContacts(image, sizeof(image));
-    TEST_ASSERT_EQUAL(5 + MeshCoreCompanion::SAVED_MAX * MeshCoreCompanion::SAVED_RECORD_LEN, n);
-    TEST_ASSERT_EQUAL(MeshCoreCompanion::SAVED_MAX, image[4]);
+    TEST_ASSERT_EQUAL(MeshCoreNodeFile::SAVED_MAX, image[4]);
 
-    // The newest contact (first byte 20) is first in the image; the oldest four did not make it.
-    TEST_ASSERT_EQUAL_HEX8(20, image[5]);
-    uint8_t oldest[32];
-    fillPub(oldest, 1, 0);
     MeshCoreCompanion reader;
     reader.importContacts(image, n);
-    TEST_ASSERT_NULL(reader.contacts.findByPub(oldest));
+    // Saved by recency alone, the friend would be gone and their next DM undecryptable after a reboot.
+    TEST_ASSERT_NOT_NULL(reader.nodes.find(chat));
+    uint8_t oldestStranger[32];
+    fillPub(oldestStranger, 2, 0);
+    TEST_ASSERT_NULL(reader.nodes.find(oldestStranger));
 }
 
 void test_direct_send_needs_identity_and_contact(void)
@@ -512,7 +500,7 @@ void test_direct_send_needs_identity_and_contact(void)
     MeshCoreCompanion c;
     uint8_t pub[32];
     fillPub(pub, 1, 10);
-    const uint32_t num = c.contacts.upsert(pub, "Alice")->nodeNum;
+    const uint32_t num = c.learnContact(pub, "Alice")->nodeNum;
     TEST_ASSERT_FALSE(c.sendDirectText(num, 1, "hola", 1000, nullptr)); // no identity, no radio
     TEST_ASSERT_FALSE(c.sendDirectText(0x12345678, 1, "hola", 1000, nullptr));
     TEST_ASSERT_TRUE(c.hasContact(num));
@@ -562,18 +550,18 @@ void test_a_node_is_announced_until_heard_and_again_when_it_changes_or_goes_stal
 
 void test_contacts_find_a_name_only_when_unique(void)
 {
-    MeshCoreContacts<4> table;
+    MeshCoreCompanion comp;
     uint8_t a[32], b[32], c[32];
     fillPub(a, 1, 10);
     fillPub(b, 2, 20);
     fillPub(c, 3, 30);
-    table.upsert(a, "Alice");
-    table.upsert(b, "Alice");
-    table.upsert(c, "Carol");
+    comp.learnContact(a, "Alice");
+    comp.learnContact(b, "Alice");
+    comp.learnContact(c, "Carol");
 
-    TEST_ASSERT_NULL(table.findUniqueByName("Alice")); // two people share it: the name cannot pick one
-    TEST_ASSERT_EQUAL_PTR(table.findByPub(c), table.findUniqueByName("Carol"));
-    TEST_ASSERT_NULL(table.findUniqueByName("Nobody"));
+    TEST_ASSERT_NULL(comp.nodes.findUniqueByName("Alice", MeshCoreNode::CHAT)); // two people share it: it cannot pick one
+    TEST_ASSERT_EQUAL_PTR(comp.nodes.find(c), comp.nodes.findUniqueByName("Carol", MeshCoreNode::CHAT));
+    TEST_ASSERT_NULL(comp.nodes.findUniqueByName("Nobody", MeshCoreNode::CHAT));
 }
 
 static void sharedBetweenTestSeeds(uint8_t secret[32], uint8_t pubA[32], uint8_t pubB[32])
@@ -639,11 +627,11 @@ void test_path_with_another_extra_is_not_an_ack(void)
 
 void test_contact_and_channel_sender_share_one_node(void)
 {
-    MeshCoreContacts<4> table;
+    MeshCoreCompanion c;
     uint8_t pub[32];
     fillPub(pub, 0x31, 5);
     // The same name gives the same node whether it first spoke in a channel or advertised: one entry in the client.
-    TEST_ASSERT_EQUAL_HEX32(MeshCoreCompanion::senderNodeNum("Alice"), table.upsert(pub, "Alice")->nodeNum);
+    TEST_ASSERT_EQUAL_HEX32(MeshCoreCompanion::senderNodeNum("Alice"), c.learnContact(pub, "Alice")->nodeNum);
 }
 
 void test_group_text_marks_replies_and_known_mentions(void)
@@ -651,7 +639,7 @@ void test_group_text_marks_replies_and_known_mentions(void)
     MeshCoreCompanion c;
     uint8_t pub[32];
     fillPub(pub, 0x41, 9);
-    c.contacts.upsert(pub, "Carol");
+    c.learnContact(pub, "Carol");
     c.noteRecentText(1234, "Bob Builder");
 
     char out[200];
@@ -780,7 +768,7 @@ struct DirectSetup {
         Ed25519::derivePublicKey(pubA, kSeedA);
         Ed25519::derivePublicKey(pubB, kSeedB);
         c.setIdentity(kSeedA, pubA);
-        bobNum = c.contacts.upsert(pubB, "Bob")->nodeNum;
+        bobNum = c.learnContact(pubB, "Bob")->nodeNum;
     }
 
     ~DirectSetup()
@@ -897,7 +885,7 @@ struct GroupSetup {
 // A repeater the node DB knows: name plus the public key its path hash is the prefix of.
 static void addRepeater(const uint8_t pub[32], const char *name)
 {
-    meshtastic_NodeInfoLite *n = nodeDB->getOrCreateMeshNode(MeshCoreContacts<1>::nodeNumForKey(pub));
+    meshtastic_NodeInfoLite *n = nodeDB->getOrCreateMeshNode(MeshCoreNodeStore<1>::nodeNumForKey(pub));
     TEST_ASSERT_NOT_NULL(n);
     strncpy(n->long_name, name, sizeof(n->long_name) - 1);
     n->public_key.size = 32;
@@ -1102,7 +1090,7 @@ void test_path_report_falls_back_to_a_contact_key(void)
 {
     GroupSetup s;
     const uint8_t pub[32] = {0xC7, 0xC8};
-    s.c.contacts.upsert(pub, "Contact RPT");
+    s.c.learnContact(pub, "Contact RPT");
 
     MeshCoreCompanion::HeardPath entry;
     entry.hopCount = 1;
@@ -1304,7 +1292,7 @@ void test_own_alias_advert_is_not_learned_as_a_contact()
     const size_t nodesBefore = nodeDB->getNumMeshNodes();
     s.c.handleFrame(frame, len, 5, -60);
     TEST_ASSERT_EQUAL_UINT32(nodesBefore, nodeDB->getNumMeshNodes());
-    TEST_ASSERT_NULL(s.c.contacts.findByPub(s.repeater.getAliasPub()));
+    TEST_ASSERT_NULL(s.c.nodes.find(s.repeater.getAliasPub()));
 }
 
 void setup()
@@ -1334,15 +1322,14 @@ void setup()
     RUN_TEST(test_direct_text_rejects_wrong_secret_and_tampering);
     RUN_TEST(test_ack_hash_depends_on_text_and_sender);
     RUN_TEST(test_ack_frame_layout);
-    RUN_TEST(test_contacts_upsert_refreshes_name_and_keeps_node_num);
-    RUN_TEST(test_contacts_evict_least_recently_used);
-    RUN_TEST(test_contacts_share_a_one_byte_hash);
+    RUN_TEST(test_contacts_keep_their_node_num_across_a_rename);
     RUN_TEST(test_contacts_never_reuse_the_pseudo_node_num);
-    RUN_TEST(test_contacts_image_round_trip_keeps_keys_and_names);
+    RUN_TEST(test_contacts_image_round_trip_keeps_keys_names_and_numbers);
+    RUN_TEST(test_contacts_file_of_earlier_builds_is_migrated);
     RUN_TEST(test_contacts_image_rejects_garbage);
     RUN_TEST(test_contacts_fingerprint_follows_the_set_not_the_recency);
     RUN_TEST(test_own_alias_advert_is_not_learned_as_a_contact);
-    RUN_TEST(test_image_is_capped_to_the_most_recent_contacts);
+    RUN_TEST(test_image_keeps_conversations_over_newer_contacts);
     RUN_TEST(test_direct_send_needs_identity_and_contact);
     RUN_TEST(test_contact_user_carries_the_meshcore_key_and_is_messagable);
     RUN_TEST(test_a_node_is_announced_until_heard_and_again_when_it_changes_or_goes_stale);

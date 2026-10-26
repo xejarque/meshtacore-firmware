@@ -51,6 +51,7 @@ void test_round_trip_keeps_every_field()
     MeshCoreNode *n = addNode(store, 0xA0, "Pepe");
     n->type = MeshCoreNode::REPEATER;
     n->outPathLen = 3;
+    n->flags |= MeshCoreNode::HAS_OUT_PATH;
     n->outPath[0] = 0x11;
     n->outPath[2] = 0x33;
     n->lastAdvert = 1761480000;
@@ -162,7 +163,9 @@ void test_malformed_images_load_nothing()
 void test_route_longer_than_the_record_is_dropped()
 {
     Store store;
-    addNode(store, 0xA0, "Pepe")->outPathLen = 2;
+    MeshCoreNode *n = addNode(store, 0xA0, "Pepe");
+    n->outPathLen = 2;
+    n->flags |= MeshCoreNode::HAS_OUT_PATH;
     uint8_t image[MeshCoreNodeFile::IMAGE_MAX];
     const size_t len = MeshCoreNodeFile::save(store, image, sizeof(image));
     image[MeshCoreNodeFile::HEADER_LEN + 32 + MeshCoreNode::NAME_LEN + 2] = MeshCoreNode::MAX_PATH_HOPS + 1;

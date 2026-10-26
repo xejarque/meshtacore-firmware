@@ -11,7 +11,7 @@
 // Regressions guarded: plain LRU eviction that drops a favourite or a DM peer while a stranger is still in the table;
 // a save order by advert recency that pushes a conversation out for a chatty repeater; prefix lookups that stop at
 // the first match although MeshCore hashes collide; names cut in the middle of a UTF-8 character; the record growing
-// past the size the 350-entry table was budgeted for.
+// past the size the table was budgeted for, or getting a non-zero default that moves the table into flash.
 #include "mesh/MeshCoreNodeStore.h"
 
 #include "TestUtil.h"
@@ -183,6 +183,16 @@ void test_name_is_cut_on_a_utf8_boundary()
     TEST_ASSERT_EQUAL_UINT8(0, (uint8_t)n.name[MeshCoreNode::NAME_LEN - 1]);
 }
 
+void test_a_new_record_is_all_zeros()
+{
+    // A non-zero default puts the whole table in .data, whose image costs its full size in flash (10-38 KB here).
+    MeshCoreNode n;
+    const uint8_t *bytes = (const uint8_t *)&n;
+    for (size_t i = 0; i < sizeof(n); i++)
+        TEST_ASSERT_EQUAL_UINT8(0, bytes[i]);
+    TEST_ASSERT_FALSE(n.hasOutPath());
+}
+
 void test_record_fits_the_ram_budget()
 {
     // 350 records were budgeted at about 36 KB of RAM; a field added here costs 350 times its size.
@@ -202,6 +212,7 @@ void setup()
     RUN_TEST(test_saving_order_is_favourites_then_conversations_then_the_rest);
     RUN_TEST(test_saving_stops_at_the_limit_with_the_best_nodes);
     RUN_TEST(test_name_is_cut_on_a_utf8_boundary);
+    RUN_TEST(test_a_new_record_is_all_zeros);
     RUN_TEST(test_record_fits_the_ram_budget);
     exit(UNITY_END());
 }

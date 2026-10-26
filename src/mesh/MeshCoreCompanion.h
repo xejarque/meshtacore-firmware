@@ -5,9 +5,11 @@
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 
 #include "Channels.h"
-#include "MeshCoreContacts.h"
 #include "MeshCoreDedup.h"
+#include "MeshCoreNodeFile.h"
+#include "MeshCoreNodeStore.h"
 #include "MeshCoreRepeater.h"
+#include "MeshCoreSecretCache.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -224,7 +226,10 @@ class MeshCoreCompanion
     bool hasIdentity() const { return identityReady; }
 
     /// True when node is a direct-message contact we hold a public key for.
-    bool hasContact(uint32_t nodeNum) { return contacts.findByNodeNum(nodeNum) != nullptr; }
+    bool hasContact(uint32_t nodeNum) { return contactByNodeNum(nodeNum) != nullptr; }
+
+    /// Learn or refresh a chat contact, numbered from its name the first time and keeping that number afterwards.
+    MeshCoreNode *learnContact(const uint8_t pub[32], const char *name);
 
     /// Queue a TXT_MSG for the contact behind nodeNum and wait for a repeater to re-flood it, then for its ACK, answering
     /// packetId to the client. text is cut to MAX_TEXT_LEN on a UTF-8 boundary. False if it could not be queued.
@@ -236,19 +241,14 @@ class MeshCoreCompanion
     /// Run periodically: report direct messages whose ACK never came.
     void service();
 
-    /// The most recently used contacts as a flash image: magic, count, then public key and name per contact. This is
-    /// independent of the node DB's favourite flag, whose role-specific meaning in Meshtastic stays untouched.
-    /// Returns the image length (an empty table is still a valid 5-byte image), 0 if cap is below SAVED_IMAGE_MAX.
+    /// The MeshCore nodes worth keeping across a reboot as a flash image (MeshCoreNodeFile): favourites, then
+    /// conversations, then the rest. Returns the image length, 0 if cap is below MeshCoreNodeFile::IMAGE_MAX.
     size_t exportContacts(uint8_t *buf, size_t cap);
 
-    /// Restore contacts from an exportContacts() image. Returns how many were loaded.
+    /// Restore nodes from an exportContacts() image, or from the contacts file of earlier builds. Returns how many loaded.
     size_t importContacts(const uint8_t *buf, size_t len);
 
-    static constexpr size_t SAVED_MAX = 16;
-    static constexpr size_t SAVED_RECORD_LEN = 32 + MeshCoreContact::NAME_LEN;
-    static constexpr size_t SAVED_IMAGE_MAX = 5 + SAVED_MAX * SAVED_RECORD_LEN;
-
-    /// Checksum of the contact set (keys and names, not recency), to save only when it changed.
+    /// Checksum of the saved set (not its order), to save only when it changed.
     uint32_t contactsFingerprint();
 
     /// Mark one of our own transmitted frames seen, so hearing it back does not inject it.
@@ -257,8 +257,8 @@ class MeshCoreCompanion
     uint32_t rxSeen = 0, rxDecoded = 0, rxDup = 0, rxIgnored = 0, txSent = 0;
     uint32_t contactsLearned = 0, dmRx = 0, dmTx = 0, dmAcked = 0, dmTimedOut = 0, groupEchoed = 0, groupTimedOut = 0;
 
-    static constexpr size_t CONTACTS_MAX = 32;
-    MeshCoreContacts<CONTACTS_MAX> contacts;
+    /// Every MeshCore node we know, kept apart from the Meshtastic node DB.
+    MeshCoreNodeStore<MESHCORE_NODES_MAX> nodes;
 
   private:
     static constexpr size_t DEDUP_ENTRIES = 64;
@@ -309,19 +309,29 @@ class MeshCoreCompanion
     /// Drop the node an earlier build made for this contact under a public-key-derived number.
     void retireKeyedNode(const uint8_t pub[32], uint32_t keepNum);
 
-    bool ensureSecret(MeshCoreContact &c);
+    /// Peers a 1-byte MeshCore hash can stand for: the MAC picks the right one.
+    static constexpr size_t HASH_CANDIDATES_MAX = 8;
+    static constexpr size_t SECRETS_MAX = 32;
+    MeshCoreSecretCache<SECRETS_MAX> secrets;
+
+    /// The ECDH secret shared with n, derived on a cache miss; null without an identity or for a bad key.
+    const uint8_t *secretFor(const MeshCoreNode &n);
+    MeshCoreNode *contactByPub(const uint8_t pub[32]);
+    MeshCoreNode *contactByNodeNum(uint32_t nodeNum);
+    /// Copy the client's favourite stars from the node DB, which is where it sets them.
+    void syncFavorites();
     /// Inject a bridged text as received: the one place that builds the synthetic packet, for both channels and DMs.
     /// contact is the sender when direct; hop count and signal mirror the frame being reported.
     uint32_t injectText(uint32_t fromNum, uint32_t to, uint8_t channel, const char *text, uint32_t replyId, bool direct,
-                        const MeshCoreContact *contact, uint8_t pathHashCount, float snr, int32_t rssi);
+                        const MeshCoreNode *contact, uint8_t pathHashCount, float snr, int32_t rssi);
     /// Inject a received direct text; returns the packet id the client sees, or 0 when it could not be injected.
-    uint32_t injectDirectText(const MeshCoreContact &c, const char *text, const MeshCoreRepeater::FrameInfo &info, float snr,
+    uint32_t injectDirectText(const MeshCoreNode &c, const char *text, const MeshCoreRepeater::FrameInfo &info, float snr,
                               int32_t rssi);
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
     HeardPath heard[PATH_MEMORY];
     size_t heardNext = 0;
     const HeardPath *heardFind(uint32_t packetId) const;
-    /// Names behind a path hash: the node DB first (repeaters live there), then the DM contacts, whose keys outlive
+    /// Names behind a path hash: the node DB first (repeaters live there), then the MeshCore node store, whose keys outlive
     /// a node DB eviction. Duplicates (the same node listed twice) collapse, so an ambiguous hash still shows names.
     /// Returns the total found; up to max names are written to out.
     size_t pathHopNames(const uint8_t *hash, uint8_t size, const char **out, size_t max) const;
@@ -332,7 +342,7 @@ class MeshCoreCompanion
         uint32_t fromNum, to, replyId;
         uint8_t channel;
         bool direct;
-        const MeshCoreContact *contact;
+        const MeshCoreNode *contact;
         uint8_t hops;
         float snr;
         int32_t rssi;
@@ -349,7 +359,7 @@ class MeshCoreCompanion
 
     struct RecentText {
         uint32_t packetId = 0;
-        char sender[MeshCoreContact::NAME_LEN] = {};
+        char sender[MeshCoreNode::NAME_LEN] = {};
     };
     static constexpr size_t RECENT_TEXTS = 32;
     RecentText recent[RECENT_TEXTS];

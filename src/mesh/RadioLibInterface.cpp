@@ -753,7 +753,7 @@ static const char *meshCoreContactsPath = "/prefs/meshcore_contacts.bin";
 static void loadMeshCoreContacts()
 {
 #ifdef FSCom
-    uint8_t image[MeshCoreCompanion::SAVED_IMAGE_MAX];
+    uint8_t image[MeshCoreNodeFile::IMAGE_MAX];
     size_t n = 0;
     {
         concurrency::LockGuard g(spiLock);
@@ -764,14 +764,14 @@ static void loadMeshCoreContacts()
         f.close();
     }
     const size_t loaded = meshCoreCompanion.importContacts(image, n);
-    LOG_INFO("MeshCore contacts: %u restored from flash", (unsigned)loaded);
+    LOG_INFO("MeshCore nodes: %u restored from flash", (unsigned)loaded);
 #endif
 }
 
 static void saveMeshCoreContacts()
 {
 #ifdef FSCom
-    uint8_t image[MeshCoreCompanion::SAVED_IMAGE_MAX];
+    uint8_t image[MeshCoreNodeFile::IMAGE_MAX];
     const size_t n = meshCoreCompanion.exportContacts(image, sizeof(image));
     if (n == 0)
         return;

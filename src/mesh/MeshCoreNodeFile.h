@@ -44,8 +44,8 @@ inline void writeRecord(uint8_t *p, const MeshCoreNode &n)
     memcpy(p, n.name, MeshCoreNode::NAME_LEN);
     p += MeshCoreNode::NAME_LEN;
     *p++ = n.type;
-    *p++ = n.flags;
-    *p++ = n.outPathLen;
+    *p++ = n.flags & ~MeshCoreNode::HAS_OUT_PATH; // carried by the length, as MeshCore saves it
+    *p++ = n.hasOutPath() ? n.outPathLen : MeshCoreNode::PATH_UNKNOWN;
     memcpy(p, n.outPath, MeshCoreNode::MAX_PATH_HOPS);
     p += MeshCoreNode::MAX_PATH_HOPS;
     p = putU32(p, n.lastAdvert);
@@ -62,10 +62,12 @@ inline void readRecord(const uint8_t *p, MeshCoreNode *n)
     n->name[MeshCoreNode::NAME_LEN - 1] = 0;
     p += MeshCoreNode::NAME_LEN;
     n->type = *p++;
-    n->flags = *p++;
+    n->flags = *p++ & ~MeshCoreNode::HAS_OUT_PATH;
     n->outPathLen = *p++;
-    if (n->outPathLen > MeshCoreNode::MAX_PATH_HOPS)
-        n->outPathLen = MeshCoreNode::PATH_UNKNOWN;
+    if (n->outPathLen <= MeshCoreNode::MAX_PATH_HOPS)
+        n->flags |= MeshCoreNode::HAS_OUT_PATH;
+    else
+        n->outPathLen = 0;
     memcpy(n->outPath, p, MeshCoreNode::MAX_PATH_HOPS);
     p += MeshCoreNode::MAX_PATH_HOPS;
     uint32_t v;
