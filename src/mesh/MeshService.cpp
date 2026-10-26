@@ -469,7 +469,7 @@ bool MeshService::sendMeshCoreDirectText(const meshtastic_MeshPacket *p)
     text[p->decoded.payload.size] = 0;
 
     RadioInterface *iface = router ? router->getRadioIface() : nullptr;
-    if (!meshCoreCompanion.sendDirectText(p->to, p->id, text, now, iface)) {
+    if (!meshCoreCompanion.sendDirectText(p->to, p->id, text, now, iface, p->pki_encrypted)) {
         LOG_WARN("MeshCore direct TX failed to=0x%08x (validTime=%d)", (unsigned)p->to, now != 0);
         return false;
     }

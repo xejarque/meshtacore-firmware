@@ -232,8 +232,10 @@ class MeshCoreCompanion
     MeshCoreNode *learnContact(const uint8_t pub[32], const char *name);
 
     /// Queue a TXT_MSG for the contact behind nodeNum and wait for a repeater to re-flood it, then for its ACK, answering
-    /// packetId to the client. text is cut to MAX_TEXT_LEN on a UTF-8 boundary. False if it could not be queued.
-    bool sendDirectText(uint32_t nodeNum, uint32_t packetId, const char *text, uint32_t now, RadioInterface *iface);
+    /// packetId to the client. text is cut to MAX_TEXT_LEN on a UTF-8 boundary. clientPki says which of the client's two
+    /// chats with the contact it was written in (PKI or plain): replies are filed in that same one. False if not queued.
+    bool sendDirectText(uint32_t nodeNum, uint32_t packetId, const char *text, uint32_t now, RadioInterface *iface,
+                        bool clientPki = true);
 
     /// How long a direct message waits for its ACK before the client is told it failed.
     static constexpr uint32_t ACK_TIMEOUT_MS = 30000;

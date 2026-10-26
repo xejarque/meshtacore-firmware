@@ -30,7 +30,8 @@ struct MeshCoreNode {
     static constexpr uint8_t PATH_UNKNOWN = 0xFF; // MeshCore's out_path_len for "no route yet", as saved
 
     enum Type : uint8_t { CHAT = 1, REPEATER = 2, ROOM = 3, SENSOR = 4 }; // MeshCore ADV_TYPE_*
-    enum Flag : uint8_t { FAVORITE = 1 << 0, HAD_DM = 1 << 1, HAS_OUT_PATH = 1 << 2 };
+    // PLAIN_DM_CHAT: the client last wrote to this contact from its non-PKI chat, so replies must land there too.
+    enum Flag : uint8_t { FAVORITE = 1 << 0, HAD_DM = 1 << 1, HAS_OUT_PATH = 1 << 2, PLAIN_DM_CHAT = 1 << 3 };
 
     uint8_t pub[32] = {};
     char name[NAME_LEN] = {};
@@ -49,6 +50,7 @@ struct MeshCoreNode {
     /// Favourites and peers we have messaged are what the user cares about: the last to be evicted, the first saved.
     bool isKept() const { return flags & (FAVORITE | HAD_DM); }
     bool hasOutPath() const { return flags & HAS_OUT_PATH; }
+    bool usesPlainDmChat() const { return flags & PLAIN_DM_CHAT; }
 
     void setName(const char *s)
     {

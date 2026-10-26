@@ -1409,9 +1409,9 @@ uint32_t MeshCoreCompanion::injectText(uint32_t fromNum, uint32_t to, uint8_t ch
     p->to = to;
     p->id = generatePacketId();
     p->channel = channel;
-    if (direct && contact) {
-        // Clients send a direct message to a node with a key as PKC and file it in that conversation: a reply that is not
-        // marked the same way opens a second chat with the same node.
+    if (direct && contact && !contact->usesPlainDmChat()) {
+        // A client files a direct message under PKI or plain depending on how it reached it, and keeps one chat for each:
+        // a reply marked unlike the chat the user writes from opens a second one with the same node.
         p->pki_encrypted = true;
         p->public_key.size = 32;
         memcpy(p->public_key.bytes, contact->pub, 32);
@@ -1590,7 +1590,8 @@ void MeshCoreCompanion::settleEcho(uint32_t hash)
     }
 }
 
-bool MeshCoreCompanion::sendDirectText(uint32_t nodeNum, uint32_t packetId, const char *text, uint32_t now, RadioInterface *iface)
+bool MeshCoreCompanion::sendDirectText(uint32_t nodeNum, uint32_t packetId, const char *text, uint32_t now, RadioInterface *iface,
+                                       bool clientPki)
 {
     MeshCoreNode *c = contactByNodeNum(nodeNum);
     const uint8_t *secret = c && iface && now != 0 && text ? secretFor(*c) : nullptr;
@@ -1615,6 +1616,7 @@ bool MeshCoreCompanion::sendDirectText(uint32_t nodeNum, uint32_t packetId, cons
     slot->frameHash = MeshCoreRepeater::hashFrame(frame, frameLen, info);
     nodes.touch(c);
     nodes.noteDirectMessage(c);
+    c->flags = clientPki ? (c->flags & ~MeshCoreNode::PLAIN_DM_CHAT) : (c->flags | MeshCoreNode::PLAIN_DM_CHAT);
     dmTx++;
     return true;
 }
