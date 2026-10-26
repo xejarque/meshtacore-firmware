@@ -230,6 +230,11 @@ class MeshCoreCompanion
 
     /// Learn or refresh a chat contact, numbered from its name the first time and keeping that number afterwards.
     MeshCoreNode *learnContact(const uint8_t pub[32], const char *name);
+    /// The next node, from slot cursor on, that a client which just synced has not been told about: in the store but no
+    /// longer in the node DB. A consistent copy goes to out (the radio may be writing the store meanwhile) and cursor moves
+    /// past it. False when the walk is done.
+    bool nextReplayNode(size_t &cursor, MeshCoreNode &out) const;
+
     /// Learn or refresh a repeater, numbered from its public key.
     MeshCoreNode *learnRepeater(const uint8_t pub[32], const char *name);
 

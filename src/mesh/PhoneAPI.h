@@ -68,6 +68,7 @@ class PhoneAPI
         REPLAY_PHASE_TELEMETRY,
         REPLAY_PHASE_ENVIRONMENT,
         REPLAY_PHASE_STATUS,
+        REPLAY_PHASE_MESHCORE, // MeshCore nodes the companion keeps but the node DB has evicted
     };
 
     State state = STATE_SEND_NOTHING;
@@ -121,6 +122,7 @@ class PhoneAPI
     size_t replayTelemetryIndex = 0;
     size_t replayEnvironmentIndex = 0;
     size_t replayStatusIndex = 0;
+    size_t replayMeshCoreCursor = 0; // slot in the MeshCore node store, see MeshCoreCompanion::nextReplayNode()
     ReplayPhase replayPhase = REPLAY_PHASE_IDLE; // armed by sendConfigComplete() for full/default sync
 
     meshtastic_ToRadio toRadioScratch = {
@@ -288,6 +290,8 @@ class PhoneAPI
     void prefetchReplayEnvironment();
     void beginReplayStatus();
     void prefetchReplayStatus();
+    /// Queue the next MeshCore nodes the client has not been told about (no-op without the MeshCore companion).
+    void prefetchReplayMeshCore();
     meshtastic_MeshPacket makeReplayPositionPacket(const meshtastic_NodeInfoLite *header, const meshtastic_PositionLite &pos);
     meshtastic_MeshPacket makeReplayTelemetryPacket(const meshtastic_NodeInfoLite *header,
                                                     const meshtastic_DeviceMetrics &metrics);

@@ -1292,6 +1292,30 @@ MeshCoreNode *MeshCoreCompanion::learnContact(const uint8_t pub[32], const char 
     return n;
 }
 
+bool MeshCoreCompanion::nextReplayNode(size_t &cursor, MeshCoreNode &out) const
+{
+    for (; cursor < nodes.capacity(); cursor++) {
+        const MeshCoreNode *n = nodes.at(cursor);
+        if (!n || n->nodeNum == 0 || (n->type != MeshCoreNode::CHAT && n->type != MeshCoreNode::REPEATER))
+            continue;
+        if (nodeDB && nodeDB->getMeshNode(n->nodeNum))
+            continue; // the sync already sent it
+        // Two equal copies: a key torn by an advert landing mid-copy would leave the client warning of a changed key.
+        MeshCoreNode check;
+        bool consistent = false;
+        for (int attempt = 0; attempt < 3 && !consistent; attempt++) {
+            out = *n;
+            check = *n;
+            consistent = memcmp(&out, &check, sizeof(out)) == 0 && out.lastMod != 0;
+        }
+        if (!consistent)
+            continue;
+        cursor++;
+        return true;
+    }
+    return false;
+}
+
 MeshCoreNode *MeshCoreCompanion::learnRepeater(const uint8_t pub[32], const char *name)
 {
     MeshCoreNode *n = nodes.upsert(pub);

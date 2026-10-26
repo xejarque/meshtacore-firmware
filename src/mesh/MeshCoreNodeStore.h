@@ -170,6 +170,11 @@ template <size_t N> class MeshCoreNodeStore
         return n != nullptr;
     }
 
+    static constexpr size_t capacity() { return N; }
+
+    /// The node in slot i, or null for a free slot: a stable order to walk the table in several steps.
+    const MeshCoreNode *at(size_t i) const { return i < N && entries[i].lastMod ? &entries[i] : nullptr; }
+
     size_t count() const
     {
         size_t n = 0;

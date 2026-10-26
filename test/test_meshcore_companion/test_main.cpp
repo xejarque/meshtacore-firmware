@@ -1355,6 +1355,34 @@ void test_meshcore_copies_in_the_node_db_are_marked()
     TEST_ASSERT_FALSE(nodeInfoLiteIsMeshCore(nodeDB->getMeshNode(otherNum)));
 }
 
+// A client that syncs only gets the node DB, which gives MeshCore nodes up first. nextReplayNode() walks the store for the
+// ones the sync left out, so the client keeps listing and mapping them (PhoneAPI's MeshCore replay phase sends them).
+// Regression guard: replaying nodes the sync already sent, or stopping at the first one, or skipping repeaters.
+void test_replay_walks_the_nodes_the_node_db_left_out()
+{
+    GroupSetup s;
+    const uint8_t inDb[32] = {0x71}, gone[32] = {0x72}, rpt[32] = {0x73};
+    const uint32_t inDbNum = s.c.learnContact(inDb, "Kept")->nodeNum;
+    s.c.learnContact(gone, "Evicted");
+    s.c.learnRepeater(rpt, "Tower RPT");
+    nodeDB->getOrCreateMeshNode(inDbNum);
+
+    size_t cursor = 0;
+    MeshCoreNode n;
+    size_t found = 0;
+    bool sawContact = false, sawRepeater = false;
+    while (s.c.nextReplayNode(cursor, n)) {
+        found++;
+        TEST_ASSERT_NOT_EQUAL(inDbNum, n.nodeNum);
+        sawContact |= strcmp(n.name, "Evicted") == 0;
+        sawRepeater |= strcmp(n.name, "Tower RPT") == 0;
+    }
+    TEST_ASSERT_EQUAL_UINT32(2, found);
+    TEST_ASSERT_TRUE(sawContact);
+    TEST_ASSERT_TRUE(sawRepeater);
+    TEST_ASSERT_FALSE(s.c.nextReplayNode(cursor, n)); // a finished walk stays finished
+}
+
 // A Meshtastic node whose key happens to start with a MeshCore hop hash is not that hop: its key is a Curve25519 key of
 // another network. Regression guard: naming MeshCore hops from every keyed node in the node DB.
 void test_path_report_ignores_meshtastic_keys()
@@ -1484,6 +1512,7 @@ void setup()
     RUN_TEST(test_repeater_advert_is_stored_and_names_its_hop);
     RUN_TEST(test_path_report_ignores_meshtastic_keys);
     RUN_TEST(test_meshcore_copies_in_the_node_db_are_marked);
+    RUN_TEST(test_replay_walks_the_nodes_the_node_db_left_out);
 #endif
     exit(UNITY_END());
 }

@@ -26,6 +26,9 @@
 #include "concurrency/LockGuard.h"
 #include "main.h"
 #include "modules/NodeInfoModule.h"
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+#include "MeshCoreCompanion.h"
+#endif
 #include "xmodem.h"
 
 #if FromRadio_size > MAX_TO_FROM_RADIO_SIZE
@@ -351,6 +354,7 @@ void PhoneAPI::handleStartConfig()
         replayTelemetryIndex = 0;
         replayEnvironmentIndex = 0;
         replayStatusIndex = 0;
+        replayMeshCoreCursor = 0;
     }
     resetReadIndex();
 }
@@ -399,6 +403,7 @@ void PhoneAPI::close()
             replayTelemetryIndex = 0;
             replayEnvironmentIndex = 0;
             replayStatusIndex = 0;
+            replayMeshCoreCursor = 0;
             replayPhase = REPLAY_PHASE_IDLE;
         }
         packetForPhone = NULL;
@@ -1278,6 +1283,42 @@ bool lastHeardIsWallClock(const meshtastic_NodeInfoLite *header)
     return header && header->last_heard >= MIN_PLAUSIBLE_EPOCH;
 }
 
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+/// A replayed MeshCore node, shaped like the announce the companion sent when it was heard. rx_time is its last advert,
+/// stamped by the peer's own clock: shown only when plausible, so the client never reads it as heard just now.
+meshtastic_MeshPacket makeReplayMeshCorePacket(const MeshCoreNode &n, meshtastic_PortNum port)
+{
+    meshtastic_MeshPacket pkt = meshtastic_MeshPacket_init_default;
+    pkt.from = n.nodeNum;
+    pkt.to = NODENUM_BROADCAST;
+    pkt.has_rx_time = n.lastAdvert >= MIN_PLAUSIBLE_EPOCH;
+    pkt.rx_time = pkt.has_rx_time ? n.lastAdvert : 0;
+    pkt.id = makeReplayPacketId(n.nodeNum, pkt.rx_time, port);
+    setReplayHopFields(pkt, nullptr); // the store keeps no hop count: unknown
+    pkt.priority = meshtastic_MeshPacket_Priority_BACKGROUND;
+    pkt.transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
+    pkt.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    pkt.decoded.portnum = port;
+    if (port == meshtastic_PortNum_NODEINFO_APP) {
+        const bool chat = n.type == MeshCoreNode::CHAT;
+        const meshtastic_User user = MeshCoreCompanion::senderUser(
+            n.name, chat, n.pub, chat ? meshtastic_Config_DeviceConfig_Role_CLIENT : meshtastic_Config_DeviceConfig_Role_REPEATER);
+        pkt.decoded.payload.size = (pb_size_t)pb_encode_to_bytes(pkt.decoded.payload.bytes, sizeof(pkt.decoded.payload.bytes),
+                                                                 &meshtastic_User_msg, &user);
+    } else {
+        meshtastic_Position pos = meshtastic_Position_init_default;
+        pos.has_latitude_i = true;
+        pos.latitude_i = n.latitudeMicro * 10; // MeshCore sends degrees x 1e6, Meshtastic expects x 1e7
+        pos.has_longitude_i = true;
+        pos.longitude_i = n.longitudeMicro * 10;
+        pos.location_source = meshtastic_Position_LocSource_LOC_MANUAL;
+        pkt.decoded.payload.size = (pb_size_t)pb_encode_to_bytes(pkt.decoded.payload.bytes, sizeof(pkt.decoded.payload.bytes),
+                                                                 &meshtastic_Position_msg, &pos);
+    }
+    return pkt;
+}
+#endif
+
 } // namespace
 
 // Replayed packets deliberately leave rx_rssi absent. NodeInfoLite stores no RSSI, and
@@ -1387,6 +1428,27 @@ void PhoneAPI::prefetchReplayPositions()
             if (!header || !nodeDB->copyNodePosition(num, pos))
                 continue;
             replayQueue.push_back(makeReplayPositionPacket(header, pos));
+            added = true;
+        }
+    }
+    if (added && wasEmpty)
+        onNowHasData(0);
+#endif
+}
+
+void PhoneAPI::prefetchReplayMeshCore()
+{
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    bool added = false;
+    bool wasEmpty = false;
+    {
+        concurrency::LockGuard guard(&nodeInfoMutex);
+        wasEmpty = replayQueue.empty();
+        MeshCoreNode n;
+        while (replayQueue.size() < kReplayPrefetchDepth && meshCoreCompanion.nextReplayNode(replayMeshCoreCursor, n)) {
+            replayQueue.push_back(makeReplayMeshCorePacket(n, meshtastic_PortNum_NODEINFO_APP));
+            if (n.latitudeMicro != 0 || n.longitudeMicro != 0) // what puts the node on the client's map
+                replayQueue.push_back(makeReplayMeshCorePacket(n, meshtastic_PortNum_POSITION_APP));
             added = true;
         }
     }
@@ -1595,6 +1657,9 @@ bool PhoneAPI::popReplayPacket(meshtastic_MeshPacket &out)
                 beginReplayStatus();
             prefetchReplayStatus();
             break;
+        case REPLAY_PHASE_MESHCORE:
+            prefetchReplayMeshCore();
+            break;
         default:
             break;
         }
@@ -1630,7 +1695,11 @@ void PhoneAPI::advanceReplayPhase()
         replayPhase = REPLAY_PHASE_STATUS;
         break;
     case REPLAY_PHASE_STATUS:
-        LOG_INFO("Replay drain complete (status count=%u) millis=%u", (unsigned)replayStatusIndex, millis());
+        LOG_DEBUG("Replay drain: status done (count=%u) millis=%u", (unsigned)replayStatusIndex, millis());
+        replayPhase = REPLAY_PHASE_MESHCORE;
+        break;
+    case REPLAY_PHASE_MESHCORE:
+        LOG_INFO("Replay drain complete (MeshCore slots walked=%u) millis=%u", (unsigned)replayMeshCoreCursor, millis());
         replayPositionOrder.clear();
         replayPositionOrder.shrink_to_fit();
         replayTelemetryOrder.clear();
@@ -1643,6 +1712,7 @@ void PhoneAPI::advanceReplayPhase()
         replayTelemetryIndex = 0;
         replayEnvironmentIndex = 0;
         replayStatusIndex = 0;
+        replayMeshCoreCursor = 0;
         replayPhase = REPLAY_PHASE_IDLE;
         break;
     default:
