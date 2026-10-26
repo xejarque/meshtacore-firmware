@@ -142,20 +142,6 @@ const MeshtasticPathCommand::Heard *MeshtasticPathCommand::find(uint32_t packetI
     return nullptr;
 }
 
-const MeshtasticPathCommand::Heard *MeshtasticPathCommand::newest(uint8_t channel, uint32_t from, bool direct) const
-{
-    // The ring holds the newest texts: walk it backwards so the first match is the most recent. A client sends a DM
-    // to the peer, so p->to is that peer and matches the from of the texts it sent us.
-    for (size_t i = 1; i <= MEMORY; i++) {
-        const Heard &h = heard[(heardNext + MEMORY - i) % MEMORY];
-        if (!h.packetId)
-            continue;
-        if (direct ? (h.direct && h.from == from) : (!h.direct && h.channel == channel))
-            return &h;
-    }
-    return nullptr;
-}
-
 size_t MeshtasticPathCommand::formatReport(const Heard &e, char *out, size_t cap) const
 {
     if (!out || cap == 0)
@@ -186,7 +172,7 @@ size_t MeshtasticPathCommand::formatReport(const Heard &e, char *out, size_t cap
         } else if (e.hops < 0) {
             t.addf("❔ saltos desconocidos");
             if (relayName(e.relay, label, sizeof(label)))
-                t.addf(" · **%s**", label);
+                t.addf(" · probablemente **%s**", label);
             else if (e.relay != NO_RELAY_NODE)
                 t.addf(" · `%02x`", (unsigned)e.relay);
         } else {
@@ -194,8 +180,9 @@ size_t MeshtasticPathCommand::formatReport(const Heard &e, char *out, size_t cap
                 t.addf("%s ", glyph);
             else
                 t.addf("%u saltos ", (unsigned)e.hops);
+            // One name claims the byte only among the nodes we know: the relay may be another one, so it is a guess.
             if (relayName(e.relay, label, sizeof(label)))
-                t.addf("**%s**", label);
+                t.addf("probablemente **%s**", label);
             else if (e.relay != NO_RELAY_NODE)
                 t.addf("`%02x`", (unsigned)e.relay);
             else
@@ -325,6 +312,7 @@ void MeshtasticPathCommand::injectReport(uint32_t from, uint32_t to, uint8_t cha
     p->decoded.bitfield = 0;
 
     // The hop fields describe the reported text; a next hop that is not us keeps this local frame off the air.
+    // An unknown hop count is sent as none: hop_start must stay set or PREHOP_DROP discards the frame.
     const uint8_t hops = entry && entry->hops > 0 ? (uint8_t)entry->hops : 0;
     p->hop_start = HOP_START;
     p->hop_limit = hops < HOP_START ? HOP_START - hops : 0;
@@ -335,10 +323,11 @@ void MeshtasticPathCommand::injectReport(uint32_t from, uint32_t to, uint8_t cha
 
     if (!direct) {
         // Clients show signal strength only for a direct frame; a relayed one shows its hop count.
-        if (hops == 0) {
-            p->rx_snr = entry ? entry->snr : 0;
+        // Signal is attached only when the text was measured as direct: an unknown route must not look like one.
+        if (entry && entry->hops == 0) {
+            p->rx_snr = entry->snr;
             p->has_rx_rssi = true;
-            p->rx_rssi = entry ? entry->rssi : 0;
+            p->rx_rssi = entry->rssi;
         }
     } else {
         // Clients file a direct text in the conversation with its sender, and only offer that for a keyed node.
@@ -366,11 +355,12 @@ bool MeshtasticPathCommand::handleCommand(const meshtastic_MeshPacket *p)
     trimInPlace(text);
     if (strcasecmp(text, ".path") != 0 && strcasecmp(text, ".ruta") != 0)
         return false;
+    // Only a reply is answered: a plain ".path" is an ordinary text and goes out.
+    if (!p->decoded.reply_id)
+        return false;
 
     const bool direct = !isBroadcast(p->to);
     const Heard *entry = find(p->decoded.reply_id);
-    if (!entry)
-        entry = newest(p->channel, direct ? p->to : 0, direct);
 
     // Never on air: mark the command delivered and answer it in the same channel / chat.
     reportDelivery(direct ? p->to : REPORT_NODE_NUM, p->id, p->channel);

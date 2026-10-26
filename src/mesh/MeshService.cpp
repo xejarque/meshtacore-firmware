@@ -403,14 +403,25 @@ ErrorCode MeshService::sendQueueStatusToPhone(const meshtastic_QueueStatus &qs, 
     return res ? ERRNO_OK : ERRNO_UNKNOWN;
 }
 
+#if MESHTASTIC_PATH_COMMAND
+/// The network the replied-to text belongs to answers ".path": a MeshCore channel or contact through the Companion, any
+/// other node through the Meshtastic command. Both answer only a reply, so a plain ".path" is sent as an ordinary text.
+static bool answerPathCommand(const meshtastic_MeshPacket *p)
+{
+    if (p->which_payload_variant != meshtastic_MeshPacket_decoded_tag || p->decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP)
+        return false;
+    const bool direct = !isBroadcast(p->to);
+#if MESHTASTIC_MESHCORE_PATH_COMMAND
+    if (direct ? meshCoreCompanion.hasContact(p->to) : channels.isMeshCoreChannel((ChannelIndex)p->channel))
+        return meshCoreCompanion.handlePathCommand(p, direct);
+#endif
+    return meshtasticPathCommand.handleCommand(p);
+}
+#endif
+
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 bool MeshService::sendMeshCoreGroupText(const meshtastic_MeshPacket *p)
 {
-#if MESHTASTIC_MESHCORE_PATH_COMMAND
-    // A ".path" reply is answered from RAM, never on air (and works without a valid clock).
-    if (meshCoreCompanion.handlePathCommand(p, false))
-        return true;
-#endif
 
     uint8_t key[32];
     const size_t keyLen = channels.getMeshCoreKey(p->channel, key);
@@ -450,10 +461,6 @@ bool MeshService::sendMeshCoreGroupText(const meshtastic_MeshPacket *p)
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 bool MeshService::sendMeshCoreDirectText(const meshtastic_MeshPacket *p)
 {
-#if MESHTASTIC_MESHCORE_PATH_COMMAND
-    if (meshCoreCompanion.handlePathCommand(p, true))
-        return true;
-#endif
 
     // MeshCore timestamps are wall-clock: without a valid time the peer would reject or misorder the message.
     const uint32_t now = getValidTime(RTCQualityFromNet);
@@ -475,6 +482,18 @@ ErrorCode MeshService::sendToMesh(meshtastic_MeshPacket *p, RxSource src, bool c
 {
     uint32_t mesh_packet_id = p->id;
     nodeDB->updateFrom(*p); // update our local DB for this packet (because phone might have sent position packets etc...)
+
+#if MESHTASTIC_PATH_COMMAND
+    // A ".path" reply the client sends is answered from RAM by the network its text came from, never on air.
+    if (src == RX_SRC_USER && answerPathCommand(p)) {
+        releaseToPool(p);
+        if (router) {
+            meshtastic_QueueStatus qs = router->getQueueStatus();
+            (void)sendQueueStatusToPhone(qs, ERRNO_OK, mesh_packet_id);
+        }
+        return ERRNO_OK;
+    }
+#endif
 
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
     // A text for a MeshCore contact leaves as a TXT_MSG. Only contacts we hold a key for: any other node number is a
@@ -517,18 +536,6 @@ ErrorCode MeshService::sendToMesh(meshtastic_MeshPacket *p, RxSource src, bool c
         }
         releaseToPool(p);
         return queued ? ERRNO_OK : ERRNO_UNKNOWN;
-    }
-#endif
-
-#if MESHTASTIC_PATH_COMMAND
-    // A ".path" the client sends on a Meshtastic channel or DM is answered from RAM, never on air.
-    if (src == RX_SRC_USER && meshtasticPathCommand.handleCommand(p)) {
-        releaseToPool(p);
-        if (router) {
-            meshtastic_QueueStatus qs = router->getQueueStatus();
-            (void)sendQueueStatusToPhone(qs, ERRNO_OK, mesh_packet_id);
-        }
-        return ERRNO_OK;
     }
 #endif
 

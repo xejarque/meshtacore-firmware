@@ -30,19 +30,6 @@
 
 MeshCoreCompanion meshCoreCompanion;
 
-static size_t utf8PrefixLen(const char *s, size_t maxBytes)
-{
-    if (!s)
-        return 0;
-    size_t len = strlen(s);
-    if (len <= maxBytes)
-        return len;
-    size_t n = maxBytes;
-    while (n > 0 && ((uint8_t)s[n] & 0xC0) == 0x80)
-        n--; // do not split a multi-byte character
-    return n;
-}
-
 /// Where the path lives in a parsed frame: it sits between the header and the payload.
 static const uint8_t *pathOf(const uint8_t *raw, const MeshCoreRepeater::FrameInfo &info)
 {
@@ -50,25 +37,6 @@ static const uint8_t *pathOf(const uint8_t *raw, const MeshCoreRepeater::FrameIn
 }
 
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
-/// The node whose public key starts with this path hash, or null when none or several claim it.
-static const meshtastic_NodeInfoLite *pathHopNode(const uint8_t *hash, uint8_t size)
-{
-    if (!nodeDB)
-        return nullptr;
-    const meshtastic_NodeInfoLite *match = nullptr;
-    for (size_t i = 0; i < nodeDB->getNumMeshNodes(); i++) {
-        const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
-        if (!n || n->public_key.size != 32 || n->long_name[0] == 0)
-            continue;
-        if (memcmp(n->public_key.bytes, hash, size) != 0)
-            continue;
-        if (match)
-            return nullptr; // 1-byte prefixes collide: an ambiguous hop is not named
-        match = n;
-    }
-    return match;
-}
-
 static const char *pathSenderName(uint32_t nodeNum)
 {
     if (!nodeDB || !nodeNum)
@@ -682,19 +650,6 @@ const MeshCoreCompanion::HeardPath *MeshCoreCompanion::heardFind(uint32_t packet
     return nullptr;
 }
 
-const MeshCoreCompanion::HeardPath *MeshCoreCompanion::heardNewest(uint8_t channel, uint32_t fromNum) const
-{
-    // The ring holds the newest PATH_MEMORY frames: walk it backwards so the first match is the most recent.
-    for (size_t i = 1; i <= PATH_MEMORY; i++) {
-        const HeardPath &h = heard[(heardNext + PATH_MEMORY - i) % PATH_MEMORY];
-        if (!h.packetId)
-            continue;
-        if (fromNum ? h.fromNum == fromNum : h.channel == channel)
-            return &h;
-    }
-    return nullptr;
-}
-
 size_t MeshCoreCompanion::pathHopNames(const uint8_t *hash, uint8_t size, const char **out, size_t max) const
 {
     size_t total = 0;
@@ -931,11 +886,12 @@ bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool d
     trimInPlace(text);
     if (strcasecmp(text, ".path") != 0 && strcasecmp(text, ".ruta") != 0)
         return false;
+    // Only a reply is answered: a plain ".path" is an ordinary text and goes out.
+    if (!p->decoded.reply_id)
+        return false;
 
-    // The text being replied to, or the newest thing heard in this channel / from this contact.
+    // The text being replied to: every copy heard of it is a route.
     const HeardPath *entry = heardFind(p->decoded.reply_id);
-    if (!entry)
-        entry = heardNewest(p->channel, direct ? p->to : 0);
 
     // Every copy of that text is a separate route: the report lists them all, the shortest first.
     const HeardPath *routes[PATH_MEMORY];

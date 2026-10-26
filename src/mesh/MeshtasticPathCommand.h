@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 /**
- * Answers a local ".path"/".ruta" sent on a Meshtastic channel or direct message.
+ * Answers a local ".path"/".ruta" sent as a reply to a text on a Meshtastic channel or direct message.
  *
  * Meshtastic frames carry no per-hop hashes, so a report cannot name the whole path: it shows the hop count, the
  * node that relayed the copy we heard and the signal it arrived with. The last texts are kept in RAM for this.
@@ -60,8 +60,6 @@ class MeshtasticPathCommand
     size_t injectedNext = 0;
 
     const Heard *find(uint32_t packetId) const;
-    /// Newest text from this node (direct) or on this channel (broadcast).
-    const Heard *newest(uint8_t channel, uint32_t from, bool direct) const;
 
     bool wasInjected(uint32_t packetId) const;
     void rememberInjected(uint32_t packetId);

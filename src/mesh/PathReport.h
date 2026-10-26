@@ -1,5 +1,6 @@
 #pragma once
 
+#include "meshUtils.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -35,9 +36,7 @@ inline size_t cleanPathLabel(const char *src, char *out, size_t cap, size_t maxB
         out[o++] = c;
     }
     out[o] = 0;
-    size_t keep = maxBytes < o ? maxBytes : o;
-    while (keep > 0 && ((uint8_t)out[keep] & 0xC0) == 0x80)
-        keep--; // do not split a multi-byte character
+    const size_t keep = utf8PrefixLen(out, maxBytes);
     out[keep] = 0;
     return keep;
 }

@@ -4,6 +4,7 @@
 #include <cstdarg>
 #include <iterator>
 #include <stdint.h>
+#include <string.h>
 
 /// Keep a function out of line even when the compiler would rather inline it. Use on helpers that
 /// hold a large object on the stack: inlining several of them into one caller makes that caller's
@@ -77,6 +78,20 @@ float parseDecimalFloat(const char *s);
 // Sanitize a fixed-size char buffer in-place by replacing invalid UTF-8 sequences with '?'.
 // Ensures the result is null-terminated within bufSize. Returns true if any bytes were replaced.
 bool sanitizeUtf8(char *buf, size_t bufSize);
+
+// Longest prefix of a NUL-terminated string that fits in maxBytes without splitting a UTF-8 character.
+static inline size_t utf8PrefixLen(const char *s, size_t maxBytes)
+{
+    if (!s)
+        return 0;
+    size_t len = strlen(s);
+    if (len <= maxBytes)
+        return len;
+    size_t n = maxBytes;
+    while (n > 0 && ((uint8_t)s[n] & 0xC0) == 0x80)
+        n--; // do not split a multi-byte character
+    return n;
+}
 
 // Longest User.long_name content (bytes, excluding NUL) we store or transmit.
 // The wire decode buffer stays at 40 so names from senders built against the

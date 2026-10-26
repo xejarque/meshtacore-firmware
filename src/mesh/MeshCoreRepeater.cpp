@@ -950,6 +950,9 @@ void MeshCoreRepeater::deriveAliasIdentity()
             return;
         }
     }
+    // Every attempt was rejected: wipe the last derived seed and key so nothing reads them as an alias.
+    memset(aliasSeed, 0, sizeof(aliasSeed));
+    memset(aliasPub, 0, sizeof(aliasPub));
     hasAliasKey = false;
 }
 

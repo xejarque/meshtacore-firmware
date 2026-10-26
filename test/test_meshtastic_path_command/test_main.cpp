@@ -152,7 +152,7 @@ void test_answers_locally_with_route_info(void)
     TEST_ASSERT_NOT_NULL(strstr(body, "🛰️"));
     TEST_ASSERT_NOT_NULL(strstr(body, "de **Ana**"));
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, "2️⃣"), body); // the glyph is the hop count
-    TEST_ASSERT_NOT_NULL(strstr(body, "Repetidor X"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "probablemente **Repetidor X**"));
     TEST_ASSERT_NOT_NULL(strstr(body, "SNR 6.5 dB"));
     TEST_ASSERT_NOT_NULL(strstr(body, "RSSI -95 dBm"));
     TEST_ASSERT_NOT_NULL(strstr(body, "Canal **LongFast**"));
@@ -177,27 +177,27 @@ void test_injected_report_cannot_be_relayed(void)
     }
 }
 
-// Without a reply target the newest text on the channel is reported.
-void test_falls_back_to_newest_on_channel(void)
+// Only a reply is answered: without a reply target the ".path" is an ordinary text, not intercepted or injected.
+void test_plain_path_is_not_intercepted(void)
 {
     addNode(0x00001111, "Ana");
     meshtasticPathCommand.noteHeard(heardText(0x00001111, 0, 0x00ABC200, 1, 0, -5.0f, -80));
-    meshtasticPathCommand.noteHeard(heardText(0x00001111, 0, 0x00ABC201, 3, 0, -7.0f, -90));
 
     meshtastic_MeshPacket cmd = command_(0, NODENUM_BROADCAST, 0, ".path");
-    TEST_ASSERT_TRUE(meshtasticPathCommand.handleCommand(&cmd));
-    TEST_ASSERT_EQUAL_UINT32(0x00ABC201, capture->received.back().decoded.reply_id);
+    TEST_ASSERT_FALSE(meshtasticPathCommand.handleCommand(&cmd));
+    TEST_ASSERT_TRUE(capture->received.empty());
 }
 
 // Nothing heard yet: a short local notice, and the command still does not go out.
 void test_without_data_is_a_hint(void)
 {
-    meshtastic_MeshPacket cmd = command_(0, NODENUM_BROADCAST, 0, ".ruta");
+    meshtastic_MeshPacket cmd = command_(0, NODENUM_BROADCAST, 0x00ABC999, ".ruta");
     TEST_ASSERT_TRUE(meshtasticPathCommand.handleCommand(&cmd));
 
     char body[256];
     bodyOf(capture->received.back(), body, sizeof(body));
     TEST_ASSERT_NOT_NULL(strstr(body, "Sin datos"));
+    TEST_ASSERT_FALSE(capture->received.back().has_rx_rssi);
 }
 
 // Anything that is not exactly the command is left to the normal send path.
@@ -242,6 +242,9 @@ void test_unknown_hops_are_not_reported_as_direct(void)
     bodyOf(capture->received.back(), body, sizeof(body));
     TEST_ASSERT_NOT_NULL(strstr(body, "saltos desconocidos"));
     TEST_ASSERT_NULL(strstr(body, "directo"));
+    // The local frame carries no signal either: it would otherwise pass for a direct reception.
+    TEST_ASSERT_FALSE(capture->received.back().has_rx_rssi);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, capture->received.back().rx_snr);
 }
 
 // A direct message is answered in the same chat, from the peer and with its key, as a PKI reply.
@@ -281,18 +284,22 @@ void test_records_only_remote_meshtastic_texts(void)
     mc = meshtastic_Channel();
     mc.has_settings = true;
     mc.role = meshtastic_Channel_Role_SECONDARY;
+    mc.settings.psk.size = 16; // a MeshCore channel needs its 16-byte key as well as the "MC:" name
     strncpy(mc.settings.name, "MC:Public", sizeof(mc.settings.name) - 1);
 
     meshtasticPathCommand.noteHeard(heardText(0x00001111, 1, 0x00ABC600, 1, 0, -5.0f, -80));
     meshtasticPathCommand.noteHeard(heardText(nodeDB->getNodeNum(), 0, 0x00ABC601, 1, 0, -5.0f, -80));
     meshtasticPathCommand.noteHeard(heardText(MeshtasticPathCommand::REPORT_NODE_NUM, 0, 0x00ABC602, 1, 0, -5.0f, -80));
 
-    meshtastic_MeshPacket cmd = command_(0, NODENUM_BROADCAST, 0, ".path");
-    TEST_ASSERT_TRUE(meshtasticPathCommand.handleCommand(&cmd));
-
-    char body[256];
-    bodyOf(capture->received.back(), body, sizeof(body));
-    TEST_ASSERT_NOT_NULL(strstr(body, "Sin datos"));
+    // Own, MeshCore and report texts are not heard, so replying to them finds nothing.
+    const uint32_t notHeard[] = {0x00ABC600, 0x00ABC601, 0x00ABC602};
+    for (uint32_t id : notHeard) {
+        meshtastic_MeshPacket cmd = command_(0, NODENUM_BROADCAST, id, ".path");
+        TEST_ASSERT_TRUE(meshtasticPathCommand.handleCommand(&cmd));
+        char body[256];
+        bodyOf(capture->received.back(), body, sizeof(body));
+        TEST_ASSERT_NOT_NULL(strstr(body, "Sin datos"));
+    }
 }
 
 // Every report injected is remembered, not just the last one. A direct report comes back from the peer's own number,
@@ -315,12 +322,12 @@ void test_own_reports_are_not_heard(void)
     meshtasticPathCommand.noteHeard(firstReport);
     meshtasticPathCommand.noteHeard(secondReport);
 
-    meshtastic_MeshPacket again = command_(0, peer, 0, ".path");
+    meshtastic_MeshPacket again = command_(0, peer, 0x00ABC700, ".path");
     TEST_ASSERT_TRUE(meshtasticPathCommand.handleCommand(&again));
     TEST_ASSERT_EQUAL_UINT32(0x00ABC700, capture->received.back().decoded.reply_id);
 }
 
-// The ring keeps the newest texts only: the oldest is gone, so the command falls back to the newest one.
+// The ring keeps the newest texts only: a reply to an evicted text finds nothing, a reply to the newest one is answered.
 void test_ring_keeps_only_the_newest_texts(void)
 {
     addNode(0x00001111, "Ana");
@@ -329,6 +336,12 @@ void test_ring_keeps_only_the_newest_texts(void)
 
     meshtastic_MeshPacket evicted = command_(0, NODENUM_BROADCAST, 0x00ABD000, ".path");
     TEST_ASSERT_TRUE(meshtasticPathCommand.handleCommand(&evicted));
+    char body[256];
+    bodyOf(capture->received.back(), body, sizeof(body));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Sin datos"));
+
+    meshtastic_MeshPacket newest = command_(0, NODENUM_BROADCAST, 0x00ABD000 + MeshtasticPathCommand::MEMORY, ".path");
+    TEST_ASSERT_TRUE(meshtasticPathCommand.handleCommand(&newest));
     TEST_ASSERT_EQUAL_UINT32((uint32_t)(0x00ABD000 + MeshtasticPathCommand::MEMORY), capture->received.back().decoded.reply_id);
 }
 
@@ -449,7 +462,7 @@ void setup()
     UNITY_BEGIN();
     RUN_TEST(test_answers_locally_with_route_info);
     RUN_TEST(test_injected_report_cannot_be_relayed);
-    RUN_TEST(test_falls_back_to_newest_on_channel);
+    RUN_TEST(test_plain_path_is_not_intercepted);
     RUN_TEST(test_without_data_is_a_hint);
     RUN_TEST(test_ignores_other_text);
     RUN_TEST(test_unknown_relay_is_hex);

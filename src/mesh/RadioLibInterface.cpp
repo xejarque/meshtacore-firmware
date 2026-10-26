@@ -842,9 +842,14 @@ void RadioLibInterface::updateMeshCoreRole()
 {
     const uint8_t mainType = MeshCoreRepeater::nodeTypeForRole(config.device.role);
     meshCoreRepeater.setNodeType(mainType);
+    const bool aliasWasOn = meshCoreRepeater.usesAlias();
     meshCoreRepeater.setAliasEnabled(mainType != MeshCoreRepeater::ADV_TYPE_REPEATER && meshCoreRepeater.canRelay());
     if (!meshCoreRepeater.usesAlias()) {
         meshCoreAliasFloodPending = false;
+        meshCoreAliasFloodAttempts = 0;
+    } else if (!aliasWasOn && meshCoreFloodAdvertSent) {
+        // The alias came on after the flood ADVERT went out and relayed paths already carry its hop: announce it now.
+        meshCoreAliasFloodPending = true;
         meshCoreAliasFloodAttempts = 0;
     }
 }
@@ -866,6 +871,8 @@ uint32_t RadioLibInterface::meshCoreAdvertTick()
             // The hash clients show for this node in a path is this prefix, the relay alias.
             const uint8_t *alias = meshCoreRepeater.getAliasPub();
             LOG_INFO("MeshCore relay alias ready, pub=%02x%02x%02x%02x...", alias[0], alias[1], alias[2], alias[3]);
+        } else {
+            LOG_WARN("MeshCore relay alias could not be derived; relayed paths keep the main key");
         }
     }
     updateMeshCoreRole();
@@ -900,8 +907,9 @@ uint32_t RadioLibInterface::meshCoreAdvertTick()
     }
 
     // The alias advert keeps the same name with a suffix, so the hop it names reads as this node's relay persona.
+    const char *advertName = name;
     char aliasName[MeshCoreRepeater::ADVERT_NAME_MAX + 1];
-    if (meshCoreRepeater.usesAlias()) {
+    if (aliasAdvert) {
         constexpr size_t suffixLen = sizeof(MESHCORE_ALIAS_SUFFIX) - 1;
         size_t keep = strlen(name);
         if (keep > MeshCoreRepeater::ADVERT_NAME_MAX - suffixLen) {
@@ -910,12 +918,12 @@ uint32_t RadioLibInterface::meshCoreAdvertTick()
                 keep--; // never split a multi-byte character
         }
         snprintf(aliasName, sizeof(aliasName), "%.*s%s", (int)keep, name, MESHCORE_ALIAS_SUFFIX);
+        advertName = aliasName;
     }
 
     // Flood only: it reaches the direct neighbours too, and every node re-sends it, so it is the only kind worth
     // spending airtime on.
     uint8_t raw[MeshCoreRepeater::MAX_FRAME_LEN];
-    const char *advertName = aliasAdvert ? aliasName : name;
     const size_t len = meshCoreRepeater.buildAdvert(raw, sizeof(raw), advertName, now, true, aliasAdvert);
     if (len == 0 || !meshCoreRepeater.queueOwnFrame(raw, len)) {
         LOG_WARN("MeshCore ADVERT could not be built or queued");
@@ -934,6 +942,7 @@ uint32_t RadioLibInterface::meshCoreAdvertTick()
         meshCoreAliasFloodPending = false;
     } else {
         nextMeshCoreFloodAdvertMs = millis() + MESHCORE_FLOOD_ADVERT_INTERVAL_MS;
+        meshCoreFloodAdvertSent = true;
         // The alias flood follows as soon as this one is on air.
         meshCoreAliasFloodPending = meshCoreRepeater.usesAlias();
     }

@@ -321,8 +321,6 @@ class MeshCoreCompanion
     HeardPath heard[PATH_MEMORY];
     size_t heardNext = 0;
     const HeardPath *heardFind(uint32_t packetId) const;
-    /// Newest text on this channel, or newest from this contact when fromNum is non-zero.
-    const HeardPath *heardNewest(uint8_t channel, uint32_t fromNum) const;
     /// Names behind a path hash: the node DB first (repeaters live there), then the DM contacts, whose keys outlive
     /// a node DB eviction. Duplicates (the same node listed twice) collapse, so an ambiguous hash still shows names.
     /// Returns the total found; up to max names are written to out.

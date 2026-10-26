@@ -1030,8 +1030,8 @@ void test_path_command_answers_locally(void)
     TEST_ASSERT_NOT_NULL(strstr(body, "1 ruta"));
 }
 
-// Without a reply target the newest text on the channel is reported.
-void test_path_command_falls_back_to_newest(void)
+// Only a reply is answered: without a reply target the ".path" is an ordinary text, not intercepted or injected.
+void test_path_command_plain_path_is_not_intercepted(void)
 {
     GroupSetup s;
     const uint8_t hops[] = {0xAB, 0xCD};
@@ -1039,15 +1039,15 @@ void test_path_command_falls_back_to_newest(void)
     s.c.noteHeardRoute(packetId, 0x00A1B2C4, MeshCoreCompanion::senderNodeNum("Alice"), 0, hops, 2, 1, 1, -5.0f, -80);
 
     meshtastic_MeshPacket command = textPacket(0, 0, ".path");
-    TEST_ASSERT_TRUE(s.c.handlePathCommand(&command, false));
-    TEST_ASSERT_EQUAL_UINT32(packetId, s.capture.received.back().decoded.reply_id);
+    TEST_ASSERT_FALSE(s.c.handlePathCommand(&command, false));
+    TEST_ASSERT_TRUE(s.capture.received.empty());
 }
 
 // Nothing heard yet: a short local notice, and the command still does not go out.
 void test_path_command_without_data_is_a_hint(void)
 {
     GroupSetup s;
-    meshtastic_MeshPacket command = textPacket(0, 0, ".path");
+    meshtastic_MeshPacket command = textPacket(0, 0x00ABC999, ".path");
     TEST_ASSERT_TRUE(s.c.handlePathCommand(&command, false));
 
     char body[256];
@@ -1357,7 +1357,7 @@ void setup()
     RUN_TEST(test_unrelayed_direct_message_times_out_as_failed);
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
     RUN_TEST(test_path_command_answers_locally);
-    RUN_TEST(test_path_command_falls_back_to_newest);
+    RUN_TEST(test_path_command_plain_path_is_not_intercepted);
     RUN_TEST(test_path_command_without_data_is_a_hint);
     RUN_TEST(test_path_command_ignores_other_text);
     RUN_TEST(test_path_report_uses_hex_for_unknown_and_ambiguous_hops);
