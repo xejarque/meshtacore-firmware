@@ -1383,6 +1383,17 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 pendingConfig = pc;
                 setIntervalFromNow(50);
             } else {
+#if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
+                // MeshCore hybrid build: RX is pinned to MESHTASTIC_MESHCORE_RX_SYNCWORD by
+                // SX126xInterface::startReceive(), which does not consult syncword_override at all.
+                // Setting an override would therefore change TX only: the node would transmit on a
+                // sync word its own receiver does not listen for, every reply would be lost, and the
+                // operator would get no confirmation of anything. Rejected on purpose. Build with
+                // -DMESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC=0 to get the original Nexus behaviour.
+                snprintf(replyMsg, sizeof(replyMsg),
+                         "JT: SETSYNCWORD disabled (hybrid RX 0x%04X). Build without MeshCore hybrid sync to use it.",
+                         (unsigned)MESHTASTIC_MESHCORE_RX_SYNCWORD);
+#else
                 // Parse hex (0x..) or decimal. SyncWord is a single byte 0x00-0xFF.
                 char *endptr = nullptr;
                 unsigned long val = strtoul(p, &endptr, 0);
@@ -1400,13 +1411,29 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     pendingConfig = pc;
                     setIntervalFromNow(50);
                 }
+#endif // MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
             }
         } else {
+            // Query form. Under the hybrid, report what RX actually listens for instead of the
+            // override, and flag a stale override left in the vault by a non-hybrid build: that
+            // node boots with TX on the override and RX on the hybrid, which is the silent state
+            // the assignment branch above refuses to create.
+#if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
+            if (syncword_override != 0) {
+                snprintf(replyMsg, sizeof(replyMsg),
+                         "JT Sync Word: RX hybrid 0x%04X, TX 0x%02X (stale override, RESET to fix)",
+                         (unsigned)MESHTASTIC_MESHCORE_RX_SYNCWORD, syncword_override);
+            } else {
+                snprintf(replyMsg, sizeof(replyMsg), "JT Sync Word: RX hybrid 0x%04X, TX 0x2B",
+                         (unsigned)MESHTASTIC_MESHCORE_RX_SYNCWORD);
+            }
+#else
             if (syncword_override == 0) {
                 snprintf(replyMsg, sizeof(replyMsg), "JT Sync Word: 0x2B (Meshtastic default)");
             } else {
                 snprintf(replyMsg, sizeof(replyMsg), "JT Sync Word: 0x%02X (override)", syncword_override);
             }
+#endif // MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
         }
     }
     else if (strncasecmp(cmd, "ALIAS ", 6) == 0 || strcasecmp(cmd, "ALIAS") == 0) {
