@@ -414,6 +414,25 @@ void test_contacts_image_round_trip_keeps_keys_names_and_numbers(void)
     TEST_ASSERT_TRUE(reader.hasContact(ra->nodeNum));
 }
 
+// A flag an earlier build saved and this one dropped (the plain-DM-chat bit) must not survive a load, or it would be written
+// back to flash for good and read as a different flag the day its bit is reused.
+void test_contacts_file_drops_flag_bits_no_longer_in_use(void)
+{
+    MeshCoreCompanion writer;
+    uint8_t pub[32];
+    fillPub(pub, 5, 50);
+    writer.learnContact(pub, "Alice")->flags |= MeshCoreNode::FAVORITE;
+
+    uint8_t image[MeshCoreNodeFile::IMAGE_MAX];
+    const size_t n = writer.exportContacts(image, sizeof(image));
+    constexpr size_t FLAGS_AT = MeshCoreNodeFile::HEADER_LEN + 32 + MeshCoreNode::NAME_LEN + 1;
+    image[FLAGS_AT] |= 1 << 3;
+
+    MeshCoreCompanion reader;
+    TEST_ASSERT_EQUAL(1, reader.importContacts(image, n));
+    TEST_ASSERT_EQUAL_HEX8(MeshCoreNode::FAVORITE, reader.nodes.find(pub)->flags);
+}
+
 void test_contacts_file_of_earlier_builds_is_migrated(void)
 {
     // The version 1 image: magic, version, count, then public key and a 40-byte name per contact, newest first.
@@ -1160,6 +1179,28 @@ void test_direct_reply_lands_in_the_pki_chat_of_the_contact(void)
     TEST_ASSERT_TRUE(receiveFromBob(s, 1700000003).pki_encrypted);
 }
 
+// The client opens the PKI chat from the key the node was announced with, and files the reply by the key the reply carries:
+// both must be the contact's own, or the two chats part ways.
+void test_direct_reply_carries_the_key_the_contact_was_announced_with(void)
+{
+    DirectSetup s;
+    const meshtastic_MeshPacket reply = receiveFromBob(s, 1700000001);
+
+    bool announced = false;
+    for (const meshtastic_MeshPacket &p : s.capture.received) {
+        if (p.decoded.portnum != meshtastic_PortNum_NODEINFO_APP || p.from != s.bobNum)
+            continue;
+        meshtastic_User user = meshtastic_User_init_zero;
+        TEST_ASSERT_TRUE(pb_decode_from_bytes(p.decoded.payload.bytes, p.decoded.payload.size, &meshtastic_User_msg, &user));
+        TEST_ASSERT_EQUAL(32, user.public_key.size);
+        TEST_ASSERT_EQUAL_MEMORY(s.pubB, user.public_key.bytes, 32);
+        announced = true;
+    }
+    TEST_ASSERT_TRUE(announced);
+    TEST_ASSERT_EQUAL(32, reply.public_key.size);
+    TEST_ASSERT_EQUAL_MEMORY(s.pubB, reply.public_key.bytes, 32);
+}
+
 // A direct message is answered in the same chat, from the contact and with its key, as a PKI reply.
 void test_path_command_answers_a_direct_message(void)
 {
@@ -1545,6 +1586,7 @@ void setup()
     RUN_TEST(test_contacts_keep_their_node_num_across_a_rename);
     RUN_TEST(test_contacts_never_reuse_the_pseudo_node_num);
     RUN_TEST(test_contacts_image_round_trip_keeps_keys_names_and_numbers);
+    RUN_TEST(test_contacts_file_drops_flag_bits_no_longer_in_use);
     RUN_TEST(test_contacts_file_of_earlier_builds_is_migrated);
     RUN_TEST(test_contacts_image_rejects_garbage);
     RUN_TEST(test_contacts_fingerprint_follows_the_set_not_the_recency);
@@ -1571,6 +1613,7 @@ void setup()
     RUN_TEST(test_path_report_falls_back_to_a_contact_key);
     RUN_TEST(test_path_report_splits_without_cutting);
     RUN_TEST(test_direct_reply_lands_in_the_pki_chat_of_the_contact);
+    RUN_TEST(test_direct_reply_carries_the_key_the_contact_was_announced_with);
     RUN_TEST(test_path_command_answers_a_direct_message);
     RUN_TEST(test_path_command_answers_our_channel_text_with_its_echo);
     RUN_TEST(test_path_command_own_text_without_echo_is_no_data);

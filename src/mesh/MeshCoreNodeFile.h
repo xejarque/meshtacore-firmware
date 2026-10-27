@@ -62,7 +62,7 @@ inline void readRecord(const uint8_t *p, MeshCoreNode *n)
     n->name[MeshCoreNode::NAME_LEN - 1] = 0;
     p += MeshCoreNode::NAME_LEN;
     n->type = *p++;
-    n->flags = *p++ & ~MeshCoreNode::HAS_OUT_PATH;
+    n->flags = *p++ & MeshCoreNode::KNOWN_FLAGS & ~MeshCoreNode::HAS_OUT_PATH;
     n->outPathLen = *p++;
     if (n->outPathLen <= MeshCoreNode::MAX_PATH_HOPS)
         n->flags |= MeshCoreNode::HAS_OUT_PATH;
