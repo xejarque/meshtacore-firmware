@@ -28,6 +28,28 @@
 #include "XEdDSA.h" // fe_* field arithmetic for the Ed25519 -> X25519 public key map
 #endif
 
+static MeshCoreCompanion *activeMeshCoreCompanion = &meshCoreCompanion;
+
+static bool meshCoreAuthPredicate(const meshtastic_MeshPacket &p)
+{
+    if (!p.pki_encrypted || p.public_key.size != 32)
+        return false;
+    MeshCoreCompanion *c = activeMeshCoreCompanion ? activeMeshCoreCompanion : &meshCoreCompanion;
+    return c->isMeshCoreContact(p.from, p.public_key.bytes);
+}
+
+MeshCoreCompanion::MeshCoreCompanion()
+{
+    activeMeshCoreCompanion = this;
+    setDecodedAuthPredicate(meshCoreAuthPredicate);
+}
+
+MeshCoreCompanion::~MeshCoreCompanion()
+{
+    if (activeMeshCoreCompanion == this)
+        activeMeshCoreCompanion = &meshCoreCompanion;
+}
+
 MeshCoreCompanion meshCoreCompanion;
 
 /// Where the path lives in a parsed frame: it sits between the header and the payload.
@@ -540,7 +562,8 @@ meshtastic_User MeshCoreCompanion::senderUser(const char *name, bool messagable,
     // apart.
     constexpr char suffix[] = " (MC)";
     char display[sizeof(((meshtastic_User *)nullptr)->long_name)];
-    const size_t nameLen = utf8PrefixLen(name, sizeof(((meshtastic_NodeInfoLite *)nullptr)->long_name) - 1 - (sizeof(suffix) - 1));
+    const size_t nameLen =
+        utf8PrefixLen(name, sizeof(((meshtastic_NodeInfoLite *)nullptr)->long_name) - 1 - (sizeof(suffix) - 1));
     memcpy(display, name, nameLen);
     memcpy(&display[nameLen], suffix, sizeof(suffix));
 
@@ -600,8 +623,8 @@ void MeshCoreCompanion::hopFields(uint8_t pathHashCount, uint8_t *hopStart, uint
 
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
 void MeshCoreCompanion::noteHeardRoute(uint32_t packetId, uint32_t frameHash, uint32_t fromNum, uint8_t channel,
-                                       const uint8_t *path, uint8_t hashSize, uint8_t hopCount, uint8_t routeType,
-                                       float snr, int32_t rssi)
+                                       const uint8_t *path, uint8_t hashSize, uint8_t hopCount, uint8_t routeType, float snr,
+                                       int32_t rssi)
 {
     const size_t bytes = (size_t)hopCount * hashSize;
     const size_t keep = bytes < sizeof(heard[0].path) ? bytes : sizeof(heard[0].path);
@@ -827,8 +850,8 @@ struct ReportWriter {
     }
 };
 
-size_t MeshCoreCompanion::formatPathReport(const HeardPath *const *routes, size_t count, const char *sender,
-                                           ReportSink sink, void *ctx) const
+size_t MeshCoreCompanion::formatPathReport(const HeardPath *const *routes, size_t count, const char *sender, ReportSink sink,
+                                           void *ctx) const
 {
     if (!routes || count == 0 || !sink)
         return 0;
@@ -898,8 +921,8 @@ bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool d
         return false;
 
     char text[sizeof(p->decoded.payload.bytes) + 1];
-    const size_t len = p->decoded.payload.size < sizeof(p->decoded.payload.bytes) ? p->decoded.payload.size
-                                                                                  : sizeof(p->decoded.payload.bytes);
+    const size_t len =
+        p->decoded.payload.size < sizeof(p->decoded.payload.bytes) ? p->decoded.payload.size : sizeof(p->decoded.payload.bytes);
     memcpy(text, p->decoded.payload.bytes, len);
     text[len] = 0;
     trimInPlace(text);
@@ -1233,8 +1256,8 @@ void MeshCoreCompanion::handleGroupText(const uint8_t *raw, size_t len, const Me
         if (fromNum != PSEUDO_NODE_NUM)
             noteRecentText(packetId, sender);
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
-        noteHeardRoute(packetId, hash, fromNum, i, pathOf(raw, info), info.path_hash_size, info.path_hash_count,
-                       info.route_type, snr, rssi);
+        noteHeardRoute(packetId, hash, fromNum, i, pathOf(raw, info), info.path_hash_size, info.path_hash_count, info.route_type,
+                       snr, rssi);
 #endif
         LOG_INFO("MeshCore group text ch=%u ts=%u len=%u", (unsigned)i, timestamp, (unsigned)strlen(body));
         return;
@@ -1249,7 +1272,7 @@ void MeshCoreCompanion::setIdentity(const uint8_t seed[32], const uint8_t pub[32
     memcpy(identityPub, pub, sizeof(identityPub));
     identityReady = true;
     aliasReady = false; // a new seed means a new alias; the radio installs the derived one on its next service tick
-    secrets.clear(); // they were derived for another identity
+    secrets.clear();    // they were derived for another identity
 }
 
 void MeshCoreCompanion::setRelayAliasPub(const uint8_t pub[32])
@@ -1278,6 +1301,16 @@ MeshCoreNode *MeshCoreCompanion::contactByNodeNum(uint32_t nodeNum)
 {
     MeshCoreNode *n = nodes.findByNodeNum(nodeNum);
     return n && n->type == MeshCoreNode::CHAT ? n : nullptr;
+}
+
+bool MeshCoreCompanion::isMeshCoreContact(uint32_t nodeNum, const uint8_t pubKey[32]) const
+{
+    const MeshCoreNode *n = nodes.findByNodeNum(nodeNum);
+    if (!n || n->type != MeshCoreNode::CHAT)
+        return false;
+    if (pubKey && memcmp(n->pub, pubKey, 32) != 0)
+        return false;
+    return true;
 }
 
 MeshCoreNode *MeshCoreCompanion::learnContact(const uint8_t pub[32], const char *name)
@@ -1452,8 +1485,7 @@ void MeshCoreCompanion::retireKeyedNode(const uint8_t pub[32], uint32_t keepNum)
 }
 
 uint32_t MeshCoreCompanion::injectText(uint32_t fromNum, uint32_t to, uint8_t channel, const char *text, uint32_t replyId,
-                                       bool direct, const MeshCoreNode *contact, uint8_t pathHashCount, float snr,
-                                       int32_t rssi)
+                                       bool direct, const MeshCoreNode *contact, uint8_t pathHashCount, float snr, int32_t rssi)
 {
     meshtastic_MeshPacket *p = packetPool.allocZeroed();
     if (!p)
@@ -1502,8 +1534,8 @@ uint32_t MeshCoreCompanion::injectText(uint32_t fromNum, uint32_t to, uint8_t ch
     return id;
 }
 
-uint32_t MeshCoreCompanion::injectDirectText(const MeshCoreNode &c, const char *text,
-                                             const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi)
+uint32_t MeshCoreCompanion::injectDirectText(const MeshCoreNode &c, const char *text, const MeshCoreRepeater::FrameInfo &info,
+                                             float snr, int32_t rssi)
 {
     // A node-DB reset or eviction may have removed it.
     ensureSenderNode(c.nodeNum, c.name, true, c.pub, meshtastic_Config_DeviceConfig_Role_CLIENT,
@@ -1535,8 +1567,8 @@ void MeshCoreCompanion::handleDirectText(const uint8_t *raw, size_t len, const M
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
         // A re-flood of a direct message we sent is still a route to it, even though it is not for us.
         if (info.path_hash_count > 0)
-            noteHeardRoute(0, hash, 0, 0, pathOf(raw, info), info.path_hash_size, info.path_hash_count, info.route_type,
-                           snr, rssi);
+            noteHeardRoute(0, hash, 0, 0, pathOf(raw, info), info.path_hash_size, info.path_hash_count, info.route_type, snr,
+                           rssi);
 #endif
         return; // not for us: the repeater relays it, we cannot read it anyway
     }
@@ -1570,8 +1602,7 @@ void MeshCoreCompanion::handleDirectText(const uint8_t *raw, size_t len, const M
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
         if (packetId)
             noteHeardRoute(packetId, hash, c->nodeNum, HeardPath::DIRECT_CHANNEL, pathOf(raw, info), info.path_hash_size,
-                           info.path_hash_count,
-                           info.route_type, snr, rssi);
+                           info.path_hash_count, info.route_type, snr, rssi);
 #endif
         queueAck(ackHash(timestamp, flags, text, c->pub));
         return;
@@ -1657,8 +1688,7 @@ void MeshCoreCompanion::settleEcho(uint32_t hash)
     }
 }
 
-bool MeshCoreCompanion::sendDirectText(uint32_t nodeNum, uint32_t packetId, const char *text, uint32_t now,
-                                       RadioInterface *iface)
+bool MeshCoreCompanion::sendDirectText(uint32_t nodeNum, uint32_t packetId, const char *text, uint32_t now, RadioInterface *iface)
 {
     MeshCoreNode *c = contactByNodeNum(nodeNum);
     const uint8_t *secret = c && iface && now != 0 && text ? secretFor(*c) : nullptr;

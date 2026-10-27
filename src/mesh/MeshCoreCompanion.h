@@ -6,11 +6,11 @@
 
 #include "Channels.h"
 #include "MeshCoreDedup.h"
-#include "MeshTypes.h"
 #include "MeshCoreNodeFile.h"
 #include "MeshCoreNodeStore.h"
 #include "MeshCoreRepeater.h"
 #include "MeshCoreSecretCache.h"
+#include "MeshTypes.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -38,6 +38,9 @@ struct MeshCoreRx {
 class MeshCoreCompanion
 {
   public:
+    MeshCoreCompanion();
+    ~MeshCoreCompanion();
+
     /// Node number all bridged MeshCore messages appear to come from: the system bot, shared with the ".path" reports.
     static constexpr uint32_t PSEUDO_NODE_NUM = NODENUM_SYSTEM_BOT;
 
@@ -159,8 +162,7 @@ class MeshCoreCompanion
 
     /// Render every known route, shortest first, into client-sized pieces through sink. Names come from the node DB
     /// and the contact table; several candidates for one hash are listed. Public for tests.
-    size_t formatPathReport(const HeardPath *const *routes, size_t count, const char *sender, ReportSink sink,
-                            void *ctx) const;
+    size_t formatPathReport(const HeardPath *const *routes, size_t count, const char *sender, ReportSink sink, void *ctx) const;
 #endif
 
     /// Create the synthetic "MeshCore" node if it is missing, so the client has a sender name to render.
@@ -235,6 +237,8 @@ class MeshCoreCompanion
 
     /// True when node is a direct-message contact we hold a public key for.
     bool hasContact(uint32_t nodeNum) { return contactByNodeNum(nodeNum) != nullptr; }
+    /// True when nodeNum is a known CHAT contact and matches the provided 32-byte public key.
+    bool isMeshCoreContact(uint32_t nodeNum, const uint8_t pubKey[32]) const;
 
     /// Learn or refresh a chat contact, numbered from its name the first time and keeping that number afterwards.
     MeshCoreNode *learnContact(const uint8_t pub[32], const char *name);

@@ -619,7 +619,8 @@ void test_a_node_is_announced_until_heard_and_again_when_it_changes_or_goes_stal
     nodeInfoLiteSetHeardSlot(&lite, 1);
     TEST_ASSERT_FALSE(MeshCoreCompanion::needsAnnounce(&lite, user, now + 60));
 
-    const meshtastic_User renamed = MeshCoreCompanion::senderUser("Rpt2", false, pub, meshtastic_Config_DeviceConfig_Role_REPEATER);
+    const meshtastic_User renamed =
+        MeshCoreCompanion::senderUser("Rpt2", false, pub, meshtastic_Config_DeviceConfig_Role_REPEATER);
     TEST_ASSERT_TRUE(MeshCoreCompanion::needsAnnounce(&lite, renamed, now + 60));
     TEST_ASSERT_TRUE(MeshCoreCompanion::needsAnnounce(&lite, user, now + MeshCoreCompanion::HEARD_REFRESH_SECS));
     TEST_ASSERT_FALSE(MeshCoreCompanion::needsAnnounce(&lite, user, 0)); // clock untrusted: nothing to compare
@@ -1072,8 +1073,8 @@ void test_path_command_answers_locally(void)
     bool delivery = false;
     for (size_t i = before; i < s.capture.received.size(); i++) {
         const meshtastic_MeshPacket &q = s.capture.received[i];
-        if (q.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
-            q.decoded.portnum == meshtastic_PortNum_ROUTING_APP && q.decoded.request_id == command.id)
+        if (q.which_payload_variant == meshtastic_MeshPacket_decoded_tag && q.decoded.portnum == meshtastic_PortNum_ROUTING_APP &&
+            q.decoded.request_id == command.id)
             delivery = true;
     }
     TEST_ASSERT_TRUE(delivery);
@@ -1163,7 +1164,7 @@ void test_path_report_uses_hex_for_unknown_and_ambiguous_hops(void)
 
     char body[256];
     TEST_ASSERT_TRUE(formatOneRoute(s.c, entry, nullptr, body, sizeof(body)) > 0);
-    TEST_ASSERT_NOT_NULL(strstr(body, "`99`")); // no node claims it
+    TEST_ASSERT_NOT_NULL(strstr(body, "`99`"));          // no node claims it
     TEST_ASSERT_NOT_NULL(strstr(body, "Twin A|Twin B")); // ambiguous: both candidates, no duplicate
     TEST_ASSERT_NULL(strstr(body, "`77`"));
 }
@@ -1215,8 +1216,8 @@ static const meshtastic_MeshPacket &receiveFromBob(DirectSetup &s, uint32_t time
 {
     uint8_t secret[32], frame[MeshCoreRepeater::MAX_FRAME_LEN];
     TEST_ASSERT_TRUE(MeshCoreCompanion::sharedSecret(kSeedB, s.pubA, secret));
-    const size_t len = MeshCoreCompanion::encodeDirectText(secret, s.pubA[0], s.pubB[0], timestamp, 0, "hola", frame,
-                                                           sizeof(frame));
+    const size_t len =
+        MeshCoreCompanion::encodeDirectText(secret, s.pubA[0], s.pubB[0], timestamp, 0, "hola", frame, sizeof(frame));
     const size_t before = s.capture.received.size();
     s.c.handleFrame(frame, len, 0, 0);
     TEST_ASSERT_TRUE(s.capture.received.size() > before);
@@ -1259,14 +1260,41 @@ void test_direct_reply_carries_the_key_the_contact_was_announced_with(void)
     TEST_ASSERT_EQUAL_MEMORY(s.pubB, reply.public_key.bytes, 32);
 }
 
+// A direct reply from Bob must survive Router's passesRoutingAuthGate and applyRoutingAuthCache
+// without stripping pki_encrypted or public_key. Regression guard: Router's decoded ingress gate
+// unconditionally cleared pki_encrypted/public_key on decoded packets, which demoted direct
+// replies to channel 0 and opened a duplicate chat on the client.
+void test_direct_reply_preserves_pki_through_router_auth_gate(void)
+{
+    DirectSetup s;
+    meshtastic_MeshPacket reply = receiveFromBob(s, 1700000001);
+    TEST_ASSERT_TRUE(reply.pki_encrypted);
+    TEST_ASSERT_EQUAL(32, reply.public_key.size);
+    TEST_ASSERT_EQUAL_MEMORY(s.pubB, reply.public_key.bytes, 32);
+
+    TEST_ASSERT_EQUAL(RoutingAuthVerdict::ACCEPT, passesRoutingAuthGate(&reply));
+    TEST_ASSERT_TRUE(applyRoutingAuthCache(&reply));
+    TEST_ASSERT_TRUE(reply.pki_encrypted);
+    TEST_ASSERT_EQUAL(32, reply.public_key.size);
+    TEST_ASSERT_EQUAL_MEMORY(s.pubB, reply.public_key.bytes, 32);
+
+    // Also verify untrusted decoded ingress from an unknown node still has PKI stripped
+    meshtastic_MeshPacket rogue = reply;
+    rogue.id++;
+    rogue.from = 0x12345678;
+    TEST_ASSERT_EQUAL(RoutingAuthVerdict::ACCEPT, passesRoutingAuthGate(&rogue));
+    TEST_ASSERT_TRUE(applyRoutingAuthCache(&rogue));
+    TEST_ASSERT_FALSE(rogue.pki_encrypted);
+    TEST_ASSERT_EQUAL(0, rogue.public_key.size);
+}
+
 // A direct message is answered in the same chat, from the contact and with its key, as a PKI reply.
 void test_path_command_answers_a_direct_message(void)
 {
     DirectSetup s;
     uint8_t secret[32], frame[MeshCoreRepeater::MAX_FRAME_LEN], path[MeshCoreRepeater::MAX_FRAME_LEN];
     TEST_ASSERT_TRUE(MeshCoreCompanion::sharedSecret(kSeedB, s.pubA, secret)); // Bob writing to us
-    const size_t len =
-        MeshCoreCompanion::encodeDirectText(secret, s.pubA[0], s.pubB[0], 1, 0, "hola", frame, sizeof(frame));
+    const size_t len = MeshCoreCompanion::encodeDirectText(secret, s.pubA[0], s.pubB[0], 1, 0, "hola", frame, sizeof(frame));
     const uint8_t hops[] = {0xAB, 0xCD};
     const size_t pathLen = withPath(frame, len, path, 2, hops, 1);
     s.c.handleFrame(path, pathLen, -7.5f, -95);
@@ -1366,8 +1394,7 @@ void test_path_command_lists_every_route(void)
     uint8_t secret[32], frame[MeshCoreRepeater::MAX_FRAME_LEN], longPath[MeshCoreRepeater::MAX_FRAME_LEN],
         shortPath[MeshCoreRepeater::MAX_FRAME_LEN];
     TEST_ASSERT_TRUE(MeshCoreCompanion::sharedSecret(kSeedB, s.pubA, secret)); // Bob writing to us
-    const size_t len =
-        MeshCoreCompanion::encodeDirectText(secret, s.pubA[0], s.pubB[0], 1, 0, "hola", frame, sizeof(frame));
+    const size_t len = MeshCoreCompanion::encodeDirectText(secret, s.pubA[0], s.pubB[0], 1, 0, "hola", frame, sizeof(frame));
 
     const uint8_t longHops[] = {0x11, 0x22, 0x33, 0x44};
     const uint8_t shortHops[] = {0x55, 0x66};
@@ -1379,7 +1406,7 @@ void test_path_command_lists_every_route(void)
     const meshtastic_MeshPacket original = s.capture.received.back();
     const size_t injected = s.capture.received.size();
 
-    s.c.handleFrame(shortPath, shortLen, -4.0f, -70); // same text, one repeater
+    s.c.handleFrame(shortPath, shortLen, -4.0f, -70);            // same text, one repeater
     TEST_ASSERT_EQUAL_UINT(injected, s.capture.received.size()); // a route, not a second message
 
     meshtastic_MeshPacket command = textPacket(0, original.id, ".path");
@@ -1481,7 +1508,7 @@ void test_repeater_advert_is_stored_and_names_its_hop()
     TEST_ASSERT_EQUAL_STRING("Montjuic RPT", n->name);
     TEST_ASSERT_EQUAL_HEX32(MeshCoreNodeStore<1>::nodeNumForKey(other.getAliasPub()), n->nodeNum);
     TEST_ASSERT_EQUAL_UINT32(1792521507, n->lastAdvert);
-    TEST_ASSERT_FALSE(s.c.hasContact(n->nodeNum)); // a repeater is listed, not messaged
+    TEST_ASSERT_FALSE(s.c.hasContact(n->nodeNum));     // a repeater is listed, not messaged
     TEST_ASSERT_NULL(nodeDB->getMeshNode(n->nodeNum)); // the capturing router never filed the announce
 
     MeshCoreCompanion::HeardPath entry;
@@ -1673,6 +1700,7 @@ void setup()
     RUN_TEST(test_path_report_splits_without_cutting);
     RUN_TEST(test_direct_reply_lands_in_the_pki_chat_of_the_contact);
     RUN_TEST(test_direct_reply_carries_the_key_the_contact_was_announced_with);
+    RUN_TEST(test_direct_reply_preserves_pki_through_router_auth_gate);
     RUN_TEST(test_path_command_answers_a_direct_message);
     RUN_TEST(test_path_command_answers_our_channel_text_with_its_echo);
     RUN_TEST(test_path_command_own_text_without_echo_is_no_data);

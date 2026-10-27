@@ -318,10 +318,10 @@ int16_t Channels::setCrypto(ChannelIndex chIndex)
     }
 }
 
-#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 static const uint8_t meshCorePublicPsk[16] = {0x8b, 0x33, 0x87, 0xe9, 0xc5, 0xcd, 0xea, 0x6a,
                                               0xc9, 0xe5, 0xed, 0xba, 0xa1, 0x15, 0xcd, 0x72};
 
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 /// Installs the default MeshCore channels that no slot carries yet (by name). Returns true if any was added.
 static bool seedMeshCoreChannels()
 {
@@ -520,7 +520,6 @@ bool Channels::isMeshCoreChannel(ChannelIndex chIndex)
 
 size_t Channels::getMeshCoreKey(ChannelIndex chIndex, uint8_t key[32])
 {
-#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
     if (!isMeshCoreChannel(chIndex))
         return 0;
 
@@ -548,8 +547,10 @@ size_t Channels::getMeshCoreKey(ChannelIndex chIndex, uint8_t key[32])
         if (isHex) {
             for (size_t i = 0; i < 32; i += 2) {
                 auto nibble = [](char c) -> uint8_t {
-                    if (c >= '0' && c <= '9') return c - '0';
-                    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                    if (c >= '0' && c <= '9')
+                        return c - '0';
+                    if (c >= 'a' && c <= 'f')
+                        return c - 'a' + 10;
                     return c - 'A' + 10;
                 };
                 key[i / 2] = (nibble((char)ch.settings.psk.bytes[i]) << 4) | nibble((char)ch.settings.psk.bytes[i + 1]);
@@ -557,7 +558,10 @@ size_t Channels::getMeshCoreKey(ChannelIndex chIndex, uint8_t key[32])
             return 16;
         }
         memcpy(key, ch.settings.psk.bytes, 32);
-        return MeshCoreCompanion::normalizedKeyLen(key, 32);
+        uint8_t tail = 0;
+        for (size_t i = 16; i < 32; i++)
+            tail |= key[i];
+        return (tail == 0) ? 16 : 32;
     }
 
     if (strcasecmp(room, "Public") == 0) {
@@ -576,11 +580,6 @@ size_t Channels::getMeshCoreKey(ChannelIndex chIndex, uint8_t key[32])
     }
 
     return 0;
-#else
-    (void)chIndex;
-    (void)key;
-    return 0;
-#endif
 }
 
 bool Channels::isDefaultChannel(ChannelIndex chIndex)

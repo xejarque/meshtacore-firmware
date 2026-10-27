@@ -1111,7 +1111,7 @@ void test_B14_ack_with_no_usable_channel_falls_back_to_pkc(void)
     crypto->setDHPrivateKey(localPriv);
 
     // A secondary channel index that does not resolve - otherwise the test proves nothing.
-    const ChannelIndex deadChannel = 1;
+    const ChannelIndex deadChannel = MAX_NUM_CHANNELS - 1;
     TEST_ASSERT_LESS_THAN_MESSAGE(0, channels.getHash(deadChannel), "test needs an unusable channel index");
 
     meshtastic_MeshPacket ack = makeDecoded(LOCAL_NODE, REMOTE_NODE, meshtastic_PortNum_ROUTING_APP, SMALL_PAYLOAD);
@@ -1136,7 +1136,7 @@ void test_B15_ack_with_no_channel_and_no_key_still_fails(void)
     crypto->setDHPrivateKey(localPriv);
     // REMOTE_NODE deliberately absent from the DB, so we hold no key for it.
 
-    const ChannelIndex deadChannel = 1;
+    const ChannelIndex deadChannel = MAX_NUM_CHANNELS - 1;
     TEST_ASSERT_LESS_THAN(0, channels.getHash(deadChannel));
 
     meshtastic_MeshPacket ack = makeDecoded(LOCAL_NODE, REMOTE_NODE, meshtastic_PortNum_ROUTING_APP, SMALL_PAYLOAD);
@@ -1160,7 +1160,7 @@ void test_B16_non_ack_on_unusable_channel_still_fails(void)
     config.security.private_key.size = sizeof(localPriv);
     crypto->setDHPrivateKey(localPriv);
 
-    const ChannelIndex deadChannel = 1;
+    const ChannelIndex deadChannel = MAX_NUM_CHANNELS - 1;
     TEST_ASSERT_LESS_THAN(0, channels.getHash(deadChannel));
 
     // TRACEROUTE is PKC-excluded like ROUTING, but carries no request_id and is not an ack.

@@ -25,8 +25,8 @@
  * so a table of them lands in .bss instead of costing its size in flash as initialised data.
  */
 struct MeshCoreNode {
-    static constexpr size_t NAME_LEN = 32; // MeshCore's ContactInfo.name
-    static constexpr size_t MAX_PATH_HOPS = 16; // MeshCore allows 64; real routes stay well below 16
+    static constexpr size_t NAME_LEN = 32;        // MeshCore's ContactInfo.name
+    static constexpr size_t MAX_PATH_HOPS = 16;   // MeshCore allows 64; real routes stay well below 16
     static constexpr uint8_t PATH_UNKNOWN = 0xFF; // MeshCore's out_path_len for "no route yet", as saved
 
     enum Type : uint8_t { CHAT = 1, REPEATER = 2, ROOM = 3, SENSOR = 4 }; // MeshCore ADV_TYPE_*
@@ -120,6 +120,13 @@ template <size_t N> class MeshCoreNodeStore
     MeshCoreNode *findByNodeNum(uint32_t nodeNum)
     {
         for (auto &e : entries)
+            if (e.lastMod && e.nodeNum == nodeNum)
+                return &e;
+        return nullptr;
+    }
+    const MeshCoreNode *findByNodeNum(uint32_t nodeNum) const
+    {
+        for (const auto &e : entries)
             if (e.lastMod && e.nodeNum == nodeNum)
                 return &e;
         return nullptr;

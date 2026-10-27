@@ -9,11 +9,14 @@
 #include "gps/RTC.h"
 
 #include "configuration.h"
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+#include "MeshCoreCompanion.h"
+#endif
 #include "main.h"
 #include "mesh-pb-constants.h"
 #include "meshUtils.h"
-#include "modules/RoutingModule.h"
 #include "modules/NexusModule.h"
+#include "modules/RoutingModule.h"
 #include <ErriezCRC32.h>
 #include <pb_decode.h>
 #include <pb_encode.h>
@@ -191,7 +194,14 @@ static void storeRoutingAuthCache(const meshtastic_MeshPacket &wire, const mesht
     routingAuthCache.valid = true;
 }
 
-static bool applyRoutingAuthCache(meshtastic_MeshPacket *packet)
+static DecodedAuthPredicate decodedAuthPredicate = nullptr;
+
+void setDecodedAuthPredicate(DecodedAuthPredicate predicate)
+{
+    decodedAuthPredicate = predicate;
+}
+
+bool applyRoutingAuthCache(meshtastic_MeshPacket *packet)
 {
     if (!routingAuthCacheLock)
         return false;
@@ -579,8 +589,8 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
         p->hop_start = p->hop_limit;
 
     // Nexus: output firewall. Gated by /nexus FIREWALL OUTDROP and the
-    // relay_drop_mask bits. Lost in the Nexus-28001 rebase 
-    // — restored verbatim from Nexus-269. interceptOutgoing() lets the module
+    // relay_drop_mask bits. Lost in the Nexus-28001 rebase
+    // - restored verbatim from Nexus-269. interceptOutgoing() lets the module
     // mutate the packet (e.g. drop_relay routing) before it's encrypted.
     if (meshtastic::nexusModule) {
         if (meshtastic::nexusModule->shouldDropOutput(*p)) {
@@ -864,8 +874,19 @@ RoutingAuthVerdict passesRoutingAuthGate(meshtastic_MeshPacket *p)
     if (authCandidate.which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
         // Already-decoded remote ingress (notably Portduino SimRadio) did not pass through a
         // decryptor. Never trust serialized local authentication metadata on that boundary.
-        authCandidate.pki_encrypted = false;
-        authCandidate.public_key.size = 0;
+        bool isMeshCoreAuth = false;
+        if (decodedAuthPredicate) {
+            isMeshCoreAuth = decodedAuthPredicate(authCandidate);
+        }
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+        if (!isMeshCoreAuth && authCandidate.pki_encrypted && authCandidate.public_key.size == 32) {
+            isMeshCoreAuth = meshCoreCompanion.isMeshCoreContact(authCandidate.from, authCandidate.public_key.bytes);
+        }
+#endif
+        if (!isMeshCoreAuth) {
+            authCandidate.pki_encrypted = false;
+            authCandidate.public_key.size = 0;
+        }
 #if !(MESHTASTIC_EXCLUDE_PKI) && !(MESHTASTIC_EXCLUDE_XEDDSA)
         concurrency::LockGuard g(cryptLock);
         if (!checkXeddsaReceivePolicy(&authCandidate)) {
@@ -1689,12 +1710,13 @@ void Router::dispatchReceived(meshtastic_MeshPacket *p, RxSource src)
         // Nexus: input firewall for decoded packets. Gated by the /nexus FIREWALL
         // DROP rules (DROPS / DROP / OUTDROP / PRALLOW / PRBLOCK). Runs after
         // CORE_PORTNUMS_ONLY so the upstream gate fires first and Nexus picks up
-        // the operator-configured drops. Lost in the Nexus-28001 rebase 
+        // the operator-configured drops. Lost in the Nexus-28001 rebase
         // restored verbatim from Nexus-269.
         if (!skipHandle && meshtastic::nexusModule && meshtastic::nexusModule->shouldDropPacket(*p)) {
             LOG_DEBUG("Nexus: Dropping decoded packet (Dynamic Filter)");
             cancelSending(p->from, p->id);
-            if (!meshtastic::nexusModule->skip_skip_handle) skipHandle = true;
+            if (!meshtastic::nexusModule->skip_skip_handle)
+                skipHandle = true;
         }
 
 #if USERPREFS_BLOCK_POSITION_ON_EVENT_CHANNEL
@@ -1723,7 +1745,8 @@ void Router::dispatchReceived(meshtastic_MeshPacket *p, RxSource src)
         if (!skipHandle && meshtastic::nexusModule && meshtastic::nexusModule->shouldDropPrivate(*p)) {
             LOG_DEBUG("Nexus: Dropping encrypted packet (Private Filter)");
             cancelSending(p->from, p->id);
-            if (!meshtastic::nexusModule->skip_skip_handle) skipHandle = true;
+            if (!meshtastic::nexusModule->skip_skip_handle)
+                skipHandle = true;
         }
     }
 
@@ -1790,7 +1813,8 @@ void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)
     if (is_in_repeated(config.lora.ignore_incoming, p->from)) {
         clearRoutingAuthCache();
         LOG_DEBUG("Ignore msg, 0x%08x in ignore list", p->from);
-        if (meshtastic::nexusModule) meshtastic::nexusModule->fw_vanilla_ignored++;
+        if (meshtastic::nexusModule)
+            meshtastic::nexusModule->fw_vanilla_ignored++;
         packetPool.release(p);
         return;
     }
@@ -1799,7 +1823,8 @@ void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)
     if (nodeInfoLiteIsIgnored(node)) {
         clearRoutingAuthCache();
         LOG_DEBUG("Ignore msg, 0x%08x is ignored", p->from);
-        if (meshtastic::nexusModule) meshtastic::nexusModule->fw_vanilla_ignored++;
+        if (meshtastic::nexusModule)
+            meshtastic::nexusModule->fw_vanilla_ignored++;
         packetPool.release(p);
         return;
     }
@@ -1851,9 +1876,8 @@ void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)
         // even though the firewall says drop, mirroring the in-band dispatchReceived semantics.
         // fw_drop_priv_blacklist / fw_drop_priv_whitelist / fw_drop_private still increment
         // inside shouldDropPrivate() either way, so /nexus FWS keeps reporting truthfully.
-        bool firewallDropped =
-            meshtastic::nexusModule && !meshtastic::nexusModule->skip_skip_handle &&
-            meshtastic::nexusModule->shouldDropPrivate(*p);
+        bool firewallDropped = meshtastic::nexusModule && !meshtastic::nexusModule->skip_skip_handle &&
+                               meshtastic::nexusModule->shouldDropPrivate(*p);
         if (firewallDropped) {
             // Same log line as the in-band dispatchReceived drop path so operators can grep one
             // string across both call sites. No implicit ACK: refusing to relay means downstream
@@ -1891,7 +1915,7 @@ void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)
             if (shouldForward) {
                 if (auto *copy = packetPool.allocCopy(*p)) {
                     service->handleFromRadio(copy);
-                    // handleFromRadio doesn't take ownership — it makes its OWN
+                    // handleFromRadio doesn't take ownership - it makes its OWN
                     // allocCopy inside for sendToPhone's queue handoff, then
                     // returns. Without this release, every opaque/foreign-PKI
                     // forward leaks one packetPool slot. After ~MAX_PACKETS_STATIC
