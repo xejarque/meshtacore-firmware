@@ -828,6 +828,11 @@ public:
 
 private:
     void handleNexusCommand(const meshtastic_MeshPacket &mp, const char *cmd, bool isBroadcast, uint32_t replyId, bool toPhoneOnly = false, bool isShadow = false, int redirect_depth = 0);
+    // /nexus MESHCORE [INFO|STATS|RELAY|ADVERT|RESET] (NexusMeshCoreCommand.cpp): the MeshCore relay and ADVERT settings.
+    void handleMeshCoreCommand(const char *args, char *reply, size_t replyLen);
+    // The MeshCore settings follow SAVE and LOAD, in their own flash file.
+    void saveMeshCoreSettings();
+    void loadMeshCoreSettings();
     int onInputEvent(const InputEvent *event);
     void updateSigint(const meshtastic_MeshPacket &mp);
     int nexus_base64_decode(unsigned char *out, size_t out_len, size_t *out_written, const char *in);

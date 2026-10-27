@@ -2659,12 +2659,19 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                  "JT SYS:\nDieTemp: %.1fC\nBoot: %s\nHeap: %u/%u",
                  temp, reason, freeHeap, totalHeap);
     }
+    else if (strcasecmp(cmd, "MESHCORE") == 0 || strncasecmp(cmd, "MESHCORE ", 9) == 0 ||
+             strcasecmp(cmd, "MCORE") == 0 || strncasecmp(cmd, "MCORE ", 6) == 0) {
+        const char *args = strchr(cmd, ' ');
+        handleMeshCoreCommand(args ? args + 1 : "", replyMsg, sizeof(replyMsg));
+    }
     else if (strcasecmp(cmd, "SAVE") == 0) {
         saveVault();
+        saveMeshCoreSettings();
         snprintf(replyMsg, sizeof(replyMsg), "JT: Vault saved to flash (JenT).");
     }
     else if (strcasecmp(cmd, "LOAD") == 0) {
         loadVault();
+        loadMeshCoreSettings();
         snprintf(replyMsg, sizeof(replyMsg), "JT: Vault loaded from flash.");
     }
     else if (strncasecmp(cmd, "BD ", 3) == 0 || strcasecmp(cmd, "BD") == 0) {
@@ -7550,6 +7557,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging("SEND: TEXTC, DM, REDIRECT (R), SENDPOS, SENDNODE\n");
             appendPaging("ADMIN: SKEY, DM-FORWARD, SAVE, LOAD, BD, SETCHNAME, SETCHPSK, ADDCH, DELCH, SETROLE, SETPOWER, OKTOMQTT, BELL, PLAY, STARWARS, FULLCONFIGDUMP\n");
             appendPaging("SYSTEM: SYS, HW, TELEMETRY, POS, INFO, COMPILATION, VAULT, STATS, SS, VS, HEAP, NODES, FNODE, GROUP, TIME, UTIL, PHONE, PMGT, SMI, GPIO, WIFIOTA, MCUINFO, SENSORS\n");
+            appendPaging("MESHCORE: MESHCORE [INFO|STATS|RELAY|ADVERT|RESET] (alias MCORE); SAVE keeps the settings\n");
             appendPaging("TARGETS: FAV, UNFAV, IGNORE, UNIGNORE, NIGN\n");
             appendPaging("STORAGE: LS, RM, CAT, FS\n");
             appendPaging("Try: HELP <topic> (e.g. HELP DROP)");

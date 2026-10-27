@@ -610,6 +610,10 @@ void MeshCoreRepeater::onDupeHeard(uint32_t hash)
 
 bool MeshCoreRepeater::canRelay() const
 {
+    if (relayMode == MeshCoreConfig::RELAY_OFF)
+        return false;
+    if (relayMode == MeshCoreConfig::RELAY_ON)
+        return true;
     // Same rebroadcast policy as Meshtastic's own relay (FloodingRouter::isRebroadcaster): a mute
     // node or a node with rebroadcast disabled relays nothing, MeshCore floods included.
     return config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE &&

@@ -446,6 +446,36 @@ void test_relay_respects_role_and_rebroadcast_mode()
     TEST_ASSERT_TRUE(repeater.hasPendingFrame());
 }
 
+// Nexus's relay mode overrides the role and the rebroadcast policy: OFF keeps a router silent, ON relays as a mute node
+// and under AUTO the role decides again.
+void test_relay_mode_overrides_role_and_rebroadcast_policy()
+{
+    MeshCoreRepeater repeater;
+    uint8_t buf[64];
+    size_t len;
+
+    config.device.role = meshtastic_Config_DeviceConfig_Role_ROUTER;
+    config.device.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_ALL;
+    repeater.setRelayMode(MeshCoreConfig::RELAY_OFF);
+    TEST_ASSERT_FALSE(repeater.canRelay());
+    len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x11, 0x11);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+
+    Time::advanceTestMillis(1000);
+    config.device.role = meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE;
+    repeater.setRelayMode(MeshCoreConfig::RELAY_ON);
+    TEST_ASSERT_TRUE(repeater.canRelay());
+    len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x22, 0x22);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+
+    Time::advanceTestMillis(1000);
+    config.device.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_NONE;
+    repeater.setRelayMode(MeshCoreConfig::RELAY_AUTO);
+    TEST_ASSERT_FALSE(repeater.canRelay());
+}
+
 // A flood arriving while another is queued gets its own slot: the old single relay slot dropped it.
 void test_second_flood_is_queued_beside_the_first()
 {
@@ -1603,6 +1633,7 @@ void setup()
     RUN_TEST(test_flood_with_full_path_is_dropped);
     RUN_TEST(test_advert_flood_hop_limit);
     RUN_TEST(test_relay_respects_role_and_rebroadcast_mode);
+    RUN_TEST(test_relay_mode_overrides_role_and_rebroadcast_policy);
     RUN_TEST(test_second_flood_is_queued_beside_the_first);
     RUN_TEST(test_full_queue_evicts_the_flood_with_most_hops);
     RUN_TEST(test_flood_dropped_for_room_is_relayed_when_heard_again);

@@ -681,9 +681,13 @@ void RadioLibInterface::completeRawSend()
 static constexpr size_t MESHCORE_SEED_LEN = 32;
 static constexpr uint32_t MESHCORE_IDENTITY_LOAD_MS = 5 * 1000; // identity ready early: discovery needs it
 // Flood adverts only, which reach the direct neighbours too: the first a few minutes after boot so the node shows up
-// without waiting, then every 12 hours. A flood is re-sent by every node, so it must stay rare.
+// without waiting, then every advert period (12 hours unless Nexus changed it). A flood is re-sent by every node, so it
+// must stay rare.
 static constexpr uint32_t MESHCORE_FLOOD_ADVERT_FIRST_MS = 3 * 60 * 1000;
-static constexpr uint32_t MESHCORE_FLOOD_ADVERT_INTERVAL_MS = 12UL * 60 * 60 * 1000;
+static constexpr uint32_t MESHCORE_MS_PER_HOUR = 60UL * 60 * 1000;
+// A flood asked for by Nexus goes out at once; a request closer than this to the last one is refused, so a loop of
+// requests cannot flood the mesh.
+static constexpr uint32_t MESHCORE_ADVERT_NOW_MIN_MS = 10UL * 60 * 1000;
 // A node that relays while announcing itself as a chat node also floods a repeater-typed ADVERT signed with its relay
 // alias: MeshCore applications only name a path hop from a contact held as a repeater, so without it the hop we append
 // shows as an unknown repeater. It rides the same slot as the main flood, one own frame at a time, so the cost is one
@@ -711,6 +715,45 @@ class MeshCoreAdvertThread : public concurrency::OSThread
   private:
     RadioLibInterface *radio;
 };
+
+// The settings file is the whole MeshCoreConfig image. A missing or unreadable file reads as false and changes nothing.
+static const char *meshCoreConfigPath = "/prefs/meshcore_config.bin";
+
+static bool loadMeshCoreConfigImage(MeshCoreConfig *out)
+{
+#ifdef FSCom
+    uint8_t image[MeshCoreConfig::IMAGE_LEN];
+    size_t n = 0;
+    {
+        concurrency::LockGuard g(spiLock);
+        auto f = FSCom.open(meshCoreConfigPath, FILE_O_READ);
+        if (!f)
+            return false;
+        n = f.size() <= sizeof(image) ? f.read(image, f.size()) : 0;
+        f.close();
+    }
+    return MeshCoreConfig::decode(image, n, out);
+#else
+    (void)out;
+    return false;
+#endif
+}
+
+static bool saveMeshCoreConfigImage(const MeshCoreConfig &settings)
+{
+#ifdef FSCom
+    uint8_t image[MeshCoreConfig::IMAGE_LEN];
+    if (MeshCoreConfig::encode(settings, image, sizeof(image)) != sizeof(image))
+        return false;
+    // SafeFile: atomic replace under spiLock. A bare FILE_O_WRITE appends on nRF52 LittleFS.
+    SafeFile out(meshCoreConfigPath, true);
+    out.write(image, sizeof(image));
+    return out.close();
+#else
+    (void)settings;
+    return false;
+#endif
+}
 
 /**
  * The repeater's MeshCore identity seed, kept in flash so the node keeps the same MeshCore key across reboots.
@@ -807,6 +850,10 @@ size_t RadioLibInterface::formatContentionStats(char *buf, size_t len)
 
 uint32_t RadioLibInterface::meshCoreServiceTick()
 {
+    if (!meshCoreConfigLoaded) {
+        meshCoreConfigLoaded = true;
+        reloadMeshCoreConfig();
+    }
     uint32_t next = meshCoreAdvertTick();
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
     if (meshCoreRepeater.hasIdentity() && !meshCoreCompanion.hasIdentity()) {
@@ -852,6 +899,53 @@ void RadioLibInterface::updateMeshCoreRole()
         meshCoreAliasFloodPending = true;
         meshCoreAliasFloodAttempts = 0;
     }
+}
+
+void RadioLibInterface::reloadMeshCoreConfig()
+{
+    MeshCoreConfig loaded; // a failed load leaves it at the built-in settings
+    loadMeshCoreConfigImage(&loaded);
+    meshCoreConfig = loaded;
+    meshCoreRepeater.setRelayMode(meshCoreConfig.relay);
+    LOG_INFO("MeshCore config: relay %u, advert every %uh", (unsigned)meshCoreConfig.relay,
+             (unsigned)meshCoreConfig.effectiveAdvertHours());
+}
+
+bool RadioLibInterface::saveMeshCoreConfig()
+{
+    if (saveMeshCoreConfigImage(meshCoreConfig))
+        return true;
+    LOG_ERROR("MeshCore config: could not save %s", meshCoreConfigPath);
+    return false;
+}
+
+void RadioLibInterface::setMeshCoreRelayMode(MeshCoreConfig::RelayMode mode)
+{
+    meshCoreConfig.relay = mode;
+    meshCoreRepeater.setRelayMode(mode);
+}
+
+void RadioLibInterface::setMeshCoreAdvertHours(uint8_t hours)
+{
+    meshCoreConfig.advertHours = hours;
+}
+
+bool RadioLibInterface::requestMeshCoreAdvertNow()
+{
+    const uint32_t nowMs = millis();
+    if (meshCoreAdvertNowSent && Throttle::isWithinTimespanMs(lastMeshCoreAdvertNowMs, MESHCORE_ADVERT_NOW_MIN_MS))
+        return false;
+    meshCoreAdvertNowSent = true;
+    lastMeshCoreAdvertNowMs = nowMs;
+    // The advert thread picks this up on its next step, at most MESHCORE_SERVICE_MS later.
+    nextMeshCoreFloodAdvertMs = nowMs;
+    return true;
+}
+
+uint32_t RadioLibInterface::meshCoreAdvertDueInMs() const
+{
+    const uint32_t nowMs = millis();
+    return Throttle::deadlinePassedAt(nowMs, nextMeshCoreFloodAdvertMs) ? 0 : nextMeshCoreFloodAdvertMs - nowMs;
 }
 
 uint32_t RadioLibInterface::meshCoreAdvertTick()
@@ -941,7 +1035,7 @@ uint32_t RadioLibInterface::meshCoreAdvertTick()
     if (aliasAdvert) {
         meshCoreAliasFloodPending = false;
     } else {
-        nextMeshCoreFloodAdvertMs = millis() + MESHCORE_FLOOD_ADVERT_INTERVAL_MS;
+        nextMeshCoreFloodAdvertMs = millis() + (uint32_t)meshCoreConfig.effectiveAdvertHours() * MESHCORE_MS_PER_HOUR;
         meshCoreFloodAdvertSent = true;
         // The alias flood follows as soon as this one is on air.
         meshCoreAliasFloodPending = meshCoreRepeater.usesAlias();

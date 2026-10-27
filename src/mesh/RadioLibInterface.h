@@ -485,10 +485,39 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
      */
     uint32_t meshCoreServiceTick();
 
+    /// Load /prefs/meshcore_config.bin into the settings and apply them. A missing or bad file keeps the built-in settings.
+    void reloadMeshCoreConfig();
+
+    /// Write the settings to /prefs/meshcore_config.bin. False if the write failed.
+    bool saveMeshCoreConfig();
+
+    /// Set the relay policy (MeshCoreConfig::RelayMode) and apply it at once.
+    void setMeshCoreRelayMode(MeshCoreConfig::RelayMode mode);
+
+    /// Set the flood ADVERT period in hours, 0 for the built-in default. The next scheduled flood uses it.
+    void setMeshCoreAdvertHours(uint8_t hours);
+
+    /// Queue a flood ADVERT now. False while the last one asked for this way is less than MESHCORE_ADVERT_NOW_MIN_MS old.
+    bool requestMeshCoreAdvertNow();
+
+    /// Milliseconds until the next scheduled flood ADVERT, 0 when it is due.
+    uint32_t meshCoreAdvertDueInMs() const;
+
+    /// Read-only views for /nexus MESHCORE.
+    const MeshCoreConfig &getMeshCoreConfig() const { return meshCoreConfig; }
+    const MeshCoreRepeater &getMeshCoreRepeater() const { return meshCoreRepeater; }
+
   private:
     uint32_t meshCoreContactsFingerprint = 0; // of what is on flash, so a save happens only on a change
     uint32_t lastMeshCoreContactsSaveMs = 0;
     bool meshCoreContactsLoaded = false;
+
+    // The settings Nexus changes, applied to the repeater. Loaded on the first service tick.
+    MeshCoreConfig meshCoreConfig;
+    bool meshCoreConfigLoaded = false;
+    // The last ADVERT asked for by Nexus: a request again within MESHCORE_ADVERT_NOW_MIN_MS is refused.
+    bool meshCoreAdvertNowSent = false;
+    uint32_t lastMeshCoreAdvertNowMs = 0;
 
   public:
 #endif
