@@ -336,8 +336,9 @@ class MeshCoreCompanion
     /// Mark our nodes in the node DB as MeshCore (evicted early) and copy back the client's favourite stars, which it sets
     /// there.
     void syncWithNodeDB();
-    /// Keep what an ADVERT says about n: its timestamp and, when it carries one, its position.
-    void noteAdvert(MeshCoreNode *n, uint32_t advertTime, int32_t latMicro, int32_t lonMicro);
+    /// Keep what an ADVERT says about n: its timestamp, position, and RF reception metrics.
+    void noteAdvert(MeshCoreNode *n, uint32_t advertTime, int32_t latMicro, int32_t lonMicro, float snr, int32_t rssi,
+                    uint8_t hops);
     /// Inject a bridged text as received: the one place that builds the synthetic packet, for both channels and DMs.
     /// contact is the sender when direct; hop count and signal mirror the frame being reported.
     uint32_t injectText(uint32_t fromNum, uint32_t to, uint8_t channel, const char *text, uint32_t replyId, bool direct,

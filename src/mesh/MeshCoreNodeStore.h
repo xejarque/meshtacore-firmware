@@ -45,6 +45,10 @@ struct MeshCoreNode {
     uint32_t lastDm = 0;     // recency stamp of the last direct message either way
     int32_t latitudeMicro = 0, longitudeMicro = 0;
     uint32_t nodeNum = 0;
+    float snr = 0.0f;
+    int32_t rssi = 0;
+    uint8_t hops = 0xFF;    // 0 = direct RF neighbor (zero hops)
+    uint32_t lastHeard = 0; // epoch seconds when last heard over RF
 
     bool isFavorite() const { return flags & FAVORITE; }
     bool hadDm() const { return flags & HAD_DM; }

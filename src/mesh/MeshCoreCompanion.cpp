@@ -1329,9 +1329,14 @@ MeshCoreNode *MeshCoreCompanion::learnRepeater(const uint8_t pub[32], const char
     return n;
 }
 
-void MeshCoreCompanion::noteAdvert(MeshCoreNode *n, uint32_t advertTime, int32_t latMicro, int32_t lonMicro)
+void MeshCoreCompanion::noteAdvert(MeshCoreNode *n, uint32_t advertTime, int32_t latMicro, int32_t lonMicro, float snr,
+                                   int32_t rssi, uint8_t hops)
 {
     n->lastAdvert = advertTime;
+    n->snr = snr;
+    n->rssi = rssi;
+    n->hops = hops;
+    n->lastHeard = getTime(false);
     if (latMicro != 0 || lonMicro != 0) { // 0,0 is "no position", not the Gulf of Guinea
         n->latitudeMicro = latMicro;
         n->longitudeMicro = lonMicro;
@@ -1393,7 +1398,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
         if (!trusted && !MeshCoreRepeater::verifyAdvert(payload, info.payload_len))
             return;
         MeshCoreNode *n = learnRepeater(payload, name);
-        noteAdvert(n, advertTime, latMicro, lonMicro);
+        noteAdvert(n, advertTime, latMicro, lonMicro, snr, rssi, info.path_hash_count);
         ensureSenderNode(n->nodeNum, n->name, false, n->pub, meshtastic_Config_DeviceConfig_Role_REPEATER, rx);
         updatePosition(n->nodeNum, latMicro, lonMicro);
         return;
@@ -1403,7 +1408,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
     MeshCoreNode *known = contactByPub(payload);
     if (known && strncmp(known->name, name, MeshCoreNode::NAME_LEN - 1) == 0) {
         nodes.touch(known);
-        noteAdvert(known, advertTime, latMicro, lonMicro);
+        noteAdvert(known, advertTime, latMicro, lonMicro, snr, rssi, info.path_hash_count);
         // Brings a node made before keys were set up along.
         ensureSenderNode(known->nodeNum, known->name, true, known->pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
         updatePosition(known->nodeNum, latMicro, lonMicro);
@@ -1413,7 +1418,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
         return;
 
     MeshCoreNode *c = learnContact(payload, name);
-    noteAdvert(c, advertTime, latMicro, lonMicro);
+    noteAdvert(c, advertTime, latMicro, lonMicro, snr, rssi, info.path_hash_count);
     if (!known)
         contactsLearned++;
     ensureSenderNode(c->nodeNum, c->name, true, c->pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
