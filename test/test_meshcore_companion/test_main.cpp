@@ -1146,25 +1146,17 @@ static const meshtastic_MeshPacket &receiveFromBob(DirectSetup &s, uint32_t time
     return s.capture.received.back();
 }
 
-// The client keeps two chats per node, one for PKI messages and one for plain ones, and files an incoming message by its
-// PKI mark. The user writes from whichever the client opened; a reply marked the other way lands in a second chat, which
-// is the "dead chat" users saw. Regression guard: replies always marked PKI, or the choice forgotten across a reboot.
-void test_direct_reply_lands_in_the_chat_the_user_writes_from(void)
+// The client keeps two chats per node, one for PKI messages and one for plain ones, and files an incoming message by the
+// PKI mark of the packet that carried it. A contact is always announced with the key its ADVERT signed, so the client
+// opens its PKI chat and the user writes from there: the reply must be marked the same way or it lands in a second chat
+// with the same name the user cannot answer from. Regression guard: a reply marked plain because the firmware only knew
+// which chat the user wrote from last, or no mark at all.
+void test_direct_reply_lands_in_the_pki_chat_of_the_contact(void)
 {
     DirectSetup s;
-    // Nothing written yet: PKI, the chat a client opens for a node with a key.
     TEST_ASSERT_TRUE(receiveFromBob(s, 1700000001).pki_encrypted);
-
-    TEST_ASSERT_TRUE(s.c.sendDirectText(s.bobNum, 42, "hola", 1700000000, &s.radio, false));
-    TEST_ASSERT_FALSE(receiveFromBob(s, 1700000002).pki_encrypted);
-
-    uint8_t image[MeshCoreNodeFile::IMAGE_MAX];
-    const size_t n = s.c.exportContacts(image, sizeof(image));
-    MeshCoreCompanion rebooted;
-    rebooted.importContacts(image, n);
-    TEST_ASSERT_TRUE(rebooted.nodes.find(s.pubB)->usesPlainDmChat());
-
-    TEST_ASSERT_TRUE(s.c.sendDirectText(s.bobNum, 43, "otra", 1700000010, &s.radio, true));
+    TEST_ASSERT_TRUE(receiveFromBob(s, 1700000002).pki_encrypted); // and stays so on the next one
+    TEST_ASSERT_TRUE(s.c.sendDirectText(s.bobNum, 42, "hola", 1700000000, &s.radio));
     TEST_ASSERT_TRUE(receiveFromBob(s, 1700000003).pki_encrypted);
 }
 
@@ -1578,7 +1570,7 @@ void setup()
     RUN_TEST(test_path_report_uses_hex_for_unknown_and_ambiguous_hops);
     RUN_TEST(test_path_report_falls_back_to_a_contact_key);
     RUN_TEST(test_path_report_splits_without_cutting);
-    RUN_TEST(test_direct_reply_lands_in_the_chat_the_user_writes_from);
+    RUN_TEST(test_direct_reply_lands_in_the_pki_chat_of_the_contact);
     RUN_TEST(test_path_command_answers_a_direct_message);
     RUN_TEST(test_path_command_answers_our_channel_text_with_its_echo);
     RUN_TEST(test_path_command_own_text_without_echo_is_no_data);
