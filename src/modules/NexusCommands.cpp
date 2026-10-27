@@ -451,6 +451,31 @@ static void sendNexusStatusMessage(const char *text, uint8_t channel = 0)
     service->sendToMesh(p);
 }
 
+static bool parseHexPsk(unsigned char *buffer, size_t maxLen, size_t *outLen, const char *input)
+{
+    if (!input || !*input)
+        return false;
+    const char *hex = input;
+    if (strncasecmp(hex, "0x", 2) == 0)
+        hex += 2;
+    size_t slen = strlen(hex);
+    if ((slen != 32 && slen != 64) || (slen / 2 > maxLen))
+        return false;
+    for (size_t i = 0; i < slen; i++) {
+        char c = hex[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+            return false;
+    }
+    auto nib = [](char c) -> uint8_t {
+        return (c >= 'a') ? (c - 'a' + 10) : ((c >= 'A') ? (c - 'A' + 10) : (c - '0'));
+    };
+    for (size_t i = 0; i < slen; i += 2)
+        buffer[i / 2] = (nib(hex[i]) << 4) | nib(hex[i + 1]);
+    if (outLen)
+        *outLen = slen / 2;
+    return true;
+}
+
 // === END FILE-SCOPE HELPERS ===
 
 // === BEGIN handleNexusCommand (from NexusModule.cpp:1651-8873) ===
@@ -3708,7 +3733,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     }
     else if (strncasecmp(cmd, "SETCHPSK ", 9) == 0 || strncasecmp(cmd, "USETCHPSK ", 10) == 0) {
-        // Syntax: [U]SETCHPSK <idx|name> <base64_psk>
+        // Syntax: [U]SETCHPSK <idx|name> <base64_or_hex_psk>
         bool unprotected = (strncasecmp(cmd, "U", 1) == 0);
         const char *p = cmd + (unprotected ? 10 : 9);
         const char *next = nullptr;
@@ -3740,7 +3765,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             } else {
                 size_t dlen = 0;
                 unsigned char buffer[32];
-                if (nexus_base64_decode(buffer, sizeof(buffer), &dlen, next) == 0) {
+                if (parseHexPsk(buffer, sizeof(buffer), &dlen, next) || nexus_base64_decode(buffer, sizeof(buffer), &dlen, next) == 0) {
                     memcpy(ch.settings.psk.bytes, buffer, dlen);
                     ch.settings.psk.size = dlen;
                     ch.index = idx;
@@ -3750,13 +3775,13 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     if (service) service->configChanged.notifyObservers(nullptr);
                     snprintf(replyMsg, sizeof(replyMsg), "JT: Ch %d PSK updated (%d bytes)", idx, (int)dlen);
                 } else {
-                    snprintf(replyMsg, sizeof(replyMsg), "JT: Invalid Base64 PSK");
+                    snprintf(replyMsg, sizeof(replyMsg), "JT: Invalid Base64 or Hex PSK");
                 }
             }
         }
     }
     else if (strncasecmp(cmd, "ADDCH ", 6) == 0) {
-        // Syntax: ADDCH <name> [base64_psk]
+        // Syntax: ADDCH <name> [base64_or_hex_psk]
         const char *p = cmd + 6;
         while (*p == ' ') p++;
 
@@ -3789,7 +3814,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 if (*p != '\0') {
                     size_t dlen = 0;
                     unsigned char buffer[32];
-                    if (nexus_base64_decode(buffer, sizeof(buffer), &dlen, p) == 0) {
+                    if (parseHexPsk(buffer, sizeof(buffer), &dlen, p) || nexus_base64_decode(buffer, sizeof(buffer), &dlen, p) == 0) {
                         memcpy(ch.settings.psk.bytes, buffer, dlen);
                         ch.settings.psk.size = dlen;
                     }

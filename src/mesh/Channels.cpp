@@ -11,6 +11,7 @@
 #include "SafeFile.h"
 #include "concurrency/LockGuard.h"
 #include "configuration.h"
+#include <SHA256.h>
 
 #include <assert.h>
 
@@ -320,24 +321,17 @@ int16_t Channels::setCrypto(ChannelIndex chIndex)
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 static const uint8_t meshCorePublicPsk[16] = {0x8b, 0x33, 0x87, 0xe9, 0xc5, 0xcd, 0xea, 0x6a,
                                               0xc9, 0xe5, 0xed, 0xba, 0xa1, 0x15, 0xcd, 0x72};
-static const uint8_t meshCoreTestPsk[16] = {0x9c, 0xd8, 0xfc, 0xf2, 0x2a, 0x47, 0x33, 0x3b,
-                                            0x59, 0x1d, 0x96, 0xa2, 0xb8, 0x48, 0xb7, 0x3f};
-static const uint8_t meshCoreBotPsk[16] = {0xeb, 0x50, 0xa1, 0xbc, 0xb3, 0xe4, 0xe5, 0xd7,
-                                           0xbf, 0x69, 0xa5, 0x7c, 0x9d, 0xad, 0xa2, 0x11};
 
 /// Installs the default MeshCore channels that no slot carries yet (by name). Returns true if any was added.
 static bool seedMeshCoreChannels()
 {
-    static const struct {
-        const char *name;
-        const uint8_t *psk;
-    } defs[] = {{"MC:Public", meshCorePublicPsk}, {"MC:#test", meshCoreTestPsk}, {"MC:#bot", meshCoreBotPsk}};
+    static const char *defs[] = {"MC:Public", "MC:#test", "MC:#bot"};
 
     bool added = false;
     for (size_t i = 0; i < sizeof(defs) / sizeof(defs[0]); i++) {
         bool present = false;
         for (ChannelIndex k = 0; k < MAX_NUM_CHANNELS && !present; k++)
-            present = strncmp(channels.getByIndex(k).settings.name, defs[i].name, strlen(defs[i].name) + 1) == 0;
+            present = strncmp(channels.getByIndex(k).settings.name, defs[i], strlen(defs[i]) + 1) == 0;
         if (present)
             continue;
 
@@ -351,9 +345,9 @@ static bool seedMeshCoreChannels()
 
         meshtastic_Channel &ch = channels.getByIndex(idx);
         memset(&ch.settings, 0, sizeof(ch.settings));
-        strncpy(ch.settings.name, defs[i].name, sizeof(ch.settings.name) - 1);
-        memcpy(ch.settings.psk.bytes, defs[i].psk, 16);
-        ch.settings.psk.size = 16;
+        strncpy(ch.settings.name, defs[i], sizeof(ch.settings.name) - 1);
+        ch.settings.psk.bytes[0] = 1;
+        ch.settings.psk.size = 1;
         ch.settings.has_module_settings = true;
         ch.settings.module_settings.position_precision = 0;
         ch.has_settings = true;
@@ -521,8 +515,6 @@ bool Channels::isMeshCoreChannel(ChannelIndex chIndex)
     const meshtastic_Channel &ch = getByIndex(chIndex);
     if (!ch.has_settings || ch.role == meshtastic_Channel_Role_DISABLED)
         return false;
-    if (ch.settings.psk.size != 16 && ch.settings.psk.size != 32)
-        return false;
     return strncmp(ch.settings.name, "MC:", 3) == 0;
 }
 
@@ -533,10 +525,57 @@ size_t Channels::getMeshCoreKey(ChannelIndex chIndex, uint8_t key[32])
         return 0;
 
     const meshtastic_Channel &ch = getByIndex(chIndex);
-    memset(key, 0, 32);
-    memcpy(key, ch.settings.psk.bytes, ch.settings.psk.size);
+    const char *room = ch.settings.name + 3;
+    while (*room == ' ')
+        room++;
 
-    return MeshCoreCompanion::normalizedKeyLen(key, ch.settings.psk.size);
+    memset(key, 0, 32);
+
+    if (ch.settings.psk.size == 16) {
+        memcpy(key, ch.settings.psk.bytes, 16);
+        return 16;
+    }
+
+    if (ch.settings.psk.size == 32) {
+        bool isHex = true;
+        for (size_t i = 0; i < 32; i++) {
+            char c = (char)ch.settings.psk.bytes[i];
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+                isHex = false;
+                break;
+            }
+        }
+        if (isHex) {
+            for (size_t i = 0; i < 32; i += 2) {
+                auto nibble = [](char c) -> uint8_t {
+                    if (c >= '0' && c <= '9') return c - '0';
+                    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                    return c - 'A' + 10;
+                };
+                key[i / 2] = (nibble((char)ch.settings.psk.bytes[i]) << 4) | nibble((char)ch.settings.psk.bytes[i + 1]);
+            }
+            return 16;
+        }
+        memcpy(key, ch.settings.psk.bytes, 32);
+        return MeshCoreCompanion::normalizedKeyLen(key, 32);
+    }
+
+    if (strcasecmp(room, "Public") == 0) {
+        memcpy(key, meshCorePublicPsk, 16);
+        return 16;
+    }
+
+    if (*room != '\0') {
+        SHA256 sha;
+        uint8_t digest[32];
+        sha.reset();
+        sha.update((const uint8_t *)room, strlen(room));
+        sha.finalize(digest, sizeof(digest));
+        memcpy(key, digest, 16);
+        return 16;
+    }
+
+    return 0;
 #else
     (void)chIndex;
     (void)key;

@@ -50,6 +50,64 @@ void test_channel_hashes(void)
     TEST_ASSERT_EQUAL_HEX8(0xca, hash);
 }
 
+// Pins dynamic MeshCore PSK derivation when using Meshtastic default PSK (AQ== or empty):
+// MC:Public yields the well-known key, MC:#test / MC:#bot derive from their hashtag room names,
+// and custom 16-byte raw keys or 32-char hex ASCII keys are preserved.
+void test_meshcore_channel_key_derivation(void)
+{
+    meshtastic_Channel prev = channels.getByIndex(1);
+    meshtastic_Channel &ch = channels.getByIndex(1);
+    ch = meshtastic_Channel();
+    ch.has_settings = true;
+    ch.role = meshtastic_Channel_Role_SECONDARY;
+
+    // Default PSK (AQ==, size=1, byte=1) on MC:Public -> returns kPublicKey
+    strncpy(ch.settings.name, "MC:Public", sizeof(ch.settings.name) - 1);
+    ch.settings.psk.size = 1;
+    ch.settings.psk.bytes[0] = 1;
+    TEST_ASSERT_TRUE(channels.isMeshCoreChannel(1));
+    uint8_t key[32] = {};
+    TEST_ASSERT_EQUAL_UINT32(16, channels.getMeshCoreKey(1, key));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(kPublicKey, key, 16);
+
+    // Default PSK (AQ==) on MC:#test -> derives kTestKey
+    strncpy(ch.settings.name, "MC:#test", sizeof(ch.settings.name) - 1);
+    memset(key, 0, sizeof(key));
+    TEST_ASSERT_EQUAL_UINT32(16, channels.getMeshCoreKey(1, key));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(kTestKey, key, 16);
+
+    // Default PSK (AQ==) on MC:#bot -> derives kBotKey
+    strncpy(ch.settings.name, "MC:#bot", sizeof(ch.settings.name) - 1);
+    memset(key, 0, sizeof(key));
+    TEST_ASSERT_EQUAL_UINT32(16, channels.getMeshCoreKey(1, key));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(kBotKey, key, 16);
+
+    // Empty PSK (size=0) also derives from room name
+    ch.settings.psk.size = 0;
+    memset(key, 0, sizeof(key));
+    TEST_ASSERT_EQUAL_UINT32(16, channels.getMeshCoreKey(1, key));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(kBotKey, key, 16);
+
+    // Custom 16-byte raw key
+    uint8_t customKey[16] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    strncpy(ch.settings.name, "MC:Privado", sizeof(ch.settings.name) - 1);
+    ch.settings.psk.size = 16;
+    memcpy(ch.settings.psk.bytes, customKey, 16);
+    memset(key, 0, sizeof(key));
+    TEST_ASSERT_EQUAL_UINT32(16, channels.getMeshCoreKey(1, key));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(customKey, key, 16);
+
+    // 32-character hex ASCII string in psk
+    const char *hexStr = "8b3387e9c5cdea6ac9e5edbaa115cd72";
+    ch.settings.psk.size = 32;
+    memcpy(ch.settings.psk.bytes, hexStr, 32);
+    memset(key, 0, sizeof(key));
+    TEST_ASSERT_EQUAL_UINT32(16, channels.getMeshCoreKey(1, key));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(kPublicKey, key, 16);
+
+    channels.getByIndex(1) = prev;
+}
+
 void test_encode_matches_meshcore_vector(void)
 {
     uint8_t frame[255];
@@ -1561,6 +1619,7 @@ void setup()
     initializeTestEnvironment();
     UNITY_BEGIN();
     RUN_TEST(test_channel_hashes);
+    RUN_TEST(test_meshcore_channel_key_derivation);
     RUN_TEST(test_encode_matches_meshcore_vector);
     RUN_TEST(test_frame_uses_two_byte_path_hashes);
     RUN_TEST(test_hop_fields_report_the_path_length);

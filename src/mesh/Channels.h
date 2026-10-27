@@ -90,15 +90,15 @@ class Channels
     // Returns true if the channel has the default name and PSK
     bool isDefaultChannel(ChannelIndex chIndex);
 
-    /// True if this channel is enabled, named "MC:..." and carries a 16- or 32-byte PSK.
+    /// True if this channel is enabled and named "MC:...".
     bool isMeshCoreChannel(ChannelIndex chIndex);
 
     /// Add the default MeshCore channels to a node that predates them, the first time only. True if the channels changed.
     bool seedMeshCoreChannelsOnce();
 
     /// Copy the channel's MeshCore PSK into key (zero-padded to 32 bytes). Returns the effective
-    /// secret length - 16 when a 32-byte key's second half is all zeroes (MeshCore's 128-bit form) -
-    /// or 0 when this is not a MeshCore channel.
+    /// secret length (16 or 32) or 0 when this is not a MeshCore channel.
+    /// Derives the key dynamically for "Public" and hashtag rooms ("#...") when using the default PSK.
     size_t getMeshCoreKey(ChannelIndex chIndex, uint8_t key[32]);
 
     // Returns true if this channel's effective key is publicly decryptable (open or well-known/default PSK).
