@@ -88,6 +88,23 @@ void test_meshcore_channel_key_derivation(void)
     TEST_ASSERT_EQUAL_UINT32(16, channels.getMeshCoreKey(1, key));
     TEST_ASSERT_EQUAL_HEX8_ARRAY(kBotKey, key, 16);
 
+    // A private room (no '#') without its MeshCore key has no key: MeshCore never derives one from such a name
+    strncpy(ch.settings.name, "MC:Family", sizeof(ch.settings.name) - 1);
+    ch.settings.psk.size = 1;
+    ch.settings.psk.bytes[0] = 1;
+    TEST_ASSERT_TRUE(channels.isMeshCoreChannel(1));
+    TEST_ASSERT_EQUAL_UINT32(0, channels.getMeshCoreKey(1, key));
+    ch.settings.psk.size = 0;
+    TEST_ASSERT_EQUAL_UINT32(0, channels.getMeshCoreKey(1, key));
+
+    // The same name as a hashtag room derives SHA-256("#Family")
+    static const uint8_t kFamilyHashtagKey[16] = {0x2a, 0x4d, 0xf0, 0xb7, 0x4b, 0x66, 0xc9, 0x78,
+                                                  0xee, 0x48, 0xc6, 0x17, 0x45, 0xd7, 0xf6, 0x17};
+    strncpy(ch.settings.name, "MC:#Family", sizeof(ch.settings.name) - 1);
+    memset(key, 0, sizeof(key));
+    TEST_ASSERT_EQUAL_UINT32(16, channels.getMeshCoreKey(1, key));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(kFamilyHashtagKey, key, 16);
+
     // Custom 16-byte raw key
     uint8_t customKey[16] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
     strncpy(ch.settings.name, "MC:Privado", sizeof(ch.settings.name) - 1);

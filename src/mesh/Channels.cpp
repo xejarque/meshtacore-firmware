@@ -569,7 +569,9 @@ size_t Channels::getMeshCoreKey(ChannelIndex chIndex, uint8_t key[32])
         return 16;
     }
 
-    if (*room != '\0') {
+    // MeshCore derives a key from the name for hashtag rooms only. A private room carries a random key, so without it
+    // this channel cannot reach MeshCore, and a key taken from the name would be guessable by anyone who knows it.
+    if (*room == '#') {
         SHA256 sha;
         uint8_t digest[32];
         sha.reset();
@@ -579,6 +581,13 @@ size_t Channels::getMeshCoreKey(ChannelIndex chIndex, uint8_t key[32])
         return 16;
     }
 
+    static uint32_t warnedKeyless = 0; // one warning per slot: this runs for every MeshCore frame heard
+    if (!(warnedKeyless & (1u << chIndex))) {
+        warnedKeyless |= 1u << chIndex;
+        LOG_WARN("MeshCore ch %u '%s' is private and has no key: set the MeshCore key with /nexus SETCHPSK %u <hex> or as base64 "
+                 "in the app",
+                 (unsigned)chIndex, ch.settings.name, (unsigned)chIndex);
+    }
     return 0;
 }
 

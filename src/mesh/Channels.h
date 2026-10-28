@@ -98,7 +98,8 @@ class Channels
 
     /// Copy the channel's MeshCore PSK into key (zero-padded to 32 bytes). Returns the effective
     /// secret length (16 or 32) or 0 when this is not a MeshCore channel.
-    /// Derives the key dynamically for "Public" and hashtag rooms ("#...") when using the default PSK.
+    /// Without a 16/32-byte PSK the key comes from the name for "Public" and hashtag rooms ("#...") only;
+    /// a private room without its MeshCore key yields 0.
     size_t getMeshCoreKey(ChannelIndex chIndex, uint8_t key[32]);
 
     // Returns true if this channel's effective key is publicly decryptable (open or well-known/default PSK).
