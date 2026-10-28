@@ -833,6 +833,8 @@ private:
     // The MeshCore settings follow SAVE and LOAD, in their own flash file.
     void saveMeshCoreSettings();
     void loadMeshCoreSettings();
+    // /nexus VECINOS (NexusMeshCoreCommand.cpp): the direct neighbours, Meshtastic and MeshCore, in one reply.
+    void formatNeighbors(char *reply, size_t replyLen);
     int onInputEvent(const InputEvent *event);
     void updateSigint(const meshtastic_MeshPacket &mp);
     int nexus_base64_decode(unsigned char *out, size_t out_len, size_t *out_written, const char *in);

@@ -13,6 +13,7 @@
 #include "Arduino.h"
 #include "TestUtil.h"
 #include "TypeConversions.h"
+#include "modules/NexusMeshCoreKey.h"
 #include <unity.h>
 
 // The three seeded MeshCore channel keys (16-byte PSKs).
@@ -123,6 +124,25 @@ void test_meshcore_channel_key_derivation(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(kPublicKey, key, 16);
 
     channels.getByIndex(1) = prev;
+}
+
+// MeshCore shows a private channel's key as 32 hex digits; the Meshtastic app takes it in base64. /nexus MESHCORE KEY
+// converts one into the other, so the same private channel can be joined from both apps.
+void test_meshcore_key_hex_converts_to_base64(void)
+{
+    char out[25];
+    TEST_ASSERT_TRUE(meshtastic::meshCoreKeyHexToBase64("8b3387e9c5cdea6ac9e5edbaa115cd72", out, sizeof(out)));
+    TEST_ASSERT_EQUAL_STRING("izOH6cXN6mrJ5e26oRXNcg==", out);
+
+    // As copied from MeshCore or typed by hand: prefix, case, blanks and separators do not matter
+    TEST_ASSERT_TRUE(meshtastic::meshCoreKeyHexToBase64("0x8B3387E9 C5CDEA6A-C9E5EDBA:A115CD72", out, sizeof(out)));
+    TEST_ASSERT_EQUAL_STRING("izOH6cXN6mrJ5e26oRXNcg==", out);
+
+    TEST_ASSERT_FALSE(meshtastic::meshCoreKeyHexToBase64("8b3387e9c5cdea6ac9e5edbaa115cd7", out, sizeof(out)));    // 31 digits
+    TEST_ASSERT_FALSE(meshtastic::meshCoreKeyHexToBase64("8b3387e9c5cdea6ac9e5edbaa115cd7200", out, sizeof(out))); // 34 digits
+    TEST_ASSERT_FALSE(meshtastic::meshCoreKeyHexToBase64("8b3387e9c5cdea6ac9e5edbaa115cdzz", out, sizeof(out)));   // not hex
+    TEST_ASSERT_FALSE(meshtastic::meshCoreKeyHexToBase64("", out, sizeof(out)));
+    TEST_ASSERT_FALSE(meshtastic::meshCoreKeyHexToBase64("8b3387e9c5cdea6ac9e5edbaa115cd72", out, 24)); // no room
 }
 
 void test_encode_matches_meshcore_vector(void)
@@ -1846,6 +1866,7 @@ void setup()
     UNITY_BEGIN();
     RUN_TEST(test_channel_hashes);
     RUN_TEST(test_meshcore_channel_key_derivation);
+    RUN_TEST(test_meshcore_key_hex_converts_to_base64);
     RUN_TEST(test_encode_matches_meshcore_vector);
     RUN_TEST(test_frame_uses_two_byte_path_hashes);
     RUN_TEST(test_hop_fields_report_the_path_length);

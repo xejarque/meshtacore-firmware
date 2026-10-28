@@ -13,12 +13,185 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "modules/NexusMeshCoreKey.h"
+
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 #include "mesh/MeshCoreCompanion.h"
 #endif
 
+// Nexus's base64 encoder (NexusCommands.cpp), shared so a key reads the same as every other /nexus export.
+void nexus_base64_encode(char *out, const uint8_t *in, size_t in_len, bool url_safe);
+
 namespace meshtastic
 {
+
+static bool isHexDigit(char c)
+{
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
+bool parseHexPsk(unsigned char *buffer, size_t maxLen, size_t *outLen, const char *input)
+{
+    if (!input || !*input)
+        return false;
+    const char *hex = input;
+    if (strncasecmp(hex, "0x", 2) == 0)
+        hex += 2;
+    size_t slen = strlen(hex);
+    if ((slen != 32 && slen != 64) || (slen / 2 > maxLen))
+        return false;
+    for (size_t i = 0; i < slen; i++) {
+        if (!isHexDigit(hex[i]))
+            return false;
+    }
+    auto nib = [](char c) -> uint8_t { return (c >= 'a') ? (c - 'a' + 10) : ((c >= 'A') ? (c - 'A' + 10) : (c - '0')); };
+    for (size_t i = 0; i < slen; i += 2)
+        buffer[i / 2] = (nib(hex[i]) << 4) | nib(hex[i + 1]);
+    if (outLen)
+        *outLen = slen / 2;
+    return true;
+}
+
+bool meshCoreKeyHexToBase64(const char *hex, char *out, size_t outLen)
+{
+    static constexpr size_t KEY_LEN = 16;
+    if (!hex || !out || outLen < 4 * ((KEY_LEN + 2) / 3) + 1)
+        return false;
+    while (*hex == ' ')
+        hex++;
+    if (strncasecmp(hex, "0x", 2) == 0)
+        hex += 2;
+
+    char digits[2 * KEY_LEN + 1];
+    size_t n = 0;
+    for (; *hex; hex++) {
+        if (*hex == ' ' || *hex == '-' || *hex == ':')
+            continue;
+        if (!isHexDigit(*hex) || n == 2 * KEY_LEN)
+            return false;
+        digits[n++] = *hex;
+    }
+    digits[n] = '\0';
+
+    uint8_t key[KEY_LEN];
+    size_t keyLen = 0;
+    if (n != 2 * KEY_LEN || !parseHexPsk(key, sizeof(key), &keyLen, digits))
+        return false;
+    nexus_base64_encode(out, key, keyLen, false);
+    return true;
+}
+
+// How long ago a neighbour was heard, in its largest unit: "5s", "12m", "3h", "2d".
+static void formatAgo(uint32_t secs, char *out, size_t len)
+{
+    if (secs < 60)
+        snprintf(out, len, "%us", (unsigned)secs);
+    else if (secs < 3600)
+        snprintf(out, len, "%um", (unsigned)(secs / 60));
+    else if (secs < 86400)
+        snprintf(out, len, "%uh", (unsigned)(secs / 3600));
+    else
+        snprintf(out, len, "%ud", (unsigned)(secs / 86400));
+}
+
+// A neighbour list that fits one reply: entries go in while they fit, and the first one that does not closes it with
+// "...".
+class NeighborList
+{
+  public:
+    NeighborList(char *reply, size_t cap, const char *header) : reply(reply), cap(cap), now(getTime(false))
+    {
+        const int n = snprintf(reply, cap, "%s", header);
+        len = n > 0 && (size_t)n < cap ? (size_t)n : 0;
+    }
+
+    void add(const char *name, float snr, uint32_t lastHeard)
+    {
+        if (full)
+            return;
+        char ago[8];
+        formatAgo(now > lastHeard ? now - lastHeard : 0, ago, sizeof(ago));
+        char item[32];
+        const int n = snprintf(item, sizeof(item), "%.4s(%.1fdB,%s) ", name[0] ? name : "???", snr, ago);
+        if (n > 0 && len + (size_t)n < cap) {
+            memcpy(reply + len, item, (size_t)n + 1);
+            len += (size_t)n;
+            return;
+        }
+        full = true;
+        if (len + 3 < cap) {
+            memcpy(reply + len, "...", 4);
+            len += 3;
+        }
+    }
+
+    void finish()
+    {
+        if (len > 0 && reply[len - 1] == ' ')
+            reply[--len] = '\0';
+    }
+
+  private:
+    char *reply;
+    size_t cap;
+    size_t len = 0;
+    const uint32_t now;
+    bool full = false;
+};
+
+static bool isDirectNeighbor(const meshtastic_NodeInfoLite *n, uint32_t myNum)
+{
+    return n && n->num != 0 && n->num != myNum && n->has_hops_away && n->hops_away == 0 && n->last_heard != 0;
+}
+
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+static bool isDirectNeighbor(const MeshCoreNode &n)
+{
+    return n.lastMod != 0 && n.hops == 0 && n.lastHeard != 0;
+}
+
+// A MeshCore neighbour the node DB does not list, so the merged list names it once.
+static bool isMeshCoreOnlyNeighbor(const MeshCoreNode &n)
+{
+    return isDirectNeighbor(n) && !(nodeDB && nodeDB->getMeshNode(n.nodeNum));
+}
+#endif
+
+void NexusModule::formatNeighbors(char *reply, size_t replyLen)
+{
+    const uint32_t myNum = myNodeInfo.my_node_num != 0 ? myNodeInfo.my_node_num : (nodeDB ? nodeDB->getNodeNum() : 0);
+    const size_t nodeCount = nodeDB ? nodeDB->getNumMeshNodes() : 0;
+    size_t count = 0;
+    for (size_t i = 0; i < nodeCount; i++)
+        if (isDirectNeighbor(nodeDB->getMeshNodeByIndex(i), myNum))
+            count++;
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    meshCoreCompanion.nodes.forEach([&count](const MeshCoreNode &n) {
+        if (isMeshCoreOnlyNeighbor(n))
+            count++;
+    });
+#endif
+    if (count == 0) {
+        snprintf(reply, replyLen, "JT VECINOS: 0 directos");
+        return;
+    }
+
+    char header[24];
+    snprintf(header, sizeof(header), "JT VECINOS (%u): ", (unsigned)count);
+    NeighborList list(reply, replyLen, header);
+    for (size_t i = 0; i < nodeCount; i++) {
+        const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
+        if (isDirectNeighbor(n, myNum))
+            list.add(n->short_name[0] ? n->short_name : n->long_name, n->snr, n->last_heard);
+    }
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    meshCoreCompanion.nodes.forEach([&list](const MeshCoreNode &n) {
+        if (isMeshCoreOnlyNeighbor(n))
+            list.add(n.name, n.snr, n.lastHeard);
+    });
+#endif
+    list.finish();
+}
 
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
 
@@ -152,46 +325,34 @@ static void formatMeshCoreNeighbors(char *reply, size_t replyLen)
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
     size_t count = 0;
     meshCoreCompanion.nodes.forEach([&count](const MeshCoreNode &n) {
-        if (n.lastMod != 0 && n.hops == 0 && n.lastHeard != 0)
+        if (isDirectNeighbor(n))
             count++;
     });
     if (count == 0) {
         snprintf(reply, replyLen, "JT MESHCORE: 0 vecinos directos");
         return;
     }
-    size_t len = snprintf(reply, replyLen, "JT MESHCORE (%u vecinos): ", (unsigned)count);
-    const uint32_t now = getTime(false);
-    meshCoreCompanion.nodes.forEach([&](const MeshCoreNode &n) {
-        if (n.lastMod != 0 && n.hops == 0 && n.lastHeard != 0) {
-            const uint32_t ago = (now > n.lastHeard) ? (now - n.lastHeard) : 0;
-            char agoStr[8];
-            if (ago < 60)
-                snprintf(agoStr, sizeof(agoStr), "%us", (unsigned)ago);
-            else if (ago < 3600)
-                snprintf(agoStr, sizeof(agoStr), "%um", (unsigned)(ago / 60));
-            else if (ago < 86400)
-                snprintf(agoStr, sizeof(agoStr), "%uh", (unsigned)(ago / 3600));
-            else
-                snprintf(agoStr, sizeof(agoStr), "%ud", (unsigned)(ago / 86400));
-
-            const char *name = (n.name[0] != '\0') ? n.name : "???";
-            char item[32];
-            const int itemLen = snprintf(item, sizeof(item), "%.4s(%.1fdB,%s) ", name, n.snr, agoStr);
-            if (len + itemLen < replyLen - 1) {
-                memcpy(reply + len, item, itemLen);
-                len += itemLen;
-                reply[len] = '\0';
-            } else if (len + 4 < replyLen && (len < 3 || strcmp(reply + len - 3, "...") != 0)) {
-                strcpy(reply + len, "...");
-                len += 3;
-            }
-        }
+    char header[32];
+    snprintf(header, sizeof(header), "JT MESHCORE (%u vecinos): ", (unsigned)count);
+    NeighborList list(reply, replyLen, header);
+    meshCoreCompanion.nodes.forEach([&list](const MeshCoreNode &n) {
+        if (isDirectNeighbor(n))
+            list.add(n.name, n.snr, n.lastHeard);
     });
-    if (len > 0 && reply[len - 1] == ' ')
-        reply[len - 1] = '\0';
+    list.finish();
 #else
     snprintf(reply, replyLen, "JT MESHCORE: companion off");
 #endif
+}
+
+static void formatKey(const char *hex, char *reply, size_t replyLen)
+{
+    char base64[25];
+    if (meshCoreKeyHexToBase64(hex, base64, sizeof(base64)))
+        snprintf(reply, replyLen, "JT MESHCORE KEY: %s (pega esto como clave del canal MC:<nombre> en la app Meshtastic)",
+                 base64);
+    else
+        snprintf(reply, replyLen, "JT MESHCORE KEY: pon los 32 digitos hex que MeshCore muestra como clave del canal");
 }
 
 void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t replyLen)
@@ -206,7 +367,9 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
     const bool signatureRequired = securityRequiresSignature();
 
     if (word[0] == '\0' || strcasecmp(word, "HELP") == 0) {
-        snprintf(reply, replyLen, "JT MESHCORE: INFO, STATS, RELAY [ON|OFF|AUTO], ADVERT [1-168|NOW], VECINOS, RESET. SAVE keeps them.");
+        snprintf(
+            reply, replyLen,
+            "JT MESHCORE: INFO, STATS, RELAY [ON|OFF|AUTO], ADVERT [1-168|NOW], VECINOS, KEY <hex>, RESET. SAVE keeps them.");
     } else if (strcasecmp(word, "INFO") == 0) {
         formatInfo(*radio, reply, replyLen);
     } else if (strcasecmp(word, "STATS") == 0) {
@@ -217,6 +380,8 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
         setAdvert(*radio, rest, signatureRequired, reply, replyLen);
     } else if (strcasecmp(word, "VECINOS") == 0 || strcasecmp(word, "NEIGHBOURS") == 0 || strcasecmp(word, "NEIGHBORS") == 0) {
         formatMeshCoreNeighbors(reply, replyLen);
+    } else if (strcasecmp(word, "KEY") == 0) {
+        formatKey(rest, reply, replyLen);
     } else if (strcasecmp(word, "RESET") == 0) {
         radio->setMeshCoreRelayMode(MeshCoreConfig::RELAY_AUTO);
         radio->setMeshCoreAdvertHours(0);

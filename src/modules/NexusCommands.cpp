@@ -46,9 +46,7 @@
 #if defined(ARCH_ESP32) && !MESHTASTIC_EXCLUDE_WIFI
 #include "MeshtasticOTA.h"
 #endif
-#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
-#include "mesh/MeshCoreCompanion.h"
-#endif
+#include "modules/NexusMeshCoreKey.h"
 #include "Router.h"
 #include "airtime.h"
 #include "configuration.h"
@@ -368,7 +366,7 @@ static const char* getGnssModelName(int model) {
 // Base64 encoder for /nexus export paths (masks, keys, streams).
 // Uses a local `table` for url_safe vs standard alphabet — does NOT depend
 // on a file-scope b64_table.
-static void nexus_base64_encode(char *out, const uint8_t *in, size_t in_len, bool url_safe = false) {
+void nexus_base64_encode(char *out, const uint8_t *in, size_t in_len, bool url_safe = false) {
     const char *table = url_safe ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" :
                                    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     size_t j = 0;
@@ -449,31 +447,6 @@ static void sendNexusStatusMessage(const char *text, uint8_t channel = 0)
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
     p->channel = channel;
     service->sendToMesh(p);
-}
-
-static bool parseHexPsk(unsigned char *buffer, size_t maxLen, size_t *outLen, const char *input)
-{
-    if (!input || !*input)
-        return false;
-    const char *hex = input;
-    if (strncasecmp(hex, "0x", 2) == 0)
-        hex += 2;
-    size_t slen = strlen(hex);
-    if ((slen != 32 && slen != 64) || (slen / 2 > maxLen))
-        return false;
-    for (size_t i = 0; i < slen; i++) {
-        char c = hex[i];
-        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
-            return false;
-    }
-    auto nib = [](char c) -> uint8_t {
-        return (c >= 'a') ? (c - 'a' + 10) : ((c >= 'A') ? (c - 'A' + 10) : (c - '0'));
-    };
-    for (size_t i = 0; i < slen; i += 2)
-        buffer[i / 2] = (nib(hex[i]) << 4) | nib(hex[i + 1]);
-    if (outLen)
-        *outLen = slen / 2;
-    return true;
 }
 
 // === END FILE-SCOPE HELPERS ===
@@ -2874,90 +2847,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
         snprintf(replyMsg, sizeof(replyMsg), "JT: Paging admins to mesh...");
     }
-    else if (strcasecmp(cmd, "NEIGHBORS") == 0 || strcasecmp(cmd, "NEIGHBOURS") == 0 ||
-             strcasecmp(cmd, "VECINOS") == 0) {
-        const uint32_t myNum = (myNodeInfo.my_node_num != 0) ? myNodeInfo.my_node_num
-                                                              : (nodeDB ? nodeDB->getNodeNum() : 0);
-        size_t count = 0;
-        for (size_t i = 0; i < nodeDB->getNumMeshNodes(); i++) {
-            auto n = nodeDB->getMeshNodeByIndex(i);
-            if (n && n->num != 0 && n->num != myNum && n->has_hops_away && n->hops_away == 0 && n->last_heard != 0)
-                count++;
-        }
-#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
-        meshCoreCompanion.nodes.forEach([&](const MeshCoreNode &mc) {
-            if (mc.lastMod != 0 && mc.hops == 0 && mc.lastHeard != 0) {
-                if (!nodeDB || !nodeDB->getMeshNode(mc.nodeNum))
-                    count++;
-            }
-        });
-#endif
-        if (count == 0) {
-            snprintf(replyMsg, sizeof(replyMsg), "JT VECINOS: 0 directos");
-        } else {
-            size_t len = snprintf(replyMsg, sizeof(replyMsg), "JT VECINOS (%u): ", (unsigned)count);
-            const uint32_t now = getTime(false);
-            for (size_t i = 0; i < nodeDB->getNumMeshNodes(); i++) {
-                auto n = nodeDB->getMeshNodeByIndex(i);
-                if (n && n->num != 0 && n->num != myNum && n->has_hops_away && n->hops_away == 0 && n->last_heard != 0) {
-                    const uint32_t ago = (now > n->last_heard) ? (now - n->last_heard) : 0;
-                    char agoStr[8];
-                    if (ago < 60)
-                        snprintf(agoStr, sizeof(agoStr), "%us", (unsigned)ago);
-                    else if (ago < 3600)
-                        snprintf(agoStr, sizeof(agoStr), "%um", (unsigned)(ago / 60));
-                    else if (ago < 86400)
-                        snprintf(agoStr, sizeof(agoStr), "%uh", (unsigned)(ago / 3600));
-                    else
-                        snprintf(agoStr, sizeof(agoStr), "%ud", (unsigned)(ago / 86400));
-
-                    const char *name = (n->short_name[0] != '\0') ? n->short_name : (n->long_name[0] != '\0' ? n->long_name : "???");
-                    char item[32];
-                    const int itemLen = snprintf(item, sizeof(item), "%s(%.1fdB,%s) ", name, n->snr, agoStr);
-                    if (len + itemLen < sizeof(replyMsg) - 1) {
-                        memcpy(replyMsg + len, item, itemLen);
-                        len += itemLen;
-                        replyMsg[len] = '\0';
-                    } else {
-                        if (len + 4 < sizeof(replyMsg) && (len < 3 || strcmp(replyMsg + len - 3, "...") != 0))
-                            strcpy(replyMsg + len, "...");
-                        break;
-                    }
-                }
-            }
-#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
-            meshCoreCompanion.nodes.forEach([&](const MeshCoreNode &mc) {
-                if (mc.lastMod != 0 && mc.hops == 0 && mc.lastHeard != 0) {
-                    if (nodeDB && nodeDB->getMeshNode(mc.nodeNum))
-                        return; // already emitted from nodeDB
-                    const uint32_t ago = (now > mc.lastHeard) ? (now - mc.lastHeard) : 0;
-                    char agoStr[8];
-                    if (ago < 60)
-                        snprintf(agoStr, sizeof(agoStr), "%us", (unsigned)ago);
-                    else if (ago < 3600)
-                        snprintf(agoStr, sizeof(agoStr), "%um", (unsigned)(ago / 60));
-                    else if (ago < 86400)
-                        snprintf(agoStr, sizeof(agoStr), "%uh", (unsigned)(ago / 3600));
-                    else
-                        snprintf(agoStr, sizeof(agoStr), "%ud", (unsigned)(ago / 86400));
-
-                    const char *name = (mc.name[0] != '\0') ? mc.name : "???";
-                    char item[32];
-                    const int itemLen = snprintf(item, sizeof(item), "%.4s(%.1fdB,%s) ", name, mc.snr, agoStr);
-                    if (len + itemLen < sizeof(replyMsg) - 1) {
-                        memcpy(replyMsg + len, item, itemLen);
-                        len += itemLen;
-                        replyMsg[len] = '\0';
-                    } else if (len + 4 < sizeof(replyMsg) && (len < 3 || strcmp(replyMsg + len - 3, "...") != 0)) {
-                        strcpy(replyMsg + len, "...");
-                        len += 3;
-                    }
-                }
-            });
-#endif
-            if (len > 0 && replyMsg[len - 1] == ' ')
-                replyMsg[len - 1] = '\0';
-        }
+    else if (strcasecmp(cmd, "NEIGHBORS") == 0 || strcasecmp(cmd, "NEIGHBOURS") == 0 || strcasecmp(cmd, "VECINOS") == 0 ||
+             strcasecmp(cmd, "DIRECT") == 0) {
+        formatNeighbors(replyMsg, sizeof(replyMsg));
     }
     else if ((strncasecmp(cmd, "NODES", 5) == 0 && (cmd[5] == '\0' || cmd[5] == ' '))
              || strncasecmp(cmd, "FNODE", 5) == 0) {
@@ -7658,7 +7550,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging("SEND: TEXTC, DM, REDIRECT (R), SENDPOS, SENDNODE\n");
             appendPaging("ADMIN: SKEY, DM-FORWARD, SAVE, LOAD, BD, SETCHNAME, SETCHPSK, ADDCH, DELCH, SETROLE, SETPOWER, OKTOMQTT, BELL, PLAY, STARWARS, FULLCONFIGDUMP\n");
             appendPaging("SYSTEM: SYS, HW, TELEMETRY, POS, INFO, COMPILATION, VAULT, STATS, SS, VS, HEAP, NODES, FNODE, GROUP, TIME, UTIL, VECINOS, PHONE, PMGT, SMI, GPIO, WIFIOTA, MCUINFO, SENSORS\n");
-            appendPaging("MESHCORE: MESHCORE [INFO|STATS|RELAY|ADVERT|VECINOS|RESET] (alias MCORE); SAVE keeps the settings\n");
+            appendPaging("MESHCORE: MESHCORE [INFO|STATS|RELAY|ADVERT|VECINOS|KEY <hex>|RESET] (alias MCORE); SAVE keeps the settings; ADDCH/SETCHPSK take the MeshCore hex key\n");
             appendPaging("TARGETS: FAV, UNFAV, IGNORE, UNIGNORE, NIGN\n");
             appendPaging("STORAGE: LS, RM, CAT, FS\n");
             appendPaging("Try: HELP <topic> (e.g. HELP DROP)");
