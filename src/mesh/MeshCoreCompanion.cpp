@@ -12,6 +12,7 @@
 #include "RadioInterface.h"
 #include "Router.h"
 #include "Throttle.h"
+#include "UptimeClock.h"
 #include "gps/RTC.h"
 #include "mesh-pb-constants.h"
 #include "meshUtils.h"
@@ -990,6 +991,323 @@ bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool d
     LOG_INFO("MeshCore path command answered locally (direct=%d, routes=%u)", direct, (unsigned)routeCount);
     return true;
 }
+
+static const MeshCoreNode *findNodeForTrace(const MeshCoreNodeStore<MESHCORE_NODES_MAX> &nodes, const char *name)
+{
+    if (!name || !name[0])
+        return nullptr;
+    const MeshCoreNode *match = nullptr;
+    nodes.forEach([&](const MeshCoreNode &n) {
+        if (!n.lastMod || match)
+            return;
+        if (strcasecmp(n.name, name) == 0) {
+            match = &n;
+            return;
+        }
+        char clean[MeshCoreNode::NAME_LEN];
+        cleanPathLabel(n.name, clean, sizeof(clean), sizeof(clean) - 1);
+        stripMeshCoreSuffix(clean);
+        if (strcasecmp(clean, name) == 0) {
+            match = &n;
+        }
+    });
+    if (match)
+        return match;
+
+    if (name[0] == '!' || (name[0] >= '0' && name[0] <= '9') || (name[0] >= 'a' && name[0] <= 'f') ||
+        (name[0] >= 'A' && name[0] <= 'F')) {
+        const char *hexStr = (name[0] == '!') ? name + 1 : name;
+        char *endp = nullptr;
+        unsigned long val = strtoul(hexStr, &endp, 16);
+        if (endp && *endp == 0 && val != 0) {
+            if (val > 0xFFFFFF) {
+                match = nodes.findByNodeNum((uint32_t)val);
+                if (match)
+                    return match;
+            }
+            if (strlen(hexStr) == 2) {
+                const uint8_t hByte = (uint8_t)val;
+                nodes.forEach([&](const MeshCoreNode &n) {
+                    if (n.lastMod && n.pub[0] == hByte && !match)
+                        match = &n;
+                });
+                if (match)
+                    return match;
+            }
+        }
+    }
+
+    if (nodeDB) {
+        for (size_t i = 0; i < nodeDB->getNumMeshNodes(); i++) {
+            const meshtastic_NodeInfoLite *lite = nodeDB->getMeshNodeByIndex(i);
+            if (!lite || (lite->num >> 24) != 0x4D)
+                continue;
+            char clean[48];
+            cleanPathLabel(lite->long_name, clean, sizeof(clean), sizeof(clean) - 1);
+            stripMeshCoreSuffix(clean);
+            if (strcasecmp(clean, name) == 0 || strcasecmp(lite->short_name, name) == 0) {
+                match = nodes.findByNodeNum(lite->num);
+                if (match)
+                    return match;
+            }
+        }
+    }
+    return match;
+}
+
+bool MeshCoreCompanion::handleTraceCommand(const meshtastic_MeshPacket *p, bool direct)
+{
+    if (!p || p->which_payload_variant != meshtastic_MeshPacket_decoded_tag ||
+        p->decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP)
+        return false;
+    if (!direct && !channels.isMeshCoreChannel((ChannelIndex)p->channel))
+        return false;
+
+    char text[sizeof(p->decoded.payload.bytes) + 1];
+    const size_t len =
+        p->decoded.payload.size < sizeof(p->decoded.payload.bytes) ? p->decoded.payload.size : sizeof(p->decoded.payload.bytes);
+    memcpy(text, p->decoded.payload.bytes, len);
+    text[len] = 0;
+    trimInPlace(text);
+
+    if (strncasecmp(text, "..trace", 7) != 0)
+        return false;
+    if (text[7] != 0 && text[7] != ' ' && text[7] != '\t')
+        return false;
+
+    reportDelivery(direct ? p->to : PSEUDO_NODE_NUM, p->id, meshtastic_Routing_Error_NONE);
+    const MeshCoreNode *c = direct ? contactByNodeNum(p->to) : nullptr;
+    if (direct) {
+        if (!c)
+            return true;
+        ensureSenderNode(c->nodeNum, c->name, true, c->pub, meshtastic_Config_DeviceConfig_Role_CLIENT);
+    } else {
+        ensurePseudoNode();
+    }
+
+    const uint32_t fromNum = c ? c->nodeNum : PSEUDO_NODE_NUM;
+    const uint32_t to = direct ? nodeDB->getNodeNum() : NODENUM_BROADCAST;
+    const uint8_t channel = direct ? 0 : p->channel;
+    const uint32_t replyId = p->id;
+
+    const char *pStr = text + 7;
+    bool symmetric = false;
+    char targetNames[ActiveTrace::MAX_TRACE_HOPS][MeshCoreNode::NAME_LEN] = {};
+    const MeshCoreNode *targets[ActiveTrace::MAX_TRACE_HOPS] = {};
+    size_t targetCount = 0;
+
+    while (*pStr) {
+        while (*pStr == ' ' || *pStr == '\t')
+            pStr++;
+        if (!*pStr)
+            break;
+
+        if (strncmp(pStr, "...", 3) == 0) {
+            symmetric = true;
+            pStr += 3;
+            continue;
+        }
+        if ((uint8_t)pStr[0] == 0xE2 && (uint8_t)pStr[1] == 0x80 && (uint8_t)pStr[2] == 0xA6) {
+            symmetric = true;
+            pStr += 3;
+            continue;
+        }
+
+        char name[MeshCoreNode::NAME_LEN] = {};
+        size_t nlen = 0;
+        if (*pStr == '@') {
+            pStr++;
+            if (*pStr == '[') {
+                pStr++;
+                while (*pStr && *pStr != ']' && nlen < sizeof(name) - 1)
+                    name[nlen++] = *pStr++;
+                if (*pStr == ']')
+                    pStr++;
+            } else {
+                while (*pStr && *pStr != ' ' && *pStr != '\t' && nlen < sizeof(name) - 1) {
+                    if (strncmp(pStr, "...", 3) == 0) {
+                        symmetric = true;
+                        pStr += 3;
+                        break;
+                    }
+                    name[nlen++] = *pStr++;
+                }
+            }
+        } else {
+            while (*pStr && *pStr != ' ' && *pStr != '\t' && nlen < sizeof(name) - 1) {
+                if (strncmp(pStr, "...", 3) == 0) {
+                    symmetric = true;
+                    pStr += 3;
+                    break;
+                }
+                name[nlen++] = *pStr++;
+            }
+        }
+
+        trimInPlace(name);
+        if (name[0] != 0) {
+            size_t l = strlen(name);
+            if (l >= 3 && strcmp(&name[l - 3], "...") == 0) {
+                symmetric = true;
+                name[l - 3] = 0;
+                trimInPlace(name);
+            }
+            if (name[0] != 0 && targetCount < (ActiveTrace::MAX_TRACE_HOPS / 2)) {
+                strncpy(targetNames[targetCount++], name, sizeof(targetNames[0]) - 1);
+            }
+        }
+    }
+
+    if (targetCount == 0) {
+        char help[128];
+        snprintf(help, sizeof(help), "🛰️ *Uso*: ..trace @nodo1 @nodo2 ... (termina en ... para vuelta simétrica)");
+        injectText(fromNum, to, channel, help, replyId, direct, c, 0, 0, 0);
+        return true;
+    }
+
+    for (size_t i = 0; i < targetCount; i++) {
+        targets[i] = findNodeForTrace(nodes, targetNames[i]);
+        if (!targets[i]) {
+            char err[128];
+            snprintf(err, sizeof(err), "🛰️ *Nodo no encontrado*: @%s", targetNames[i]);
+            injectText(fromNum, to, channel, err, replyId, direct, c, 0, 0, 0);
+            return true;
+        }
+    }
+
+    uint8_t hopHashes[ActiveTrace::MAX_TRACE_HOPS];
+    char hopLabels[ActiveTrace::MAX_TRACE_HOPS][MeshCoreNode::NAME_LEN];
+    size_t totalHops = 0;
+
+    for (size_t i = 0; i < targetCount; i++) {
+        hopHashes[totalHops] = targets[i]->pub[0];
+        cleanPathLabel(targets[i]->name, hopLabels[totalHops], sizeof(hopLabels[0]), sizeof(hopLabels[0]) - 1);
+        stripMeshCoreSuffix(hopLabels[totalHops]);
+        totalHops++;
+    }
+
+    if (symmetric) {
+        if (targetCount > 1) {
+            for (size_t i = targetCount - 1; i > 0; i--) {
+                hopHashes[totalHops] = targets[i - 1]->pub[0];
+                cleanPathLabel(targets[i - 1]->name, hopLabels[totalHops], sizeof(hopLabels[0]), sizeof(hopLabels[0]) - 1);
+                stripMeshCoreSuffix(hopLabels[totalHops]);
+                totalHops++;
+            }
+        }
+        const uint8_t ourHash = aliasReady ? aliasPub[0] : identityPub[0];
+        hopHashes[totalHops] = ourHash;
+        strncpy(hopLabels[totalHops], "Nosotros", sizeof(hopLabels[0]) - 1);
+        totalHops++;
+    }
+
+    const uint32_t tag = generatePacketId();
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    size_t flen = 0;
+    frame[flen++] = (0x09 << 2) | 0x02; // MC_PAYLOAD_TYPE_TRACE << 2 | ROUTE_TYPE_DIRECT
+    frame[flen++] = 0;
+    memcpy(&frame[flen], &tag, 4);
+    flen += 4;
+    const uint32_t auth_code = 0;
+    memcpy(&frame[flen], &auth_code, 4);
+    flen += 4;
+    frame[flen++] = 0; // flags = 0 (1-byte hash size)
+    for (size_t i = 0; i < totalHops; i++)
+        frame[flen++] = hopHashes[i];
+
+    RadioInterface *iface = router ? router->getRadioIface() : nullptr;
+    if (!iface || !iface->queueMeshCoreFrame(frame, flen)) {
+        char err[128];
+        snprintf(err, sizeof(err), "🛰️ *Error*: Radio no disponible o transmisión no permitida.");
+        injectText(fromNum, to, channel, err, replyId, direct, c, 0, 0, 0);
+        return true;
+    }
+
+    activeTrace.active = true;
+    activeTrace.symmetric = symmetric;
+    activeTrace.tag = tag;
+    activeTrace.startMs = Time::getMillis();
+    uint32_t timeoutMs = 6000 + (totalHops * 3500);
+    if (timeoutMs > 30000)
+        timeoutMs = 30000;
+    activeTrace.deadlineMs = activeTrace.startMs + timeoutMs;
+    activeTrace.replyId = replyId;
+    activeTrace.fromNum = fromNum;
+    activeTrace.to = to;
+    activeTrace.channel = channel;
+    activeTrace.direct = direct;
+    activeTrace.totalHops = (uint8_t)totalHops;
+    for (size_t i = 0; i < totalHops; i++) {
+        activeTrace.hopHashes[i] = hopHashes[i];
+        strncpy(activeTrace.hopNames[i], hopLabels[i], sizeof(activeTrace.hopNames[0]) - 1);
+    }
+
+    char startMsg[128];
+    if (symmetric)
+        snprintf(startMsg, sizeof(startMsg), "🛰️ *Iniciando trace* (%u saltos con vuelta)...", (unsigned)totalHops);
+    else
+        snprintf(startMsg, sizeof(startMsg), "🛰️ *Iniciando trace* (%u saltos, solo ida)...", (unsigned)totalHops);
+    injectText(fromNum, to, channel, startMsg, replyId, direct, c, 0, 0, 0);
+    return true;
+}
+
+void MeshCoreCompanion::handleTraceFrame(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr,
+                                         int32_t rssi)
+{
+    if (!activeTrace.active || info.payload_len < 9)
+        return;
+    const uint8_t *payload = &raw[info.header_len];
+    uint32_t tag = 0;
+    memcpy(&tag, payload, 4);
+    if (tag != activeTrace.tag)
+        return;
+
+    const size_t pathBytes = (size_t)info.path_hash_count * info.path_hash_size;
+    const uint8_t *pathSnrs = &raw[info.header_len - pathBytes];
+
+    const bool isFinalHop = (activeTrace.symmetric && info.path_hash_count >= activeTrace.totalHops - 1) ||
+                            (!activeTrace.symmetric && info.path_hash_count >= activeTrace.totalHops);
+
+    if (isFinalHop) {
+        char report[512];
+        size_t rlen = 0;
+        int n = snprintf(report, sizeof(report), "🛰️ *Trace completado* (%u saltos):\n", (unsigned)activeTrace.totalHops);
+        if (n > 0)
+            rlen += (size_t)n;
+
+        for (size_t h = 0; h < activeTrace.totalHops && rlen + 64 < sizeof(report); h++) {
+            const char *fromName = (h == 0) ? "Nosotros" : activeTrace.hopNames[h - 1];
+            const char *toName = activeTrace.hopNames[h];
+            float hopSnr = 0.0f;
+            if (h < (size_t)info.path_hash_count)
+                hopSnr = ((float)(int8_t)pathSnrs[h]) / 4.0f;
+            else
+                hopSnr = snr;
+            n = snprintf(report + rlen, sizeof(report) - rlen, "• %s › %s: SNR %.1f dB\n", fromName, toName, (double)hopSnr);
+            if (n > 0)
+                rlen += (size_t)n;
+        }
+
+        sanitizeUtf8(report, sizeof(report));
+        const MeshCoreNode *c = activeTrace.direct ? contactByNodeNum(activeTrace.to) : nullptr;
+        injectText(activeTrace.fromNum, activeTrace.to, activeTrace.channel, report, activeTrace.replyId, activeTrace.direct, c,
+                   activeTrace.totalHops, snr, rssi);
+        activeTrace.active = false;
+    }
+}
+
+void MeshCoreCompanion::checkTraceTimeout()
+{
+    if (activeTrace.active && Throttle::deadlinePassed(activeTrace.deadlineMs)) {
+        activeTrace.active = false;
+        char msg[128];
+        snprintf(msg, sizeof(msg), "🛰️ *Trace timeout*: No se recibió respuesta tras %u s.",
+                 (unsigned)((Time::getMillis() - activeTrace.startMs) / 1000));
+        const MeshCoreNode *c = activeTrace.direct ? contactByNodeNum(activeTrace.to) : nullptr;
+        injectText(activeTrace.fromNum, activeTrace.to, activeTrace.channel, msg, activeTrace.replyId, activeTrace.direct, c, 0,
+                   0, 0);
+    }
+}
 #endif
 
 void MeshCoreCompanion::noteRecentText(uint32_t packetId, const char *sender)
@@ -1178,6 +1496,11 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
         break;
     case 0x08: // PATH: how MeshCore answers a flood, with the ACK inside
         handlePathAck(raw, len, info);
+        break;
+    case 0x09: // TRACE
+#if MESHTASTIC_MESHCORE_PATH_COMMAND
+        handleTraceFrame(raw, len, info, snr, rssi);
+#endif
         break;
     default:
         break;
@@ -1773,6 +2096,9 @@ void MeshCoreCompanion::handleAck(const uint8_t *raw, size_t len, const MeshCore
 
 void MeshCoreCompanion::service()
 {
+#if MESHTASTIC_MESHCORE_PATH_COMMAND
+    checkTraceTimeout();
+#endif
     for (auto &e : pending) {
         if (e.used && !Throttle::isWithinTimespanMs(e.sentMs, ACK_TIMEOUT_MS)) {
             e.used = false;

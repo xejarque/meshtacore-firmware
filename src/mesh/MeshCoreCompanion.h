@@ -156,6 +156,30 @@ class MeshCoreCompanion
     /// direct = a text for a MeshCore contact (TXT_MSG), false = a broadcast on a MeshCore channel (GRP_TXT).
     bool handlePathCommand(const meshtastic_MeshPacket *p, bool direct);
 
+    /// Answer a local "..trace" the client sent: true when it was answered here and must not be transmitted as chat.
+    bool handleTraceCommand(const meshtastic_MeshPacket *p, bool direct);
+
+    struct ActiveTrace {
+        static constexpr size_t MAX_TRACE_HOPS = 16;
+        bool active = false;
+        bool symmetric = false;
+        uint32_t tag = 0;
+        uint32_t startMs = 0;
+        uint32_t deadlineMs = 0;
+        uint32_t replyId = 0;
+        uint32_t fromNum = 0;
+        uint32_t to = 0;
+        uint8_t channel = 0;
+        bool direct = false;
+        uint8_t totalHops = 0;
+        uint8_t hopHashes[MAX_TRACE_HOPS] = {};
+        char hopNames[MAX_TRACE_HOPS][MeshCoreNode::NAME_LEN] = {};
+    };
+    ActiveTrace activeTrace;
+
+    void handleTraceFrame(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi);
+    void checkTraceTimeout();
+
     /// Receives one client-sized piece of the report. Nothing is ever truncated: a report longer than one message is
     /// split into as many pieces as it needs.
     using ReportSink = void (*)(void *ctx, const char *text, size_t len);

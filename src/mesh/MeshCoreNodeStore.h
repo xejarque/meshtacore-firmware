@@ -219,6 +219,13 @@ template <size_t N> class MeshCoreNodeStore
                 fn(e);
     }
 
+    template <typename F> void forEach(F fn) const
+    {
+        for (const auto &e : entries)
+            if (e.lastMod)
+                fn(e);
+    }
+
   private:
     MeshCoreNode entries[N];
 

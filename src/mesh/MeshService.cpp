@@ -17,9 +17,9 @@
 #include "gps/RTC.h"
 #include "graphics/draw/MessageRenderer.h"
 #include "main.h"
-#include "modules/NexusModule.h"
 #include "mesh-pb-constants.h"
 #include "meshUtils.h"
+#include "modules/NexusModule.h"
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 #include "MeshCoreCompanion.h"
 #endif
@@ -413,12 +413,18 @@ ErrorCode MeshService::sendQueueStatusToPhone(const meshtastic_QueueStatus &qs, 
 /// other node through the Meshtastic command. Both answer only a reply, so a plain ".path" is sent as an ordinary text.
 static bool answerPathCommand(const meshtastic_MeshPacket *p)
 {
-    if (p->which_payload_variant != meshtastic_MeshPacket_decoded_tag || p->decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP)
+    if (p->which_payload_variant != meshtastic_MeshPacket_decoded_tag ||
+        p->decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP)
         return false;
     const bool direct = !isBroadcast(p->to);
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
-    if (direct ? meshCoreCompanion.hasContact(p->to) : channels.isMeshCoreChannel((ChannelIndex)p->channel))
-        return meshCoreCompanion.handlePathCommand(p, direct);
+    if (direct ? meshCoreCompanion.hasContact(p->to) : channels.isMeshCoreChannel((ChannelIndex)p->channel)) {
+        if (meshCoreCompanion.handlePathCommand(p, direct))
+            return true;
+        if (meshCoreCompanion.handleTraceCommand(p, direct))
+            return true;
+        return false;
+    }
 #endif
     return meshtasticPathCommand.handleCommand(p);
 }

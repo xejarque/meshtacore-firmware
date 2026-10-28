@@ -791,8 +791,15 @@ class CaptureRouter : public Router
   public:
     ~CaptureRouter()
     {
+        iface.release();
         delete cryptLock;
         cryptLock = nullptr;
+    }
+
+    void setRadio(RadioInterface *r)
+    {
+        iface.release();
+        iface.reset(r);
     }
 
     void enqueueReceivedMessage(meshtastic_MeshPacket *p) override
@@ -935,10 +942,12 @@ struct GroupSetup {
     Router *previousRouter = router;
     meshtastic_Channel previousChannel = {};
     CaptureRouter capture;
+    CaptureRadio radio;
     MeshCoreCompanion c;
 
     GroupSetup()
     {
+        capture.setRadio(&radio);
         previousChannel = channels.getByIndex(0);
         nodeDB = new NodeDB();
         router = &capture;
@@ -953,6 +962,7 @@ struct GroupSetup {
 
     ~GroupSetup()
     {
+        capture.setRadio(nullptr);
         channels.getByIndex(0) = previousChannel;
         delete nodeDB;
         nodeDB = previousNodeDB;
@@ -1641,6 +1651,139 @@ void test_own_alias_advert_is_not_learned_as_a_contact()
     TEST_ASSERT_NULL(s.c.nodes.find(s.repeater.getAliasPub()));
 }
 
+void test_trace_command_syntax_help(void)
+{
+    GroupSetup s;
+    meshtastic_MeshPacket command = textPacket(0, 0x1234, "..trace");
+    TEST_ASSERT_TRUE(s.c.handleTraceCommand(&command, false));
+    TEST_ASSERT_FALSE(s.capture.received.empty());
+    char body[256];
+    reportText(s.capture.received.back(), body, sizeof(body));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Uso"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "..trace @nodo1"));
+}
+
+void test_trace_command_unknown_node_reports_error(void)
+{
+    GroupSetup s;
+    meshtastic_MeshPacket command = textPacket(0, 0x1234, "..trace @NoExiste");
+    TEST_ASSERT_TRUE(s.c.handleTraceCommand(&command, false));
+    TEST_ASSERT_FALSE(s.capture.received.empty());
+    char body[256];
+    reportText(s.capture.received.back(), body, sizeof(body));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Nodo no encontrado"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "NoExiste"));
+}
+
+void test_trace_command_parses_nodes_and_symmetric_return(void)
+{
+    GroupSetup s;
+    uint8_t pubA[32] = {0xAA};
+    uint8_t pubB[32] = {0xBB};
+    uint8_t selfPub[32] = {0x11};
+    s.c.setIdentity(pubA, selfPub);
+    s.c.learnContact(pubA, "Alpha");
+    s.c.learnContact(pubB, "Bravo");
+
+    meshtastic_MeshPacket command = textPacket(0, 0x1234, "..trace @Alpha @Bravo ...");
+    TEST_ASSERT_TRUE(s.c.handleTraceCommand(&command, false));
+    TEST_ASSERT_TRUE(s.c.activeTrace.active);
+    TEST_ASSERT_TRUE(s.c.activeTrace.symmetric);
+    TEST_ASSERT_EQUAL_UINT8(4, s.c.activeTrace.totalHops);
+    TEST_ASSERT_EQUAL_HEX8(0xAA, s.c.activeTrace.hopHashes[0]);
+    TEST_ASSERT_EQUAL_HEX8(0xBB, s.c.activeTrace.hopHashes[1]);
+    TEST_ASSERT_EQUAL_HEX8(0xAA, s.c.activeTrace.hopHashes[2]);
+    TEST_ASSERT_EQUAL_HEX8(0x11, s.c.activeTrace.hopHashes[3]);
+
+    TEST_ASSERT_GREATER_THAN(0, s.radio.frameLen);
+    TEST_ASSERT_EQUAL_HEX8((0x09 << 2) | 0x02, s.radio.frame[0]);
+    TEST_ASSERT_EQUAL_HEX8(0, s.radio.frame[1]);
+}
+
+void test_trace_command_without_symmetric_dots(void)
+{
+    GroupSetup s;
+    uint8_t pubA[32] = {0xAA};
+    uint8_t pubB[32] = {0xBB};
+    uint8_t selfPub[32] = {0x11};
+    s.c.setIdentity(pubA, selfPub);
+    s.c.learnContact(pubA, "Alpha");
+    s.c.learnContact(pubB, "Bravo");
+
+    meshtastic_MeshPacket command = textPacket(0, 0x1234, "..trace @Alpha @Bravo");
+    TEST_ASSERT_TRUE(s.c.handleTraceCommand(&command, false));
+    TEST_ASSERT_TRUE(s.c.activeTrace.active);
+    TEST_ASSERT_FALSE(s.c.activeTrace.symmetric);
+    TEST_ASSERT_EQUAL_UINT8(2, s.c.activeTrace.totalHops);
+    TEST_ASSERT_EQUAL_HEX8(0xAA, s.c.activeTrace.hopHashes[0]);
+    TEST_ASSERT_EQUAL_HEX8(0xBB, s.c.activeTrace.hopHashes[1]);
+}
+
+void test_trace_response_formats_snr_report(void)
+{
+    GroupSetup s;
+    uint8_t pubA[32] = {0xAA};
+    uint8_t pubB[32] = {0xBB};
+    uint8_t selfPub[32] = {0x11};
+    s.c.setIdentity(pubA, selfPub);
+    s.c.learnContact(pubA, "Alpha");
+    s.c.learnContact(pubB, "Bravo");
+
+    meshtastic_MeshPacket command = textPacket(0, 0x1234, "..trace @Alpha @Bravo ...");
+    TEST_ASSERT_TRUE(s.c.handleTraceCommand(&command, false));
+    const uint32_t tag = s.c.activeTrace.tag;
+
+    uint8_t rxFrame[64];
+    size_t i = 0;
+    rxFrame[i++] = (0x09 << 2) | 0x02;
+    rxFrame[i++] = 3;
+    rxFrame[i++] = (int8_t)(8.5f * 4);
+    rxFrame[i++] = (int8_t)(5.0f * 4);
+    rxFrame[i++] = (int8_t)(-2.0f * 4);
+    memcpy(&rxFrame[i], &tag, 4);
+    i += 4;
+    uint32_t auth = 0;
+    memcpy(&rxFrame[i], &auth, 4);
+    i += 4;
+    rxFrame[i++] = 0;
+    rxFrame[i++] = 0xAA;
+    rxFrame[i++] = 0xBB;
+    rxFrame[i++] = 0xAA;
+    rxFrame[i++] = 0x11;
+
+    s.c.handleFrame(rxFrame, i, 9.25f, -70);
+    TEST_ASSERT_FALSE(s.c.activeTrace.active);
+
+    char body[512];
+    reportText(s.capture.received.back(), body, sizeof(body));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Trace completado"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Nosotros › Alpha: SNR 8.5 dB"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Alpha › Bravo: SNR 5.0 dB"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Bravo › Alpha: SNR -2.0 dB"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Alpha › Nosotros: SNR 9.2 dB"));
+}
+
+void test_trace_timeout_handling(void)
+{
+    GroupSetup s;
+    uint8_t pubA[32] = {0xAA};
+    uint8_t selfPub[32] = {0x11};
+    s.c.setIdentity(pubA, selfPub);
+    s.c.learnContact(pubA, "Alpha");
+
+    meshtastic_MeshPacket command = textPacket(0, 0x1234, "..trace @Alpha ...");
+    TEST_ASSERT_TRUE(s.c.handleTraceCommand(&command, false));
+    TEST_ASSERT_TRUE(s.c.activeTrace.active);
+
+    Time::setTestMillis(s.c.activeTrace.deadlineMs + 100);
+    s.c.service();
+    TEST_ASSERT_FALSE(s.c.activeTrace.active);
+
+    char body[256];
+    reportText(s.capture.received.back(), body, sizeof(body));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Trace timeout"));
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -1712,6 +1855,12 @@ void setup()
     RUN_TEST(test_path_report_ignores_meshtastic_keys);
     RUN_TEST(test_meshcore_copies_in_the_node_db_are_marked);
     RUN_TEST(test_replay_walks_the_nodes_the_node_db_left_out);
+    RUN_TEST(test_trace_command_syntax_help);
+    RUN_TEST(test_trace_command_unknown_node_reports_error);
+    RUN_TEST(test_trace_command_parses_nodes_and_symmetric_return);
+    RUN_TEST(test_trace_command_without_symmetric_dots);
+    RUN_TEST(test_trace_response_formats_snr_report);
+    RUN_TEST(test_trace_timeout_handling);
 #endif
     exit(UNITY_END());
 }
