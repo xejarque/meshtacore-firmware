@@ -263,6 +263,9 @@ class MeshCoreCompanion
     bool hasContact(uint32_t nodeNum) { return contactByNodeNum(nodeNum) != nullptr; }
     /// True when nodeNum is a known CHAT contact and matches the provided 32-byte public key.
     bool isMeshCoreContact(uint32_t nodeNum, const uint8_t pubKey[32]) const;
+    /// True when p is a direct text this companion injected for a contact, carrying that contact's key. The router keeps
+    /// the PKI marking of such a packet only: a contact's key is public, so a match on it alone could be forged.
+    bool injectedDirectText(const meshtastic_MeshPacket &p) const;
 
     /// Learn or refresh a chat contact, numbered from its name the first time and keeping that number afterwards.
     MeshCoreNode *learnContact(const uint8_t pub[32], const char *name);
@@ -411,6 +414,15 @@ class MeshCoreCompanion
     static constexpr size_t RECENT_TEXTS = 32;
     RecentText recent[RECENT_TEXTS];
     size_t recentNext = 0;
+
+    /// The direct texts injected last, by sender and packet id, so the router can tell them from forged ones.
+    struct InjectedDirect {
+        uint32_t from = 0;
+        uint32_t id = 0;
+    };
+    static constexpr size_t INJECTED_DIRECTS = 8;
+    InjectedDirect injectedDirect[INJECTED_DIRECTS];
+    size_t injectedDirectNext = 0;
 
     /// Tell the router, and through it the client, about a node: a NODEINFO packet from it carrying how the frame was heard.
     /// That packet is what puts the node in the node DB with its name, last-heard, signal, hops and the LoRa slot it was

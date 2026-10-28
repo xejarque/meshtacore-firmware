@@ -33,10 +33,8 @@ static MeshCoreCompanion *activeMeshCoreCompanion = &meshCoreCompanion;
 
 static bool meshCoreAuthPredicate(const meshtastic_MeshPacket &p)
 {
-    if (!p.pki_encrypted || p.public_key.size != 32)
-        return false;
     MeshCoreCompanion *c = activeMeshCoreCompanion ? activeMeshCoreCompanion : &meshCoreCompanion;
-    return c->isMeshCoreContact(p.from, p.public_key.bytes);
+    return c->injectedDirectText(p);
 }
 
 MeshCoreCompanion::MeshCoreCompanion()
@@ -1636,6 +1634,16 @@ bool MeshCoreCompanion::isMeshCoreContact(uint32_t nodeNum, const uint8_t pubKey
     return true;
 }
 
+bool MeshCoreCompanion::injectedDirectText(const meshtastic_MeshPacket &p) const
+{
+    if (!p.pki_encrypted || p.public_key.size != 32 || p.id == 0)
+        return false;
+    for (const InjectedDirect &d : injectedDirect)
+        if (d.id == p.id && d.from == p.from)
+            return isMeshCoreContact(p.from, p.public_key.bytes);
+    return false;
+}
+
 MeshCoreNode *MeshCoreCompanion::learnContact(const uint8_t pub[32], const char *name)
 {
     MeshCoreNode *n = nodes.upsert(pub);
@@ -1825,6 +1833,10 @@ uint32_t MeshCoreCompanion::injectText(uint32_t fromNum, uint32_t to, uint8_t ch
         p->pki_encrypted = true;
         p->public_key.size = 32;
         memcpy(p->public_key.bytes, contact->pub, 32);
+        InjectedDirect &d = injectedDirect[injectedDirectNext];
+        injectedDirectNext = (injectedDirectNext + 1) % INJECTED_DIRECTS;
+        d.from = fromNum;
+        d.id = p->id;
     }
     p->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;

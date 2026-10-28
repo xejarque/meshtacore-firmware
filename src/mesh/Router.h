@@ -285,11 +285,12 @@ bool decodesOnOurChannels(NodeNum from, PacketId id, ChannelHash channelHash, co
 
 /** Apply receive authentication before routing state mutation; unknown-channel packets may remain opaque relay-only. */
 RoutingAuthVerdict passesRoutingAuthGate(meshtastic_MeshPacket *p);
-bool applyRoutingAuthCache(meshtastic_MeshPacket *packet);
 
+/** A local producer of already-decoded packets (the MeshCore bridge) vouches for the PKI marking of its own packets. */
 typedef bool (*DecodedAuthPredicate)(const meshtastic_MeshPacket &p);
 void setDecodedAuthPredicate(DecodedAuthPredicate predicate);
 #ifdef PIO_UNIT_TESTING
+bool applyRoutingAuthCache(meshtastic_MeshPacket *packet);
 uint32_t routingAuthEvaluationCount();
 void resetRoutingAuthEvaluationCount();
 /** Refill the admin-key fallback budget and re-stamp it against the clock in use right now. */

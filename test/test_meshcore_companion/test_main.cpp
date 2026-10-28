@@ -1313,6 +1313,15 @@ void test_direct_reply_preserves_pki_through_router_auth_gate(void)
     TEST_ASSERT_TRUE(applyRoutingAuthCache(&rogue));
     TEST_ASSERT_FALSE(rogue.pki_encrypted);
     TEST_ASSERT_EQUAL(0, rogue.public_key.size);
+
+    // Bob's number and key are public: a decoded packet claiming them (e.g. over MQTT) that the bridge did not
+    // inject must still have PKI stripped
+    meshtastic_MeshPacket forged = reply;
+    forged.id += 2;
+    TEST_ASSERT_EQUAL(RoutingAuthVerdict::ACCEPT, passesRoutingAuthGate(&forged));
+    TEST_ASSERT_TRUE(applyRoutingAuthCache(&forged));
+    TEST_ASSERT_FALSE(forged.pki_encrypted);
+    TEST_ASSERT_EQUAL(0, forged.public_key.size);
 }
 
 // A direct message is answered in the same chat, from the contact and with its key, as a PKI reply.
