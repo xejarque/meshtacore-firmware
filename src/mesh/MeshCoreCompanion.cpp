@@ -1088,6 +1088,12 @@ bool MeshCoreCompanion::handleTraceCommand(const meshtastic_MeshPacket *p, bool 
     const uint8_t channel = direct ? 0 : p->channel;
     const uint32_t replyId = p->id;
 
+    // One trace at a time: a second one would take over the first one's tag and hop names, and its report.
+    if (activeTrace.active) {
+        injectText(fromNum, to, channel, "🛰️ *Trace en curso*: espera a que termine.", replyId, direct, c, 0, 0, 0);
+        return true;
+    }
+
     const char *pStr = text + 7;
     bool symmetric = false;
     char targetNames[ActiveTrace::MAX_TRACE_HOPS][MeshCoreNode::NAME_LEN] = {};
@@ -1260,8 +1266,7 @@ void MeshCoreCompanion::handleTraceFrame(const uint8_t *raw, size_t len, const M
     if (tag != activeTrace.tag)
         return;
 
-    const size_t pathBytes = (size_t)info.path_hash_count * info.path_hash_size;
-    const uint8_t *pathSnrs = &raw[info.header_len - pathBytes];
+    const uint8_t *pathSnrs = pathOf(raw, info);
 
     const bool isFinalHop = (activeTrace.symmetric && info.path_hash_count >= activeTrace.totalHops - 1) ||
                             (!activeTrace.symmetric && info.path_hash_count >= activeTrace.totalHops);

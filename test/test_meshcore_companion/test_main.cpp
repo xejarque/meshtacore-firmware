@@ -1745,6 +1745,36 @@ void test_trace_command_without_symmetric_dots(void)
     TEST_ASSERT_EQUAL_HEX8(0xBB, s.c.activeTrace.hopHashes[1]);
 }
 
+// A second ..trace while one is running is refused: it would otherwise take over the first one's tag and hop
+// names, and its report would never come
+void test_trace_command_refused_while_one_is_running(void)
+{
+    GroupSetup s;
+    uint8_t pubA[32] = {0xAA};
+    uint8_t pubB[32] = {0xBB};
+    uint8_t selfPub[32] = {0x11};
+    s.c.setIdentity(pubA, selfPub);
+    s.c.learnContact(pubA, "Alpha");
+    s.c.learnContact(pubB, "Bravo");
+
+    meshtastic_MeshPacket first = textPacket(0, 0x1234, "..trace @Alpha");
+    TEST_ASSERT_TRUE(s.c.handleTraceCommand(&first, false));
+    const uint32_t tag = s.c.activeTrace.tag;
+    const size_t frameLen = s.radio.frameLen;
+    s.radio.frameLen = 0;
+
+    meshtastic_MeshPacket second = textPacket(0, 0x1235, "..trace @Bravo");
+    TEST_ASSERT_TRUE(s.c.handleTraceCommand(&second, false));
+    TEST_ASSERT_EQUAL_UINT32(0, s.radio.frameLen);
+    TEST_ASSERT_EQUAL_UINT32(tag, s.c.activeTrace.tag);
+    TEST_ASSERT_EQUAL_HEX8(0xAA, s.c.activeTrace.hopHashes[0]);
+    TEST_ASSERT_GREATER_THAN(0, frameLen);
+
+    char body[256];
+    reportText(s.capture.received.back(), body, sizeof(body));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Trace en curso"));
+}
+
 void test_trace_response_formats_snr_report(void)
 {
     GroupSetup s;
@@ -1885,6 +1915,7 @@ void setup()
     RUN_TEST(test_trace_command_unknown_node_reports_error);
     RUN_TEST(test_trace_command_parses_nodes_and_symmetric_return);
     RUN_TEST(test_trace_command_without_symmetric_dots);
+    RUN_TEST(test_trace_command_refused_while_one_is_running);
     RUN_TEST(test_trace_response_formats_snr_report);
     RUN_TEST(test_trace_timeout_handling);
 #endif
