@@ -850,10 +850,7 @@ size_t RadioLibInterface::formatContentionStats(char *buf, size_t len)
 
 uint32_t RadioLibInterface::meshCoreServiceTick()
 {
-    if (!meshCoreConfigLoaded) {
-        meshCoreConfigLoaded = true;
-        reloadMeshCoreConfig();
-    }
+    ensureMeshCoreConfigLoaded();
     uint32_t next = meshCoreAdvertTick();
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
     if (meshCoreRepeater.hasIdentity() && !meshCoreCompanion.hasIdentity()) {
@@ -901,10 +898,21 @@ void RadioLibInterface::updateMeshCoreRole()
     }
 }
 
+void RadioLibInterface::ensureMeshCoreConfigLoaded()
+{
+    if (meshCoreConfigLoaded)
+        return;
+    meshCoreConfigLoaded = true;
+    reloadMeshCoreConfig();
+}
+
 void RadioLibInterface::reloadMeshCoreConfig()
 {
-    MeshCoreConfig loaded; // a failed load leaves it at the built-in settings
-    loadMeshCoreConfigImage(&loaded);
+    MeshCoreConfig loaded;
+    if (!loadMeshCoreConfigImage(&loaded)) {
+        LOG_INFO("MeshCore config: no valid %s, settings unchanged", meshCoreConfigPath);
+        return;
+    }
     meshCoreConfig = loaded;
     meshCoreRepeater.setRelayMode(meshCoreConfig.relay);
     LOG_INFO("MeshCore config: relay %u, advert every %uh", (unsigned)meshCoreConfig.relay,
@@ -921,12 +929,14 @@ bool RadioLibInterface::saveMeshCoreConfig()
 
 void RadioLibInterface::setMeshCoreRelayMode(MeshCoreConfig::RelayMode mode)
 {
+    ensureMeshCoreConfigLoaded();
     meshCoreConfig.relay = mode;
     meshCoreRepeater.setRelayMode(mode);
 }
 
 void RadioLibInterface::setMeshCoreAdvertHours(uint8_t hours)
 {
+    ensureMeshCoreConfigLoaded();
     meshCoreConfig.advertHours = hours;
 }
 

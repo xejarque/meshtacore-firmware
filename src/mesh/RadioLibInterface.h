@@ -485,7 +485,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
      */
     uint32_t meshCoreServiceTick();
 
-    /// Load /prefs/meshcore_config.bin into the settings and apply them. A missing or bad file keeps the built-in settings.
+    /// Load /prefs/meshcore_config.bin into the settings and apply them. A missing or bad file changes nothing.
     void reloadMeshCoreConfig();
 
     /// Write the settings to /prefs/meshcore_config.bin. False if the write failed.
@@ -512,9 +512,11 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     uint32_t lastMeshCoreContactsSaveMs = 0;
     bool meshCoreContactsLoaded = false;
 
-    // The settings Nexus changes, applied to the repeater. Loaded on the first service tick.
+    // The settings Nexus changes, applied to the repeater. Loaded on the first service tick or the first change,
+    // whichever comes first, so a change made before that tick is not overwritten by the file.
     MeshCoreConfig meshCoreConfig;
     bool meshCoreConfigLoaded = false;
+    void ensureMeshCoreConfigLoaded();
     // The last ADVERT asked for by Nexus: a request again within MESHCORE_ADVERT_NOW_MIN_MS is refused.
     bool meshCoreAdvertNowSent = false;
     uint32_t lastMeshCoreAdvertNowMs = 0;
