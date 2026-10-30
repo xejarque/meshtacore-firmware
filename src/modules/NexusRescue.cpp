@@ -155,13 +155,20 @@ static void applyCopy(const RescueCopy &c)
     moduleConfig.telemetry.power_update_interval = c.powerTelemetrySecs;
 }
 
-bool restoreIfConfigWasMissing()
+bool reapplyToLive()
 {
-    if (!nodeDB || !nodeDB->bootedWithMissingConfig() || !loadStored())
+    if (!loadStored())
         return false;
-    LOG_WARN("Nexus: config was missing at boot, restoring the rescue copy");
     applyCopy(stored);
     channels.onConfigChanged();
+    return true;
+}
+
+bool restoreIfConfigWasMissing()
+{
+    if (!nodeDB || !nodeDB->bootedWithMissingConfig() || !reapplyToLive())
+        return false;
+    LOG_WARN("Nexus: config was missing at boot, rescue copy restored");
     nodeDB->saveToDisk(SEGMENT_CONFIG | SEGMENT_MODULECONFIG | SEGMENT_CHANNELS | SEGMENT_DEVICESTATE);
     return true;
 }

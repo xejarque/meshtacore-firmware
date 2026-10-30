@@ -112,7 +112,13 @@ static uint32_t lowBatterySleepMs()
 static void lowBattSDSEnter()
 {
     LOG_POWERFSM("State: Lower batt SDS");
-    doDeepSleep(lowBatterySleepMs(), false, true);
+    const uint32_t sleepMs = lowBatterySleepMs();
+#ifdef ARCH_NRF52
+    // System OFF ignores the timer: without a battery LPCOMP wake the timed sleep is the only way back.
+    if (sleepMs != portMAX_DELAY && !nrf52HasBatteryLpcompWake())
+        nrf52RequestTimedSleep();
+#endif
+    doDeepSleep(sleepMs, false, true);
 }
 extern Power *power;
 

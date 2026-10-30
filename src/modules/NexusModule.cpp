@@ -1308,17 +1308,20 @@ bool NexusModule::verifyTrustedSignature(const meshtastic_MeshPacket *p, char *o
 }
 
 int NexusModule::nexus_base64_decode(unsigned char *out, size_t out_len, size_t *out_written, const char *in) {
-    static const int b64_table[256] = {
+    // Accepts both alphabets: '+' '/' and the base64url '-' '_' used by Meshtastic URLs.
+    // Bytes >= 0x80 are not base64 and are skipped like any other unknown character.
+    static const int b64_table[128] = {
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1,
-        -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1,
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, 62, -1, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1,
+        -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, 63,
         -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1
     };
     int val = 0, valb = -8;
     size_t count = 0;
     for (const char *p = in; *p; p++) {
-        if (b64_table[(int)*p] == -1) continue;
-        val = (val << 6) + b64_table[(int)*p];
+        const uint8_t c = (uint8_t)*p;
+        if (c >= 128 || b64_table[c] == -1) continue;
+        val = (val << 6) + b64_table[c];
         valb += 6;
         if (valb >= 0) {
             if (count >= out_len) return -1;
@@ -5546,7 +5549,8 @@ void NexusModule::appendPaging(const char* entry) {
 }
 
 bool NexusModule::isSilencedPublicReply(const meshtastic_MeshPacket &mp) {
-    if (!(ext_flags & EXT_FLAG_PUBLIC_SILENCE) || !isFromUs(&mp) || mp.pki_encrypted)
+    // pki_encrypted is only set later, at encode time, so ask willUsePki() whether this one will be a PKI DM.
+    if (!(ext_flags & EXT_FLAG_PUBLIC_SILENCE) || !isFromUs(&mp) || mp.pki_encrypted || willUsePki(&mp))
         return false;
     if (mp.which_payload_variant != meshtastic_MeshPacket_decoded_tag || mp.channel >= MAX_NUM_CHANNELS)
         return false;

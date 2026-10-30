@@ -61,7 +61,8 @@ NRF52 PRO MICRO PIN ASSIGNMENT
 #define BATTERY_SENSE_RESOLUTION 4096.0
 // Definition of milliVolt per LSB => 3.0V ADC range and 12-bit ADC resolution = 3000mV/4096
 #define VBAT_MV_PER_LSB (0.73242188F)
-// Voltage divider value => 1.5M + 1M voltage divider on VBAT = (1.5M / (1M + 1.5M))
+// Voltage divider value => 1.5M + 1M voltage divider on VBAT = (1.5M / (1M + 1.5M)).
+// Readings and the LPCOMP wake below assume a 1:1 divider instead (VBAT_DIVIDER_COMP 2.0), as on Faketec / E22P builds.
 #define VBAT_DIVIDER (0.6F)
 // Compensation factor for the VBAT divider
 #define VBAT_DIVIDER_COMP (2.0) // 1:1 divider, as on Faketec / E22P builds

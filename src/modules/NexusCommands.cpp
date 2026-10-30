@@ -4243,7 +4243,11 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     }
     else if (strncasecmp(cmd, "SETURL ", 7) == 0) {
         // /nexus SETURL <channel URL>: merge the shared channels by name, keep Nexus channels and TX power.
-        handleSetUrlCommand(cmd + 7);
+        // The command buffer keeps 127 bytes: a URL that fills it was cut and must not half-apply.
+        if (strlen(this->cmdBuf) >= sizeof(this->cmdBuf) - 1) // the whole message, prefix included, filled it
+            snprintf(replyMsg, sizeof(replyMsg), "JT: SETURL URL too long for one command");
+        else
+            handleSetUrlCommand(cmd + 7);
     }
     else if (strncasecmp(cmd, "PUBSILENCE ", 11) == 0 || strcasecmp(cmd, "PUBSILENCE") == 0) {
         // /nexus PUBSILENCE [ON|OFF]: no ACKs, replies or unicast NodeInfo from us on public-key channels.
@@ -9265,7 +9269,10 @@ void NexusModule::handleSetUrlCommand(const char *url)
     }
 
     bool loraChanged = false;
-    if (set.has_lora_config) {
+    if (set.has_lora_config && pendingLoRaConfig) {
+        const size_t used = strlen(notes);
+        snprintf(notes + used, sizeof(notes) - used, " LoRa skipped, another change pending;");
+    } else if (set.has_lora_config) {
         meshtastic_Config pc = meshtastic_Config_init_default;
         pc.which_payload_variant = meshtastic_Config_lora_tag;
         pc.payload_variant.lora = set.lora_config;

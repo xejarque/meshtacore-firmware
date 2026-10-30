@@ -23,6 +23,10 @@ void snapshot();
 /// Returns true when settings were restored.
 bool restoreIfConfigWasMissing();
 
+/// Applies the stored copy to the live settings without saving; false when there is none.
+/// factoryReset() calls it on the fresh defaults, before its own save would overwrite the copy with them.
+bool reapplyToLive();
+
 /// Deletes the copy.
 bool clear();
 

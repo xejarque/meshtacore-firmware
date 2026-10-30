@@ -953,6 +953,11 @@ bool NodeDB::factoryReset(bool eraseBleBonds)
     installDefaultConfig(!eraseBleBonds); // Also preserve the private key if we're not erasing BLE bonds
     installDefaultModuleConfig();
     installDefaultChannels();
+#if HAS_NEXUS
+    // Before the save below: it refreshes the rescue copy, which would otherwise become these defaults.
+    if (NexusRescue::reapplyToLive())
+        LOG_WARN("Factory reset: Nexus rescue copy re-applied (RESCUE CLEAR first for a full wipe)");
+#endif
     // third, write everything to disk
     saveToDisk();
     if (eraseBleBonds) {
