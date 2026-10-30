@@ -4249,12 +4249,16 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         // /nexus PUBSILENCE [ON|OFF]: no ACKs, replies or unicast NodeInfo from us on public-key channels.
         const char *p = cmd[10] ? cmd + 11 : "";
         while (*p == ' ') p++;
-        if (*p) {
-            const bool enable = (strcasecmp(p, "ON") == 0 || strcasecmp(p, "1") == 0);
-            ext_flags = enable ? (ext_flags | EXT_FLAG_PUBLIC_SILENCE) : (ext_flags & ~EXT_FLAG_PUBLIC_SILENCE);
+        const bool enable = (strcasecmp(p, "ON") == 0 || strcasecmp(p, "1") == 0);
+        const bool disable = (strcasecmp(p, "OFF") == 0 || strcasecmp(p, "0") == 0);
+        if (*p && !enable && !disable) {
+            snprintf(replyMsg, sizeof(replyMsg), "JT: PUBSILENCE expects ON or OFF");
+        } else {
+            if (*p)
+                ext_flags = enable ? (ext_flags | EXT_FLAG_PUBLIC_SILENCE) : (ext_flags & ~EXT_FLAG_PUBLIC_SILENCE);
+            snprintf(replyMsg, sizeof(replyMsg), "JT: Public channel silence %s",
+                     (ext_flags & EXT_FLAG_PUBLIC_SILENCE) ? "ON" : "OFF");
         }
-        snprintf(replyMsg, sizeof(replyMsg), "JT: Public channel silence %s",
-                 (ext_flags & EXT_FLAG_PUBLIC_SILENCE) ? "ON" : "OFF");
     }
     else if (strncasecmp(cmd, "VWAKE ", 6) == 0 || strcasecmp(cmd, "VWAKE") == 0) {
         // /nexus VWAKE [<n>/<d>|DEFAULT]: LPCOMP battery wake threshold, a fraction of VDD
@@ -9151,7 +9155,7 @@ void NexusModule::handleVwakeCommand(const char *arg)
         applyLpcompWakeLevel();
     } else if (*arg) {
         unsigned num = 0, den = 0;
-        if (sscanf(arg, "%u/%u", &num, &den) != 2 || den == 0 || (16 % den) != 0 || num == 0 || num * (16 / den) >= 16 ||
+        if (sscanf(arg, "%u/%u", &num, &den) != 2 || (den != 8 && den != 16) || num == 0 || num * (16 / den) >= 16 ||
             !nrf52SetBatteryLpcompWakeFraction(num, den)) {
             snprintf(replyMsg, sizeof(replyMsg), "JT: VWAKE expects n/8 or n/16 below 1, or DEFAULT");
             return;
