@@ -565,6 +565,7 @@ public:
     };
 
     bool saveVault();
+    void fillVaultV68(NexusVault &v) const;
     void applyVaultV68(const NexusVault &v);
     bool loadVault();
 
