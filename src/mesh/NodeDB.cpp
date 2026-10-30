@@ -580,7 +580,6 @@ NodeDB::NodeDB()
     resetRadioConfig(); // If bogus settings got saved, then fix them
     // nodeDB->LOG_DEBUG("region=%d, NODENUM=0x%x, dbsize=%d", config.lora.region, myNodeInfo.my_node_num, numMeshNodes);
 
-
     // Uncomment below to always enable UDP broadcasts
     // config.network.enabled_protocols = meshtastic_Config_NetworkConfig_ProtocolFlags_UDP_BROADCAST;
 
@@ -3196,7 +3195,7 @@ bool NodeDB::saveChannelsToDisk()
     spiLock->unlock();
 #endif
 
-    return saveProto(channelFileName, meshtastic_ChannelFile_size, &meshtastic_ChannelFile_msg, &channelFile);
+    return saveProto(channelFileName, meshtastic_ChannelFile_size, &meshtastic_ChannelFile_msg, &channelFile, true);
 }
 
 bool NodeDB::saveDeviceStateToDisk()
@@ -3410,7 +3409,7 @@ bool NodeDB::saveToDiskNoRetry(int saveWhat)
         config.has_bluetooth = true;
         config.has_security = true;
 
-        success &= saveProto(configFileName, meshtastic_LocalConfig_size, &meshtastic_LocalConfig_msg, &config);
+        success &= saveProto(configFileName, meshtastic_LocalConfig_size, &meshtastic_LocalConfig_msg, &config, true);
     }
 
     if (saveWhat & SEGMENT_MODULECONFIG) {
@@ -3433,8 +3432,8 @@ bool NodeDB::saveToDiskNoRetry(int saveWhat)
         moduleConfig.has_mesh_beacon = true;
 #endif
 
-        success &=
-            saveProto(moduleConfigFileName, meshtastic_LocalModuleConfig_size, &meshtastic_LocalModuleConfig_msg, &moduleConfig);
+        success &= saveProto(moduleConfigFileName, meshtastic_LocalModuleConfig_size, &meshtastic_LocalModuleConfig_msg,
+                             &moduleConfig, true);
     }
 
     if (saveWhat & SEGMENT_CHANNELS) {

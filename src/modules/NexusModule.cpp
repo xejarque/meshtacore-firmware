@@ -8,6 +8,7 @@
 //
 
 #include "modules/NexusModule.h"
+#include "SafeFile.h"
 
 /*
  * Nexus module implementation.
@@ -4982,14 +4983,14 @@ void NexusModule::saveVault() {
     // Integrity
     v->crc32 = crc32Buffer(v, sizeof(NexusVault) - 4);
 
-    FSCom.remove("/nexus.bin");
-    File f = FSCom.open("/nexus.bin", FILE_O_WRITE);
-    if (f) {
-        f.write((uint8_t*)v, sizeof(NexusVault));
-        f.close();
+    // Write-then-rename: a reset mid-save keeps the previous vault instead of leaving none.
+    auto f = SafeFile("/nexus.bin", true);
+    const size_t written = f.write((const uint8_t *)v, sizeof(NexusVault));
+    const bool closed = f.close();
+    if (written == sizeof(NexusVault) && closed) {
         LOG_INFO("Nexus: Vault saved (v%u).", (unsigned int)v->version);
     } else {
-        LOG_ERROR("Nexus: Failed to open vault for writing.");
+        LOG_ERROR("Nexus: Failed to save vault.");
     }
     delete v;
 }
