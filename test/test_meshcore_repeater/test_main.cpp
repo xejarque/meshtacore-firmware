@@ -847,6 +847,28 @@ void test_relay_deadline_survives_millis_wrap()
     TEST_ASSERT_TRUE(repeater.isRelayDue());
 }
 
+// After more than 2^31 ms of idle time (no transmits), holdoff expiration must not wrap
+// and falsely lock the repeater for another 24.8 days.
+void test_holdoff_survives_idle_past_24_days()
+{
+    MeshCoreRepeater repeater;
+    repeater.afterTransmit(500);
+
+    // Advance clock past 2^31 ms (~25 days of idle)
+    Time::advanceTestMillis(0x80000001u);
+
+    // Queue a new frame
+    uint8_t buf[64];
+    size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, 0x10);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+
+    // Advance slightly so frame deadline is due
+    Time::advanceTestMillis(500);
+
+    TEST_ASSERT_TRUE(repeater.isRelayDue());
+    TEST_ASSERT_EQUAL_UINT32(0, repeater.relayDueInMs());
+}
+
 // A queued relay that never got its turn (starved radio events) must not wedge the queue: once
 // it is older than the dupe window it is dropped when the next frame is heard.
 void test_stale_pending_relay_is_dropped_for_new_frame()
@@ -1449,6 +1471,33 @@ void test_forged_advert_does_not_block_the_next_frame()
     TEST_ASSERT_EQUAL_UINT32(1, repeater.rxDropped);
 }
 
+// When a bad advert is dropped inside takePendingFrame(), any subsequent frame
+// that is NOT yet due must NOT be returned prematurely (preserving jitter).
+void test_forged_advert_does_not_drain_future_frame_early()
+{
+    MeshCoreRepeater repeater;
+    uint8_t forged[MeshCoreRepeater::MAX_FRAME_LEN];
+    size_t forgedLen = makeSignedAdvertFlood(forged, 0); // 0 hops: ranks first
+    forged[forgedLen - 1] ^= 0x01;
+    repeater.handleReceivedFrame(forged, forgedLen, 5, kAirtimeMs);
+
+    // Advance so the advert is due
+    Time::advanceTestMillis(500);
+
+    // Queue a text frame whose deadline is still in the future
+    queueDistinctFlood(repeater, 3, 0x41);
+
+    uint8_t out[MeshCoreRepeater::MAX_FRAME_LEN];
+    // takePendingFrame drops the advert and should return 0 since the text is not due
+    TEST_ASSERT_EQUAL_UINT32(0, repeater.takePendingFrame(out, sizeof(out)));
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.rxDropped);
+
+    // Now advance time so the text frame matures
+    Time::advanceTestMillis(3000);
+    TEST_ASSERT_GREATER_THAN_UINT32(0, repeater.takePendingFrame(out, sizeof(out)));
+    TEST_ASSERT_EQUAL_HEX8((kTxtMsg << 2) | 0x01, out[0]);
+}
+
 void test_advert_with_valid_signature_is_relayed()
 {
     MeshCoreRepeater repeater;
@@ -1651,6 +1700,7 @@ void setup()
     RUN_TEST(test_delay_factor_reflects_observed_contention);
     RUN_TEST(test_dupe_postpones_pending_relay);
     RUN_TEST(test_relay_deadline_survives_millis_wrap);
+    RUN_TEST(test_holdoff_survives_idle_past_24_days);
     RUN_TEST(test_stale_pending_relay_is_dropped_for_new_frame);
     RUN_TEST(test_take_pending_frame_copies_without_clearing);
     RUN_TEST(test_advert_is_signed_and_parseable);
@@ -1676,6 +1726,7 @@ void setup()
     RUN_TEST(test_own_advert_echo_is_not_relayed);
     RUN_TEST(test_advert_with_bad_signature_is_not_relayed);
     RUN_TEST(test_forged_advert_does_not_block_the_next_frame);
+    RUN_TEST(test_forged_advert_does_not_drain_future_frame_early);
     RUN_TEST(test_advert_with_valid_signature_is_relayed);
     RUN_TEST(test_trace_is_forwarded_with_our_snr);
     RUN_TEST(test_trace_is_ignored_unless_we_are_next);

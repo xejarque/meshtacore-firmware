@@ -161,7 +161,8 @@ class MeshCoreRepeater
     /** Public key whose prefix goes on the path: the alias when enabled, else our main key. */
     const uint8_t *pathPub() const { return usesAlias() ? aliasPub : identityPub; }
 
-    /** True when this node forwards MeshCore frames at all: the relay mode decides, and under AUTO the role and rebroadcast policy. */
+    /** True when this node forwards MeshCore frames at all: the relay mode decides, and under AUTO the role and rebroadcast
+     * policy. */
     bool canRelay() const;
 
     /// Relay policy Nexus sets: AUTO follows the role and rebroadcast policy, OFF never relays, ON relays regardless.
@@ -267,9 +268,11 @@ class MeshCoreRepeater
     QueuedFrame queue[QUEUE_SIZE];
     int selected = -1;         // index picked by takePendingFrame(), -1 when none
     uint32_t selectedHash = 0; // identity of that pick: a radio event in between may evict it and reuse its slot
-    uint32_t holdoffUntilMs = 0;
-    bool holdoffSet = false;
+    uint32_t holdoffStartMs = 0;
+    uint32_t holdoffMs = 0;
     uint8_t busyAttempts = 0;
+
+    bool isHoldoffActive() const;
 
     // This node's MeshCore identity (Ed25519). The seed is the secret; the public key is derived from it.
     uint8_t identitySeed[32] = {0};

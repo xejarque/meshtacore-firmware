@@ -32,7 +32,24 @@
 #include "SPILock.h"
 #include "concurrency/LockGuard.h"
 #include "flash/flash_nrf5x.h"
+#include "sleep.h"
 #include <hal/nrf_lpcomp.h>
+
+#ifndef BATTERY_LPCOMP_INPUT
+#if defined(BATTERY_PIN) && (BATTERY_PIN >= 0)
+#if (BATTERY_PIN == 31) || (BATTERY_PIN == (0 + 31))
+#define BATTERY_LPCOMP_INPUT NRF_LPCOMP_INPUT_7
+#elif (BATTERY_PIN == 5) || (BATTERY_PIN == (0 + 5))
+#define BATTERY_LPCOMP_INPUT NRF_LPCOMP_INPUT_3
+#elif (BATTERY_PIN == 2) || (BATTERY_PIN == (0 + 2))
+#define BATTERY_LPCOMP_INPUT NRF_LPCOMP_INPUT_0
+#endif
+#endif
+#endif
+
+#if defined(BATTERY_LPCOMP_INPUT) && !defined(BATTERY_LPCOMP_THRESHOLD)
+#define BATTERY_LPCOMP_THRESHOLD NRF_LPCOMP_REF_SUPPLY_9_16
+#endif
 
 #ifdef BQ25703A_ADDR
 #include "BQ25713.h"
@@ -434,6 +451,16 @@ void nrf52InitSemiHosting()
 
 void nrf52Setup()
 {
+#ifdef BATTERY_LPCOMP_INPUT
+    NRF_LPCOMP->TASKS_STOP = 1;
+    NRF_LPCOMP->ENABLE = LPCOMP_ENABLE_ENABLE_Disabled;
+    NRF_LPCOMP->INTENCLR = 0xFFFFFFFF;
+    NRF_LPCOMP->EVENTS_READY = 0;
+    NRF_LPCOMP->EVENTS_DOWN = 0;
+    NRF_LPCOMP->EVENTS_UP = 0;
+    NRF_LPCOMP->EVENTS_CROSS = 0;
+#endif
+
 #ifdef ADC_V
     pinMode(ADC_V, INPUT);
 #endif
@@ -500,8 +527,8 @@ void nrf52FlashQuiesce()
 
 void cpuDeepSleep(uint32_t msecToWake)
 {
-    // FIXME, configure RTC or button press to wake us
-    // FIXME, power down SPI, I2C, RAMs
+    notifyDeepSleep.notifyObservers(NULL);
+
 #if HAS_WIRE
     Wire.end();
 #endif
@@ -535,14 +562,24 @@ void cpuDeepSleep(uint32_t msecToWake)
 
     nrf52FlashQuiesce();
 
-    // Sleepy trackers or sensors can low power "sleep"
-    // Don't enter this if we're sleeping portMAX_DELAY, since that's a shutdown event
-    if (msecToWake != portMAX_DELAY &&
+    bool canLpcompWake = false;
+#ifdef BATTERY_LPCOMP_INPUT
+    canLpcompWake = variant_enableBatteryLpcompWake();
+#endif
+
+    const bool isTimedSleepRole =
         (IS_ONE_OF(config.device.role, meshtastic_Config_DeviceConfig_Role_TRACKER,
                    meshtastic_Config_DeviceConfig_Role_TAK_TRACKER, meshtastic_Config_DeviceConfig_Role_SENSOR) &&
-         config.power.is_power_saving == true)) {
+         config.power.is_power_saving == true);
+
+    // If we have no LPCOMP wake capability, never enter permanent System Off on low battery:
+    // sleep in LOWPWR with RTC active, then reset to re-check battery when power returns.
+    if ((msecToWake != portMAX_DELAY && isTimedSleepRole) || !canLpcompWake) {
+        uint32_t sleepMs = msecToWake;
+        if (sleepMs == portMAX_DELAY || sleepMs == 0)
+            sleepMs = 1800 * 1000; // 30 minutes safe retry for solar recovery
         sd_power_mode_set(NRF_POWER_MODE_LOWPWR);
-        delay(msecToWake);
+        delay(sleepMs);
         NVIC_SystemReset();
     } else {
         // Resume on user button press
@@ -557,12 +594,11 @@ void cpuDeepSleep(uint32_t msecToWake)
 
 #ifdef BATTERY_LPCOMP_INPUT
         // Only enable LPCOMP wake if the variant allows it
-        if (variant_enableBatteryLpcompWake()) {
-            // Wake up if power rises again
+        if (canLpcompWake) {
             nrf_lpcomp_config_t c;
             c.reference = BATTERY_LPCOMP_THRESHOLD;
             c.detection = NRF_LPCOMP_DETECT_UP;
-            c.hyst = NRF_LPCOMP_HYST_NOHYST;
+            c.hyst = NRF_LPCOMP_HYST_ENABLED;
             nrf_lpcomp_configure(NRF_LPCOMP, &c);
             nrf_lpcomp_input_select(NRF_LPCOMP, BATTERY_LPCOMP_INPUT);
             nrf_lpcomp_enable(NRF_LPCOMP);
@@ -570,9 +606,24 @@ void cpuDeepSleep(uint32_t msecToWake)
             battery_adcEnable();
 
             nrf_lpcomp_task_trigger(NRF_LPCOMP, NRF_LPCOMP_TASK_START);
-            while (!nrf_lpcomp_event_check(NRF_LPCOMP, NRF_LPCOMP_EVENT_READY))
+            uint32_t t0 = micros();
+            while (!nrf_lpcomp_event_check(NRF_LPCOMP, NRF_LPCOMP_EVENT_READY) && (micros() - t0 < 1500))
                 ;
+            if (!nrf_lpcomp_event_check(NRF_LPCOMP, NRF_LPCOMP_EVENT_READY)) {
+                LOG_ERROR("LPCOMP not ready, resetting");
+                NVIC_SystemReset();
+            }
         }
+#endif
+
+#ifdef PIN_LED1
+        pinMode(PIN_LED1, INPUT);
+#endif
+#ifdef PIN_LED2
+        pinMode(PIN_LED2, INPUT);
+#endif
+#ifdef PIN_LED3
+        pinMode(PIN_LED3, INPUT);
 #endif
 
         auto ok = sd_power_system_off();

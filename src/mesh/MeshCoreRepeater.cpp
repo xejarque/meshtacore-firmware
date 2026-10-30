@@ -723,9 +723,14 @@ void MeshCoreRepeater::markRelayed()
 void MeshCoreRepeater::afterTransmit(uint32_t slotMs)
 {
     const uint32_t slot = slotMs < MIN_SLOT_MS ? MIN_SLOT_MS : slotMs;
-    holdoffUntilMs = Time::getMillis() + (uint32_t)random(1, HOLDOFF_MAX_SLOTS + 1) * slot;
-    holdoffSet = true;
+    holdoffStartMs = Time::getMillis();
+    holdoffMs = (uint32_t)random(1, HOLDOFF_MAX_SLOTS + 1) * slot;
     busyAttempts = 0;
+}
+
+bool MeshCoreRepeater::isHoldoffActive() const
+{
+    return holdoffMs != 0 && Throttle::isWithinTimespanMs(holdoffStartMs, holdoffMs);
 }
 
 uint32_t MeshCoreRepeater::busyBackoffMs(uint32_t slotMs)
@@ -765,7 +770,7 @@ int MeshCoreRepeater::pickNext() const
 
 bool MeshCoreRepeater::isRelayDue() const
 {
-    if (holdoffSet && !Throttle::deadlinePassed(holdoffUntilMs))
+    if (isHoldoffActive())
         return false;
     for (const QueuedFrame &f : queue) {
         if (f.len != 0 && Throttle::deadlinePassed(f.deadlineMs))
@@ -789,10 +794,11 @@ uint32_t MeshCoreRepeater::relayDueInMs() const
     }
     if (!any)
         return 0;
-    if (holdoffSet && !Throttle::deadlinePassed(holdoffUntilMs)) {
-        const uint32_t holdoff = holdoffUntilMs - now;
-        if (holdoff > soonest)
-            soonest = holdoff;
+    if (isHoldoffActive()) {
+        const uint32_t elapsed = now - holdoffStartMs;
+        const uint32_t remaining = (elapsed < holdoffMs) ? (holdoffMs - elapsed) : 0;
+        if (remaining > soonest)
+            soonest = remaining;
     }
     return soonest;
 }
@@ -801,6 +807,8 @@ size_t MeshCoreRepeater::takePendingFrame(uint8_t *buf, size_t bufLen)
 {
     for (int pick = pickNext(); pick >= 0; pick = pickNext()) {
         QueuedFrame &f = queue[pick];
+        if (!Throttle::deadlinePassed(f.deadlineMs))
+            return 0;
         if (f.needsVerify) {
             FrameInfo info;
             if (!parse(f.data, f.len, &info) || !advertSignatureValid(&f.data[info.header_len], info.payload_len)) {

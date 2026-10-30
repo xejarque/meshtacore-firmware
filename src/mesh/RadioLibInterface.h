@@ -57,7 +57,6 @@ class LockingArduinoHal : public ArduinoHal
 // RadioLib's own default Vref, for a probe with no explicit voltage configured.
 #define TCXO_OPTIONAL_DEFAULT_VOLTAGE 1.6f
 
-
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
 class RadioLibInterface;
 
@@ -99,13 +98,16 @@ class STM32WLx_ModuleWrapper : public STM32WLx_Module
 #endif
 
 // Nexus port (Nexus-28001): forward-declare NexusModule at file scope (see NodeDB.h for rationale).
-namespace meshtastic { class NexusModule; }
+namespace meshtastic
+{
+class NexusModule;
+}
 
 class RadioLibInterface : public RadioInterface, protected concurrency::NotifiedWorkerThread
 {
     // Nexus port: NexusModule reads getInstantaneousRSSI() (a protected member) via
     // RadioLibInterface::instance to power /nexus RSSI. Friend is preferred over moving
-    // the method to public — the protected access keeps the API surface narrow.
+    // the method to public - the protected access keeps the API surface narrow.
     friend class meshtastic::NexusModule;
 
     MeshPacketQueue txQueue = MeshPacketQueue(MAX_TX_QUEUE);
@@ -141,7 +143,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
      * sync word at runtime via /nexus SETSYNCWORD. The override is applied at the top of
      * RadioInterface::applyModemConfig() (which runs at boot AND on every LoRa config change,
      * including the deferred apply triggered by SETSYNCWORD itself). Nexus persists the value
-     * in vault v40 and loads it via NexusModule::loadVault() during setupModules() — which
+     * in vault v40 and loads it via NexusModule::loadVault() during setupModules() - which
      * runs before initLoRa() per main.cpp ordering, so the override is in place before
      * rIf->init() reads syncWord for the first time.
      */
@@ -195,7 +197,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     // because RadioLibInterface.h was in the conflict set. Restoring here so the
     // SX126xInterface override below compiles cleanly. Default body in RadioLibInterface.cpp.
     // Made public (with re-declaration below in the public block) so NexusModule can read it
-    // via RadioLibInterface::instance->getInstantaneousRSSI() — the protected access here
+    // via RadioLibInterface::instance->getInstantaneousRSSI() - the protected access here
     // blocked NexusModule from seeing it without the friend declaration.
     virtual float getInstantaneousRSSI();
 
@@ -213,7 +215,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
 
     /**
      * Nexus-28002 (2026-08-21): syncword getter for /nexus LRS.
-     * Returns the actual byte programmed into the LoRa chip — either the
+     * Returns the actual byte programmed into the LoRa chip - either the
      * Meshtastic default 0x2B or NexusModule::syncword_override (vault v40).
      * Source of truth is the `syncWord` member; /nexus LRS MUST read this
      * instead of NexusModule::syncword_override directly so the chip-actual
@@ -289,6 +291,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
      * Debugging counts
      */
     uint32_t rxBad = 0, rxGood = 0, txGood = 0, txRelay = 0;
+    uint32_t lastRxPacketMs = 0;
     uint16_t txDrop = 0;
 
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
@@ -299,14 +302,14 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     // Nexus LORACHIPSTATS (/nexus LCS): cumulative chip-state samples, one per
     // CHIP_STATE_SAMPLE_INTERVAL_MS (RAM-only, cleared on boot or LCS RESET).
     enum ChipStateSample : uint8_t {
-        CHIP_TX = 0,   // sendingPacket in flight (software; no SPI touch during TX)
-        CHIP_RX,       // chip status reports RX mode (or LR: RX armed in software)
-        CHIP_STDBY,    // chip standby
-        CHIP_FS,       // frequency synthesiser (FSRX/FSTX, between STDBY and RX/TX)
-        CHIP_SLP,      // chip sleep (RF95 reads this from OP_MODE; others never sleep while running)
-        CHIP_BUSY,     // BUSY pin high at sample time (chip mid-command)
-        CHIP_RXOFF,    // rxOffline: RX re-arm failed, recovery ladder active
-        CHIP_UNK,      // SPI read failed / mode not readable on this family
+        CHIP_TX = 0, // sendingPacket in flight (software; no SPI touch during TX)
+        CHIP_RX,     // chip status reports RX mode (or LR: RX armed in software)
+        CHIP_STDBY,  // chip standby
+        CHIP_FS,     // frequency synthesiser (FSRX/FSTX, between STDBY and RX/TX)
+        CHIP_SLP,    // chip sleep (RF95 reads this from OP_MODE; others never sleep while running)
+        CHIP_BUSY,   // BUSY pin high at sample time (chip mid-command)
+        CHIP_RXOFF,  // rxOffline: RX re-arm failed, recovery ladder active
+        CHIP_UNK,    // SPI read failed / mode not readable on this family
         CHIP_STATE_COUNT
     };
     uint32_t chipStateCount[CHIP_STATE_COUNT] = {0};
@@ -506,6 +509,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     /// Read-only views for /nexus MESHCORE.
     const MeshCoreConfig &getMeshCoreConfig() const { return meshCoreConfig; }
     const MeshCoreRepeater &getMeshCoreRepeater() const { return meshCoreRepeater; }
+    uint32_t getLastRxPacketMs() const { return lastRxPacketMs; }
 
   private:
     uint32_t meshCoreContactsFingerprint = 0; // of what is on flash, so a save happens only on a change

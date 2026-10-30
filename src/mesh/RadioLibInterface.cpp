@@ -1,6 +1,5 @@
 #include "RadioLibInterface.h"
 #include "ContentionStats.h"
-#include "modules/NexusModule.h"
 #include "MeshTypes.h"
 #include "NodeDB.h"
 #include "PowerMon.h"
@@ -12,6 +11,7 @@
 #include "error.h"
 #include "main.h"
 #include "mesh-pb-constants.h"
+#include "modules/NexusModule.h"
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
 #include "FSCommon.h"
 #include "HardwareRNG.h"
@@ -1295,6 +1295,7 @@ void RadioLibInterface::handleReceiveInterrupt()
 #endif
             meshCoreRepeater.handleReceivedFrame((const uint8_t *)&radioBuffer, length, iface->getSNR(),
                                                  getPacketTime(length, false));
+            lastRxPacketMs = Time::getMillis();
             wakeMeshCoreRelay(); // when the adaptive relay delay elapses
             airTime->logAirtime(RX_LOG, rxMsec);
             meshCoreRepeater.rxAirtimeMs += rxMsec;
@@ -1312,6 +1313,7 @@ void RadioLibInterface::handleReceiveInterrupt()
             airTime->logAirtime(RX_ALL_LOG, rxMsec);
         } else {
             rxGood++;
+            lastRxPacketMs = Time::getMillis();
             // altered packet with "from == 0" can do Remote Node Administration without permission
             if (radioBuffer.header.from == 0) {
                 LOG_WARN("Ignore received packet without sender");
@@ -1439,8 +1441,7 @@ void RadioLibInterface::periodicRadioMaintenance()
     // Nexus feature DISABLE_AGC_RESET (FEATURES bit2): skip the periodic AGC reset
     // when the operator has it ON. Only gates this call - the RX re-arm ladder above
     // is untouched (a deaf chip must still recover regardless of feature state).
-    if (meshtastic::nexusModule &&
-        (meshtastic::nexusModule->getNexusFeaturesHex() & meshtastic::FEATURE_DISABLE_AGC_RESET)) {
+    if (meshtastic::nexusModule && (meshtastic::nexusModule->getNexusFeaturesHex() & meshtastic::FEATURE_DISABLE_AGC_RESET)) {
         return;
     }
 

@@ -4,7 +4,7 @@
 // Licensed under the GNU Affero General Public License v3.
 // See LICENSE-AGPL for the full license text.
 //
-// NexusModule — remote CLI module for Meshtastic firmware
+// NexusModule - remote CLI module for Meshtastic firmware
 //
 
 #include "modules/NexusModule.h"
@@ -24,6 +24,7 @@
 #include "PowerFSM.h"
 #include "RTC.h"
 #include "SPILock.h"
+#include "SafeFile.h"
 #include "input/InputBroker.h"
 #include "meshUtils.h"
 #include <FSCommon.h>
@@ -39,12 +40,12 @@
 #if defined(ARCH_ESP32) && !MESHTASTIC_EXCLUDE_WIFI
 #include "MeshtasticOTA.h"
 #endif
+#include "CryptoEngine.h" // for crypto->xeddsa_verify (Nexus-28002, verifyTrustedSignature)
 #include "Router.h"
-#include "CryptoEngine.h"   // for crypto->xeddsa_verify (Nexus-28002, verifyTrustedSignature)
+#include "UptimeClock.h" // Time::getMillisMonotonic() - wrap-safe 64-bit uptime
 #include "airtime.h"
 #include "configuration.h"
 #include "main.h"
-#include "UptimeClock.h"   // Time::getMillisMonotonic() — wrap-safe 64-bit uptime
 #ifdef ARCH_NRF52
 #include "main.h"
 #endif
@@ -55,7 +56,7 @@
 #include "Default.h"
 #include "MeshRadio.h"
 #include "TypeConversions.h"
-#include "freertosinc.h"  // For uxTaskGetStackHighWaterMark / uxTaskGetSystemState (RAM command)
+#include "freertosinc.h" // For uxTaskGetStackHighWaterMark / uxTaskGetSystemState (RAM command)
 
 #if !MESHTASTIC_EXCLUDE_MQTT
 #include "mqtt/MQTT.h"
@@ -72,37 +73,37 @@
 #if !defined(ARCH_STM32WL) && !MESHTASTIC_EXCLUDE_I2C
 #include "motion/AccelerometerThread.h"
 #endif
-#include <pb_encode.h>
-#include <pb_decode.h>
-#include "mesh/generated/meshtastic/admin.pb.h"
-#include "modules/TraceRouteModule.h"
-#include "modules/ExternalNotificationModule.h"
 #include "RadioLibInterface.h"
+#include "mesh/generated/meshtastic/admin.pb.h"
+#include "modules/ExternalNotificationModule.h"
+#include "modules/TraceRouteModule.h"
+#include <pb_decode.h>
+#include <pb_encode.h>
 
 #if (defined(ARCH_ESP32) || defined(ARCH_NRF52) || defined(ARCH_RP2040)) && !defined(CONFIG_IDF_TARGET_ESP32S2) &&               \
     !defined(CONFIG_IDF_TARGET_ESP32C3)
 #include "SerialModule.h"
 #endif
 
-#include "modules/AdminModule.h"
-#include "modules/TrafficManagementModule.h"
-#include "modules/Telemetry/PowerTelemetry.h"
-#include "modules/Telemetry/EnvironmentTelemetry.h"
-#include "modules/Telemetry/DeviceTelemetry.h"
+#include "ErriezCRC32.h"
+#include "FSCommon.h"
 #include "gps/RTC.h"
 #include "memGet.h"
-#include "FSCommon.h"
-#include "ErriezCRC32.h"
+#include "modules/AdminModule.h"
+#include "modules/Telemetry/DeviceTelemetry.h"
+#include "modules/Telemetry/EnvironmentTelemetry.h"
+#include "modules/Telemetry/PowerTelemetry.h"
+#include "modules/TrafficManagementModule.h"
 
 #ifdef ARCH_ESP32
-#include "esp_system.h"
 #include "esp_chip_info.h"
+#include "esp_efuse.h"
 #include "esp_flash.h"
 #include "esp_heap_caps.h"
 #include "esp_random.h"
-#include "esp_efuse.h"
-#include <WiFi.h>
+#include "esp_system.h"
 #include "nimble/NimbleBluetooth.h"
+#include <WiFi.h>
 extern NimbleBluetooth *nimbleBluetooth;
 #if HAS_WIFI
 #include "mesh/api/WiFiServerAPI.h"
@@ -112,10 +113,10 @@ extern String getWiFiClientInfo();
 #endif
 
 #ifdef ARCH_NRF52
+#include "NRF52Bluetooth.h"
+#include <Adafruit_LittleFS.h>
 #include <nrf.h>
 #include <nrf_soc.h>
-#include <Adafruit_LittleFS.h>
-#include "NRF52Bluetooth.h"
 extern NRF52Bluetooth *nrf52Bluetooth;
 #endif
 
@@ -123,14 +124,26 @@ using namespace meshtastic;
 
 meshtastic::NexusModule *meshtastic::nexusModule;
 
-static inline bool nexus_is_favorite(const meshtastic_NodeInfoLite *n) { return nodeInfoLiteIsFavorite(n); }
-static inline bool nexus_is_ignored(const meshtastic_NodeInfoLite *n) { return nodeInfoLiteIsIgnored(n); }
-static inline bool nexus_via_mqtt(const meshtastic_NodeInfoLite *n) { return nodeInfoLiteViaMqtt(n); }
-static inline bool nexus_has_user(const meshtastic_NodeInfoLite *n) { return nodeInfoLiteHasUser(n); }
+static inline bool nexus_is_favorite(const meshtastic_NodeInfoLite *n)
+{
+    return nodeInfoLiteIsFavorite(n);
+}
+static inline bool nexus_is_ignored(const meshtastic_NodeInfoLite *n)
+{
+    return nodeInfoLiteIsIgnored(n);
+}
+static inline bool nexus_via_mqtt(const meshtastic_NodeInfoLite *n)
+{
+    return nodeInfoLiteViaMqtt(n);
+}
+static inline bool nexus_has_user(const meshtastic_NodeInfoLite *n)
+{
+    return nodeInfoLiteHasUser(n);
+}
 
 // Nexus-28005: A packet is internal only if isFromUs()
 // returns true AND it did NOT arrive over LoRa. The protobuf field
-// transport_mechanism IS tracked on the wire — RadioInterface.cpp:1559
+// transport_mechanism IS tracked on the wire - RadioInterface.cpp:1559
 // sets TRANSPORT_LORA, UdpMulticastHandler.h:87 sets TRANSPORT_MULTICAST_UDP,
 // PacketAPI.cpp:73 sets TRANSPORT_API. Without this guard, a packet that
 // loops back over LoRa with from==0 (anonymous) or from==us (a self-
@@ -138,25 +151,30 @@ static inline bool nexus_has_user(const meshtastic_NodeInfoLite *n) { return nod
 // isFromUs() and skip the REQ_SIG / replay gates. Local serial / API /
 // UDP ingress always sets a non-LoRa mechanism, so legitimate internal
 // packets still pass.
-static inline bool nexusIsInternal(const meshtastic_MeshPacket &mp) {
-    if (!isFromUs(&mp)) return false;
+static inline bool nexusIsInternal(const meshtastic_MeshPacket &mp)
+{
+    if (!isFromUs(&mp))
+        return false;
     return mp.transport_mechanism != meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
 }
-static inline bool nexus_has_position(const meshtastic_NodeInfoLite *n) {
+static inline bool nexus_has_position(const meshtastic_NodeInfoLite *n)
+{
 #if !MESHTASTIC_EXCLUDE_POSITIONDB
     return nodeDB->nodePositions.count(n->num) > 0;
 #else
     return false;
 #endif
 }
-static inline bool nexus_has_device_metrics(const meshtastic_NodeInfoLite *n) {
+static inline bool nexus_has_device_metrics(const meshtastic_NodeInfoLite *n)
+{
 #if !MESHTASTIC_EXCLUDE_TELEMETRYDB
     return nodeDB->nodeTelemetry.count(n->num) > 0;
 #else
     return false;
 #endif
 }
-static inline const meshtastic_PositionLite *nexus_pos(const meshtastic_NodeInfoLite *n) {
+static inline const meshtastic_PositionLite *nexus_pos(const meshtastic_NodeInfoLite *n)
+{
 #if !MESHTASTIC_EXCLUDE_POSITIONDB
     auto it = nodeDB->nodePositions.find(n->num);
     return it != nodeDB->nodePositions.end() ? &it->second : nullptr;
@@ -164,7 +182,8 @@ static inline const meshtastic_PositionLite *nexus_pos(const meshtastic_NodeInfo
     return nullptr;
 #endif
 }
-static inline const meshtastic_DeviceMetrics *nexus_devmetrics(const meshtastic_NodeInfoLite *n) {
+static inline const meshtastic_DeviceMetrics *nexus_devmetrics(const meshtastic_NodeInfoLite *n)
+{
 #if !MESHTASTIC_EXCLUDE_TELEMETRYDB
     auto it = nodeDB->nodeTelemetry.find(n->num);
     return it != nodeDB->nodeTelemetry.end() ? &it->second : nullptr;
@@ -172,8 +191,12 @@ static inline const meshtastic_DeviceMetrics *nexus_devmetrics(const meshtastic_
     return nullptr;
 #endif
 }
-static inline bool nexus_is_licensed(const meshtastic_NodeInfoLite *n) { return nodeInfoLiteIsLicensed(n); }
-static inline meshtastic_User nexus_user_of(const meshtastic_NodeInfoLite *n) {
+static inline bool nexus_is_licensed(const meshtastic_NodeInfoLite *n)
+{
+    return nodeInfoLiteIsLicensed(n);
+}
+static inline meshtastic_User nexus_user_of(const meshtastic_NodeInfoLite *n)
+{
     return TypeConversions::ConvertToUser(n);
 }
 // === END SLIM NodeInfoLite COMPAT SHIM ===
@@ -191,7 +214,8 @@ uint8_t nexus_airtag_key[28] = {0}; // Apple public key (Base64 decoded)
 // can gate their save paths without re-introducing the NexusModule dependency
 // in low-level TUs. Persisted via /nexus SAVE (SCOPE RULE). DBFLUSH bypasses.
 // Bit layout (vault->freeze_flags): bit0=NodeDB, bit1=Warm, bit2=Device, bit3=Config.
-namespace meshtastic {
+namespace meshtastic
+{
 bool freeze_nodedb = false;
 bool freeze_warm = false;
 bool freeze_device = false;
@@ -199,7 +223,8 @@ bool freeze_config = false;
 } // namespace meshtastic
 
 // Nexus: External helper for Shadow CLI
-bool meshtastic::getNexusPowerTelemetry(meshtastic_Telemetry *m) {
+bool meshtastic::getNexusPowerTelemetry(meshtastic_Telemetry *m)
+{
 #if HAS_TELEMETRY && !MESHTASTIC_EXCLUDE_POWER_TELEMETRY
     if (PowerTelemetryModule::instance) {
         return PowerTelemetryModule::instance->getPowerTelemetry(m);
@@ -209,7 +234,8 @@ bool meshtastic::getNexusPowerTelemetry(meshtastic_Telemetry *m) {
 }
 
 // Nexus: External helper for Shadow CLI
-bool meshtastic::getNexusEnvironmentTelemetry(meshtastic_Telemetry *m) {
+bool meshtastic::getNexusEnvironmentTelemetry(meshtastic_Telemetry *m)
+{
 #if HAS_TELEMETRY && !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR
     if (environmentTelemetryModule) {
         return environmentTelemetryModule->getEnvironmentTelemetry(m);
@@ -218,13 +244,14 @@ bool meshtastic::getNexusEnvironmentTelemetry(meshtastic_Telemetry *m) {
     return false;
 }
 
-// Nexus: External helper for Shadow CLI — reads device telemetry (battery / voltage /
+// Nexus: External helper for Shadow CLI - reads device telemetry (battery / voltage /
 // channel util / air util / uptime) directly from the live DeviceTelemetryModule.
 // Bypasses nodeDB->nodeTelemetry, which is gated by MESHTASTIC_EXCLUDE_TELEMETRYDB and
 // is empty on memory-constrained variants (promicro, rak3401, heltec_v3). On those
 // variants, /nexus TELEMETRY previously lost its "DB:" line because the shim helper
 // returned nullptr unconditionally. This helper reads the live snapshot instead.
-bool meshtastic::getNexusDeviceTelemetry(meshtastic_Telemetry *m) {
+bool meshtastic::getNexusDeviceTelemetry(meshtastic_Telemetry *m)
+{
 #if HAS_TELEMETRY
     if (DeviceTelemetryModule::instance) {
         return DeviceTelemetryModule::instance->getDeviceTelemetry(m);
@@ -235,10 +262,8 @@ bool meshtastic::getNexusDeviceTelemetry(meshtastic_Telemetry *m) {
 
 extern void getMacAddr(uint8_t *dmac);
 
-NexusModule::NexusModule()
-    : MeshModule("Nexus"),
-      concurrency::OSThread("Nexus"),
-      ScanI2CConsumer() {
+NexusModule::NexusModule() : MeshModule("Nexus"), concurrency::OSThread("Nexus"), ScanI2CConsumer()
+{
     setInterval(1000);
     inputEventObserver = new CallbackObserver<NexusModule, const InputEvent *>(this, &NexusModule::onInputEvent);
 
@@ -350,13 +375,15 @@ NexusModule::NexusModule()
 
     // Watchlist SIGINT (RAM only)
     watchlistCount = 0;
-    for(int i=0; i<8; i++) targetWatchlist[i].nodeID = 0;
+    for (int i = 0; i < 8; i++)
+        targetWatchlist[i].nodeID = 0;
 
     // Nexus: Capture boot parameters and restore vault
     loadVault();
 }
 
-void NexusModule::setup() {
+void NexusModule::setup()
+{
     MeshModule::setup();
 
 #ifdef STATION_G3
@@ -367,7 +394,7 @@ void NexusModule::setup() {
     //
     //   1. Put each pin into INPUT mode with PULLS DISABLED before reading.
     //      ESP32-S3 cold-boot GPIO default has the internal pull-up enabled
-    //      on most pads (including GPIO9/10) — a naive digitalRead() on a
+    //      on most pads (including GPIO9/10) - a naive digitalRead() on a
     //      floating pin would return HIGH and we'd mis-classify it as a
     //      jumper. The Arduino-ESP32 2.x pinMode(INPUT) implementation
     //      explicitly sets .pull_up_en = GPIO_PULLUP_DISABLE and
@@ -379,9 +406,9 @@ void NexusModule::setup() {
     //      returned DISABLED on both pins (pull-up false-positive on the
     //      floating pads).
     //   2. HIGH = jumper installed = DISABLED. Firmware does not drive this
-    //      pin afterwards — it stays in INPUT mode and the operator's
+    //      pin afterwards - it stays in INPUT mode and the operator's
     //      hardware wiring wins. Vault bits for this pin are ignored
-    //      (DISABLED always wins — the jumper is the source of truth).
+    //      (DISABLED always wins - the jumper is the source of truth).
     //   3. LOW = jumper absent = OFF. Apply the appropriate OFF drive so
     //      the pin is not floating: PA → INPUT (true Hi-Z, no pull),
     //      LNA → OUTPUT HIGH (explicit drive avoids a floating LNA-P net
@@ -395,12 +422,12 @@ void NexusModule::setup() {
     // gets persisted on the next SAVE.
     //
     // Hardware constants (B&Q BQ35LORA900V1M PA module, station-g3 variant):
-    //   PIN_PA  = GPIO9   — wired in parallel with PL1 PA jumper pad
-    //   PIN_LNA = GPIO10  — wired in parallel with LNA-P jumper pad (active-LOW)
-    // GPIO42 (secondary LNA slot) intentionally not handled — station-g3 has
+    //   PIN_PA  = GPIO9   - wired in parallel with PL1 PA jumper pad
+    //   PIN_LNA = GPIO10  - wired in parallel with LNA-P jumper pad (active-LOW)
+    // GPIO42 (secondary LNA slot) intentionally not handled - station-g3 has
     // no LNA2 hardware.
     {
-        const uint8_t PIN_PA  = 9;
+        const uint8_t PIN_PA = 9;
         const uint8_t PIN_LNA = 10;
 
         // --- PA (GPIO9, active-HIGH) ---
@@ -408,7 +435,7 @@ void NexusModule::setup() {
         // Step 2: small settle delay (1 ms is generous; the IO_MUX + GPIO
         // matrix takes a few cycles to update after a mode change, and any
         // external capacitive load on the pad will need a moment to bleed).
-        // Nexus-28006 (2026-09-17) — boot-detect latch-clear fix.
+        // Nexus-28006 (2026-09-17) - boot-detect latch-clear fix.
         // digitalWrite(LOW) BEFORE pinMode(INPUT) forces the per-pin
         // output latch LOW while the pin is still in OUTPUT mode. This
         // clears any stale HIGH leftover from a prior boot stage (SPI
@@ -430,7 +457,7 @@ void NexusModule::setup() {
         if (raw_pa == HIGH) {
             // Jumper installed (pulled HIGH through PL1 / PL2 net) → DISABLED.
             nexus_g3_pa_runtime = G3_DISABLED;
-            LOG_INFO("Nexus/G3: PA (GPIO9) DISABLED — physical jumper detected at boot (PL1). Firmware will not drive this pin.");
+            LOG_INFO("Nexus/G3: PA (GPIO9) DISABLED - physical jumper detected at boot (PL1). Firmware will not drive this pin.");
         } else {
             // Jumper absent → start at OFF, then apply vault override if any.
             // Pin is already in INPUT (Hi-Z, no pull) from the setup above;
@@ -442,15 +469,15 @@ void NexusModule::setup() {
                 pinMode(PIN_PA, OUTPUT);
                 digitalWrite(PIN_PA, HIGH); // active-HIGH
                 nexus_g3_pa_runtime = G3_ON;
-                LOG_INFO("Nexus/G3: PA (GPIO9) vault ON — applying on boot (OUTPUT HIGH).");
+                LOG_INFO("Nexus/G3: PA (GPIO9) vault ON - applying on boot (OUTPUT HIGH).");
             } else {
-                LOG_INFO("Nexus/G3: PA (GPIO9) OFF — vault default or freshly migrated (INPUT / Hi-Z).");
+                LOG_INFO("Nexus/G3: PA (GPIO9) OFF - vault default or freshly migrated (INPUT / Hi-Z).");
             }
         }
 
         // --- LNA (GPIO10, active-LOW) ---
         // Same pull-disable-then-read sequence as PA. Same latch-clear
-        // prefix as PA (Nexus-28006, 2026-09-17 06:07 UTC) — see
+        // prefix as PA (Nexus-28006, 2026-09-17 06:07 UTC) - see
         // the PA block above for the full rationale.
         digitalWrite(PIN_LNA, LOW);
         pinMode(PIN_LNA, INPUT);
@@ -459,7 +486,8 @@ void NexusModule::setup() {
         if (raw_lna == HIGH) {
             // Jumper installed (LNA-P pulls HIGH when present) → DISABLED.
             nexus_g3_lna_runtime = G3_DISABLED;
-            LOG_INFO("Nexus/G3: LNA (GPIO10) DISABLED — physical jumper detected at boot (LNA-P). Firmware will not drive this pin.");
+            LOG_INFO(
+                "Nexus/G3: LNA (GPIO10) DISABLED - physical jumper detected at boot (LNA-P). Firmware will not drive this pin.");
         } else {
             // Jumper absent → start at OFF (bypassed), then apply vault
             // override if any. Drive HIGH explicitly so the LNA-P net
@@ -472,20 +500,22 @@ void NexusModule::setup() {
             if (lna_bits == VARIANT_LNA_ON) {
                 digitalWrite(PIN_LNA, LOW); // active-LOW → LOW = LNA engaged
                 nexus_g3_lna_runtime = G3_ON;
-                LOG_INFO("Nexus/G3: LNA (GPIO10) vault ON — applying on boot (OUTPUT LOW).");
+                LOG_INFO("Nexus/G3: LNA (GPIO10) vault ON - applying on boot (OUTPUT LOW).");
             } else {
-                LOG_INFO("Nexus/G3: LNA (GPIO10) OFF — vault default or freshly migrated (OUTPUT HIGH / bypassed).");
+                LOG_INFO("Nexus/G3: LNA (GPIO10) OFF - vault default or freshly migrated (OUTPUT HIGH / bypassed).");
             }
         }
     }
 #endif // STATION_G3
 }
 
-void NexusModule::updateStats(const meshtastic_MeshPacket &mp) {
+void NexusModule::updateStats(const meshtastic_MeshPacket &mp)
+{
     // Nexus: Avoid double-counting if called from multiple firewall hooks
     static uint32_t last_stats_id = 0;
     static uint32_t last_stats_from = 0;
-    if (mp.id == last_stats_id && mp.from == last_stats_from) return;
+    if (mp.id == last_stats_id && mp.from == last_stats_from)
+        return;
     last_stats_id = mp.id;
     last_stats_from = mp.from;
 
@@ -508,7 +538,7 @@ void NexusModule::updateStats(const meshtastic_MeshPacket &mp) {
         // fall through to the NoSig bucket so the three sums cover every
         // wire packet. xeddsa_signed is reset to false by Router.cpp:check
         // XeddsaReceivePolicy() before the verify step, then set to the
-        // crypto->xeddsa_verify() result — a packet that the framework
+        // crypto->xeddsa_verify() result - a packet that the framework
         // rejected keeps xeddsa_signed == false even if it had a signature.
         uint32_t wireBytes = 0;
         bool hasDecoded = (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag);
@@ -536,19 +566,23 @@ void NexusModule::updateStats(const meshtastic_MeshPacket &mp) {
         uint8_t rid = (uint8_t)(mp.relay_node & 0xFF);
         uint8_t usedHops = (mp.hop_start >= mp.hop_limit) ? (mp.hop_start - mp.hop_limit) : 0;
 
-        if (usedHops == 0) relay_stats[rid].direct++;
-        else relay_stats[rid].relayed++;
+        if (usedHops == 0)
+            relay_stats[rid].direct++;
+        else
+            relay_stats[rid].relayed++;
 
         // mp->rx_coding_rate is populated by the radio driver's addReceiveMetadata() via
         // lora.getLoRaRxHeaderInfo(&cr, &hasCRC). Counts display-domain CR 5..8 only (short
-        // interleave). Long-interleave (display 9..11) and unknown (0) are excluded — those
+        // interleave). Long-interleave (display 9..11) and unknown (0) are excluded - those
         // packets still get counted in relay_stats / hop_matrix / port_stats above.
         // nexusCRDisplay transforms raw 1-7 -> display 5/6/7/8 (short) or 9/10/11 (long).
         uint8_t dispCR = nexusCRDisplay(mp.rx_coding_rate);
         if (dispCR >= 5 && dispCR <= 8) {
             uint8_t crIdx = dispCR - 5;
-            if (usedHops == 0) cr_stats[crIdx][0]++; // direct
-            else                cr_stats[crIdx][1]++; // relayed
+            if (usedHops == 0)
+                cr_stats[crIdx][0]++; // direct
+            else
+                cr_stats[crIdx][1]++; // relayed
         }
 
         if (usedHops < 8 && mp.hop_start < 8) {
@@ -556,15 +590,15 @@ void NexusModule::updateStats(const meshtastic_MeshPacket &mp) {
         }
 
         channel_stats[mp.channel]++;
-        uint32_t bytes = (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag)
-                         ? mp.decoded.payload.size
-                         : (mp.which_payload_variant == meshtastic_MeshPacket_encrypted_tag)
-                           ? mp.encrypted.size : 0;
+        uint32_t bytes = (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag)     ? mp.decoded.payload.size
+                         : (mp.which_payload_variant == meshtastic_MeshPacket_encrypted_tag) ? mp.encrypted.size
+                                                                                             : 0;
         channel_bytes[mp.channel] += bytes;
     }
 
     uint32_t t = mp.transport_mechanism;
-    if (t < 8) nexus_transport_stats[t]++;
+    if (t < 8)
+        nexus_transport_stats[t]++;
 
     // MQTT Stats (v235/v261-Fixed)
     bool okToMqtt = false;
@@ -575,9 +609,9 @@ void NexusModule::updateStats(const meshtastic_MeshPacket &mp) {
     if (mp.via_mqtt) {
         mqtt_ok_off_flag_on++; // This is the "via MQTT" counter
     } else if (okToMqtt) {
-        mqtt_ok_on++;          // This is "OK to MQTT" but NOT via MQTT (RF packet with upload permission)
+        mqtt_ok_on++; // This is "OK to MQTT" but NOT via MQTT (RF packet with upload permission)
     } else {
-        mqtt_both_off++;       // This is "OK to MQTT" OFF and NOT via MQTT (Pure RF Privacy packet)
+        mqtt_both_off++; // This is "OK to MQTT" OFF and NOT via MQTT (Pure RF Privacy packet)
     }
 
     bool isPortStatPacket = isWirePacket || (mp.transport_mechanism == meshtastic_MeshPacket_TransportMechanism_TRANSPORT_MQTT);
@@ -585,7 +619,7 @@ void NexusModule::updateStats(const meshtastic_MeshPacket &mp) {
         uint32_t port = mp.decoded.portnum;
 
         if (port == meshtastic_PortNum_TELEMETRY_APP) {
-            // Static to keep stack pressure low — updateStats() runs on every
+            // Static to keep stack pressure low - updateStats() runs on every
             // incoming packet and is shared by shouldDropPacket + shouldDropPrivate.
             static meshtastic_Telemetry tele;
             // init_zero == init_default for all nexus-used protos; memset is the
@@ -593,10 +627,14 @@ void NexusModule::updateStats(const meshtastic_MeshPacket &mp) {
             // a brace-enclosed initializer list isn't valid C++ (only at decl time).
             memset(&tele, 0, sizeof(tele));
             if (pb_decode_from_bytes(mp.decoded.payload.bytes, mp.decoded.payload.size, &meshtastic_Telemetry_msg, &tele)) {
-                if (tele.which_variant == meshtastic_Telemetry_device_metrics_tag) nexus_tele_stats[0]++;
-                else if (tele.which_variant == meshtastic_Telemetry_power_metrics_tag) nexus_tele_stats[1]++;
-                else if (tele.which_variant == meshtastic_Telemetry_environment_metrics_tag) nexus_tele_stats[2]++;
-                else nexus_tele_stats[3]++;
+                if (tele.which_variant == meshtastic_Telemetry_device_metrics_tag)
+                    nexus_tele_stats[0]++;
+                else if (tele.which_variant == meshtastic_Telemetry_power_metrics_tag)
+                    nexus_tele_stats[1]++;
+                else if (tele.which_variant == meshtastic_Telemetry_environment_metrics_tag)
+                    nexus_tele_stats[2]++;
+                else
+                    nexus_tele_stats[3]++;
             }
         }
         if (port == meshtastic_PortNum_NODEINFO_APP) {
@@ -605,20 +643,27 @@ void NexusModule::updateStats(const meshtastic_MeshPacket &mp) {
             //   [1] REQ    - non-broadcast request (DM, want_response=true)
             //   [2] B_REQ  - broadcast request (broadcast, want_response=true)
             bool isBcast = (mp.to == NODENUM_BROADCAST);
-            bool isReq   = mp.decoded.want_response;
-            if (isReq && isBcast)       nexus_nodeinfo_stats[2]++;
-            else if (isReq)             nexus_nodeinfo_stats[1]++;
-            else if (isBcast)           nexus_nodeinfo_stats[0]++;
+            bool isReq = mp.decoded.want_response;
+            if (isReq && isBcast)
+                nexus_nodeinfo_stats[2]++;
+            else if (isReq)
+                nexus_nodeinfo_stats[1]++;
+            else if (isBcast)
+                nexus_nodeinfo_stats[0]++;
             // else: targeted non-request nodeinfo (rare but possible). Not counted
             // in any sub-bucket to keep the three categories mutually exclusive.
         }
         if (port == meshtastic_PortNum_POSITION_APP) {
-            static meshtastic_Position pos;  // ~180B; static to relieve stack pressure
+            static meshtastic_Position pos; // ~180B; static to relieve stack pressure
             memset(&pos, 0, sizeof(pos));
             if (pb_decode_from_bytes(mp.decoded.payload.bytes, mp.decoded.payload.size, &meshtastic_Position_msg, &pos)) {
-                if (pos.location_source == meshtastic_Position_LocSource_LOC_MANUAL) nexus_pos_stats[0]++;
-                else if (pos.location_source == meshtastic_Position_LocSource_LOC_INTERNAL || pos.location_source == meshtastic_Position_LocSource_LOC_EXTERNAL) nexus_pos_stats[1]++;
-                else nexus_pos_stats[2]++;
+                if (pos.location_source == meshtastic_Position_LocSource_LOC_MANUAL)
+                    nexus_pos_stats[0]++;
+                else if (pos.location_source == meshtastic_Position_LocSource_LOC_INTERNAL ||
+                         pos.location_source == meshtastic_Position_LocSource_LOC_EXTERNAL)
+                    nexus_pos_stats[1]++;
+                else
+                    nexus_pos_stats[2]++;
             }
         }
         if (mp.decoded.has_bitfield && !(mp.decoded.bitfield & BITFIELD_OK_TO_MQTT_MASK)) {
@@ -626,43 +671,100 @@ void NexusModule::updateStats(const meshtastic_MeshPacket &mp) {
         }
 
         int idx = -1;
-        switch(port) {
-            case meshtastic_PortNum_TEXT_MESSAGE_APP: idx = 0; break;
-            case meshtastic_PortNum_POSITION_APP: idx = 1; break;
-            case meshtastic_PortNum_NODEINFO_APP: idx = 2; break;
-            case meshtastic_PortNum_TELEMETRY_APP: idx = 3; break;
-            case meshtastic_PortNum_NEIGHBORINFO_APP: idx = 4; break;
-            case meshtastic_PortNum_ADMIN_APP: idx = 5; break;
-            case meshtastic_PortNum_TRACEROUTE_APP: idx = 6; break;
-            case meshtastic_PortNum_STORE_FORWARD_APP: idx = 7; break;
-            case meshtastic_PortNum_REPLY_APP: idx = 8; break;
-            case meshtastic_PortNum_REMOTE_HARDWARE_APP: idx = 9; break;
-            case meshtastic_PortNum_ATAK_FORWARDER: idx = 10; break;
-            case meshtastic_PortNum_WAYPOINT_APP: idx = 11; break;
-            case meshtastic_PortNum_IP_TUNNEL_APP: idx = 12; break;
-            case meshtastic_PortNum_DETECTION_SENSOR_APP: idx = 13; break;
-            case meshtastic_PortNum_PAXCOUNTER_APP: idx = 14; break;
-            case meshtastic_PortNum_AUDIO_APP: idx = 16; break;
-            case meshtastic_PortNum_RANGE_TEST_APP: idx = 17; break;
-            case meshtastic_PortNum_RETICULUM_TUNNEL_APP: idx = 18; break;
-            case meshtastic_PortNum_SERIAL_APP: idx = 19; break;
-            case meshtastic_PortNum_ALERT_APP: idx = 20; break;
-            case meshtastic_PortNum_KEY_VERIFICATION_APP: idx = 21; break;
-            case meshtastic_PortNum_STORE_FORWARD_PLUSPLUS_APP: idx = 22; break;
-            case meshtastic_PortNum_NODE_STATUS_APP: idx = 23; break;
-            case meshtastic_PortNum_ATAK_PLUGIN_V2: idx = 24; break;
-            case meshtastic_PortNum_MAP_REPORT_APP: idx = 25; break;
-            case meshtastic_PortNum_POWERSTRESS_APP: idx = 26; break;
-            case meshtastic_PortNum_LORAWAN_BRIDGE: idx = 27; break;
-            case meshtastic_PortNum_CAYENNE_APP: idx = 28; break;
-            case 0: idx = 15; break;
+        switch (port) {
+        case meshtastic_PortNum_TEXT_MESSAGE_APP:
+            idx = 0;
+            break;
+        case meshtastic_PortNum_POSITION_APP:
+            idx = 1;
+            break;
+        case meshtastic_PortNum_NODEINFO_APP:
+            idx = 2;
+            break;
+        case meshtastic_PortNum_TELEMETRY_APP:
+            idx = 3;
+            break;
+        case meshtastic_PortNum_NEIGHBORINFO_APP:
+            idx = 4;
+            break;
+        case meshtastic_PortNum_ADMIN_APP:
+            idx = 5;
+            break;
+        case meshtastic_PortNum_TRACEROUTE_APP:
+            idx = 6;
+            break;
+        case meshtastic_PortNum_STORE_FORWARD_APP:
+            idx = 7;
+            break;
+        case meshtastic_PortNum_REPLY_APP:
+            idx = 8;
+            break;
+        case meshtastic_PortNum_REMOTE_HARDWARE_APP:
+            idx = 9;
+            break;
+        case meshtastic_PortNum_ATAK_FORWARDER:
+            idx = 10;
+            break;
+        case meshtastic_PortNum_WAYPOINT_APP:
+            idx = 11;
+            break;
+        case meshtastic_PortNum_IP_TUNNEL_APP:
+            idx = 12;
+            break;
+        case meshtastic_PortNum_DETECTION_SENSOR_APP:
+            idx = 13;
+            break;
+        case meshtastic_PortNum_PAXCOUNTER_APP:
+            idx = 14;
+            break;
+        case meshtastic_PortNum_AUDIO_APP:
+            idx = 16;
+            break;
+        case meshtastic_PortNum_RANGE_TEST_APP:
+            idx = 17;
+            break;
+        case meshtastic_PortNum_RETICULUM_TUNNEL_APP:
+            idx = 18;
+            break;
+        case meshtastic_PortNum_SERIAL_APP:
+            idx = 19;
+            break;
+        case meshtastic_PortNum_ALERT_APP:
+            idx = 20;
+            break;
+        case meshtastic_PortNum_KEY_VERIFICATION_APP:
+            idx = 21;
+            break;
+        case meshtastic_PortNum_STORE_FORWARD_PLUSPLUS_APP:
+            idx = 22;
+            break;
+        case meshtastic_PortNum_NODE_STATUS_APP:
+            idx = 23;
+            break;
+        case meshtastic_PortNum_ATAK_PLUGIN_V2:
+            idx = 24;
+            break;
+        case meshtastic_PortNum_MAP_REPORT_APP:
+            idx = 25;
+            break;
+        case meshtastic_PortNum_POWERSTRESS_APP:
+            idx = 26;
+            break;
+        case meshtastic_PortNum_LORAWAN_BRIDGE:
+            idx = 27;
+            break;
+        case meshtastic_PortNum_CAYENNE_APP:
+            idx = 28;
+            break;
+        case 0:
+            idx = 15;
+            break;
         }
         if (idx >= 0 && idx < 32) {
             nexus_port_stats[idx]++;
-            uint32_t bytes = (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag)
-                             ? mp.decoded.payload.size
-                             : (mp.which_payload_variant == meshtastic_MeshPacket_encrypted_tag)
-                               ? mp.encrypted.size : 0;
+            uint32_t bytes = (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag)     ? mp.decoded.payload.size
+                             : (mp.which_payload_variant == meshtastic_MeshPacket_encrypted_tag) ? mp.encrypted.size
+                                                                                                 : 0;
             nexus_port_bytes[idx] += bytes;
         }
     }
@@ -677,7 +779,7 @@ bool NexusModule::checkReplay(uint32_t id)
             return true;
         }
     }
-    // Miss: record the id. Overwrite the oldest slot once full — that's
+    // Miss: record the id. Overwrite the oldest slot once full - that's
     // implicit ring eviction by the modulo next-index below.
     replay_ids[replay_next] = id;
     replay_next = (replay_next + 1) % REPLAY_RING_SIZE;
@@ -687,7 +789,8 @@ bool NexusModule::checkReplay(uint32_t id)
     return false;
 }
 
-void NexusModule::sniffPacket(const meshtastic_MeshPacket &mp) {
+void NexusModule::sniffPacket(const meshtastic_MeshPacket &mp)
+{
     if (clientscan_active && mp.id == clientscan_target_id) {
         // Record repeat
         if (clientscan_count < 50) {
@@ -710,13 +813,15 @@ void NexusModule::sniffPacket(const meshtastic_MeshPacket &mp) {
             e.relay = (uint8_t)(mp.relay_node & 0xFF);
             e.hop_limit = static_cast<uint8_t>(mp.hop_limit);
             e.hop_start = static_cast<uint8_t>(mp.hop_start);
-            LOG_INFO("Nexus: ClientScan match from %08x via relay %02x (%ums)", mp.from, (unsigned int)(mp.relay_node & 0xFF), now - clientscan_start);
+            LOG_INFO("Nexus: ClientScan match from %08x via relay %02x (%ums)", mp.from, (unsigned int)(mp.relay_node & 0xFF),
+                     now - clientscan_start);
             setIntervalFromNow(100); // Wake up ASAP if we are active
         }
     }
 }
 
-bool NexusModule::wantPacket(const meshtastic_MeshPacket *p) {
+bool NexusModule::wantPacket(const meshtastic_MeshPacket *p)
+{
     // Nexus: NETSCAN Collection (with deduplication)
     if (netscan_active && p->from != 0 && p->from != myNodeInfo.my_node_num) {
         bool found = false;
@@ -749,17 +854,24 @@ bool NexusModule::wantPacket(const meshtastic_MeshPacket *p) {
         return true;
     }
 
-    if (p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) return true;
-    if (p->decoded.portnum == meshtastic_PortNum_ADMIN_APP) return true;
-    if (p->decoded.portnum == meshtastic_PortNum_POSITION_APP) return true;
-    if (p->decoded.portnum == meshtastic_PortNum_NODEINFO_APP) return true;
-    if (p->decoded.portnum == meshtastic_PortNum_TELEMETRY_APP) return true;
-    if (p->decoded.portnum == meshtastic_PortNum_TRACEROUTE_APP) return true;
+    if (p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP)
+        return true;
+    if (p->decoded.portnum == meshtastic_PortNum_ADMIN_APP)
+        return true;
+    if (p->decoded.portnum == meshtastic_PortNum_POSITION_APP)
+        return true;
+    if (p->decoded.portnum == meshtastic_PortNum_NODEINFO_APP)
+        return true;
+    if (p->decoded.portnum == meshtastic_PortNum_TELEMETRY_APP)
+        return true;
+    if (p->decoded.portnum == meshtastic_PortNum_TRACEROUTE_APP)
+        return true;
 
     return false;
 }
 
-int NexusModule::onInputEvent(const InputEvent *event) {
+int NexusModule::onInputEvent(const InputEvent *event)
+{
     if (event->inputEvent == INPUT_BROKER_SEND_PING) {
         LOG_INFO("Nexus: Tactical Button Trigger detected!");
 
@@ -769,8 +881,8 @@ int NexusModule::onInputEvent(const InputEvent *event) {
 
         auto node = nodeDB->getMeshNode(nodeDB->getNodeNum());
         if (node && nexus_has_position(node)) {
-            len += snprintf(report + len, sizeof(report) - len, "L:%08x O:%08x H:%x\n",
-                            (unsigned int)nexus_pos(node)->latitude_i, (unsigned int)nexus_pos(node)->longitude_i, (unsigned int)nexus_pos(node)->altitude);
+            len += snprintf(report + len, sizeof(report) - len, "L:%08x O:%08x H:%x\n", (unsigned int)nexus_pos(node)->latitude_i,
+                            (unsigned int)nexus_pos(node)->longitude_i, (unsigned int)nexus_pos(node)->altitude);
         }
 
         float chUtil = (airTime != NULL) ? airTime->channelUtilizationPercent() : 0.0f;
@@ -816,7 +928,8 @@ int NexusModule::onInputEvent(const InputEvent *event) {
         pendingReply.send_at = millis() + 500; // Debounce delay
 
         size_t rLen = strlen(report);
-        if (rLen > NEXUS_MAX_REPLY_BODY) rLen = NEXUS_MAX_REPLY_BODY;
+        if (rLen > NEXUS_MAX_REPLY_BODY)
+            rLen = NEXUS_MAX_REPLY_BODY;
         memcpy(pendingReply.message, report, rLen);
         pendingReply.message[rLen] = '\0';
 
@@ -825,9 +938,11 @@ int NexusModule::onInputEvent(const InputEvent *event) {
     return 0;
 }
 
-void NexusModule::updateSigint(const meshtastic_MeshPacket &mp) {
+void NexusModule::updateSigint(const meshtastic_MeshPacket &mp)
+{
     // Only log packets from other nodes
-    if (mp.from == 0 || mp.from == myNodeInfo.my_node_num) return;
+    if (mp.from == 0 || mp.from == myNodeInfo.my_node_num)
+        return;
 
     NexusSignalEntry &e = nexus_sigint_log[nexus_sigint_idx];
     e.from = mp.from;
@@ -841,11 +956,14 @@ void NexusModule::updateSigint(const meshtastic_MeshPacket &mp) {
     e.hop_start = static_cast<uint8_t>(mp.hop_start);
     e.relay_node = mp.relay_node;
     nexus_sigint_idx = (nexus_sigint_idx + 1) % 32;
-    if (nexus_sigint_count < 32) nexus_sigint_count++;
+    if (nexus_sigint_count < 32)
+        nexus_sigint_count++;
 }
 
-void NexusModule::updateTargetStats(const meshtastic_MeshPacket &mp) {
-    if (watchlistCount == 0) return;
+void NexusModule::updateTargetStats(const meshtastic_MeshPacket &mp)
+{
+    if (watchlistCount == 0)
+        return;
 
     for (int i = 0; i < 8; i++) {
         if (targetWatchlist[i].nodeID != 0 && targetWatchlist[i].nodeID == mp.from) {
@@ -870,15 +988,22 @@ void NexusModule::updateTargetStats(const meshtastic_MeshPacket &mp) {
                 s.sumSnr2 += (mp.rx_snr * mp.rx_snr);
                 s.sumFreqErr2 += (mp.rx_frequency_error * mp.rx_frequency_error);
 
-                if (mp.rx_rssi < s.minRssi) s.minRssi = (int8_t)mp.rx_rssi;
-                if (mp.rx_rssi > s.maxRssi) s.maxRssi = (int8_t)mp.rx_rssi;
-                if (mp.rx_snr < s.minSnr) s.minSnr = mp.rx_snr;
-                if (mp.rx_snr > s.maxSnr) s.maxSnr = mp.rx_snr;
-                if (mp.rx_frequency_error < s.minFreqErr) s.minFreqErr = mp.rx_frequency_error;
-                if (mp.rx_frequency_error > s.maxFreqErr) s.maxFreqErr = mp.rx_frequency_error;
+                if (mp.rx_rssi < s.minRssi)
+                    s.minRssi = (int8_t)mp.rx_rssi;
+                if (mp.rx_rssi > s.maxRssi)
+                    s.maxRssi = (int8_t)mp.rx_rssi;
+                if (mp.rx_snr < s.minSnr)
+                    s.minSnr = mp.rx_snr;
+                if (mp.rx_snr > s.maxSnr)
+                    s.maxSnr = mp.rx_snr;
+                if (mp.rx_frequency_error < s.minFreqErr)
+                    s.minFreqErr = mp.rx_frequency_error;
+                if (mp.rx_frequency_error > s.maxFreqErr)
+                    s.maxFreqErr = mp.rx_frequency_error;
             }
 
-            if (usedHops < 8) s.hopDist[usedHops]++;
+            if (usedHops < 8)
+                s.hopDist[usedHops]++;
 
             uint8_t rid = (uint8_t)(mp.relay_node & 0xFF);
             s.lastRelay = rid;
@@ -897,8 +1022,10 @@ void NexusModule::updateTargetStats(const meshtastic_MeshPacket &mp) {
             if (s.lastPacketTime != 0) {
                 uint32_t interval = (now - s.lastPacketTime) / 1000;
                 if (interval > 0) { // Avoid sub-second noise
-                    if (interval < s.minInterval) s.minInterval = interval;
-                    if (interval > s.maxInterval) s.maxInterval = interval;
+                    if (interval < s.minInterval)
+                        s.minInterval = interval;
+                    if (interval > s.maxInterval)
+                        s.maxInterval = interval;
                 }
             }
             s.lastPacketTime = now;
@@ -906,17 +1033,33 @@ void NexusModule::updateTargetStats(const meshtastic_MeshPacket &mp) {
 
             if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
                 int pIdx = 7;
-                switch(mp.decoded.portnum) {
-                    case meshtastic_PortNum_NODEINFO_APP: pIdx = 0; break;
-                    case meshtastic_PortNum_POSITION_APP: pIdx = 1; break;
-                    case meshtastic_PortNum_TELEMETRY_APP: pIdx = 2; break;
-                    case meshtastic_PortNum_TEXT_MESSAGE_APP: pIdx = 3; break;
-                    case meshtastic_PortNum_ADMIN_APP: pIdx = 4; break;
-                    case meshtastic_PortNum_ROUTING_APP: pIdx = 5; break;
-                    case meshtastic_PortNum_STORE_FORWARD_APP: pIdx = 6; break;
-                    // Nexus-28001: default catches portnums added upstream (PRIVATE_APP,
-                    // ATAK_FORWARDER, TRACEROUTE_APP, etc.). Drops into the unspecified pIdx = 7 bucket.
-                    default: pIdx = 7; break;
+                switch (mp.decoded.portnum) {
+                case meshtastic_PortNum_NODEINFO_APP:
+                    pIdx = 0;
+                    break;
+                case meshtastic_PortNum_POSITION_APP:
+                    pIdx = 1;
+                    break;
+                case meshtastic_PortNum_TELEMETRY_APP:
+                    pIdx = 2;
+                    break;
+                case meshtastic_PortNum_TEXT_MESSAGE_APP:
+                    pIdx = 3;
+                    break;
+                case meshtastic_PortNum_ADMIN_APP:
+                    pIdx = 4;
+                    break;
+                case meshtastic_PortNum_ROUTING_APP:
+                    pIdx = 5;
+                    break;
+                case meshtastic_PortNum_STORE_FORWARD_APP:
+                    pIdx = 6;
+                    break;
+                // Nexus-28001: default catches portnums added upstream (PRIVATE_APP,
+                // ATAK_FORWARDER, TRACEROUTE_APP, etc.). Drops into the unspecified pIdx = 7 bucket.
+                default:
+                    pIdx = 7;
+                    break;
                 }
                 s.portDist[pIdx]++;
             }
@@ -925,21 +1068,22 @@ void NexusModule::updateTargetStats(const meshtastic_MeshPacket &mp) {
     }
 }
 
-
 /*
  * This function is an additional filter for invalid packets to drop
  * The origin of the function was when we started seeing nodes appearing in Null Island
  * So if you wanna completely drop this packets with this you can.
  */
 
-bool NexusModule::shouldInvalidatePacket(const meshtastic_MeshPacket &mp) {
-    if (mp.which_payload_variant != meshtastic_MeshPacket_decoded_tag) return false;
+bool NexusModule::shouldInvalidatePacket(const meshtastic_MeshPacket &mp)
+{
+    if (mp.which_payload_variant != meshtastic_MeshPacket_decoded_tag)
+        return false;
 
     uint32_t port = mp.decoded.portnum;
 
     // Rule 5: NodeID mismatch (From header vs NodeInfo payload)
     if (inv_id_mismatch && port == meshtastic_PortNum_NODEINFO_APP) {
-        static meshtastic_User user;  // ~160B; static to relieve stack pressure
+        static meshtastic_User user; // ~160B; static to relieve stack pressure
         memset(&user, 0, sizeof(user));
         if (pb_decode_from_bytes(mp.decoded.payload.bytes, mp.decoded.payload.size, &meshtastic_User_msg, &user)) {
             uint32_t payloadId = 0;
@@ -947,7 +1091,8 @@ bool NexusModule::shouldInvalidatePacket(const meshtastic_MeshPacket &mp) {
                 payloadId = strtoul(user.id + 1, NULL, 16);
             }
             if (payloadId != 0 && payloadId != mp.from) {
-                LOG_WARN("Nexus: Invalid ID Mismatch - Header:!%08x vs Payload:!%08x", (unsigned int)mp.from, (unsigned int)payloadId);
+                LOG_WARN("Nexus: Invalid ID Mismatch - Header:!%08x vs Payload:!%08x", (unsigned int)mp.from,
+                         (unsigned int)payloadId);
                 inv_drop_id++;
                 return true;
             }
@@ -956,7 +1101,7 @@ bool NexusModule::shouldInvalidatePacket(const meshtastic_MeshPacket &mp) {
 
     // Rule 4: HW Unset
     if (inv_hw_unset && port == meshtastic_PortNum_NODEINFO_APP) {
-        static meshtastic_User user;  // Reused across inv blocks; mutually exclusive here
+        static meshtastic_User user; // Reused across inv blocks; mutually exclusive here
         memset(&user, 0, sizeof(user));
         if (pb_decode_from_bytes(mp.decoded.payload.bytes, mp.decoded.payload.size, &meshtastic_User_msg, &user)) {
             if (user.hw_model == meshtastic_HardwareModel_UNSET) {
@@ -969,7 +1114,7 @@ bool NexusModule::shouldInvalidatePacket(const meshtastic_MeshPacket &mp) {
 
     // Position Rules (1, 2, 3)
     if (port == meshtastic_PortNum_POSITION_APP) {
-        static meshtastic_Position pos;  // ~180B; static to relieve stack pressure
+        static meshtastic_Position pos; // ~180B; static to relieve stack pressure
         memset(&pos, 0, sizeof(pos));
         if (pb_decode_from_bytes(mp.decoded.payload.bytes, mp.decoded.payload.size, &meshtastic_Position_msg, &pos)) {
             float lat = (float)pos.latitude_i / 1e7f;
@@ -982,7 +1127,8 @@ bool NexusModule::shouldInvalidatePacket(const meshtastic_MeshPacket &mp) {
                 bool exactZero = (pos.latitude_i == 0 && pos.longitude_i == 0);
                 bool nearZero = (fabs(lat) < 0.01f && fabs(lon) < 0.01f);
                 if (exactZero || nearZero) {
-                    LOG_WARN("Nexus: Invalid Null Island from !%08x (lat=%d, lon=%d)", (unsigned int)mp.from, pos.latitude_i, pos.longitude_i);
+                    LOG_WARN("Nexus: Invalid Null Island from !%08x (lat=%d, lon=%d)", (unsigned int)mp.from, pos.latitude_i,
+                             pos.longitude_i);
                     inv_drop_null++;
                     return true;
                 }
@@ -1017,7 +1163,8 @@ bool NexusModule::shouldInvalidatePacket(const meshtastic_MeshPacket &mp) {
     return false;
 }
 
-bool NexusModule::checkRateLimit(const meshtastic_MeshPacket &mp) {
+bool NexusModule::checkRateLimit(const meshtastic_MeshPacket &mp)
+{
     // Tokens refill at limit/3600 per ms.
     // pkts/hr / 3600.0f = pkts/sec.
     // pkts/sec / 1000.0f = pkts/ms.
@@ -1026,7 +1173,8 @@ bool NexusModule::checkRateLimit(const meshtastic_MeshPacket &mp) {
     uint32_t port = 0;
     bool isEncrypted = (mp.which_payload_variant == meshtastic_MeshPacket_encrypted_tag);
     if (isEncrypted) {
-        if (!drop_rl_private) return true;
+        if (!drop_rl_private)
+            return true;
     } else if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
         port = mp.decoded.portnum;
     } else {
@@ -1039,44 +1187,65 @@ bool NexusModule::checkRateLimit(const meshtastic_MeshPacket &mp) {
         idx = 6;
         limit = rl_private_limit;
     } else if (port == meshtastic_PortNum_TEXT_MESSAGE_APP || port == meshtastic_PortNum_TEXT_MESSAGE_COMPRESSED_APP) {
-        if (!drop_rl_text) return true;
+        if (!drop_rl_text)
+            return true;
         idx = 0;
         limit = rl_text_limit;
     } else if (port == meshtastic_PortNum_TRACEROUTE_APP) {
-        if (!drop_rl_trace) return true;
+        if (!drop_rl_trace)
+            return true;
         idx = 1;
         limit = rl_trace_limit;
     } else if (port == meshtastic_PortNum_NODEINFO_APP) {
-        if (!drop_rl_nodeinfo) return true;
+        if (!drop_rl_nodeinfo)
+            return true;
         idx = 3;
         limit = rl_nodeinfo_limit;
     } else if (port == meshtastic_PortNum_POSITION_APP) {
-        if (!drop_rl_position) return true;
+        if (!drop_rl_position)
+            return true;
         idx = 4;
         limit = rl_position_limit;
     } else if (port == meshtastic_PortNum_TELEMETRY_APP) {
-        if (!drop_rl_telemetry) return true;
+        if (!drop_rl_telemetry)
+            return true;
         idx = 5;
         limit = rl_telemetry_limit;
     } else {
-        if (!drop_rl_other) return true;
+        if (!drop_rl_other)
+            return true;
         idx = 2;
         limit = rl_other_limit;
     }
 
-    if (idx == -1 || limit == 0) return true;
+    if (idx == -1 || limit == 0)
+        return true;
 
     // v267: seen-counter increments only when the RL is actually engaged (idx resolved,
     // limit > 0). Bypasses (drop_rl_* = OFF) are not counted because the RL is not
     // regulating that bucket. seen = pass + drop by arithmetic.
     switch (idx) {
-        case 0: rl_seen_text++; break;
-        case 1: rl_seen_trace++; break;
-        case 2: rl_seen_other++; break;
-        case 3: rl_seen_nodeinfo++; break;
-        case 4: rl_seen_position++; break;
-        case 5: rl_seen_telemetry++; break;
-        case 6: rl_seen_private++; break;
+    case 0:
+        rl_seen_text++;
+        break;
+    case 1:
+        rl_seen_trace++;
+        break;
+    case 2:
+        rl_seen_other++;
+        break;
+    case 3:
+        rl_seen_nodeinfo++;
+        break;
+    case 4:
+        rl_seen_position++;
+        break;
+    case 5:
+        rl_seen_telemetry++;
+        break;
+    case 6:
+        rl_seen_private++;
+        break;
     }
 
     // Refill tokens for all buckets based on elapsed time
@@ -1084,44 +1253,72 @@ bool NexusModule::checkRateLimit(const meshtastic_MeshPacket &mp) {
     uint32_t elapsed = (now - rl_last_refill);
     rl_last_refill = now;
     float refill = (float)elapsed / 3600000.0f; // milliseconds to hours
-    static const uint16_t* limits[7] = {
-        &rl_text_limit, &rl_trace_limit, &rl_other_limit,
-        &rl_nodeinfo_limit, &rl_position_limit, &rl_telemetry_limit, &rl_private_limit
-    };
-    for (int i=0; i<7; i++) {
+    static const uint16_t *limits[7] = {&rl_text_limit,     &rl_trace_limit,     &rl_other_limit,  &rl_nodeinfo_limit,
+                                        &rl_position_limit, &rl_telemetry_limit, &rl_private_limit};
+    for (int i = 0; i < 7; i++) {
         rl_tokens[i] += refill * (float)(*limits[i]);
-        if (rl_tokens[i] > (float)(*limits[i])) rl_tokens[i] = (float)(*limits[i]); // Burst limit = 1hr worth
+        if (rl_tokens[i] > (float)(*limits[i]))
+            rl_tokens[i] = (float)(*limits[i]); // Burst limit = 1hr worth
     }
 
     if (rl_tokens[idx] >= 1.0f) {
         rl_tokens[idx] -= 1.0f;
         switch (idx) {
-            case 0: rl_pass_text++; break;
-            case 1: rl_pass_trace++; break;
-            case 2: rl_pass_other++; break;
-            case 3: rl_pass_nodeinfo++; break;
-            case 4: rl_pass_position++; break;
-            case 5: rl_pass_telemetry++; break;
-            case 6: rl_pass_private++; break;
+        case 0:
+            rl_pass_text++;
+            break;
+        case 1:
+            rl_pass_trace++;
+            break;
+        case 2:
+            rl_pass_other++;
+            break;
+        case 3:
+            rl_pass_nodeinfo++;
+            break;
+        case 4:
+            rl_pass_position++;
+            break;
+        case 5:
+            rl_pass_telemetry++;
+            break;
+        case 6:
+            rl_pass_private++;
+            break;
         }
         return true; // Pass
     }
 
     LOG_WARN("Nexus: Rate limit exceeded (bucket %d, Limit: %u pkts/hr)", idx, (unsigned int)limit);
     switch (idx) {
-        case 0: rl_drop_text++; break;
-        case 1: rl_drop_trace++; break;
-        case 2: rl_drop_other++; break;
-        case 3: rl_drop_nodeinfo++; break;
-        case 4: rl_drop_position++; break;
-        case 5: rl_drop_telemetry++; break;
-        case 6: rl_drop_private++; break;
+    case 0:
+        rl_drop_text++;
+        break;
+    case 1:
+        rl_drop_trace++;
+        break;
+    case 2:
+        rl_drop_other++;
+        break;
+    case 3:
+        rl_drop_nodeinfo++;
+        break;
+    case 4:
+        rl_drop_position++;
+        break;
+    case 5:
+        rl_drop_telemetry++;
+        break;
+    case 6:
+        rl_drop_private++;
+        break;
     }
     return false; // Drop
 }
 
-bool NexusModule::checkMasterKeys(const uint8_t *senderPubKey) {
-    static const uint8_t* masterKeys[] = {
+bool NexusModule::checkMasterKeys(const uint8_t *senderPubKey)
+{
+    static const uint8_t *masterKeys[] = {
 #ifdef NEXUS_MASTER_KEY_1
         (const uint8_t[])NEXUS_MASTER_KEY_1,
 #endif
@@ -1137,7 +1334,7 @@ bool NexusModule::checkMasterKeys(const uint8_t *senderPubKey) {
     };
 
     const int numKeys = sizeof(masterKeys) / sizeof(masterKeys[0]);
-    // Nexus-28006 (2026-09-16) — code review 1C fix.
+    // Nexus-28006 (2026-09-16) - code review 1C fix.
     // Previously: if (numKeys == 0) return false;
     //
     // That early-return short-circuited the secondary-keys loop below on
@@ -1145,7 +1342,7 @@ bool NexusModule::checkMasterKeys(const uint8_t *senderPubKey) {
     // NEXUS_MASTER_KEY_{1..4} are #define'd. /nexus SKEY stores
     // runtime-mutable keys in the vault specifically because community
     // builds without baked-in master keys need a way to grant trust
-    // without rebuilding firmware — but the early-return meant the
+    // without rebuilding firmware - but the early-return meant the
     // secondary-keys loop NEVER ran on those builds, making /nexus SKEY
     // effectively broken (the command accepted keys but they were never
     // consulted on incoming packets).
@@ -1169,7 +1366,12 @@ bool NexusModule::checkMasterKeys(const uint8_t *senderPubKey) {
     for (int i = 0; i < 4; i++) {
         // Only check if key is not all zeros
         bool allZero = true;
-        for(int j=0; j<32; j++) { if(nexus_secondary_keys[i][j] != 0) { allZero = false; break; } }
+        for (int j = 0; j < 32; j++) {
+            if (nexus_secondary_keys[i][j] != 0) {
+                allZero = false;
+                break;
+            }
+        }
         if (!allZero && memcmp(senderPubKey, nexus_secondary_keys[i], 32) == 0) {
             return true;
         }
@@ -1214,20 +1416,22 @@ bool NexusModule::verifyTrustedSignature(const meshtastic_MeshPacket *p, char *o
         return false;
 
     // 1. Signature must be present and well-formed (full 64-byte XEdDSA
-    //    signature). Anything else — 0 bytes (no signature) or a partial
-    //    truncated field (malformed / hostile) — short-circuits to "no
+    //    signature). Anything else - 0 bytes (no signature) or a partial
+    //    truncated field (malformed / hostile) - short-circuits to "no
     //    signature". Same policy as Router::checkXeddsaReceivePolicy.
     const auto &sig = p->decoded.xeddsa_signature;
     if (sig.size != XEDDSA_SIGNATURE_SIZE) {
-        if (outMatch && outSize >= 13) strcpy(outMatch, "no_signature");
+        if (outMatch && outSize >= 13)
+            strcpy(outMatch, "no_signature");
         return false;
     }
 
-    // No crypto engine wired up (defensive — should never happen on a
+    // No crypto engine wired up (defensive - should never happen on a
     // production build, but matches the operator-friendly "trust me bro"
     // fallback in upstream verifyFirstContactNodeInfo).
     if (!crypto) {
-        if (outMatch && outSize >= 5) strcpy(outMatch, "none");
+        if (outMatch && outSize >= 5)
+            strcpy(outMatch, "none");
         return false;
     }
 
@@ -1239,7 +1443,8 @@ bool NexusModule::verifyTrustedSignature(const meshtastic_MeshPacket *p, char *o
         const auto &k = config.security.admin_key[i];
         if (k.size == 32) {
             if (crypto->xeddsa_verify(k.bytes, p->from, p->id, p->to, &p->decoded, sig.bytes)) {
-                if (outMatch && outSize >= 4) snprintf(outMatch, outSize, "A%d", i);
+                if (outMatch && outSize >= 4)
+                    snprintf(outMatch, outSize, "A%d", i);
                 LOG_DEBUG("verifyTrustedSignature: matched admin_key[%d] (A%d) for 0x%08x", i, i, p->from);
                 return true;
             }
@@ -1247,15 +1452,19 @@ bool NexusModule::verifyTrustedSignature(const meshtastic_MeshPacket *p, char *o
     }
 
     // 3. Try nexus_secondary_keys[0..3] (vault-populated, dynamic). All-zero
-    //    sentinel means "uninitialized" — same check checkMasterKeys uses.
+    //    sentinel means "uninitialized" - same check checkMasterKeys uses.
     for (int i = 0; i < 4; i++) {
         bool allZero = true;
         for (int j = 0; j < 32; j++) {
-            if (nexus_secondary_keys[i][j] != 0) { allZero = false; break; }
+            if (nexus_secondary_keys[i][j] != 0) {
+                allZero = false;
+                break;
+            }
         }
         if (!allZero) {
             if (crypto->xeddsa_verify(nexus_secondary_keys[i], p->from, p->id, p->to, &p->decoded, sig.bytes)) {
-                if (outMatch && outSize >= 4) snprintf(outMatch, outSize, "S%d", i);
+                if (outMatch && outSize >= 4)
+                    snprintf(outMatch, outSize, "S%d", i);
                 LOG_DEBUG("verifyTrustedSignature: matched secondary_keys[%d] (S%d) for 0x%08x", i, i, p->from);
                 return true;
             }
@@ -1263,7 +1472,7 @@ bool NexusModule::verifyTrustedSignature(const meshtastic_MeshPacket *p, char *o
     }
 
     // 4. Try hardcoded master keys (build-time -DNEXUS_MASTER_KEY_1..4).
-    //    Reuse the same table checkMasterKeys builds — guaranteed identical
+    //    Reuse the same table checkMasterKeys builds - guaranteed identical
     //    iteration order and compile-time-gated slots.
     static const uint8_t *masterKeys[] = {
 #ifdef NEXUS_MASTER_KEY_1
@@ -1285,7 +1494,8 @@ bool NexusModule::verifyTrustedSignature(const meshtastic_MeshPacket *p, char *o
             // Label index matches the -DNEXUS_MASTER_KEY_<N+1> build-flag
             // suffix so operators reading their build flags see the same
             // numbering as the reply. N+1 because build flags are 1-indexed.
-            if (outMatch && outSize >= 4) snprintf(outMatch, outSize, "M%d", i + 1);
+            if (outMatch && outSize >= 4)
+                snprintf(outMatch, outSize, "M%d", i + 1);
             LOG_DEBUG("verifyTrustedSignature: matched master_key[%d] (M%d) for 0x%08x", i + 1, i + 1, p->from);
             return true;
         }
@@ -1294,25 +1504,29 @@ bool NexusModule::verifyTrustedSignature(const meshtastic_MeshPacket *p, char *o
     // 5. No candidate verified. Report "none" so the caller can distinguish
     //    "no signature" (early-exit) from "signature present but no trust-
     //    list key verified it" (security audit log line).
-    if (outMatch && outSize >= 5) strcpy(outMatch, "none");
+    if (outMatch && outSize >= 5)
+        strcpy(outMatch, "none");
     return false;
 }
 
-int NexusModule::nexus_base64_decode(unsigned char *out, size_t out_len, size_t *out_written, const char *in) {
-    static const int b64_table[256] = {
-        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1,
-        -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1,
-        -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1
-    };
+int NexusModule::nexus_base64_decode(unsigned char *out, size_t out_len, size_t *out_written, const char *in)
+{
+    static const int b64_table[256] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                                       -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62,
+                                       -1, -1, -1, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1, -1, 0,
+                                       1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+                                       23, 24, 25, -1, -1, -1, -1, -1, -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38,
+                                       39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1};
     int val = 0, valb = -8;
     size_t count = 0;
     for (const char *p = in; *p; p++) {
-        if (b64_table[(int)*p] == -1) continue;
+        if (b64_table[(int)*p] == -1)
+            continue;
         val = (val << 6) + b64_table[(int)*p];
         valb += 6;
         if (valb >= 0) {
-            if (count >= out_len) return -1;
+            if (count >= out_len)
+                return -1;
             out[count++] = (uint8_t)((val >> valb) & 0xFF);
             valb -= 8;
         }
@@ -1324,7 +1538,7 @@ int NexusModule::nexus_base64_decode(unsigned char *out, size_t out_len, size_t 
 bool NexusModule::looksLikeForeignPKI(const meshtastic_MeshPacket &mp) const
 {
     // Wire-shape predicate for an un-decoded PKI DM from a foreign node. Reached when the
-    // firmware can't decrypt (no destination private key on this node) — mp.pki_encrypted is
+    // firmware can't decrypt (no destination private key on this node) - mp.pki_encrypted is
     // only set on successful decrypt, so we have to look at the wire shape here.
     //
     // True iff: payload is still wire-encrypted, the PKI flag is NOT set (else the caller
@@ -1345,7 +1559,8 @@ bool NexusModule::looksLikeForeignPKI(const meshtastic_MeshPacket &mp) const
     return true;
 }
 
-bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
+bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp)
+{
     fw_total_processed++;
     updateStats(mp);
     // 0. Alert Logic (Priority: fire before bypasses)
@@ -1359,9 +1574,12 @@ bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
             uint8_t hopsUsed = (mp.hop_start >= mp.hop_limit) ? (mp.hop_start - mp.hop_limit) : 0;
             bool isDirect = (hopsUsed == 0);
             bool shouldAlert = false;
-            if (trace_alert_mode == 2) shouldAlert = true;
-            else if (trace_alert_mode == 0 && isDirect) shouldAlert = true;
-            else if (trace_alert_mode == 1 && !isDirect) shouldAlert = true;
+            if (trace_alert_mode == 2)
+                shouldAlert = true;
+            else if (trace_alert_mode == 0 && isDirect)
+                shouldAlert = true;
+            else if (trace_alert_mode == 1 && !isDirect)
+                shouldAlert = true;
 
             if (shouldAlert) {
                 // Static (BSS, not stack). shouldDropPacket() runs for every
@@ -1383,12 +1601,24 @@ bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
                 // snprintf(size_t)-l underflows when l > cap, which previously
                 // caused unbounded writes past the BSS buffer on long routes.
                 auto safe_append = [&](const char *fmt, ...) __attribute__((format(printf, 2, 3))) {
-                    if (alertFull) return;
-                    if (l + 1 >= alertCap) { l = alertCap - 1; alertBuf[l] = '\0'; alertFull = true; return; }
-                    va_list ap; va_start(ap, fmt);
+                    if (alertFull)
+                        return;
+                    if (l + 1 >= alertCap) {
+                        l = alertCap - 1;
+                        alertBuf[l] = '\0';
+                        alertFull = true;
+                        return;
+                    }
+                    va_list ap;
+                    va_start(ap, fmt);
                     int w = vsnprintf(alertBuf + l, alertCap - l, fmt, ap);
                     va_end(ap);
-                    if (w < 0) { l = alertCap - 1; alertBuf[l] = '\0'; alertFull = true; return; }
+                    if (w < 0) {
+                        l = alertCap - 1;
+                        alertBuf[l] = '\0';
+                        alertFull = true;
+                        return;
+                    }
                     if ((size_t)w >= alertCap - l) {
                         // vsnprintf truncated; alertBuf is already null-terminated
                         // by vsnprintf itself. Clamp l to the last writable index.
@@ -1399,17 +1629,17 @@ bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
                     }
                 };
 
-                safe_append("⚠️ TRACE from %s (!%08x) [%u hops]: ",
-                            name, (unsigned int)mp.from, (unsigned int)hopsUsed);
+                safe_append("⚠️ TRACE from %s (!%08x) [%u hops]: ", name, (unsigned int)mp.from, (unsigned int)hopsUsed);
 
                 // Probe/reply payload is encoded as RouteDiscovery directly (not the
                 // Routing oneof wrapper). Decoding as Routing silently fails and the
                 // alert prints only the header + footer with no path info.
                 // See TraceRouteModule::startTraceRoute (line ~634) and allocReply
                 // (line ~511), both pb_encode_to_bytes with meshtastic_RouteDiscovery_msg.
-                static meshtastic_RouteDiscovery rd;  // ~80B; static to relieve stack pressure
+                static meshtastic_RouteDiscovery rd; // ~80B; static to relieve stack pressure
                 memset(&rd, 0, sizeof(rd));
-                if (!alertFull && pb_decode_from_bytes(mp.decoded.payload.bytes, mp.decoded.payload.size, &meshtastic_RouteDiscovery_msg, &rd)) {
+                if (!alertFull && pb_decode_from_bytes(mp.decoded.payload.bytes, mp.decoded.payload.size,
+                                                       &meshtastic_RouteDiscovery_msg, &rd)) {
                     bool hasForward = rd.route_count > 0;
                     bool hasBack = rd.route_back_count > 0;
                     if (hasForward) {
@@ -1428,17 +1658,22 @@ bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
                                     break;
                                 }
                             }
-                            if (rname) safe_append("%s", rname);
-                            else       safe_append("!%04x", (unsigned int)(rd.route[i] & 0xFFFF));
-                            if (i < rd.snr_towards_count) safe_append("(%.1f)", (float)rd.snr_towards[i] / 4.0f);
-                            if (i < rd.route_count - 1) safe_append(">");
+                            if (rname)
+                                safe_append("%s", rname);
+                            else
+                                safe_append("!%04x", (unsigned int)(rd.route[i] & 0xFFFF));
+                            if (i < rd.snr_towards_count)
+                                safe_append("(%.1f)", (float)rd.snr_towards[i] / 4.0f);
+                            if (i < rd.route_count - 1)
+                                safe_append(">");
                         }
                         safe_append(">ME] ");
                     }
                     if (!alertFull && hasBack) {
                         safe_append("Back:[ME>");
                         for (pb_size_t i = 0; i < rd.route_back_count && !alertFull; i++) {
-                            if (i < rd.snr_back_count) safe_append("(%.1f)", (float)rd.snr_back[i] / 4.0f);
+                            if (i < rd.snr_back_count)
+                                safe_append("(%.1f)", (float)rd.snr_back[i] / 4.0f);
                             const char *rname = nullptr;
                             for (size_t k = 0; k < nodeDB->getNumMeshNodes(); k++) {
                                 auto n = nodeDB->getMeshNodeByIndex(k);
@@ -1447,21 +1682,25 @@ bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
                                     break;
                                 }
                             }
-                            if (rname) safe_append("%s", rname);
-                            else       safe_append("!%04x", (unsigned int)(rd.route_back[i] & 0xFFFF));
-                            if (i < rd.route_back_count - 1) safe_append(">");
+                            if (rname)
+                                safe_append("%s", rname);
+                            else
+                                safe_append("!%04x", (unsigned int)(rd.route_back[i] & 0xFFFF));
+                            if (i < rd.route_back_count - 1)
+                                safe_append(">");
                         }
                         safe_append("] ");
                     }
-                    if (!alertFull && !hasForward && !hasBack) safe_append("[DIRECT] ");
+                    if (!alertFull && !hasForward && !hasBack)
+                        safe_append("[DIRECT] ");
                 }
                 if (!alertFull) {
                     // Nexus port (Nexus-28001, 2026-08-16): rx_frequency_error + rx_coding_rate
                     // both restored. FE comes from lora.getFrequencyError(); CR from
                     // lora.getLoRaRxHeaderInfo(&cr, &hasCRC). Both Nexus-only operator-data
                     // extensions, never serialized.
-                    safe_append("%ddBm SNR:%.1f FE:%.0fHz CR:%d", (int)mp.rx_rssi, mp.rx_snr,
-                                mp.rx_frequency_error, nexusCRDisplay(mp.rx_coding_rate));
+                    safe_append("%ddBm SNR:%.1f FE:%.0fHz CR:%d", (int)mp.rx_rssi, mp.rx_snr, mp.rx_frequency_error,
+                                nexusCRDisplay(mp.rx_coding_rate));
                 }
                 if (alertFull && alertCap >= 4) {
                     // Truncation marker: replace last 3 chars with "...". vsnprintf
@@ -1492,9 +1731,12 @@ bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
                     uint8_t hopsUsed = (mp.hop_start >= mp.hop_limit) ? (mp.hop_start - mp.hop_limit) : 0;
                     bool isDirect = (hopsUsed == 0);
                     bool shouldAlert = false;
-                    if (meta_alert_mode == 2) shouldAlert = true;
-                    else if (meta_alert_mode == 0 && isDirect) shouldAlert = true;
-                    else if (meta_alert_mode == 1 && !isDirect) shouldAlert = true;
+                    if (meta_alert_mode == 2)
+                        shouldAlert = true;
+                    else if (meta_alert_mode == 0 && isDirect)
+                        shouldAlert = true;
+                    else if (meta_alert_mode == 1 && !isDirect)
+                        shouldAlert = true;
 
                     if (shouldAlert) {
                         // Static (BSS, not stack). Same rationale as the trace_alert
@@ -1504,7 +1746,7 @@ bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
                         memset(alertBuf, 0, sizeof(alertBuf));
                         auto fromNode = nodeDB->getMeshNode(mp.from);
                         const char *name = (fromNode && fromNode->long_name[0] != '\0') ? fromNode->long_name : "Unknown";
-                        static char relayStr[24];  // Below the 64B threshold but kept static for consistency
+                        static char relayStr[24]; // Below the 64B threshold but kept static for consistency
                         strcpy(relayStr, "DIRECT");
                         if (hopsUsed > 0) {
                             uint8_t relayId = (uint8_t)(mp.relay_node & 0xFF);
@@ -1517,14 +1759,15 @@ bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
                                     break;
                                 }
                             }
-                            if (!foundRelay) snprintf(relayStr, sizeof(relayStr), "via *%02x", relayId);
+                            if (!foundRelay)
+                                snprintf(relayStr, sizeof(relayStr), "via *%02x", relayId);
                         }
                         // Nexus port (Nexus-28001, 2026-08-16): rx_frequency_error + rx_coding_rate restored. See
                         // SX126xInterface.cpp for the per-driver hooks.
-                        snprintf(alertBuf, sizeof(alertBuf), "⚠️ META REQ from %s (!%08x) [%u/%u] %s %ddBm SNR:%.1f FE:%.0fHz CR:%d",
-                                 name, (unsigned int)mp.from, (unsigned int)hopsUsed, (unsigned int)mp.hop_start,
-                                 relayStr, (int)mp.rx_rssi, mp.rx_snr, mp.rx_frequency_error,
-                                 nexusCRDisplay(mp.rx_coding_rate));
+                        snprintf(alertBuf, sizeof(alertBuf),
+                                 "⚠️ META REQ from %s (!%08x) [%u/%u] %s %ddBm SNR:%.1f FE:%.0fHz CR:%d", name,
+                                 (unsigned int)mp.from, (unsigned int)hopsUsed, (unsigned int)mp.hop_start, relayStr,
+                                 (int)mp.rx_rssi, mp.rx_snr, mp.rx_frequency_error, nexusCRDisplay(mp.rx_coding_rate));
 
                         size_t aLen = strlen(alertBuf);
                         sendToPhone(0xFFFFFFFF, mp.channel, 0, alertBuf, aLen, false, &mp);
@@ -1546,7 +1789,7 @@ bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
 
     // Nexus: Global Favorite Bypass
     // If active, any node marked as 'favorite' in NodeDB bypasses ALL subsequent firewall rules.
-    // Checks both sender (mp.from) and recipient (mp.to) for maximum flexibility in 1:1 
+    // Checks both sender (mp.from) and recipient (mp.to) for maximum flexibility in 1:1
     if (fav_bypass) {
         auto fromNode = nodeDB->getMeshNode(mp.from);
         if (fromNode && nexus_is_favorite(fromNode)) {
@@ -1634,9 +1877,18 @@ bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
         // 3. Block standard protocol requests (want_response = true)
         // This prevents the node from automatically formulating a reply to specific queries.
         if (mp.decoded.want_response) {
-            if (port == meshtastic_PortNum_NODEINFO_APP && drop_req_nodeinfo) { fw_drop_req_nodeinfo++; return true; }
-            if (port == meshtastic_PortNum_POSITION_APP && drop_req_position) { fw_drop_req_position++; return true; }
-            if (port == meshtastic_PortNum_TELEMETRY_APP && drop_req_telemetry) { fw_drop_req_telemetry++; return true; }
+            if (port == meshtastic_PortNum_NODEINFO_APP && drop_req_nodeinfo) {
+                fw_drop_req_nodeinfo++;
+                return true;
+            }
+            if (port == meshtastic_PortNum_POSITION_APP && drop_req_position) {
+                fw_drop_req_position++;
+                return true;
+            }
+            if (port == meshtastic_PortNum_TELEMETRY_APP && drop_req_telemetry) {
+                fw_drop_req_telemetry++;
+                return true;
+            }
         }
 
         // 3a. Broadcast-specific request filters (v267)
@@ -1644,77 +1896,165 @@ bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
         // DM/targeted requests pass through regardless, so an operator can still
         // probe a single node directly even with these drops active.
         if (mp.decoded.want_response && mp.to == NODENUM_BROADCAST) {
-            if (port == meshtastic_PortNum_NODEINFO_APP  && drop_br_nodeinfo)  { fw_drop_br_nodeinfo++;  return true; }
-            if (port == meshtastic_PortNum_TELEMETRY_APP && drop_br_telemetry) { fw_drop_br_telemetry++; return true; }
-            if (port == meshtastic_PortNum_POSITION_APP  && drop_br_position)  { fw_drop_br_position++;  return true; }
+            if (port == meshtastic_PortNum_NODEINFO_APP && drop_br_nodeinfo) {
+                fw_drop_br_nodeinfo++;
+                return true;
+            }
+            if (port == meshtastic_PortNum_TELEMETRY_APP && drop_br_telemetry) {
+                fw_drop_br_telemetry++;
+                return true;
+            }
+            if (port == meshtastic_PortNum_POSITION_APP && drop_br_position) {
+                fw_drop_br_position++;
+                return true;
+            }
         }
 
         // 3b. Rate Limiting (Nexus v28)
-        if (!checkRateLimit(mp)) return true;
+        if (!checkRateLimit(mp))
+            return true;
 
         // 3c. Invalid Filters (Nexus v29)
-        if (shouldInvalidatePacket(mp)) return true;
+        if (shouldInvalidatePacket(mp))
+            return true;
 
         // 4. Block specific ports from being repeated/processed
-        if (port == meshtastic_PortNum_NODEINFO_APP && drop_nodeinfo) { fw_drop_nodeinfo++; return true; }
+        if (port == meshtastic_PortNum_NODEINFO_APP && drop_nodeinfo) {
+            fw_drop_nodeinfo++;
+            return true;
+        }
         if (port == meshtastic_PortNum_POSITION_APP) {
-            if (drop_position) { fw_drop_position++; return true; }
-            static meshtastic_Position pos;  // ~180B; static to relieve stack pressure
+            if (drop_position) {
+                fw_drop_position++;
+                return true;
+            }
+            static meshtastic_Position pos; // ~180B; static to relieve stack pressure
             memset(&pos, 0, sizeof(pos));
             if (pb_decode_from_bytes(mp.decoded.payload.bytes, mp.decoded.payload.size, &meshtastic_Position_msg, &pos)) {
-                if (drop_pos_manual && pos.location_source == meshtastic_Position_LocSource_LOC_MANUAL) { fw_drop_pos_manual++; return true; }
-                if (drop_pos_gps && (pos.location_source == meshtastic_Position_LocSource_LOC_INTERNAL || pos.location_source == meshtastic_Position_LocSource_LOC_EXTERNAL)) { fw_drop_pos_gps++; return true; }
-                if (drop_pos_other && pos.location_source > meshtastic_Position_LocSource_LOC_EXTERNAL) { fw_drop_pos_other++; return true; }
+                if (drop_pos_manual && pos.location_source == meshtastic_Position_LocSource_LOC_MANUAL) {
+                    fw_drop_pos_manual++;
+                    return true;
+                }
+                if (drop_pos_gps && (pos.location_source == meshtastic_Position_LocSource_LOC_INTERNAL ||
+                                     pos.location_source == meshtastic_Position_LocSource_LOC_EXTERNAL)) {
+                    fw_drop_pos_gps++;
+                    return true;
+                }
+                if (drop_pos_other && pos.location_source > meshtastic_Position_LocSource_LOC_EXTERNAL) {
+                    fw_drop_pos_other++;
+                    return true;
+                }
             }
         }
         if (port == meshtastic_PortNum_TELEMETRY_APP) {
-            if (drop_telemetry) { fw_drop_telemetry++; return true; }
+            if (drop_telemetry) {
+                fw_drop_telemetry++;
+                return true;
+            }
             // Telemetry union holds the largest variant (LocalStats); ~200B total.
             static meshtastic_Telemetry tele;
             memset(&tele, 0, sizeof(tele));
             if (pb_decode_from_bytes(mp.decoded.payload.bytes, mp.decoded.payload.size, &meshtastic_Telemetry_msg, &tele)) {
-                if (drop_tele_device && tele.which_variant == meshtastic_Telemetry_device_metrics_tag) { fw_drop_tele_device++; return true; }
-                if (drop_tele_power && tele.which_variant == meshtastic_Telemetry_power_metrics_tag) { fw_drop_tele_power++; return true; }
-                if (drop_tele_env && tele.which_variant == meshtastic_Telemetry_environment_metrics_tag) { fw_drop_tele_env++; return true; }
+                if (drop_tele_device && tele.which_variant == meshtastic_Telemetry_device_metrics_tag) {
+                    fw_drop_tele_device++;
+                    return true;
+                }
+                if (drop_tele_power && tele.which_variant == meshtastic_Telemetry_power_metrics_tag) {
+                    fw_drop_tele_power++;
+                    return true;
+                }
+                if (drop_tele_env && tele.which_variant == meshtastic_Telemetry_environment_metrics_tag) {
+                    fw_drop_tele_env++;
+                    return true;
+                }
                 if (drop_tele_other && tele.which_variant != meshtastic_Telemetry_device_metrics_tag &&
-                    tele.which_variant != meshtastic_Telemetry_power_metrics_tag && tele.which_variant != meshtastic_Telemetry_environment_metrics_tag) { fw_drop_tele_other++; return true; }
+                    tele.which_variant != meshtastic_Telemetry_power_metrics_tag &&
+                    tele.which_variant != meshtastic_Telemetry_environment_metrics_tag) {
+                    fw_drop_tele_other++;
+                    return true;
+                }
             }
         }
-        if (drop_no_mqtt && mp.decoded.has_bitfield && !(mp.decoded.bitfield & BITFIELD_OK_TO_MQTT_MASK)) { fw_drop_no_mqtt++; return true; }
-        if (port == meshtastic_PortNum_NEIGHBORINFO_APP && drop_neighbor) { fw_drop_neighbor++; return true; }
-        if (port == meshtastic_PortNum_TRACEROUTE_APP && drop_traceroute) { fw_drop_traceroute++; return true; }
+        if (drop_no_mqtt && mp.decoded.has_bitfield && !(mp.decoded.bitfield & BITFIELD_OK_TO_MQTT_MASK)) {
+            fw_drop_no_mqtt++;
+            return true;
+        }
+        if (port == meshtastic_PortNum_NEIGHBORINFO_APP && drop_neighbor) {
+            fw_drop_neighbor++;
+            return true;
+        }
+        if (port == meshtastic_PortNum_TRACEROUTE_APP && drop_traceroute) {
+            fw_drop_traceroute++;
+            return true;
+        }
 
         // 4b. Block Store and Forward
-        if (drop_store_forward && (port == meshtastic_PortNum_STORE_FORWARD_APP || port == meshtastic_PortNum_STORE_FORWARD_PLUSPLUS_APP)) {
+        if (drop_store_forward &&
+            (port == meshtastic_PortNum_STORE_FORWARD_APP || port == meshtastic_PortNum_STORE_FORWARD_PLUSPLUS_APP)) {
             fw_drop_store_forward++;
             return true;
         }
 
         // 4c. Block Admin, Text, KeyVer, Alert
-        if (port == meshtastic_PortNum_ADMIN_APP && drop_admin) { fw_drop_admin++; return true; }
-        if ((port == meshtastic_PortNum_TEXT_MESSAGE_APP || port == meshtastic_PortNum_TEXT_MESSAGE_COMPRESSED_APP) && drop_text) { fw_drop_text++; return true; }
-        if (port == meshtastic_PortNum_KEY_VERIFICATION_APP && drop_keyver) { fw_drop_keyver++; return true; }
-        if (port == meshtastic_PortNum_ALERT_APP && drop_alert) { fw_drop_alert++; return true; }
-        if (port == meshtastic_PortNum_WAYPOINT_APP && drop_waypoint) { fw_drop_waypoint++; return true; }
+        if (port == meshtastic_PortNum_ADMIN_APP && drop_admin) {
+            fw_drop_admin++;
+            return true;
+        }
+        if ((port == meshtastic_PortNum_TEXT_MESSAGE_APP || port == meshtastic_PortNum_TEXT_MESSAGE_COMPRESSED_APP) &&
+            drop_text) {
+            fw_drop_text++;
+            return true;
+        }
+        if (port == meshtastic_PortNum_KEY_VERIFICATION_APP && drop_keyver) {
+            fw_drop_keyver++;
+            return true;
+        }
+        if (port == meshtastic_PortNum_ALERT_APP && drop_alert) {
+            fw_drop_alert++;
+            return true;
+        }
+        if (port == meshtastic_PortNum_WAYPOINT_APP && drop_waypoint) {
+            fw_drop_waypoint++;
+            return true;
+        }
 
         // 5. Granular TRACEROUTE filtering
         if (port == meshtastic_PortNum_TRACEROUTE_APP) {
             // Nexus: TEMPORARY BYPASS during active /nexus TRACE command
-            if (trace_active) return false;
+            if (trace_active)
+                return false;
 
             bool isLocal = (mp.from == myNodeInfo.my_node_num || mp.to == myNodeInfo.my_node_num);
             uint8_t hopsUsed = (mp.hop_start >= mp.hop_limit) ? (mp.hop_start - mp.hop_limit) : 0;
             bool isDirect = (hopsUsed == 0);
 
-            if (drop_traceroute) { fw_drop_traceroute++; return true; }
-            if (drop_traceroute_local && isLocal) { fw_drop_traceroute_local++; return true; }
-            if (drop_traceroute_remote && !isLocal) { fw_drop_traceroute_remote++; return true; }
+            if (drop_traceroute) {
+                fw_drop_traceroute++;
+                return true;
+            }
+            if (drop_traceroute_local && isLocal) {
+                fw_drop_traceroute_local++;
+                return true;
+            }
+            if (drop_traceroute_remote && !isLocal) {
+                fw_drop_traceroute_remote++;
+                return true;
+            }
 
             // 5b. Direct TraceRoute Filtering (0 hops used)
             if (isDirect) {
-                if (drop_traceroute_direct) { fw_drop_traceroute_direct++; return true; }
-                if (drop_traceroute_direct_local && isLocal) { fw_drop_traceroute_direct_local++; return true; }
-                if (drop_traceroute_direct_remote && !isLocal) { fw_drop_traceroute_direct_remote++; return true; }
+                if (drop_traceroute_direct) {
+                    fw_drop_traceroute_direct++;
+                    return true;
+                }
+                if (drop_traceroute_direct_local && isLocal) {
+                    fw_drop_traceroute_direct_local++;
+                    return true;
+                }
+                if (drop_traceroute_direct_remote && !isLocal) {
+                    fw_drop_traceroute_direct_remote++;
+                    return true;
+                }
             }
         }
     }
@@ -1724,13 +2064,18 @@ bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
         size_t plen = mp.decoded.payload.size;
         const uint8_t *pbuf = mp.decoded.payload.bytes;
         for (int s = 0; s < 8; s++) {
-            if (nexus_signatures[s].len == 0) continue;
-            if (plen < nexus_signatures[s].len) continue;
+            if (nexus_signatures[s].len == 0)
+                continue;
+            if (plen < nexus_signatures[s].len)
+                continue;
             // Naive substring match (O(n*m), m<=16, n<=240 => trivial)
             for (size_t off = 0; off <= plen - nexus_signatures[s].len; off++) {
                 bool match = true;
                 for (uint8_t i = 0; i < nexus_signatures[s].len; i++) {
-                    if (pbuf[off + i] != nexus_signatures[s].bytes[i]) { match = false; break; }
+                    if (pbuf[off + i] != nexus_signatures[s].bytes[i]) {
+                        match = false;
+                        break;
+                    }
                 }
                 if (match) {
                     fw_drop_signature++;
@@ -1741,7 +2086,7 @@ bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
     }
 
 #ifdef NEXUS_PRIVATE_BUILD
-    // Nexus-28006 Step C (2026-09-24) — private extension point.
+    // Nexus-28006 Step C (2026-09-24) - private extension point.
     // Empty pass-through today; future private-only drop rules land here
     // without touching the public firewall body above.
     if (privateShouldDropPacket(mp)) {
@@ -1752,72 +2097,127 @@ bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
     return false;
 }
 
-uint64_t NexusModule::getNexusDropHex() {
+uint64_t NexusModule::getNexusDropHex()
+{
     uint64_t h = 0;
-    if (drop_nodeinfo) h |= (1ULL << 0);
-    if (drop_position) h |= (1ULL << 1);
-    if (drop_telemetry) h |= (1ULL << 2);
-    if (drop_neighbor) h |= (1ULL << 3);
-    if (drop_traceroute) h |= (1ULL << 4);
-    if (drop_traceroute_remote) h |= (1ULL << 5);
-    if (drop_traceroute_local) h |= (1ULL << 6);
-    if (drop_private) h |= (1ULL << 7);
-    if (drop_hop6) h |= (1ULL << 8);
-    if (drop_hop7) h |= (1ULL << 9);
-    if (drop_req_nodeinfo) h |= (1ULL << 10);
-    if (drop_req_telemetry) h |= (1ULL << 11);
-    if (drop_req_position) h |= (1ULL << 12);
-    if (drop_acks) h |= (1ULL << 13);
-    if (drop_pki) h |= (1ULL << 14);
-    if (drop_pki_remote) h |= (1ULL << 15);
-    if (drop_pki_local) h |= (1ULL << 16);
-    if (fav_bypass) h |= (1ULL << 17);
-    if (drop_prehop) h |= (1ULL << 18);
-    if (drop_store_forward) h |= (1ULL << 19);
-    if (drop_admin) h |= (1ULL << 20);
-    if (drop_text) h |= (1ULL << 21);
-    if (drop_keyver) h |= (1ULL << 22);
-    if (drop_alert) h |= (1ULL << 23);
-    if (drop_waypoint) h |= (1ULL << 24);
-    if (drop_traceroute_direct) h |= (1ULL << 25);
-    if (drop_traceroute_direct_remote) h |= (1ULL << 26);
-    if (drop_traceroute_direct_local) h |= (1ULL << 27);
-    if (skip_skip_handle) h |= (1ULL << 28);
-    if (drop_rl_text) h |= (1ULL << 29);
-    if (drop_rl_trace) h |= (1ULL << 30);
-    if (drop_rl_other) h |= (1ULL << 31);
-    if (drop_tele_device) h |= (1ULL << 32);
-    if (drop_tele_power) h |= (1ULL << 33);
-    if (drop_tele_env) h |= (1ULL << 34);
-    if (drop_tele_other) h |= (1ULL << 35);
-    if (drop_no_mqtt) h |= (1ULL << 36);
-    if (drop_pos_manual) h |= (1ULL << 37);
-    if (drop_pos_gps) h |= (1ULL << 38);
-    if (drop_pos_other) h |= (1ULL << 39);
+    if (drop_nodeinfo)
+        h |= (1ULL << 0);
+    if (drop_position)
+        h |= (1ULL << 1);
+    if (drop_telemetry)
+        h |= (1ULL << 2);
+    if (drop_neighbor)
+        h |= (1ULL << 3);
+    if (drop_traceroute)
+        h |= (1ULL << 4);
+    if (drop_traceroute_remote)
+        h |= (1ULL << 5);
+    if (drop_traceroute_local)
+        h |= (1ULL << 6);
+    if (drop_private)
+        h |= (1ULL << 7);
+    if (drop_hop6)
+        h |= (1ULL << 8);
+    if (drop_hop7)
+        h |= (1ULL << 9);
+    if (drop_req_nodeinfo)
+        h |= (1ULL << 10);
+    if (drop_req_telemetry)
+        h |= (1ULL << 11);
+    if (drop_req_position)
+        h |= (1ULL << 12);
+    if (drop_acks)
+        h |= (1ULL << 13);
+    if (drop_pki)
+        h |= (1ULL << 14);
+    if (drop_pki_remote)
+        h |= (1ULL << 15);
+    if (drop_pki_local)
+        h |= (1ULL << 16);
+    if (fav_bypass)
+        h |= (1ULL << 17);
+    if (drop_prehop)
+        h |= (1ULL << 18);
+    if (drop_store_forward)
+        h |= (1ULL << 19);
+    if (drop_admin)
+        h |= (1ULL << 20);
+    if (drop_text)
+        h |= (1ULL << 21);
+    if (drop_keyver)
+        h |= (1ULL << 22);
+    if (drop_alert)
+        h |= (1ULL << 23);
+    if (drop_waypoint)
+        h |= (1ULL << 24);
+    if (drop_traceroute_direct)
+        h |= (1ULL << 25);
+    if (drop_traceroute_direct_remote)
+        h |= (1ULL << 26);
+    if (drop_traceroute_direct_local)
+        h |= (1ULL << 27);
+    if (skip_skip_handle)
+        h |= (1ULL << 28);
+    if (drop_rl_text)
+        h |= (1ULL << 29);
+    if (drop_rl_trace)
+        h |= (1ULL << 30);
+    if (drop_rl_other)
+        h |= (1ULL << 31);
+    if (drop_tele_device)
+        h |= (1ULL << 32);
+    if (drop_tele_power)
+        h |= (1ULL << 33);
+    if (drop_tele_env)
+        h |= (1ULL << 34);
+    if (drop_tele_other)
+        h |= (1ULL << 35);
+    if (drop_no_mqtt)
+        h |= (1ULL << 36);
+    if (drop_pos_manual)
+        h |= (1ULL << 37);
+    if (drop_pos_gps)
+        h |= (1ULL << 38);
+    if (drop_pos_other)
+        h |= (1ULL << 39);
     // Bits 40-41 reserved (was ping_emoji_mode, moved to dedicated vault field in v41)
     // Bits 42-45: rate-limit enable flags
-    if (drop_rl_nodeinfo) h |= (1ULL << 42);
-    if (drop_rl_position) h |= (1ULL << 43);
-    if (drop_rl_telemetry) h |= (1ULL << 44);
-    if (drop_rl_private) h |= (1ULL << 45);
+    if (drop_rl_nodeinfo)
+        h |= (1ULL << 42);
+    if (drop_rl_position)
+        h |= (1ULL << 43);
+    if (drop_rl_telemetry)
+        h |= (1ULL << 44);
+    if (drop_rl_private)
+        h |= (1ULL << 45);
     // v267: broadcast-specific request filters
-    if (drop_br_nodeinfo) h |= (1ULL << 46);
-    if (drop_br_telemetry) h |= (1ULL << 47);
-    if (drop_br_position) h |= (1ULL << 48);
+    if (drop_br_nodeinfo)
+        h |= (1ULL << 46);
+    if (drop_br_telemetry)
+        h |= (1ULL << 47);
+    if (drop_br_position)
+        h |= (1ULL << 48);
     return h;
 }
 
-uint32_t NexusModule::getNexusInvalidHex() {
+uint32_t NexusModule::getNexusInvalidHex()
+{
     uint32_t h = 0;
-    if (inv_null_island) h |= (1ULL << 0);
-    if (inv_out_spain) h |= (1ULL << 1);
-    if (inv_out_germany) h |= (1ULL << 2);
-    if (inv_hw_unset) h |= (1ULL << 3);
-    if (inv_id_mismatch) h |= (1ULL << 4);
+    if (inv_null_island)
+        h |= (1ULL << 0);
+    if (inv_out_spain)
+        h |= (1ULL << 1);
+    if (inv_out_germany)
+        h |= (1ULL << 2);
+    if (inv_hw_unset)
+        h |= (1ULL << 3);
+    if (inv_id_mismatch)
+        h |= (1ULL << 4);
     return h;
 }
 
-void NexusModule::setNexusInvalidHex(uint32_t h) {
+void NexusModule::setNexusInvalidHex(uint32_t h)
+{
     inv_null_island = (h & (1ULL << 0));
     inv_out_spain = (h & (1ULL << 1));
     inv_out_germany = (h & (1ULL << 2));
@@ -1825,18 +2225,26 @@ void NexusModule::setNexusInvalidHex(uint32_t h) {
     inv_id_mismatch = (h & (1ULL << 4));
 }
 
-uint64_t NexusModule::getNexusOutDropHex() {
+uint64_t NexusModule::getNexusOutDropHex()
+{
     uint64_t h = 0;
-    if (drop_out_nodeinfo) h |= (1ULL << 0);
-    if (drop_out_position) h |= (1ULL << 1);
-    if (drop_out_telemetry) h |= (1ULL << 2);
-    if (drop_out_traceroute) h |= (1ULL << 3);
-    if (drop_out_admin) h |= (1ULL << 4);
-    if (drop_out_routing) h |= (1ULL << 5);
+    if (drop_out_nodeinfo)
+        h |= (1ULL << 0);
+    if (drop_out_position)
+        h |= (1ULL << 1);
+    if (drop_out_telemetry)
+        h |= (1ULL << 2);
+    if (drop_out_traceroute)
+        h |= (1ULL << 3);
+    if (drop_out_admin)
+        h |= (1ULL << 4);
+    if (drop_out_routing)
+        h |= (1ULL << 5);
     return h;
 }
 
-void NexusModule::setNexusDropHex(uint64_t h) {
+void NexusModule::setNexusDropHex(uint64_t h)
+{
     drop_nodeinfo = (h & (1ULL << 0));
     drop_position = (h & (1ULL << 1));
     drop_telemetry = (h & (1ULL << 2));
@@ -1884,12 +2292,13 @@ void NexusModule::setNexusDropHex(uint64_t h) {
     drop_rl_telemetry = (h & (1ULL << 44));
     drop_rl_private = (h & (1ULL << 45));
     // v267: broadcast-specific request filters
-    drop_br_nodeinfo  = (h & (1ULL << 46));
+    drop_br_nodeinfo = (h & (1ULL << 46));
     drop_br_telemetry = (h & (1ULL << 47));
-    drop_br_position  = (h & (1ULL << 48));
+    drop_br_position = (h & (1ULL << 48));
 }
 
-void NexusModule::setNexusOutDropHex(uint64_t h) {
+void NexusModule::setNexusOutDropHex(uint64_t h)
+{
     drop_out_nodeinfo = (h & (1ULL << 0));
     drop_out_position = (h & (1ULL << 1));
     drop_out_telemetry = (h & (1ULL << 2));
@@ -1899,30 +2308,34 @@ void NexusModule::setNexusOutDropHex(uint64_t h) {
 }
 
 // Nexus v66: Feature toggles bitmask (persisted in NexusVault::features_mask).
-// Plain pass-through accessors — the mask is opaque to the rest of the codebase,
+// Plain pass-through accessors - the mask is opaque to the rest of the codebase,
 // callers test individual bits via FEATURE_FORWARD_OPAQUE_TO_PHONE etc.
-uint64_t NexusModule::getNexusFeaturesHex() {
+uint64_t NexusModule::getNexusFeaturesHex()
+{
     return features_mask;
 }
 
-void NexusModule::setNexusFeaturesHex(uint64_t h) {
+void NexusModule::setNexusFeaturesHex(uint64_t h)
+{
     features_mask = h;
 }
 
 // Internal Nexus helpers nexus_strcasestr() and getGnssModelName() moved
 // to NexusCommands.cpp as TU-local `static` (Aug 9, inline refactor).
-// getGnssModelName pulls in gps/GPS.h enum values — kept in NexusCommands.cpp
+// getGnssModelName pulls in gps/GPS.h enum values - kept in NexusCommands.cpp
 // rather than the header to avoid dragging GPS.h into every TU that
 // includes NexusModule.h.
 
-void NexusModule::getRelayNames(char *buf, size_t bufSize, uint8_t suffix) {
+void NexusModule::getRelayNames(char *buf, size_t bufSize, uint8_t suffix)
+{
     int foundCount = 0;
     buf[0] = '\0';
     for (size_t i = 0; i < nodeDB->getNumMeshNodes() && foundCount < 5; i++) {
         auto n = nodeDB->getMeshNodeByIndex(i);
         if (n && (uint8_t)(n->num & 0xFF) == suffix) {
             if (n->short_name[0] != '\0') {
-                if (foundCount > 0) strncat(buf, ",", bufSize - strlen(buf) - 1);
+                if (foundCount > 0)
+                    strncat(buf, ",", bufSize - strlen(buf) - 1);
                 strncat(buf, n->short_name, bufSize - strlen(buf) - 1);
                 foundCount++;
             }
@@ -1930,7 +2343,8 @@ void NexusModule::getRelayNames(char *buf, size_t bufSize, uint8_t suffix) {
     }
 }
 
-void NexusModule::applyBS(meshtastic_Telemetry *m) {
+void NexusModule::applyBS(meshtastic_Telemetry *m)
+{
     // Internal telemetry hook. Public builds: empty body so external callers
     // (EnvironmentTelemetry.cpp) compile and simply do nothing. Private builds:
     // delegates to the companion implementation.
@@ -1940,13 +2354,12 @@ void NexusModule::applyBS(meshtastic_Telemetry *m) {
 #endif
 }
 
-
 // Nexus: Targeted prefix roots (file-scope single source of truth). Shared by:
 //   - handleReceived() cartesian loop below (mesh-radio dispatch)
 //   - handleLocal() isLocalOnly/isBroadcast/isTargetedPrefix checks
 //   - matchTargetedCmd() targeted dispatch helper
 // Adding a new root here propagates to all three call sites. No other duplicates.
-static const char* const NEXUS_PREFIX_ROOTS[] = {"/nexus", "/jt", "/jent", "/jentastic"};
+static const char *const NEXUS_PREFIX_ROOTS[] = {"/nexus", "/jt", "/jent", "/jentastic"};
 static const size_t NEXUS_PREFIX_ROOTS_COUNT = sizeof(NEXUS_PREFIX_ROOTS) / sizeof(NEXUS_PREFIX_ROOTS[0]);
 
 // Nexus: auto Zero-Hop masks - traffic-driven (2026-10-07 code review):
@@ -1975,23 +2388,21 @@ void NexusModule::populateAutoZeroHopMasks(uint32_t nodeNum)
 const uint8_t *NexusModule::zeroHopListMask(const char *target, bool *valid, const char **label)
 {
     *valid = true;
-    if (!target || !*target || strcasecmp(target, "MANUAL") == 0 ||
-        strcasecmp(target, "M") == 0 || strcasecmp(target, "MAN") == 0) {
+    if (!target || !*target || strcasecmp(target, "MANUAL") == 0 || strcasecmp(target, "M") == 0 ||
+        strcasecmp(target, "MAN") == 0) {
         *label = "manual";
         return zero_hop_mask;
     }
-    if (strcasecmp(target, "ROUTER") == 0 || strcasecmp(target, "R") == 0 ||
-        strcasecmp(target, "RT") == 0) {
+    if (strcasecmp(target, "ROUTER") == 0 || strcasecmp(target, "R") == 0 || strcasecmp(target, "RT") == 0) {
         *label = "router";
         return zero_hop_auto_router_mask;
     }
-    if (strcasecmp(target, "CLIENT") == 0 || strcasecmp(target, "C") == 0 ||
-        strcasecmp(target, "CB") == 0 || strcasecmp(target, "CLIENT_BASE") == 0) {
+    if (strcasecmp(target, "CLIENT") == 0 || strcasecmp(target, "C") == 0 || strcasecmp(target, "CB") == 0 ||
+        strcasecmp(target, "CLIENT_BASE") == 0) {
         *label = "client";
         return zero_hop_auto_client_mask;
     }
-    if (strcasecmp(target, "ALL") == 0 || strcasecmp(target, "A") == 0 ||
-        strcasecmp(target, "EFFECTIVE") == 0) {
+    if (strcasecmp(target, "ALL") == 0 || strcasecmp(target, "A") == 0 || strcasecmp(target, "EFFECTIVE") == 0) {
         *label = "all";
         return nullptr; // nullptr = effective set (manual + enabled autos)
     }
@@ -2023,7 +2434,8 @@ static bool heardDirectZeroHop(const meshtastic_MeshPacket &mp)
     }
 }
 
-ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
+ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp)
+{
     // Nexus: auto Zero-Hop masks (2026-10-07) - traffic-driven AND direct
     // only: on a packet heard with zero hops from a LoRa neighbour, look the
     // SENDER up in NodeDB (single lookup, no sweep) and set its role bit in the
@@ -2034,16 +2446,14 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
         populateAutoZeroHopMasks(mp.from);
     }
 
-    // Nexus: AUTO_FAV_NEXUS / AUTO_FAV_TRUSTED — Nexus-28004, 2026-08-30.
+    // Nexus: AUTO_FAV_NEXUS / AUTO_FAV_TRUSTED - Nexus-28004, 2026-08-30.
     // Run before any portnum guard so this fires for every decoded packet
     // wantPacket() lets through (TEXT_MESSAGE, ADMIN, POSITION, NODEINFO,
     // TELEMETRY, TRACEROUTE, plus any new portnums we add later). No flash
-    // save — the operator must /nexus SAVE to persist the new favourites.
+    // save - the operator must /nexus SAVE to persist the new favourites.
     // Self-packets are skipped so we don't fav our own node.
-    if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
-        mp.decoded.portnum != 0 &&
-        mp.from != 0 && mp.from != myNodeInfo.my_node_num &&
-        this->isNexusChannel(mp.channel)) {
+    if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag && mp.decoded.portnum != 0 && mp.from != 0 &&
+        mp.from != myNodeInfo.my_node_num && this->isNexusChannel(mp.channel)) {
         bool alreadyFav = false;
         if (auto n = nodeDB->getMeshNode(mp.from)) {
             alreadyFav = nexus_is_favorite(n);
@@ -2070,16 +2480,14 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
         }
     }
 
-    // Nexus: AUTO_FAV_EXTRA (2026-10-07) — like AUTO_FAV_NEXUS but for ONE
+    // Nexus: AUTO_FAV_EXTRA (2026-10-07) - like AUTO_FAV_NEXUS but for ONE
     // operator-chosen channel (security bitmask bit 6 = enable, bits 7-9 =
     // channel 0-7). Deliberately NOT gated on isNexusChannel(): the whole point
     // is faving a channel that is NOT one of the compile-time/hardcoded Nexus
-    // trusted channels. Same no-flash-save policy — operator runs /nexus SAVE.
+    // trusted channels. Same no-flash-save policy - operator runs /nexus SAVE.
     // Self-packets skipped, same as AUTO_FAV_NEXUS.
-    if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
-        mp.decoded.portnum != 0 &&
-        mp.from != 0 && mp.from != myNodeInfo.my_node_num &&
-        this->securityAutoFavExtra() && mp.channel == this->securityAutoFavExtraChannel()) {
+    if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag && mp.decoded.portnum != 0 && mp.from != 0 &&
+        mp.from != myNodeInfo.my_node_num && this->securityAutoFavExtra() && mp.channel == this->securityAutoFavExtraChannel()) {
         bool alreadyFav = false;
         if (auto n = nodeDB->getMeshNode(mp.from)) {
             alreadyFav = nexus_is_favorite(n);
@@ -2088,15 +2496,14 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
             auto n = nodeDB->getOrCreateMeshNode(mp.from);
             if (n) {
                 nodeInfoLiteSetBit(n, NODEINFO_BITFIELD_IS_FAVORITE_MASK, true);
-                LOG_INFO("Nexus: AUTO_FAV_EXTRA fav'd !%08x on channel %u",
-                         (unsigned)mp.from, (unsigned)this->securityAutoFavExtraChannel());
+                LOG_INFO("Nexus: AUTO_FAV_EXTRA fav'd !%08x on channel %u", (unsigned)mp.from,
+                         (unsigned)this->securityAutoFavExtraChannel());
             }
         }
     }
 
     if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
-        mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP &&
-        mp.decoded.payload.size > 2) {
+        mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && mp.decoded.payload.size > 2) {
 
         // Use a persistent buffer to ensure we have a null-terminated string for case-insensitive comparison
         // Moved from stack to class member to reduce loopTask stack pressure
@@ -2153,11 +2560,12 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                 // phone-originated echoes; mp.from == our node num covers self-rebroadcast.
                 // isFromUs() ORs both. CONTINUE (not STOP) so other modules can still see
                 // the packet (phone mirror, etc.).
-                if (isFromUs(&mp)) return ProcessMessage::CONTINUE;
+                if (isFromUs(&mp))
+                    return ProcessMessage::CONTINUE;
 
                 // (DM GATE 2026-08-23) PPING defaults to broadcast-only. When the /ping arrives
                 // as a DM (mp.to == our node num), reply only if ping_allow_dm is enabled.
-                // DMs bypass the ping_channels[mp.channel] gate below — a direct-to-me packet
+                // DMs bypass the ping_channels[mp.channel] gate below - a direct-to-me packet
                 // is not a channel broadcast, and the operator who flipped ALLOWDM ON clearly
                 // wants to receive DMs on the active channel regardless of the channel flag.
                 bool isPingDM = (mp.to == myNodeInfo.my_node_num);
@@ -2175,18 +2583,16 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                 // 1b. Remote Filter: Only process if a direct link, OR if remote ignore is disabled
                 else if (hopsUsed > 0 && ping_ignore_remote) {
                     LOG_INFO("Nexus: Public Ping remote ignored (ping_ignore_remote active)");
-                }
-                else {
+                } else {
                     // 2. Channel check: Only reply if PPING is enabled for this specific channel.
-                    //    DMs (isPingDM) bypass this gate — a direct-to-me packet is not a
+                    //    DMs (isPingDM) bypass this gate - a direct-to-me packet is not a
                     //    channel broadcast, and the operator who enabled ALLOWDM clearly wants
                     //    DMs regardless of the per-channel flag.
                     if ((isPingDM || (mp.channel < MAX_NUM_CHANNELS && ping_channels[mp.channel]))) {
                         LOG_INFO("Nexus: Public Ping triggered by !%08x on Ch %d (DM=%d)", mp.from, mp.channel, isPingDM ? 1 : 0);
 
                         // Emoji mode: 0=text, 1=emoji if indirect, 2=always emoji
-                        bool useEmoji = (ping_emoji_mode == 2) ||
-                                        (ping_emoji_mode == 1 && hopsUsed > 0);
+                        bool useEmoji = (ping_emoji_mode == 2) || (ping_emoji_mode == 1 && hopsUsed > 0);
 
                         if (useEmoji) {
                             // Reuse the 🤖 emoji path: send keycap number reaction
@@ -2213,105 +2619,110 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                         static char rMsg[200];
                         memset(rMsg, 0, sizeof(rMsg));
 
-                int l;
-                if (custom_pping_active && pping_header[0] != '\0') {
-                    l = snprintf(rMsg, sizeof(rMsg), "%s\n", pping_header);
-                } else {
-                    l = snprintf(rMsg, sizeof(rMsg), "🤖Derpy Ping🤖\n");
-                }
-                l += snprintf(rMsg + l, sizeof(rMsg) - l, "📡 Hops:%u/%u ", hopsUsed, mp.hop_start);
+                        int l;
+                        if (custom_pping_active && pping_header[0] != '\0') {
+                            l = snprintf(rMsg, sizeof(rMsg), "%s\n", pping_header);
+                        } else {
+                            l = snprintf(rMsg, sizeof(rMsg), "🤖Derpy Ping🤖\n");
+                        }
+                        l += snprintf(rMsg + l, sizeof(rMsg) - l, "📡 Hops:%u/%u ", hopsUsed, mp.hop_start);
 
-                if (hopsUsed == 0) {
-                    l += snprintf(rMsg + l, sizeof(rMsg) - l, "(Direct)\n");
-                } else {
-                    static char relayNames[64];
-                    memset(relayNames, 0, sizeof(relayNames));
-                    uint8_t targetSuffix = (uint8_t)(mp.relay_node & 0xFF);
-                    getRelayNames(relayNames, sizeof(relayNames), targetSuffix);
+                        if (hopsUsed == 0) {
+                            l += snprintf(rMsg + l, sizeof(rMsg) - l, "(Direct)\n");
+                        } else {
+                            static char relayNames[64];
+                            memset(relayNames, 0, sizeof(relayNames));
+                            uint8_t targetSuffix = (uint8_t)(mp.relay_node & 0xFF);
+                            getRelayNames(relayNames, sizeof(relayNames), targetSuffix);
 
-                    if (relayNames[0] != '\0') {
-                        l += snprintf(rMsg + l, sizeof(rMsg) - l, "Relay:%s (*%02x)\n", relayNames, targetSuffix);
-                    } else {
-                        l += snprintf(rMsg + l, sizeof(rMsg) - l, "Relay:*%02x\n", targetSuffix);
-                    }
-                    memset(relayNames, 0, sizeof(relayNames));
-                }
+                            if (relayNames[0] != '\0') {
+                                l += snprintf(rMsg + l, sizeof(rMsg) - l, "Relay:%s (*%02x)\n", relayNames, targetSuffix);
+                            } else {
+                                l += snprintf(rMsg + l, sizeof(rMsg) - l, "Relay:*%02x\n", targetSuffix);
+                            }
+                            memset(relayNames, 0, sizeof(relayNames));
+                        }
 
-                if (ping_rssi || ping_snr) {
-                    l += snprintf(rMsg + l, sizeof(rMsg) - l, "📶 ");
-                    if (ping_rssi) l += snprintf(rMsg + l, sizeof(rMsg) - l, "RSSI:%d ", (int)mp.rx_rssi);
-                    if (ping_snr) l += snprintf(rMsg + l, sizeof(rMsg) - l, "SNR:%.1f", mp.rx_snr);
-                    l += snprintf(rMsg + l, sizeof(rMsg) - l, "\n");
-                }
+                        if (ping_rssi || ping_snr) {
+                            l += snprintf(rMsg + l, sizeof(rMsg) - l, "📶 ");
+                            if (ping_rssi)
+                                l += snprintf(rMsg + l, sizeof(rMsg) - l, "RSSI:%d ", (int)mp.rx_rssi);
+                            if (ping_snr)
+                                l += snprintf(rMsg + l, sizeof(rMsg) - l, "SNR:%.1f", mp.rx_snr);
+                            l += snprintf(rMsg + l, sizeof(rMsg) - l, "\n");
+                        }
 
-                if (ping_freqerr) {
-                    // Nexus port (Nexus-28001, 2026-08-16): rx_frequency_error + rx_coding_rate
-                    // both restored. PPING FREQERR now reports the live frequency error in Hz and
-                    // the recovered coding rate (raw 1-7 -> display 5/6/7/8 short, 9/10/11 long).
-                    l += snprintf(rMsg + l, sizeof(rMsg) - l, "🔬 Δf: %.0fHz CR:%d\n",
-                                  mp.rx_frequency_error, nexusCRDisplay(mp.rx_coding_rate));
-                }
+                        if (ping_freqerr) {
+                            // Nexus port (Nexus-28001, 2026-08-16): rx_frequency_error + rx_coding_rate
+                            // both restored. PPING FREQERR now reports the live frequency error in Hz and
+                            // the recovered coding rate (raw 1-7 -> display 5/6/7/8 short, 9/10/11 long).
+                            l += snprintf(rMsg + l, sizeof(rMsg) - l, "🔬 Δf: %.0fHz CR:%d\n", mp.rx_frequency_error,
+                                          nexusCRDisplay(mp.rx_coding_rate));
+                        }
 
-                if (ping_bitmask) {
-                    if (l < 0 || (size_t)l >= sizeof(rMsg)) l = sizeof(rMsg) - 1;
-                    bool om = (mp.decoded.has_bitfield && (mp.decoded.bitfield & BITFIELD_OK_TO_MQTT_MASK));
-                    bool mqtt = mp.via_mqtt;
+                        if (ping_bitmask) {
+                            if (l < 0 || (size_t)l >= sizeof(rMsg))
+                                l = sizeof(rMsg) - 1;
+                            bool om = (mp.decoded.has_bitfield && (mp.decoded.bitfield & BITFIELD_OK_TO_MQTT_MASK));
+                            bool mqtt = mp.via_mqtt;
 
-                    l += snprintf(rMsg + l, sizeof(rMsg) - l, "🌐 OM:%d%s MQTT:%d%s UDP:%d",
-                                 om ? 1 : 0, !om ? "⚠️" : "",
-                                 mqtt ? 1 : 0, mqtt ? "⚠️" : "",
-                                 (mp.transport_mechanism == meshtastic_MeshPacket_TransportMechanism_TRANSPORT_MULTICAST_UDP) ? 1 : 0);
+                            l += snprintf(
+                                rMsg + l, sizeof(rMsg) - l, "🌐 OM:%d%s MQTT:%d%s UDP:%d", om ? 1 : 0, !om ? "⚠️" : "",
+                                mqtt ? 1 : 0, mqtt ? "⚠️" : "",
+                                (mp.transport_mechanism == meshtastic_MeshPacket_TransportMechanism_TRANSPORT_MULTICAST_UDP) ? 1
+                                                                                                                             : 0);
 
-                    // (SIGNATURE FLAG 2026-08-23) Append S:<emoji> to the flags line.
-                    // Three states, intentionally a different palette than the auto-prefix
-                    // convention in NexusCommands.cpp:8134 (which uses ✅/🚫/📄):
-                    //   🔴 — no signature field on the wire (decoded.xeddsa_signature.size == 0)
-                    //   🟠 — signature present but xeddsa_verify() failed (size != 0, !xeddsa_signed)
-                    //   🟢 — signature present AND verified by Router::checkXeddsaReceivePolicy
-                    // Converging the two is a separate follow-up — for now PPING uses traffic-light
-                    // colors and the auto-prefix keeps its checkmark/ban/document set.
-                    const char *sigEmoji;
-                    if (mp.decoded.xeddsa_signature.size == 0) {
-                        sigEmoji = "🔴"; // F0 9F 94 B4 — not signed
-                    } else if (!mp.xeddsa_signed) {
-                        sigEmoji = "🟠"; // F0 9F 9F A0 — signed but unverified
-                    } else {
-                        sigEmoji = "🟢"; // F0 9F 9F A2 — signed & verified
-                    }
-                    l += snprintf(rMsg + l, sizeof(rMsg) - l, " S:%s", sigEmoji);
-                }
+                            // (SIGNATURE FLAG 2026-08-23) Append S:<emoji> to the flags line.
+                            // Three states, intentionally a different palette than the auto-prefix
+                            // convention in NexusCommands.cpp:8134 (which uses ✅/🚫/📄):
+                            //   🔴 - no signature field on the wire (decoded.xeddsa_signature.size == 0)
+                            //   🟠 - signature present but xeddsa_verify() failed (size != 0, !xeddsa_signed)
+                            //   🟢 - signature present AND verified by Router::checkXeddsaReceivePolicy
+                            // Converging the two is a separate follow-up - for now PPING uses traffic-light
+                            // colors and the auto-prefix keeps its checkmark/ban/document set.
+                            const char *sigEmoji;
+                            if (mp.decoded.xeddsa_signature.size == 0) {
+                                sigEmoji = "🔴"; // F0 9F 94 B4 - not signed
+                            } else if (!mp.xeddsa_signed) {
+                                sigEmoji = "🟠"; // F0 9F 9F A0 - signed but unverified
+                            } else {
+                                sigEmoji = "🟢"; // F0 9F 9F A2 - signed & verified
+                            }
+                            l += snprintf(rMsg + l, sizeof(rMsg) - l, " S:%s", sigEmoji);
+                        }
 
-                // Send the reply back (Multi-routing: immediate local + deferred mesh)
-                bool isDM = (mp.to == myNodeInfo.my_node_num);
-                size_t rLen = strlen(rMsg);
-                if (rLen > NEXUS_MAX_REPLY_BODY) rLen = NEXUS_MAX_REPLY_BODY;
+                        // Send the reply back (Multi-routing: immediate local + deferred mesh)
+                        bool isDM = (mp.to == myNodeInfo.my_node_num);
+                        size_t rLen = strlen(rMsg);
+                        if (rLen > NEXUS_MAX_REPLY_BODY)
+                            rLen = NEXUS_MAX_REPLY_BODY;
 
-                // 1. Immediate Local Copy to phone UI
-                sendToPhone(0xFFFFFFFF, mp.channel, mp.id, rMsg, rLen);
-                LOG_INFO("Nexus: Local ping reply copy sent.");
+                        // 1. Immediate Local Copy to phone UI
+                        sendToPhone(0xFFFFFFFF, mp.channel, mp.id, rMsg, rLen);
+                        LOG_INFO("Nexus: Local ping reply copy sent.");
 
-                // 2. Queued Mesh Response
-                pendingReply.active = true;
-                pendingReply.to = isDM ? mp.from : 0xFFFFFFFF;
-                pendingReply.channel = mp.channel;
-                pendingReply.reply_id = mp.id;
-                pendingReply.want_ack = true;
-                memcpy(pendingReply.message, rMsg, rLen);
-                pendingReply.message[rLen] = '\0';
+                        // 2. Queued Mesh Response
+                        pendingReply.active = true;
+                        pendingReply.to = isDM ? mp.from : 0xFFFFFFFF;
+                        pendingReply.channel = mp.channel;
+                        pendingReply.reply_id = mp.id;
+                        pendingReply.want_ack = true;
+                        memcpy(pendingReply.message, rMsg, rLen);
+                        pendingReply.message[rLen] = '\0';
 
-                if (!isDM) {
-                    uint32_t jitter = broadcastReplyJitterMs();
-                    pendingReply.send_at = millis() + jitter;
-                    LOG_INFO("Nexus: Queuing broadcast ping with %ums jitter", jitter);
-                } else {
-                    pendingReply.send_at = millis() + 50; // Minimal yield
-                    LOG_INFO("Nexus: Queuing DM ping (50ms yield)");
-                }
-                setIntervalFromNow(50);
+                        if (!isDM) {
+                            uint32_t jitter = broadcastReplyJitterMs();
+                            pendingReply.send_at = millis() + jitter;
+                            LOG_INFO("Nexus: Queuing broadcast ping with %ums jitter", jitter);
+                        } else {
+                            pendingReply.send_at = millis() + 50; // Minimal yield
+                            LOG_INFO("Nexus: Queuing DM ping (50ms yield)");
+                        }
+                        setIntervalFromNow(50);
 
-                // If it was a DM, we can STOP it here. If channel, CONTINUE so others can reply too.
-                memset(rMsg, 0, sizeof(rMsg));
-                return isDM ? ProcessMessage::STOP : ProcessMessage::CONTINUE;
+                        // If it was a DM, we can STOP it here. If channel, CONTINUE so others can reply too.
+                        memset(rMsg, 0, sizeof(rMsg));
+                        return isDM ? ProcessMessage::STOP : ProcessMessage::CONTINUE;
                     }
                 }
             }
@@ -2325,10 +2736,10 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
         // to all three call sites automatically.
         int type = -1; // 0:local, 1:broadcast, 2:device, 3:node, 4:mac, 5:group
         size_t prefLen = 0;
-        const char* suffixes[] = {"-local", "", "-device", "-node", "-mac", "-group"};
+        const char *suffixes[] = {"-local", "", "-device", "-node", "-mac", "-group"};
 
-        for (size_t p=0; p < NEXUS_PREFIX_ROOTS_COUNT; p++) {
-            for (int s=0; s<6; s++) {
+        for (size_t p = 0; p < NEXUS_PREFIX_ROOTS_COUNT; p++) {
+            for (int s = 0; s < 6; s++) {
                 char full[32];
                 snprintf(full, sizeof(full), "%s%s", NEXUS_PREFIX_ROOTS[p], suffixes[s]);
                 size_t flen = strlen(full);
@@ -2340,7 +2751,8 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                     }
                 }
             }
-            if (type != -1) break;
+            if (type != -1)
+                break;
         }
 
         if (type != -1) {
@@ -2351,20 +2763,20 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
             bool isTargetedMAC = (type == 4);
             bool isTargetedGroup = (type == 5);
 
-            // 3. Context Check: 2026-08-17 (Nexus-28001) — /nexus command authorization
+            // 3. Context Check: 2026-08-17 (Nexus-28001) - /nexus command authorization
             // is now CHANNEL-ONLY by default. 2026-08-24 (Nexus-28003):
             // the gate is now controlled by nexus_security_bitmask (vault v65 slot):
-            //   bit 0  NEXUS_SECURITY_REQUIRE_SIG  — sig required on Nexus-ch cmds
-            //   bit 1  NEXUS_SECURITY_ALLOW_DM     — DMs accepted as an auth path
-            //   bit 2  NEXUS_SECURITY_SILENT_LOG  — silent log+drop on reject (else reply)
+            //   bit 0  NEXUS_SECURITY_REQUIRE_SIG  - sig required on Nexus-ch cmds
+            //   bit 1  NEXUS_SECURITY_ALLOW_DM     - DMs accepted as an auth path
+            //   bit 2  NEXUS_SECURITY_SILENT_LOG  - silent log+drop on reject (else reply)
             // All three bits default OFF. With everything off the gate is the
             // Nexus-28001 default: only Nexus-channel commands run, no sig required.
             //
             // "Internal" packets bypass ALL of these rules. nexusIsInternal()
             // (see shim block above) combines isFromUs() (anonymous local origin
             // OR self-rebroadcast) with a transport_mechanism != TRANSPORT_LORA
-            // guard so that a packet which loops back over LoRa — even with
-            // from==0 or from==us — is NOT treated as internal.
+            // guard so that a packet which loops back over LoRa - even with
+            // from==0 or from==us - is NOT treated as internal.
             // Rule (2026-09-02): don't apply the rule to packets that did not originate
             // locally; the on-wire transport_mechanism is the canonical witness.
             bool isDM = (mp.to == myNodeInfo.my_node_num);
@@ -2376,7 +2788,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
             // If the packet uses -device / -node / -mac / -group addressing but
             // the addressee is NOT us (matchTargetedCmd returns nullptr), we are
             // overhearing a packet meant for another node. REQ_SIG / replay
-            // / authorization still apply — we don't run the command — but we
+            // / authorization still apply - we don't run the command - but we
             // suppress the reject-reply unconditionally (same as SILENT_LOG
             // forced ON) so we don't leak our security state to the sender.
             // SILENT_LOG continues to suppress for packets addressed to us.
@@ -2385,31 +2797,34 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
             bool isTargetedCommand = (isTargetedID || isTargetedName || isTargetedMAC || isTargetedGroup);
             bool addressedElsewhere = isTargetedCommand && (matchTargetedCmd(cmdBuf, nullptr) == nullptr);
 
-            LOG_INFO("Nexus: Command context check - isDM: %d, Channel: '%s', isNexusChannel: %d, isInternal: %d", isDM, ch ? ch->settings.name : "NULL", isNexusChannel, isInternal);
+            LOG_INFO("Nexus: Command context check - isDM: %d, Channel: '%s', isNexusChannel: %d, isInternal: %d", isDM,
+                     ch ? ch->settings.name : "NULL", isNexusChannel, isInternal);
 
             // Replay protection (Nexus-28004, 2026-08-31): a duplicate
             // MeshPacket.id from a non-internal sender is treated as a replay
             // and rejected before any dispatch. Internal packets (isFromUs)
-            // bypass, matching the REQ_SIG policy. No TTL — ids stay in the
+            // bypass, matching the REQ_SIG policy. No TTL - ids stay in the
             // 256-entry ring until evicted by a newer one. The check records
             // the id regardless of accept/reject (so a malicious duplicate
             // doesn't unlock the original slot).
             //
             // Bypass_RP toggle (Nexus-28005, 2026-09-06): opt-out for
             // operators who want RP off. Per spec the bypass skips the check
-            // AND skips the fill — when bypassed, checkReplay() is not called
+            // AND skips the fill - when bypassed, checkReplay() is not called
             // at all, so the ring stays exactly as it was at bypass time and
             // picking back up resumes from there.
             if (!isInternal && !securityBypassRP()) {
                 if (checkReplay(mp.id)) {
-                    LOG_WARN("Nexus: SECURITY REJECTED /nexus from !%08x — replay detected (packet id %u)", (unsigned)mp.from, (unsigned)mp.id);
+                    LOG_WARN("Nexus: SECURITY REJECTED /nexus from !%08x - replay detected (packet id %u)", (unsigned)mp.from,
+                             (unsigned)mp.id);
                     // Suppress the mesh reply if the packet was targeted to a
-                    // different node — we never authorize it, but we also don't
+                    // different node - we never authorize it, but we also don't
                     // leak that we detected the replay to the sender. SILENT_LOG
                     // continues to suppress for packets addressed to us.
                     if (!securitySilentLog() && !addressedElsewhere) {
                         char repReply[NEXUS_MAX_REPLY];
-                        snprintf(repReply, sizeof(repReply), "JT SECURITY: rejected — replay detected (packet id %u)", (unsigned)mp.id);
+                        snprintf(repReply, sizeof(repReply), "JT SECURITY: rejected - replay detected (packet id %u)",
+                                 (unsigned)mp.id);
                         uint32_t to = (mp.to == myNodeInfo.my_node_num) ? mp.from : 0xFFFFFFFF;
                         queueMeshReply(to, mp.channel, mp.id, repReply, strlen(repReply), false, true);
                     }
@@ -2437,11 +2852,11 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                 authorized = true;
             } else if (isNexusChannel) {
                 if (!securityRequiresSignature()) {
-                    authorized = true;  // pre-Nexus-28003 default: open Nexus channel
+                    authorized = true; // pre-Nexus-28003 default: open Nexus channel
                 } else {
                     char sigLabel[8] = {0};
                     bool sigOk = verifyTrustedSignature(&mp, sigLabel, sizeof(sigLabel));
-                    LOG_INFO("Nexus: SECURITY REQ_SIG check on Nexus-ch cmd — sig=%s", sigLabel);
+                    LOG_INFO("Nexus: SECURITY REQ_SIG check on Nexus-ch cmd - sig=%s", sigLabel);
                     if (sigOk) {
                         authorized = true;
                     } else {
@@ -2459,128 +2874,131 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                 rejectReason = "DM not authorized (ALLOW_DM=OFF)";
             }
 
-                if (authorized) {
-                    // Nexus: Block /nexus-local if received over the mesh (Security Violation)
-                    if (isLocalOnly) {
-                        LOG_WARN("Nexus: Security Violation - /nexus-local received over RF from !%08x", mp.from);
-                        return ProcessMessage::STOP;
-                    }
+            if (authorized) {
+                // Nexus: Block /nexus-local if received over the mesh (Security Violation)
+                if (isLocalOnly) {
+                    LOG_WARN("Nexus: Security Violation - /nexus-local received over RF from !%08x", mp.from);
+                    return ProcessMessage::STOP;
+                }
 
-                    // Nexus: Targeted Shadow Identity. Check if the first two bytes match 0xdefc
-                    // Logic: If the sender is a shadow node (!defc*), we STOP it from reaching the app.
-                    bool shouldStop = ((mp.from >> 16) == 0xdefc);
-                    if (shouldStop) {
-                        LOG_INFO("Nexus: Shadow node (!defc*) detected. Applying Shadow CLI (STOP).");
-                    }
+                // Nexus: Targeted Shadow Identity. Check if the first two bytes match 0xdefc
+                // Logic: If the sender is a shadow node (!defc*), we STOP it from reaching the app.
+                bool shouldStop = ((mp.from >> 16) == 0xdefc);
+                if (shouldStop) {
+                    LOG_INFO("Nexus: Shadow node (!defc*) detected. Applying Shadow CLI (STOP).");
+                }
 
-                    // Comparison for targeted commands
-                    if (isTargetedID || isTargetedName || isTargetedMAC || isTargetedGroup) {
-                        size_t kind = 0;
-                        const char *cmdStart = matchTargetedCmd(cmdBuf, &kind);
-                        if (cmdStart) {
-                            // ID/Name/MAC are DMs (isBroadcast=false), group is broadcast.
-                            bool isGroup = (kind == TARGET_GROUP);
-                            LOG_INFO("Nexus: Targeted command for us (kind=%u): %s", (unsigned)kind, cmdStart);
-                            handleNexusCommand(mp, cmdStart, isGroup, mp.id, false, shouldStop);
-                        }
-                        return shouldStop ? ProcessMessage::STOP : ProcessMessage::CONTINUE;
+                // Comparison for targeted commands
+                if (isTargetedID || isTargetedName || isTargetedMAC || isTargetedGroup) {
+                    size_t kind = 0;
+                    const char *cmdStart = matchTargetedCmd(cmdBuf, &kind);
+                    if (cmdStart) {
+                        // ID/Name/MAC are DMs (isBroadcast=false), group is broadcast.
+                        bool isGroup = (kind == TARGET_GROUP);
+                        LOG_INFO("Nexus: Targeted command for us (kind=%u): %s", (unsigned)kind, cmdStart);
+                        handleNexusCommand(mp, cmdStart, isGroup, mp.id, false, shouldStop);
                     }
-                    else if (isBroadcast) {
-                        const char *cmdStart = cmdBuf + prefLen;
-                        while(*cmdStart == ' ') cmdStart++;
-                        handleNexusCommand(mp, cmdStart, true, mp.id, false, shouldStop);
-                        return shouldStop ? ProcessMessage::STOP : ProcessMessage::CONTINUE;
-                    }
-                } else {
-                    LOG_WARN("Nexus: SECURITY REJECTED /nexus from !%08x — %s", (unsigned)mp.from, rejectReason ? rejectReason : "not authorized");
+                    return shouldStop ? ProcessMessage::STOP : ProcessMessage::CONTINUE;
+                } else if (isBroadcast) {
+                    const char *cmdStart = cmdBuf + prefLen;
+                    while (*cmdStart == ' ')
+                        cmdStart++;
+                    handleNexusCommand(mp, cmdStart, true, mp.id, false, shouldStop);
+                    return shouldStop ? ProcessMessage::STOP : ProcessMessage::CONTINUE;
+                }
+            } else {
+                LOG_WARN("Nexus: SECURITY REJECTED /nexus from !%08x - %s", (unsigned)mp.from,
+                         rejectReason ? rejectReason : "not authorized");
 
-                    // Reply with the security reason UNLESS the operator
-                    // flipped SILENT_LOG ON. Replying helps debugging but
-                    // also lets an attacker probe the bitmask state.
-                    // Targeted commands addressed to a different node
-                    // (addressedElsewhere) always stay silent — Nexus-28005.
-                    if (!securitySilentLog() && !addressedElsewhere && rejectReason) {
-                        char secReply[NEXUS_MAX_REPLY];
-                        snprintf(secReply, sizeof(secReply), "JT SECURITY: rejected — %s", rejectReason);
-                        // Reply on the same channel the command arrived on,
-                        // back to the sender (or broadcast if no specific sender).
-                        uint32_t to = (mp.to == myNodeInfo.my_node_num) ? mp.from : 0xFFFFFFFF;
-                        queueMeshReply(to, mp.channel, mp.id, secReply, strlen(secReply), false, true);
-                    }
+                // Reply with the security reason UNLESS the operator
+                // flipped SILENT_LOG ON. Replying helps debugging but
+                // also lets an attacker probe the bitmask state.
+                // Targeted commands addressed to a different node
+                // (addressedElsewhere) always stay silent - Nexus-28005.
+                if (!securitySilentLog() && !addressedElsewhere && rejectReason) {
+                    char secReply[NEXUS_MAX_REPLY];
+                    snprintf(secReply, sizeof(secReply), "JT SECURITY: rejected - %s", rejectReason);
+                    // Reply on the same channel the command arrived on,
+                    // back to the sender (or broadcast if no specific sender).
+                    uint32_t to = (mp.to == myNodeInfo.my_node_num) ? mp.from : 0xFFFFFFFF;
+                    queueMeshReply(to, mp.channel, mp.id, secReply, strlen(secReply), false, true);
                 }
             }
         }
+    }
 
-        // Nexus: DM Forwarding Logic (v10)
-        // If enabled, forward non-CLI DMs to the Nexus channel with full SIGINT metadata
-        bool isShadowSender = false; // Debug variable that is no longer used.
-        if (dm_forward && mp.to == myNodeInfo.my_node_num && !isShadowSender) {
-            LOG_INFO("Nexus: DM Forwarding triggered for DM from !%08x", mp.from);
+    // Nexus: DM Forwarding Logic (v10)
+    // If enabled, forward non-CLI DMs to the Nexus channel with full SIGINT metadata
+    bool isShadowSender = false; // Debug variable that is no longer used.
+    if (dm_forward && mp.to == myNodeInfo.my_node_num && !isShadowSender) {
+        LOG_INFO("Nexus: DM Forwarding triggered for DM from !%08x", mp.from);
 
-            // 1. Prepare Tactical Report
-            uint32_t hopsUsed = (mp.hop_start >= mp.hop_limit) ? (mp.hop_start - mp.hop_limit) : 0;
-            char relayId[12] = "None";
-            if (hopsUsed > 0) snprintf(relayId, sizeof(relayId), "*%02x", (uint8_t)(mp.relay_node & 0xFF));
+        // 1. Prepare Tactical Report
+        uint32_t hopsUsed = (mp.hop_start >= mp.hop_limit) ? (mp.hop_start - mp.hop_limit) : 0;
+        char relayId[12] = "None";
+        if (hopsUsed > 0)
+            snprintf(relayId, sizeof(relayId), "*%02x", (uint8_t)(mp.relay_node & 0xFF));
 
-            char report[NEXUS_MAX_REPLY];
-            int rLen = snprintf(report, sizeof(report),
-                                "JT FWDM [!%08x]:\nMsg:%.100s\nHops:%u/%u RY:%s\nSNR:%.2f RSSI:%d",
-                                (unsigned int)mp.from, cmdBuf, hopsUsed, mp.hop_start, relayId, mp.rx_snr, (int)mp.rx_rssi);
+        char report[NEXUS_MAX_REPLY];
+        int rLen = snprintf(report, sizeof(report), "JT FWDM [!%08x]:\nMsg:%.100s\nHops:%u/%u RY:%s\nSNR:%.2f RSSI:%d",
+                            (unsigned int)mp.from, cmdBuf, hopsUsed, mp.hop_start, relayId, mp.rx_snr, (int)mp.rx_rssi);
 
-            if (rLen < 0 || (size_t)rLen >= sizeof(report)) rLen = sizeof(report) - 1;
+        if (rLen < 0 || (size_t)rLen >= sizeof(report))
+            rLen = sizeof(report) - 1;
 
-            // 2. Find Tactical Channel
-            int targetCh = -1;
-            const char *trusted1 =
+        // 2. Find Tactical Channel
+        int targetCh = -1;
+        const char *trusted1 =
 #ifdef NEXUS_TRUSTED_CHANNEL_1
-                NEXUS_TRUSTED_CHANNEL_1;
+            NEXUS_TRUSTED_CHANNEL_1;
 #else
-                "Nexus";
+            "Nexus";
 #endif
-            const char *trusted2 =
+        const char *trusted2 =
 #ifdef NEXUS_TRUSTED_CHANNEL_2
-                NEXUS_TRUSTED_CHANNEL_2;
+            NEXUS_TRUSTED_CHANNEL_2;
 #else
-                "Nexus2";
+            "Nexus2";
 #endif
-            for (uint8_t i = 0; i < MAX_NUM_CHANNELS; i++) {
-                meshtastic_Channel *c = &channels.getByIndex(i);
-                if (c->role != meshtastic_Channel_Role_DISABLED) {
-                    if (strcasecmp(c->settings.name, trusted1) == 0 || strcasecmp(c->settings.name, trusted2) == 0) {
-                        targetCh = i;
-                        break;
-                    }
-                }
-            }
-
-            // 3. Send Report to Mesh (if channel found)
-            if (targetCh != -1) {
-                // If message is too long, use paging
-                if (rLen > (int)NEXUS_MAX_REPLY_BODY - 10) {
-                    startPaging(0xFFFFFFFF, targetCh, 0, "Forwarded DM");
-                    appendPaging(report);
-                } else {
-                    meshtastic_MeshPacket *tp = (router) ? router->allocForSending() : nullptr;
-                    if (tp) {
-                        tp->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
-                        tp->to = 0xFFFFFFFF; // Broadcast to channel
-                        tp->channel = targetCh;
-                        memcpy(tp->decoded.payload.bytes, report, rLen);
-                        tp->decoded.payload.size = rLen;
-                        if (service) service->sendToMesh(tp);
-                    }
+        for (uint8_t i = 0; i < MAX_NUM_CHANNELS; i++) {
+            meshtastic_Channel *c = &channels.getByIndex(i);
+            if (c->role != meshtastic_Channel_Role_DISABLED) {
+                if (strcasecmp(c->settings.name, trusted1) == 0 || strcasecmp(c->settings.name, trusted2) == 0) {
+                    targetCh = i;
+                    break;
                 }
             }
         }
+
+        // 3. Send Report to Mesh (if channel found)
+        if (targetCh != -1) {
+            // If message is too long, use paging
+            if (rLen > (int)NEXUS_MAX_REPLY_BODY - 10) {
+                startPaging(0xFFFFFFFF, targetCh, 0, "Forwarded DM");
+                appendPaging(report);
+            } else {
+                meshtastic_MeshPacket *tp = (router) ? router->allocForSending() : nullptr;
+                if (tp) {
+                    tp->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+                    tp->to = 0xFFFFFFFF; // Broadcast to channel
+                    tp->channel = targetCh;
+                    memcpy(tp->decoded.payload.bytes, report, rLen);
+                    tp->decoded.payload.size = rLen;
+                    if (service)
+                        service->sendToMesh(tp);
+                }
+            }
+        }
+    }
     return ProcessMessage::CONTINUE;
 }
-ProcessMessage NexusModule::handleLocal(const meshtastic_MeshPacket &mp) {
+ProcessMessage NexusModule::handleLocal(const meshtastic_MeshPacket &mp)
+{
     // Nexus: Handle CLI commands sent from the local phone
     if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
-        mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP &&
-        mp.decoded.payload.size > 2) {
+        mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && mp.decoded.payload.size > 2) {
 
-        const char* msg = (const char*)mp.decoded.payload.bytes;
+        const char *msg = (const char *)mp.decoded.payload.bytes;
         // Reuse the persistent member buffer (not a stack local) to reduce loopTask pressure
         char *cmdBuf = this->cmdBuf;
         // Nexus: Full memset (not just cmdBuf[0]) so residual bytes from previous calls cannot
@@ -2589,37 +3007,34 @@ ProcessMessage NexusModule::handleLocal(const meshtastic_MeshPacket &mp) {
         size_t copyLen = (mp.decoded.payload.size < 127) ? mp.decoded.payload.size : 127;
         memcpy(cmdBuf, msg, copyLen);
 
-        // 2. /nexus (broadcast), /nexus-local (local only), /nexus-device !id (targeted ID), /nexus-node shortname (targeted Name), or /nexus-mac hex (targeted MAC)
-        // Nexus v267 fix-up: also accept the /jt, /jent, /jentastic prefix roots (see NEXUS_PREFIX_ROOTS, file scope).
-        // The dispatch branches below use matchedRootLen to compute the offset past the
-        // root (root + suffix + trailing space) so that /jent-local, /jt STATS, etc. slice
-        // the command body correctly. Without this, /jent-local STATS would slice off the
-        // first 2 chars (delivering "AL STATS" to handleNexusCommand).
+        // 2. /nexus (broadcast), /nexus-local (local only), /nexus-device !id (targeted ID), /nexus-node shortname (targeted
+        // Name), or /nexus-mac hex (targeted MAC) Nexus v267 fix-up: also accept the /jt, /jent, /jentastic prefix roots (see
+        // NEXUS_PREFIX_ROOTS, file scope). The dispatch branches below use matchedRootLen to compute the offset past the root
+        // (root + suffix + trailing space) so that /jent-local, /jt STATS, etc. slice the command body correctly. Without this,
+        // /jent-local STATS would slice off the first 2 chars (delivering "AL STATS" to handleNexusCommand).
         bool isLocalOnly = false;
         bool isBroadcast = false;
         bool isTargetedPrefix = false;
         size_t matchedRootLen = 0;
         for (size_t r = 0; r < NEXUS_PREFIX_ROOTS_COUNT; r++) {
-            const char* root = NEXUS_PREFIX_ROOTS[r];
+            const char *root = NEXUS_PREFIX_ROOTS[r];
             size_t rootLen = strlen(root);
-            if (strncasecmp(cmdBuf, root, rootLen) != 0) continue;
-            const char* after = cmdBuf + rootLen;
+            if (strncasecmp(cmdBuf, root, rootLen) != 0)
+                continue;
+            const char *after = cmdBuf + rootLen;
             if (strncasecmp(after, "-local", 6) == 0 && (after[6] == ' ' || after[6] == '\0')) {
                 isLocalOnly = true;
                 matchedRootLen = rootLen;
             } else if (after[0] == '\0' || after[0] == ' ') {
                 isBroadcast = true;
                 matchedRootLen = rootLen;
-            } else if (strncasecmp(after, "-device ", 8) == 0
-                    || strncasecmp(after, "-node ", 6) == 0
-                    || strncasecmp(after, "-mac ", 5) == 0
-                    || strncasecmp(after, "-group ", 7) == 0) {
+            } else if (strncasecmp(after, "-device ", 8) == 0 || strncasecmp(after, "-node ", 6) == 0 ||
+                       strncasecmp(after, "-mac ", 5) == 0 || strncasecmp(after, "-group ", 7) == 0) {
                 isTargetedPrefix = true;
                 matchedRootLen = rootLen;
             }
             break; // one prefix root matches at most
         }
-
 
         if (isLocalOnly || isBroadcast || isTargetedPrefix) {
             LOG_INFO("Nexus: Local CLI triggered");
@@ -2635,15 +3050,13 @@ ProcessMessage NexusModule::handleLocal(const meshtastic_MeshPacket &mp) {
                     handleNexusCommand(mp, cmdStart, false, mp.id);
                 }
                 return ProcessMessage::STOP;
-            }
-            else if (isLocalOnly) {
+            } else if (isLocalOnly) {
                 // Skip past root + "-local "; e.g. /nexus-local STATS -> "STATS", /jent-local STATS -> "STATS".
                 size_t offset = matchedRootLen + 7; // "-local " is 7 chars
                 const char *cmdStart = (strlen(cmdBuf) > offset) ? cmdBuf + offset : "";
                 handleNexusCommand(mp, cmdStart, true, mp.id, true);
                 return ProcessMessage::STOP;
-            }
-            else if (isBroadcast) {
+            } else if (isBroadcast) {
                 // Skip past root + " " (1 char). For bare root (no space, no body), start at '\0'.
                 size_t offset = matchedRootLen + ((cmdBuf[matchedRootLen] == ' ') ? 1 : 0);
                 const char *cmdStart = cmdBuf + offset;
@@ -2654,7 +3067,6 @@ ProcessMessage NexusModule::handleLocal(const meshtastic_MeshPacket &mp) {
     }
     return ProcessMessage::CONTINUE;
 }
-
 
 bool NexusModule::isNexusChannel(uint32_t channelIndex)
 {
@@ -2699,19 +3111,24 @@ uint32_t NexusModule::findFirstNexusChannel()
     return channels.getPrimaryIndex(); // Fallback to primary if none found
 }
 
-void NexusModule::translateInbound(meshtastic_MeshPacket *p) {
-    if (!p) return;
+void NexusModule::translateInbound(meshtastic_MeshPacket *p)
+{
+    if (!p)
+        return;
 #ifdef NEXUS_PRIVATE_BUILD
     privateTranslateInbound(p);
 #endif
 }
 
-void NexusModule::translateOutbound(meshtastic_MeshPacket *p) {
+void NexusModule::translateOutbound(meshtastic_MeshPacket *p)
+{
     (void)p;
 }
 
-void NexusModule::interceptOutgoing(meshtastic_MeshPacket *p) {
-    if (!p) return;
+void NexusModule::interceptOutgoing(meshtastic_MeshPacket *p)
+{
+    if (!p)
+        return;
 
     // 1. Hop Masking Logic
     if (hop_mask_active && p->from == myNodeInfo.my_node_num) {
@@ -2730,13 +3147,24 @@ void NexusModule::interceptOutgoing(meshtastic_MeshPacket *p) {
     // 1.2 Per-Port Overwrite (v31)
     if (p->from == myNodeInfo.my_node_num && p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
         int portIdx = -1;
-        switch(p->decoded.portnum) {
-            case meshtastic_PortNum_NODEINFO_APP: portIdx = 0; break;
-            case meshtastic_PortNum_TELEMETRY_APP: portIdx = 1; break;
-            case meshtastic_PortNum_POSITION_APP: portIdx = 2; break;
-            case meshtastic_PortNum_TRACEROUTE_APP: portIdx = 3; break;
-            case meshtastic_PortNum_TEXT_MESSAGE_APP: portIdx = 4; break;
-            default: break;
+        switch (p->decoded.portnum) {
+        case meshtastic_PortNum_NODEINFO_APP:
+            portIdx = 0;
+            break;
+        case meshtastic_PortNum_TELEMETRY_APP:
+            portIdx = 1;
+            break;
+        case meshtastic_PortNum_POSITION_APP:
+            portIdx = 2;
+            break;
+        case meshtastic_PortNum_TRACEROUTE_APP:
+            portIdx = 3;
+            break;
+        case meshtastic_PortNum_TEXT_MESSAGE_APP:
+            portIdx = 4;
+            break;
+        default:
+            break;
         }
         if (portIdx != -1 && nexus_per_port_hopmask[portIdx].active) {
             p->hop_start = nexus_per_port_hopmask[portIdx].start;
@@ -2750,8 +3178,7 @@ void NexusModule::interceptOutgoing(meshtastic_MeshPacket *p) {
 
     // 5. Emoji Mangling Logic (v37)
     if (isFromUs(p) && p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
-        p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP &&
-        p->decoded.payload.size > 7) {
+        p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && p->decoded.payload.size > 7) {
 
         if (memcmp(p->decoded.payload.bytes, "/emoji ", 7) == 0) {
             size_t emojiLen = p->decoded.payload.size - 7;
@@ -2765,14 +3192,17 @@ void NexusModule::interceptOutgoing(meshtastic_MeshPacket *p) {
     }
 }
 
-void NexusModule::applyTS(uint32_t *traceId) {
-    if (!traceId) return;
+void NexusModule::applyTS(uint32_t *traceId)
+{
+    if (!traceId)
+        return;
 #ifdef NEXUS_PRIVATE_BUILD
     privateApplyTS(traceId);
 #endif
 }
 
-int32_t NexusModule::runOnce() {
+int32_t NexusModule::runOnce()
+{
     uint32_t now = millis();
 
     // 0. Delayed InputBroker Hook (Ensure inputBroker is initialized)
@@ -2798,12 +3228,13 @@ int32_t NexusModule::runOnce() {
             reply->decoded.payload.size = len;
 
             if (pendingReply.is_reaction) {
-                reply->decoded.emoji = 1; // Mark as emoji reaction (🤖 trigger only)
+                reply->decoded.emoji = 1;            // Mark as emoji reaction (🤖 trigger only)
                 reply->decoded.bitfield |= (1 << 0); // Reaction flag
                 reply->decoded.has_bitfield = true;
             }
 
-            if (service) service->sendToMesh(reply);
+            if (service)
+                service->sendToMesh(reply);
             LOG_INFO("Nexus: Deferred reply sent to %08x", pendingReply.to);
         }
         pendingReply.active = false;
@@ -2833,7 +3264,8 @@ int32_t NexusModule::runOnce() {
     // 3. Process Deferred LoRa Changes
     if (pendingLoRaConfig && now >= pendingLoRaApplyAt) {
         LOG_INFO("Nexus: Applying deferred LoRa configuration change (LIVE).");
-        if (adminModule) adminModule->handleSetConfig(pendingConfig, false);
+        if (adminModule)
+            adminModule->handleSetConfig(pendingConfig, false);
         pendingLoRaConfig = false;
         pendingLoRaApplyAt = 0;
     }
@@ -2858,7 +3290,8 @@ int32_t NexusModule::runOnce() {
 
         // Trim leading spaces
         char *cmdPtr = current_cmd;
-        while (*cmdPtr == ' ') cmdPtr++;
+        while (*cmdPtr == ' ')
+            cmdPtr++;
 
         if (*cmdPtr != '\0') {
             LOG_INFO("Nexus: Macro executing step: %s", cmdPtr);
@@ -2921,7 +3354,8 @@ int32_t NexusModule::runOnce() {
             // Send empty reply
             const char *msg = "JT NETSCAN: No direct neighbors heard.";
             size_t mLen = strlen(msg);
-            if (mLen > NEXUS_MAX_REPLY_BODY) mLen = NEXUS_MAX_REPLY_BODY;
+            if (mLen > NEXUS_MAX_REPLY_BODY)
+                mLen = NEXUS_MAX_REPLY_BODY;
             sendToMeshPacket(netscan_reply_to, netscan_reply_ch, 0, msg, mLen, false, false);
             sendToPhone(0xFFFFFFFF, netscan_reply_ch, 0, msg, mLen);
         } else {
@@ -2931,16 +3365,17 @@ int32_t NexusModule::runOnce() {
             int len = snprintf(buf, sizeof(buf), "JT NETSCAN (%d):\nID,RSSI,SNR,FE,RY\n", nexus_netscan_count);
 
             // Nexus: Post-scan Deduplication Logic
-            for(int i=0; i<nexus_netscan_count; i++) {
+            for (int i = 0; i < nexus_netscan_count; i++) {
                 // Check if this node has already been processed in this report
                 bool alreadyProcessed = false;
-                for(int k=0; k<i; k++) {
+                for (int k = 0; k < i; k++) {
                     if (nexus_netscan_db[k].nodeID == nexus_netscan_db[i].nodeID) {
                         alreadyProcessed = true;
                         break;
                     }
                 }
-                if (alreadyProcessed) continue;
+                if (alreadyProcessed)
+                    continue;
 
                 auto &e = nexus_netscan_db[i];
                 char idStr[12];
@@ -2952,8 +3387,7 @@ int32_t NexusModule::runOnce() {
                 }
 
                 char line[40];
-                int lLen = snprintf(line, sizeof(line), "%s,%d,%.1f,%.0f,%02x\n",
-                                   idStr, (int)e.rssi, e.snr, e.freqErr, e.relay);
+                int lLen = snprintf(line, sizeof(line), "%s,%d,%.1f,%.0f,%02x\n", idStr, (int)e.rssi, e.snr, e.freqErr, e.relay);
 
                 if (len + lLen >= (int)NEXUS_MAX_REPLY_BODY - 5) {
                     // Send current buffer
@@ -2976,24 +3410,26 @@ int32_t NexusModule::runOnce() {
         clientscan_active = false; // Stop collection FIRST (ESP32 Atomic)
 
         if (clientscan_count == 0) {
-             // Send empty reply. Note: clientscan reuses paging_to/ch/reply_id
-             // as its destination context (the paging system isn't actively
-             // in use during a clientscan).
-             const char *msg = "JT CLIENTSCAN: No repeats heard.";
-             size_t mLen = strlen(msg);
-             if (mLen > NEXUS_MAX_REPLY_BODY) mLen = NEXUS_MAX_REPLY_BODY;
-             sendToMeshPacket(paging_to, paging_ch, paging_reply_id, msg, mLen, false, false);
-             sendToPhone(0xFFFFFFFF, paging_ch, paging_reply_id, msg, mLen);
+            // Send empty reply. Note: clientscan reuses paging_to/ch/reply_id
+            // as its destination context (the paging system isn't actively
+            // in use during a clientscan).
+            const char *msg = "JT CLIENTSCAN: No repeats heard.";
+            size_t mLen = strlen(msg);
+            if (mLen > NEXUS_MAX_REPLY_BODY)
+                mLen = NEXUS_MAX_REPLY_BODY;
+            sendToMeshPacket(paging_to, paging_ch, paging_reply_id, msg, mLen, false, false);
+            sendToPhone(0xFFFFFFFF, paging_ch, paging_reply_id, msg, mLen);
         } else {
             char buf[NEXUS_MAX_REPLY];
             int part = 1;
-            int len = snprintf(buf, sizeof(buf), "JT CLIENTSCAN (!%08x):\nRY,Delay,RSSI,H/S,SNR\n", (unsigned int)clientscan_target_id);
+            int len =
+                snprintf(buf, sizeof(buf), "JT CLIENTSCAN (!%08x):\nRY,Delay,RSSI,H/S,SNR\n", (unsigned int)clientscan_target_id);
 
             // Static (BSS) so 64B+32B+64B+200B don't all stack-frame here.
             static char relayNames[64];
             static char ryStr[32];
             static char line[64];
-            for(int i=0; i<clientscan_count; i++) {
+            for (int i = 0; i < clientscan_count; i++) {
                 auto &e = clientscan_db[i];
                 memset(relayNames, 0, sizeof(relayNames));
                 int foundCount = 0;
@@ -3003,7 +3439,8 @@ int32_t NexusModule::runOnce() {
                     auto n = nodeDB->getMeshNodeByIndex(k);
                     if (n && (uint8_t)(n->num & 0xFF) == targetSuffix) {
                         if (n->short_name[0] != '\0') {
-                            if (foundCount > 0) strncat(relayNames, ",", sizeof(relayNames) - strlen(relayNames) - 1);
+                            if (foundCount > 0)
+                                strncat(relayNames, ",", sizeof(relayNames) - strlen(relayNames) - 1);
                             strncat(relayNames, n->short_name, sizeof(relayNames) - strlen(relayNames) - 1);
                             foundCount++;
                         }
@@ -3019,8 +3456,8 @@ int32_t NexusModule::runOnce() {
 
                 uint8_t usedHops = (e.hop_start >= e.hop_limit) ? (e.hop_start - e.hop_limit) : 0;
                 memset(line, 0, sizeof(line));
-                int lLen = snprintf(line, sizeof(line), "%s,%ums,%d,%u/%u,%.1f\n",
-                                   ryStr, (unsigned int)e.delay_ms, (int)e.rssi, usedHops, e.hop_start, e.snr);
+                int lLen = snprintf(line, sizeof(line), "%s,%ums,%d,%u/%u,%.1f\n", ryStr, (unsigned int)e.delay_ms, (int)e.rssi,
+                                    usedHops, e.hop_start, e.snr);
 
                 if (len + lLen >= (int)NEXUS_MAX_REPLY_BODY - 5) {
                     meshtastic_MeshPacket *r = (router) ? router->allocForSending() : nullptr;
@@ -3070,7 +3507,8 @@ int32_t NexusModule::runOnce() {
             sendToPhone(0xFFFFFFFF, noise_sampling_ch, noise_sampling_reply_id, errBuf, eLen);
             if (freqscan_active) {
                 config.lora = freqscan_backup;
-                if (service) service->configChanged.notifyObservers(nullptr);
+                if (service)
+                    service->configChanged.notifyObservers(nullptr);
                 freqscan_active = false;
             }
             return 1000;
@@ -3101,50 +3539,58 @@ int32_t NexusModule::runOnce() {
             float sum = 0, minR = 0, maxR = -200.0f;
             static char rawList[128];
             memset(rawList, 0, sizeof(rawList));
-            for(int i=0; i<100; i++) {
+            for (int i = 0; i < 100; i++) {
                 sum += noise_samples[i];
-                if (i == 0 || noise_samples[i] < minR) minR = noise_samples[i];
-                if (noise_samples[i] > maxR) maxR = noise_samples[i];
+                if (i == 0 || noise_samples[i] < minR)
+                    minR = noise_samples[i];
+                if (noise_samples[i] > maxR)
+                    maxR = noise_samples[i];
 
                 // Append whole number to raw list (reporting 25 samples: every 4th)
                 if (i % 4 == 0) {
                     char sBuf[8];
                     snprintf(sBuf, sizeof(sBuf), "%d,", (int)noise_samples[i]);
-                    if (strlen(rawList) + strlen(sBuf) < sizeof(rawList)) strcat(rawList, sBuf);
+                    if (strlen(rawList) + strlen(sBuf) < sizeof(rawList))
+                        strcat(rawList, sBuf);
                 }
             }
             float avg = sum / 100.0f;
 
             // Determine Radio State and Params for diagnostic
-            const char* rState = "UNK";
+            const char *rState = "UNK";
             float curFreq = config.lora.override_frequency;
             uint16_t curBw = config.lora.bandwidth;
 
             if (RadioLibInterface::instance) {
-                if (RadioLibInterface::instance->isSending()) rState = "TX";
-                else if (RadioLibInterface::instance->isActivelyReceiving()) rState = "BUSY";
-                else rState = "RX";
+                if (RadioLibInterface::instance->isSending())
+                    rState = "TX";
+                else if (RadioLibInterface::instance->isActivelyReceiving())
+                    rState = "BUSY";
+                else
+                    rState = "RX";
             }
 
             char nBuf[NEXUS_MAX_REPLY];
-            snprintf(nBuf, sizeof(nBuf), "Noise (%s,R:%d)\n%.2fM/%uk\n%s\nAvg:%.1f Min:%d Max:%d",
-                     rState, noise_retry_count, curFreq, curBw, rawList, avg, (int)minR, (int)maxR);
+            snprintf(nBuf, sizeof(nBuf), "Noise (%s,R:%d)\n%.2fM/%uk\n%s\nAvg:%.1f Min:%d Max:%d", rState, noise_retry_count,
+                     curFreq, curBw, rawList, avg, (int)minR, (int)maxR);
 
             if (freqscan_active) {
                 float targetF = config.lora.override_frequency;
                 // 4. Restore original config (RAM only)
                 config.lora = freqscan_backup;
-                if (service) service->configChanged.notifyObservers(nullptr);
+                if (service)
+                    service->configChanged.notifyObservers(nullptr);
 
                 char fBuf[NEXUS_MAX_REPLY];
                 snprintf(fBuf, sizeof(fBuf), "JT FREQSCAN (%.2fM):\n%s", targetF, nBuf);
                 strncpy(nBuf, fBuf, sizeof(nBuf));
-                nBuf[sizeof(nBuf)-1] = '\0';
+                nBuf[sizeof(nBuf) - 1] = '\0';
                 freqscan_active = false;
             }
 
             size_t nLen = strlen(nBuf);
-            if (nLen > NEXUS_MAX_REPLY_BODY) nLen = NEXUS_MAX_REPLY_BODY;
+            if (nLen > NEXUS_MAX_REPLY_BODY)
+                nLen = NEXUS_MAX_REPLY_BODY;
             sendToMeshPacket(noise_sampling_to, noise_sampling_ch, noise_sampling_reply_id, nBuf, nLen, false, false);
             sendToPhone(0xFFFFFFFF, noise_sampling_ch, noise_sampling_reply_id, nBuf, nLen);
             setIntervalFromNow(1000);
@@ -3152,8 +3598,10 @@ int32_t NexusModule::runOnce() {
     }
 
     // Dynamic thread scheduling based on active tactical tasks!
-    if (noise_sampling_active || freqscan_active) return 50; // Fast polling
-    if (netscan_active || clientscan_active || pendingReply.active) return 100; // Medium polling
+    if (noise_sampling_active || freqscan_active)
+        return 50; // Fast polling
+    if (netscan_active || clientscan_active || pendingReply.active)
+        return 100; // Medium polling
 
     // 7. Nexus-Cron Scheduler
     static uint32_t last_cron_check = 0;
@@ -3164,29 +3612,32 @@ int32_t NexusModule::runOnce() {
         last_cron_check = now;
 
         for (int i = 0; i < 8; i++) {
-            if (!cron_table[i].active) continue;
+            if (!cron_table[i].active)
+                continue;
 
             bool trigger = false;
             NexusCronEntry &job = cron_table[i];
 
             if (job.mode == 0) { // PER (Periodic)
                 // Safety: Periodic jobs MUST have a value >= 60s and a non-empty command to trigger
-                if (job.value >= 60 && job.command[0] != '\0' && (now / 1000 - job.last_run >= job.value)) trigger = true;
-            }
-            else if (wall_clock > 1700000000) { // Wall-clock modes (SCH, AT)
-                if (job.mode == 1) { // SCH (Daily Schedule)
+                if (job.value >= 60 && job.command[0] != '\0' && (now / 1000 - job.last_run >= job.value))
+                    trigger = true;
+            } else if (wall_clock > 1700000000) { // Wall-clock modes (SCH, AT)
+                if (job.mode == 1) {              // SCH (Daily Schedule)
                     uint32_t current_sod = wall_clock % 86400;
-                    if (current_sod >= job.value && (wall_clock - job.last_run > 600)) trigger = true;
-                }
-                else if (job.mode == 2) { // AT (One-shot)
-                    if (wall_clock >= job.value && job.last_run < job.value) trigger = true;
+                    if (current_sod >= job.value && (wall_clock - job.last_run > 600))
+                        trigger = true;
+                } else if (job.mode == 2) { // AT (One-shot)
+                    if (wall_clock >= job.value && job.last_run < job.value)
+                        trigger = true;
                 }
             }
 
             if (trigger) {
                 LOG_INFO("Nexus: Cron Triggering Job %d: %s", i, job.command);
                 job.last_run = (job.mode == 0) ? (now / 1000) : wall_clock;
-                if (job.mode == 2) job.active = 0;
+                if (job.mode == 2)
+                    job.active = 0;
 
                 meshtastic_MeshPacket dummy = meshtastic_MeshPacket_init_default;
                 dummy.from = myNodeInfo.my_node_num;
@@ -3202,7 +3653,8 @@ int32_t NexusModule::runOnce() {
         uint64_t current_val = 0;
         for (int i = 0; i < 64; i++) {
             if (gpio_watch_mask & (1ULL << i)) {
-                if (digitalRead(i)) current_val |= (1ULL << i);
+                if (digitalRead(i))
+                    current_val |= (1ULL << i);
             }
         }
 
@@ -3226,7 +3678,8 @@ int32_t NexusModule::runOnce() {
     return 1000; // Default idle sleep
 }
 
-int8_t NexusModule::getChipPower(int8_t power) {
+int8_t NexusModule::getChipPower(int8_t power)
+{
 #if HAS_LORA_FEM
     if (!devicestate.owner.is_licensed) {
         return loraFEMInterface.powerConversion(power);
@@ -3259,40 +3712,60 @@ int8_t NexusModule::getChipPower(int8_t power) {
     return power;
 }
 
-
-const char* NexusModule::getResetReason() {
+const char *NexusModule::getResetReason()
+{
 #ifdef ARCH_ESP32
     esp_reset_reason_t reason = esp_reset_reason();
     switch (reason) {
-        case ESP_RST_POWERON: return "POWER_ON";
-        case ESP_RST_EXT:     return "EXT_PIN";
-        case ESP_RST_SW:      return "SOFTWARE";
-        case ESP_RST_PANIC:   return "CRASH/PANIC";
-        case ESP_RST_INT_WDT: return "INT_WDT";
-        case ESP_RST_TASK_WDT:return "TASK_WDT";
-        case ESP_RST_WDT:     return "WDT";
-        case ESP_RST_DEEPSLEEP: return "DEEP_SLEEP";
-        case ESP_RST_BROWNOUT: return "BROWNOUT";
-        case ESP_RST_SDIO:    return "SDIO";
-        default:              return "UNKNOWN";
+    case ESP_RST_POWERON:
+        return "POWER_ON";
+    case ESP_RST_EXT:
+        return "EXT_PIN";
+    case ESP_RST_SW:
+        return "SOFTWARE";
+    case ESP_RST_PANIC:
+        return "CRASH/PANIC";
+    case ESP_RST_INT_WDT:
+        return "INT_WDT";
+    case ESP_RST_TASK_WDT:
+        return "TASK_WDT";
+    case ESP_RST_WDT:
+        return "WDT";
+    case ESP_RST_DEEPSLEEP:
+        return "DEEP_SLEEP";
+    case ESP_RST_BROWNOUT:
+        return "BROWNOUT";
+    case ESP_RST_SDIO:
+        return "SDIO";
+    default:
+        return "UNKNOWN";
     }
 #elif defined(ARCH_NRF52)
     uint32_t why = NRF_POWER->RESETREAS;
-    if (why & 0x01) return "PIN";
-    if (why & 0x02) return "WDT";
-    if (why & 0x04) return "SREQ";
-    if (why & 0x08) return "LOCKUP";
-    if (why & 0x10) return "OFF";
-    if (why & 0x20) return "LPCOMP";
-    if (why & 0x40) return "DIF";
-    if (why & 0x80) return "NFC";
+    if (why & 0x01)
+        return "PIN";
+    if (why & 0x02)
+        return "WDT";
+    if (why & 0x04)
+        return "SREQ";
+    if (why & 0x08)
+        return "LOCKUP";
+    if (why & 0x10)
+        return "OFF";
+    if (why & 0x20)
+        return "LPCOMP";
+    if (why & 0x40)
+        return "DIF";
+    if (why & 0x80)
+        return "NFC";
     return "POR";
 #else
     return "N/A";
 #endif
 }
 
-float NexusModule::getDieTemp() {
+float NexusModule::getDieTemp()
+{
 #ifdef ARCH_ESP32
     return temperatureRead();
 #elif defined(ARCH_NRF52)
@@ -3306,21 +3779,28 @@ float NexusModule::getDieTemp() {
     return 0.0f;
 }
 
-void NexusModule::formatMCUInfo(char *buf, size_t bufSize) {
-    if (!buf || bufSize == 0) return;
+void NexusModule::formatMCUInfo(char *buf, size_t bufSize)
+{
+    if (!buf || bufSize == 0)
+        return;
     buf[0] = '\0';
 
-    // Uptime formatter (shared by both paths) — ms -> 'Dd HHh MMm SSs' for >=1d, else 'Hh MMm SSs'.
+    // Uptime formatter (shared by both paths) - ms -> 'Dd HHh MMm SSs' for >=1d, else 'Hh MMm SSs'.
     // Use Time::getMillisMonotonic() (uint64_t) so the display never rolls over at the
     // 49.7-day millis() boundary. Days stay in uint32_t (~136 years to overflow).
     auto writeUptime = [](char *out, size_t outSize) {
         uint64_t ms = Time::getMillisMonotonic();
-        uint32_t s  = (uint32_t)(ms / 1000ULL);
-        uint32_t days = s / 86400; s %= 86400;
-        uint32_t h = s / 3600; s %= 3600;
-        uint32_t m = s / 60; s %= 60;
-        if (days > 0) snprintf(out, outSize, "%ud %02uh %02um %02us", days, h, m, (unsigned)s);
-        else          snprintf(out, outSize, "%uh %02um %02us", h, m, (unsigned)s);
+        uint32_t s = (uint32_t)(ms / 1000ULL);
+        uint32_t days = s / 86400;
+        s %= 86400;
+        uint32_t h = s / 3600;
+        s %= 3600;
+        uint32_t m = s / 60;
+        s %= 60;
+        if (days > 0)
+            snprintf(out, outSize, "%ud %02uh %02um %02us", days, h, m, (unsigned)s);
+        else
+            snprintf(out, outSize, "%uh %02um %02us", h, m, (unsigned)s);
     };
 
     char upStr[32];
@@ -3333,26 +3813,45 @@ void NexusModule::formatMCUInfo(char *buf, size_t bufSize) {
 
     const char *modelStr = "ESP32";
     switch (info.model) {
-        case CHIP_ESP32:   modelStr = "ESP32"; break;
-        case CHIP_ESP32S2: modelStr = "ESP32-S2"; break;
-        case CHIP_ESP32S3: modelStr = "ESP32-S3"; break;
-        case CHIP_ESP32C3: modelStr = "ESP32-C3"; break;
-        case CHIP_ESP32H2: modelStr = "ESP32-H2"; break;
-        // Note: CHIP_ESP32C6 was added in IDF 5.2; bundled SDK for S3 may lack it.
-        // If a newer chip ID appears, the default branch catches it.
-        default:           modelStr = "Unknown"; break;
+    case CHIP_ESP32:
+        modelStr = "ESP32";
+        break;
+    case CHIP_ESP32S2:
+        modelStr = "ESP32-S2";
+        break;
+    case CHIP_ESP32S3:
+        modelStr = "ESP32-S3";
+        break;
+    case CHIP_ESP32C3:
+        modelStr = "ESP32-C3";
+        break;
+    case CHIP_ESP32H2:
+        modelStr = "ESP32-H2";
+        break;
+    // Note: CHIP_ESP32C6 was added in IDF 5.2; bundled SDK for S3 may lack it.
+    // If a newer chip ID appears, the default branch catches it.
+    default:
+        modelStr = "Unknown";
+        break;
     }
     char featuresStr[80];
     int flen = 0;
-    if (info.features & CHIP_FEATURE_WIFI_BGN)    flen += snprintf(featuresStr + flen, sizeof(featuresStr) - flen, "WiFi%s", flen ? "," : "");
-    if (info.features & CHIP_FEATURE_BT)          flen += snprintf(featuresStr + flen, sizeof(featuresStr) - flen, "%sBT", flen ? "," : "");
-    if (info.features & CHIP_FEATURE_BLE)         flen += snprintf(featuresStr + flen, sizeof(featuresStr) - flen, "%sBLE", flen ? "," : "");
-    if (info.features & CHIP_FEATURE_IEEE802154)  flen += snprintf(featuresStr + flen, sizeof(featuresStr) - flen, "%s802.15.4", flen ? "," : "");
-    if (info.features & CHIP_FEATURE_EMB_FLASH)   flen += snprintf(featuresStr + flen, sizeof(featuresStr) - flen, "%sEmbedFlash", flen ? "," : "");
-    if (featuresStr[0] == '\0') strcpy(featuresStr, "none");
+    if (info.features & CHIP_FEATURE_WIFI_BGN)
+        flen += snprintf(featuresStr + flen, sizeof(featuresStr) - flen, "WiFi%s", flen ? "," : "");
+    if (info.features & CHIP_FEATURE_BT)
+        flen += snprintf(featuresStr + flen, sizeof(featuresStr) - flen, "%sBT", flen ? "," : "");
+    if (info.features & CHIP_FEATURE_BLE)
+        flen += snprintf(featuresStr + flen, sizeof(featuresStr) - flen, "%sBLE", flen ? "," : "");
+    if (info.features & CHIP_FEATURE_IEEE802154)
+        flen += snprintf(featuresStr + flen, sizeof(featuresStr) - flen, "%s802.15.4", flen ? "," : "");
+    if (info.features & CHIP_FEATURE_EMB_FLASH)
+        flen += snprintf(featuresStr + flen, sizeof(featuresStr) - flen, "%sEmbedFlash", flen ? "," : "");
+    if (featuresStr[0] == '\0')
+        strcpy(featuresStr, "none");
 
     uint32_t flashBytes = 0;
-    if (esp_flash_get_size(NULL, &flashBytes) != ESP_OK) flashBytes = 0;
+    if (esp_flash_get_size(NULL, &flashBytes) != ESP_OK)
+        flashBytes = 0;
 
     uint32_t cpuMhz = ESP.getCpuFreqMHz();
     uint32_t heapFree = esp_get_free_heap_size();
@@ -3372,32 +3871,21 @@ void NexusModule::formatMCUInfo(char *buf, size_t bufSize) {
     // Operators still get model, cores, features, flash, IDF, CPU, heap, temp,
     // reset reason, MAC, entropy, uptime.
     snprintf(buf, bufSize,
-        "  Platform:  %s (%d cores)\n"
-        "  Features:  %s\n"
-        "  Flash:     %lu MB\n"
-        "  IDF:       %s\n"
-        "  CPU:       %lu MHz\n"
-        "  Heap:      %lu B free (min-ever %lu, min 8-bit-cap %lu%s)\n"
-        "  DieTemp:   %.1fC\n"
-        "  Boot:      %s\n"
-        "  MAC:       %s\n"
-        "  RNG:       0x%08lX\n"
-        "  Up-time:   %s",
-        modelStr,
-        (int)info.cores,
-        featuresStr,
-        (unsigned long)(flashBytes ? (flashBytes / (1024 * 1024)) : 0),
-        esp_get_idf_version(),
-        (unsigned long)cpuMhz,
-        (unsigned long)heapFree,
-        (unsigned long)heapMinEver,
-        (unsigned long)heapMin8bit,
-        heapIntOk ? "" : ", integrity FAIL",
-        (double)getDieTemp(),
-        getResetReason(),
-        devIdHex,
-        (unsigned long)randSample,
-        upStr);
+             "  Platform:  %s (%d cores)\n"
+             "  Features:  %s\n"
+             "  Flash:     %lu MB\n"
+             "  IDF:       %s\n"
+             "  CPU:       %lu MHz\n"
+             "  Heap:      %lu B free (min-ever %lu, min 8-bit-cap %lu%s)\n"
+             "  DieTemp:   %.1fC\n"
+             "  Boot:      %s\n"
+             "  MAC:       %s\n"
+             "  RNG:       0x%08lX\n"
+             "  Up-time:   %s",
+             modelStr, (int)info.cores, featuresStr, (unsigned long)(flashBytes ? (flashBytes / (1024 * 1024)) : 0),
+             esp_get_idf_version(), (unsigned long)cpuMhz, (unsigned long)heapFree, (unsigned long)heapMinEver,
+             (unsigned long)heapMin8bit, heapIntOk ? "" : ", integrity FAIL", (double)getDieTemp(), getResetReason(), devIdHex,
+             (unsigned long)randSample, upStr);
 
 #elif defined(ARCH_NRF52)
     // === nRF52 family ===
@@ -3409,14 +3897,14 @@ void NexusModule::formatMCUInfo(char *buf, size_t bufSize) {
     uint32_t flashKb = NRF_FICR->INFO.FLASH;
 
     // nRF52 part number encoding: upper word encodes family.
-    // Examples: 0x52840 = nRF52840, 0x52833 = nRF52833, 0x52832 = nRF52832, 0x52820 = nRF52820, 0x52811 = nRF52811, 0x52810 = nRF52810
+    // Examples: 0x52840 = nRF52840, 0x52833 = nRF52833, 0x52832 = nRF52832, 0x52820 = nRF52820, 0x52811 = nRF52811, 0x52810 =
+    // nRF52810
     char partStr[12];
     if (partRaw == 0xFFFFFFFFu) {
         snprintf(partStr, sizeof(partStr), "Unknown");
     } else {
         // Display as 'nRF52xx' (high byte + low nibble of high byte)
-        snprintf(partStr, sizeof(partStr), "nRF52%02x",
-                 (unsigned)((partRaw >> 8) & 0xFF));
+        snprintf(partStr, sizeof(partStr), "nRF52%02x", (unsigned)((partRaw >> 8) & 0xFF));
     }
 
     // Variant code is 4 ASCII chars packed as LE32.
@@ -3456,44 +3944,30 @@ void NexusModule::formatMCUInfo(char *buf, size_t bufSize) {
     uint32_t heapLargestBlock = memGet.getMinFreeBlock();
 
     int n = snprintf(buf, bufSize,
-        "  Platform:  %s%s%s / %s / %lu KB RAM / %lu KB Flash\n"
-        "  Heap:       %lu B free, largest block %lu B\n"
-        "  DieTemp:    %.1fC\n"
-        "  Boot:       %s\n"
-        "  DeviceID:   !%08X %08X\n"
-        "  UICR BL:    0x%08lX\n"
-        "  UICR MBR:   0x%08lX\n"
-        "  Up-time:    %s",
-        partStr,
-        variantStr[0] ? " " : "", variantStr[0] ? variantStr : "",
-        packageStr[0] ? packageStr : "?",
-        (unsigned long)ramKb,
-        (unsigned long)flashKb,
-        (unsigned long)heapFree,
-        (unsigned long)heapLargestBlock,
-        (double)getDieTemp(),
-        getResetReason(),
-        (unsigned)devIdHi,
-        (unsigned)devIdLo,
-        (unsigned long)blAddr,
-        (unsigned long)mbrParam,
-        upStr);
+                     "  Platform:  %s%s%s / %s / %lu KB RAM / %lu KB Flash\n"
+                     "  Heap:       %lu B free, largest block %lu B\n"
+                     "  DieTemp:    %.1fC\n"
+                     "  Boot:       %s\n"
+                     "  DeviceID:   !%08X %08X\n"
+                     "  UICR BL:    0x%08lX\n"
+                     "  UICR MBR:   0x%08lX\n"
+                     "  Up-time:    %s",
+                     partStr, variantStr[0] ? " " : "", variantStr[0] ? variantStr : "", packageStr[0] ? packageStr : "?",
+                     (unsigned long)ramKb, (unsigned long)flashKb, (unsigned long)heapFree, (unsigned long)heapLargestBlock,
+                     (double)getDieTemp(), getResetReason(), (unsigned)devIdHi, (unsigned)devIdLo, (unsigned long)blAddr,
+                     (unsigned long)mbrParam, upStr);
     (void)n;
 
 #else
     // Portduino / RP2040 / STM32WL - limited info
     snprintf(buf, bufSize,
-        "  Platform:  %s\n"
-        "  Heap:      %lu B free, largest block %lu B\n"
-        "  DieTemp:   %.1fC\n"
-        "  Boot:      %s\n"
-        "  Up-time:   %s",
-        "host/board",
-        (unsigned long)memGet.getFreeHeap(),
-        (unsigned long)memGet.getMinFreeBlock(),
-        (double)getDieTemp(),
-        getResetReason(),
-        upStr);
+             "  Platform:  %s\n"
+             "  Heap:      %lu B free, largest block %lu B\n"
+             "  DieTemp:   %.1fC\n"
+             "  Boot:      %s\n"
+             "  Up-time:   %s",
+             "host/board", (unsigned long)memGet.getFreeHeap(), (unsigned long)memGet.getMinFreeBlock(), (double)getDieTemp(),
+             getResetReason(), upStr);
 #endif
 }
 
@@ -3502,7 +3976,8 @@ void NexusModule::i2cScanFinished(ScanI2C *i2cScanner)
     // Called once from main.cpp:939 after the boot I2C scan completes. The
     // scanner unique_ptr is still alive at this point; capture all known
     // devices into i2cScanResults before the scanner is destroyed.
-    if (!i2cScanner) return;
+    if (!i2cScanner)
+        return;
     i2cScanResults.clear();
 
     // Iterate the canonical DeviceType enum. 'NONE' is the first value; the
@@ -3614,104 +4089,197 @@ void NexusModule::i2cScanFinished(ScanI2C *i2cScanner)
 static const char *nexusDeviceTypeName(ScanI2C::DeviceType t)
 {
     switch (t) {
-        case ScanI2C::DeviceType::SCREEN_SSD1306:    return "SSD1306 (OLED)";
-        case ScanI2C::DeviceType::SCREEN_SH1106:     return "SH1106 (OLED)";
-        case ScanI2C::DeviceType::SCREEN_UNKNOWN:    return "OLED (unknown)";
-        case ScanI2C::DeviceType::SCREEN_ST7567:     return "ST7567 (LCD)";
-        case ScanI2C::DeviceType::RTC_RV3028:        return "RV3028 (RTC)";
-        case ScanI2C::DeviceType::RTC_PCF8563:       return "PCF8563 (RTC)";
-        case ScanI2C::DeviceType::RTC_PCF85063:      return "PCF85063 (RTC)";
-        case ScanI2C::DeviceType::RTC_RX8130CE:      return "RX8130CE (RTC)";
-        case ScanI2C::DeviceType::CARDKB:            return "CardKB";
-        case ScanI2C::DeviceType::TDECKKB:           return "T-Deck KB";
-        case ScanI2C::DeviceType::BBQ10KB:           return "BBQ10 KB";
-        case ScanI2C::DeviceType::RAK14004:          return "RAK14004 KB";
-        case ScanI2C::DeviceType::MPR121KB:          return "MPR121 KB";
-        case ScanI2C::DeviceType::TCA8418KB:         return "TCA8418 KB";
-        case ScanI2C::DeviceType::PMU_AXP192_AXP2101: return "AXP192/2101 (PMU)";
-        case ScanI2C::DeviceType::BME_680:           return "BME680";
-        case ScanI2C::DeviceType::BME_280:           return "BME280";
-        case ScanI2C::DeviceType::BMP_280:           return "BMP280";
-        case ScanI2C::DeviceType::BMP_085:           return "BMP085";
-        case ScanI2C::DeviceType::BMP_3XX:           return "BMP3XX";
-        case ScanI2C::DeviceType::DPS310:            return "DPS310";
-        case ScanI2C::DeviceType::LPS22HB:           return "LPS22HB";
-        case ScanI2C::DeviceType::AHT10:             return "AHT10";
-        case ScanI2C::DeviceType::SHT31:             return "SHT31";
-        case ScanI2C::DeviceType::SHT4X:             return "SHT4X";
-        case ScanI2C::DeviceType::SHTC3:             return "SHTC3";
-        case ScanI2C::DeviceType::SHTXX:             return "SHTxx";
-        case ScanI2C::DeviceType::MCP9808:           return "MCP9808";
-        case ScanI2C::DeviceType::PCT2075:           return "PCT2075";
-        case ScanI2C::DeviceType::INA219:            return "INA219";
-        case ScanI2C::DeviceType::INA226:            return "INA226";
-        case ScanI2C::DeviceType::INA260:            return "INA260";
-        case ScanI2C::DeviceType::INA3221:           return "INA3221";
-        case ScanI2C::DeviceType::MAX17048:          return "MAX17048";
-        case ScanI2C::DeviceType::CW2015:            return "CW2015";
-        case ScanI2C::DeviceType::BQ27220:           return "BQ27220";
-        case ScanI2C::DeviceType::BQ25896:           return "BQ25896";
-        case ScanI2C::DeviceType::BQ24295:           return "BQ24295";
-        case ScanI2C::DeviceType::TPS65233:          return "TPS65233";
-        case ScanI2C::DeviceType::PMSA003I:          return "PMSA003I";
-        case ScanI2C::DeviceType::SEN5X:             return "SEN5X";
-        case ScanI2C::DeviceType::SFA30:             return "SFA30";
-        case ScanI2C::DeviceType::SCD4X:             return "SCD4X";
-        case ScanI2C::DeviceType::SCD30:             return "SCD30";
-        case ScanI2C::DeviceType::MLX90614:          return "MLX90614";
-        case ScanI2C::DeviceType::MLX90632:          return "MLX90632";
-        case ScanI2C::DeviceType::OPT3001:           return "OPT3001";
-        case ScanI2C::DeviceType::VEML7700:          return "VEML7700";
-        case ScanI2C::DeviceType::TSL2561:           return "TSL2561";
-        case ScanI2C::DeviceType::TSL2591:           return "TSL2591";
-        case ScanI2C::DeviceType::LTR390UV:          return "LTR390UV";
-        case ScanI2C::DeviceType::LTR553ALS:         return "LTR553ALS";
-        case ScanI2C::DeviceType::BH1750:            return "BH1750";
-        case ScanI2C::DeviceType::MPU6050:           return "MPU6050";
-        case ScanI2C::DeviceType::LIS3DH:            return "LIS3DH";
-        case ScanI2C::DeviceType::BMA423:            return "BMA423";
-        case ScanI2C::DeviceType::LSM6DS3:           return "LSM6DS3";
-        case ScanI2C::DeviceType::BMX160:            return "BMX160";
-        case ScanI2C::DeviceType::BMI270:            return "BMI270";
-        case ScanI2C::DeviceType::ICM20948:          return "ICM20948";
-        case ScanI2C::DeviceType::ICM42607P:         return "ICM42607P";
-        case ScanI2C::DeviceType::BHI260AP:          return "BHI260AP";
-        case ScanI2C::DeviceType::QMC5883L:          return "QMC5883L";
-        case ScanI2C::DeviceType::QMC6310U:          return "QMC6310U";
-        case ScanI2C::DeviceType::QMC6310N:          return "QMC6310N";
-        case ScanI2C::DeviceType::QMI8658:           return "QMI8658";
-        case ScanI2C::DeviceType::QMA6100P:          return "QMA6100P";
-        case ScanI2C::DeviceType::HMC5883L:          return "HMC5883L";
-        case ScanI2C::DeviceType::MMC5983MA:         return "MMC5983MA";
-        case ScanI2C::DeviceType::BMM150:            return "BMM150";
-        case ScanI2C::DeviceType::STK8BAXX:          return "STK8BAXX";
-        case ScanI2C::DeviceType::RCWL9620:          return "RCWL9620 (radar)";
-        case ScanI2C::DeviceType::CGRADSENS:         return "CGRadSens (rad)";
-        case ScanI2C::DeviceType::NAU7802:           return "NAU7802 (ADC)";
-        case ScanI2C::DeviceType::NCP5623:           return "NCP5623 (RGB)";
-        case ScanI2C::DeviceType::LP5562:            return "LP5562 (RGB)";
-        case ScanI2C::DeviceType::TCA9535:           return "TCA9535 (I/O)";
-        case ScanI2C::DeviceType::TCA9555:           return "TCA9555 (I/O)";
-        case ScanI2C::DeviceType::DFROBOT_LARK:      return "DFRobot Lark";
-        case ScanI2C::DeviceType::DFROBOT_RAIN:      return "DFRobot Rain";
-        case ScanI2C::DeviceType::RAK12035:          return "RAK12035 (rain)";
-        case ScanI2C::DeviceType::MAX30102:          return "MAX30102 (HR)";
-        case ScanI2C::DeviceType::FT6336U:           return "FT6336U (touch)";
-        case ScanI2C::DeviceType::CST328:            return "CST328 (touch)";
-        case ScanI2C::DeviceType::CST226SE:          return "CST226SE (touch)";
-        case ScanI2C::DeviceType::CST3530:           return "CST3530 (touch)";
-        case ScanI2C::DeviceType::CHSC6X:            return "CHSC6X (touch)";
-        case ScanI2C::DeviceType::DA217:             return "DA217 (touch)";
-        case ScanI2C::DeviceType::DRV2605:           return "DRV2605 (haptic)";
-        case ScanI2C::DeviceType::ADS1X15:           return "ADS1x15 (ADC, includes ADS1115)";
-        case ScanI2C::DeviceType::NXP_SE050:         return "NXP SE050 (secure)";
-        default:                                     return "Unknown";
+    case ScanI2C::DeviceType::SCREEN_SSD1306:
+        return "SSD1306 (OLED)";
+    case ScanI2C::DeviceType::SCREEN_SH1106:
+        return "SH1106 (OLED)";
+    case ScanI2C::DeviceType::SCREEN_UNKNOWN:
+        return "OLED (unknown)";
+    case ScanI2C::DeviceType::SCREEN_ST7567:
+        return "ST7567 (LCD)";
+    case ScanI2C::DeviceType::RTC_RV3028:
+        return "RV3028 (RTC)";
+    case ScanI2C::DeviceType::RTC_PCF8563:
+        return "PCF8563 (RTC)";
+    case ScanI2C::DeviceType::RTC_PCF85063:
+        return "PCF85063 (RTC)";
+    case ScanI2C::DeviceType::RTC_RX8130CE:
+        return "RX8130CE (RTC)";
+    case ScanI2C::DeviceType::CARDKB:
+        return "CardKB";
+    case ScanI2C::DeviceType::TDECKKB:
+        return "T-Deck KB";
+    case ScanI2C::DeviceType::BBQ10KB:
+        return "BBQ10 KB";
+    case ScanI2C::DeviceType::RAK14004:
+        return "RAK14004 KB";
+    case ScanI2C::DeviceType::MPR121KB:
+        return "MPR121 KB";
+    case ScanI2C::DeviceType::TCA8418KB:
+        return "TCA8418 KB";
+    case ScanI2C::DeviceType::PMU_AXP192_AXP2101:
+        return "AXP192/2101 (PMU)";
+    case ScanI2C::DeviceType::BME_680:
+        return "BME680";
+    case ScanI2C::DeviceType::BME_280:
+        return "BME280";
+    case ScanI2C::DeviceType::BMP_280:
+        return "BMP280";
+    case ScanI2C::DeviceType::BMP_085:
+        return "BMP085";
+    case ScanI2C::DeviceType::BMP_3XX:
+        return "BMP3XX";
+    case ScanI2C::DeviceType::DPS310:
+        return "DPS310";
+    case ScanI2C::DeviceType::LPS22HB:
+        return "LPS22HB";
+    case ScanI2C::DeviceType::AHT10:
+        return "AHT10";
+    case ScanI2C::DeviceType::SHT31:
+        return "SHT31";
+    case ScanI2C::DeviceType::SHT4X:
+        return "SHT4X";
+    case ScanI2C::DeviceType::SHTC3:
+        return "SHTC3";
+    case ScanI2C::DeviceType::SHTXX:
+        return "SHTxx";
+    case ScanI2C::DeviceType::MCP9808:
+        return "MCP9808";
+    case ScanI2C::DeviceType::PCT2075:
+        return "PCT2075";
+    case ScanI2C::DeviceType::INA219:
+        return "INA219";
+    case ScanI2C::DeviceType::INA226:
+        return "INA226";
+    case ScanI2C::DeviceType::INA260:
+        return "INA260";
+    case ScanI2C::DeviceType::INA3221:
+        return "INA3221";
+    case ScanI2C::DeviceType::MAX17048:
+        return "MAX17048";
+    case ScanI2C::DeviceType::CW2015:
+        return "CW2015";
+    case ScanI2C::DeviceType::BQ27220:
+        return "BQ27220";
+    case ScanI2C::DeviceType::BQ25896:
+        return "BQ25896";
+    case ScanI2C::DeviceType::BQ24295:
+        return "BQ24295";
+    case ScanI2C::DeviceType::TPS65233:
+        return "TPS65233";
+    case ScanI2C::DeviceType::PMSA003I:
+        return "PMSA003I";
+    case ScanI2C::DeviceType::SEN5X:
+        return "SEN5X";
+    case ScanI2C::DeviceType::SFA30:
+        return "SFA30";
+    case ScanI2C::DeviceType::SCD4X:
+        return "SCD4X";
+    case ScanI2C::DeviceType::SCD30:
+        return "SCD30";
+    case ScanI2C::DeviceType::MLX90614:
+        return "MLX90614";
+    case ScanI2C::DeviceType::MLX90632:
+        return "MLX90632";
+    case ScanI2C::DeviceType::OPT3001:
+        return "OPT3001";
+    case ScanI2C::DeviceType::VEML7700:
+        return "VEML7700";
+    case ScanI2C::DeviceType::TSL2561:
+        return "TSL2561";
+    case ScanI2C::DeviceType::TSL2591:
+        return "TSL2591";
+    case ScanI2C::DeviceType::LTR390UV:
+        return "LTR390UV";
+    case ScanI2C::DeviceType::LTR553ALS:
+        return "LTR553ALS";
+    case ScanI2C::DeviceType::BH1750:
+        return "BH1750";
+    case ScanI2C::DeviceType::MPU6050:
+        return "MPU6050";
+    case ScanI2C::DeviceType::LIS3DH:
+        return "LIS3DH";
+    case ScanI2C::DeviceType::BMA423:
+        return "BMA423";
+    case ScanI2C::DeviceType::LSM6DS3:
+        return "LSM6DS3";
+    case ScanI2C::DeviceType::BMX160:
+        return "BMX160";
+    case ScanI2C::DeviceType::BMI270:
+        return "BMI270";
+    case ScanI2C::DeviceType::ICM20948:
+        return "ICM20948";
+    case ScanI2C::DeviceType::ICM42607P:
+        return "ICM42607P";
+    case ScanI2C::DeviceType::BHI260AP:
+        return "BHI260AP";
+    case ScanI2C::DeviceType::QMC5883L:
+        return "QMC5883L";
+    case ScanI2C::DeviceType::QMC6310U:
+        return "QMC6310U";
+    case ScanI2C::DeviceType::QMC6310N:
+        return "QMC6310N";
+    case ScanI2C::DeviceType::QMI8658:
+        return "QMI8658";
+    case ScanI2C::DeviceType::QMA6100P:
+        return "QMA6100P";
+    case ScanI2C::DeviceType::HMC5883L:
+        return "HMC5883L";
+    case ScanI2C::DeviceType::MMC5983MA:
+        return "MMC5983MA";
+    case ScanI2C::DeviceType::BMM150:
+        return "BMM150";
+    case ScanI2C::DeviceType::STK8BAXX:
+        return "STK8BAXX";
+    case ScanI2C::DeviceType::RCWL9620:
+        return "RCWL9620 (radar)";
+    case ScanI2C::DeviceType::CGRADSENS:
+        return "CGRadSens (rad)";
+    case ScanI2C::DeviceType::NAU7802:
+        return "NAU7802 (ADC)";
+    case ScanI2C::DeviceType::NCP5623:
+        return "NCP5623 (RGB)";
+    case ScanI2C::DeviceType::LP5562:
+        return "LP5562 (RGB)";
+    case ScanI2C::DeviceType::TCA9535:
+        return "TCA9535 (I/O)";
+    case ScanI2C::DeviceType::TCA9555:
+        return "TCA9555 (I/O)";
+    case ScanI2C::DeviceType::DFROBOT_LARK:
+        return "DFRobot Lark";
+    case ScanI2C::DeviceType::DFROBOT_RAIN:
+        return "DFRobot Rain";
+    case ScanI2C::DeviceType::RAK12035:
+        return "RAK12035 (rain)";
+    case ScanI2C::DeviceType::MAX30102:
+        return "MAX30102 (HR)";
+    case ScanI2C::DeviceType::FT6336U:
+        return "FT6336U (touch)";
+    case ScanI2C::DeviceType::CST328:
+        return "CST328 (touch)";
+    case ScanI2C::DeviceType::CST226SE:
+        return "CST226SE (touch)";
+    case ScanI2C::DeviceType::CST3530:
+        return "CST3530 (touch)";
+    case ScanI2C::DeviceType::CHSC6X:
+        return "CHSC6X (touch)";
+    case ScanI2C::DeviceType::DA217:
+        return "DA217 (touch)";
+    case ScanI2C::DeviceType::DRV2605:
+        return "DRV2605 (haptic)";
+    case ScanI2C::DeviceType::ADS1X15:
+        return "ADS1x15 (ADC, includes ADS1115)";
+    case ScanI2C::DeviceType::NXP_SE050:
+        return "NXP SE050 (secure)";
+    default:
+        return "Unknown";
     }
 }
 
 void NexusModule::formatSensorsInfo(char *buf, size_t bufSize)
 {
-    if (!buf || bufSize == 0) return;
+    if (!buf || bufSize == 0)
+        return;
     buf[0] = '\0';
 
     int n = 0; // bytes written
@@ -3719,16 +4287,15 @@ void NexusModule::formatSensorsInfo(char *buf, size_t bufSize)
     // I2C count line (the body). The "JT SENSORS:" title is supplied by
     // startPaging() at the call site; we don't repeat it here to avoid a
     // duplicated header on the wire. See Commit 41.
-    n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0,
-        "  I2C (%u detected):\n",
-        (unsigned)i2cScanResults.size());
+    n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "  I2C (%u detected):\n", (unsigned)i2cScanResults.size());
 
     // One line per detected device, formatted as '  - <name>  @0x<addr> (<port>)'
     for (const auto &d : i2cScanResults) {
-        const char *port = (d.address.port == ScanI2C::I2CPort::WIRE1) ? "WIRE1" :
-                           (d.address.port == ScanI2C::I2CPort::WIRE)  ? "WIRE"  : "?";
-        n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0,
-            "  - %-22s @0x%02X (%s)\n", nexusDeviceTypeName(d.type), d.address.address, port);
+        const char *port = (d.address.port == ScanI2C::I2CPort::WIRE1)  ? "WIRE1"
+                           : (d.address.port == ScanI2C::I2CPort::WIRE) ? "WIRE"
+                                                                        : "?";
+        n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "  - %-22s @0x%02X (%s)\n", nexusDeviceTypeName(d.type),
+                      d.address.address, port);
     }
 
     // Live power telemetry
@@ -3736,12 +4303,18 @@ void NexusModule::formatSensorsInfo(char *buf, size_t bufSize)
     if (meshtastic::getNexusPowerTelemetry(&pm) && pm.which_variant == meshtastic_Telemetry_power_metrics_tag) {
         n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "  Power (live): ");
         auto &p = pm.variant.power_metrics;
-        if (p.has_ch1_voltage) n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "V1:%.2fV ", (double)p.ch1_voltage);
-        if (p.has_ch1_current) n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "I1:%.0fmA ", (double)p.ch1_current);
-        if (p.has_ch2_voltage) n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "V2:%.2fV ", (double)p.ch2_voltage);
-        if (p.has_ch2_current) n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "I2:%.0fmA ", (double)p.ch2_current);
-        if (p.has_ch3_voltage) n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "V3:%.2fV ", (double)p.ch3_voltage);
-        if (p.has_ch3_current) n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "I3:%.0fmA ", (double)p.ch3_current);
+        if (p.has_ch1_voltage)
+            n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "V1:%.2fV ", (double)p.ch1_voltage);
+        if (p.has_ch1_current)
+            n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "I1:%.0fmA ", (double)p.ch1_current);
+        if (p.has_ch2_voltage)
+            n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "V2:%.2fV ", (double)p.ch2_voltage);
+        if (p.has_ch2_current)
+            n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "I2:%.0fmA ", (double)p.ch2_current);
+        if (p.has_ch3_voltage)
+            n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "V3:%.2fV ", (double)p.ch3_voltage);
+        if (p.has_ch3_current)
+            n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "I3:%.0fmA ", (double)p.ch3_current);
         n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "\n");
     } else {
         n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "  Power (live): (none)\n");
@@ -3751,11 +4324,12 @@ void NexusModule::formatSensorsInfo(char *buf, size_t bufSize)
     meshtastic_Telemetry em = meshtastic_Telemetry_init_zero;
     if (meshtastic::getNexusEnvironmentTelemetry(&em) && em.which_variant == meshtastic_Telemetry_environment_metrics_tag) {
         auto &e = em.variant.environment_metrics;
-        n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0,
-            "  Env (live):   T:%.1fC H:%.0f%% P:%.0fhPa",
-            (double)e.temperature, (double)e.relative_humidity, (double)e.barometric_pressure);
-        if (e.has_lux)   n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, " Lux:%.0f", (double)e.lux);
-        if (e.has_uv_lux) n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, " UV:%.0f", (double)e.uv_lux);
+        n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "  Env (live):   T:%.1fC H:%.0f%% P:%.0fhPa",
+                      (double)e.temperature, (double)e.relative_humidity, (double)e.barometric_pressure);
+        if (e.has_lux)
+            n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, " Lux:%.0f", (double)e.lux);
+        if (e.has_uv_lux)
+            n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, " UV:%.0f", (double)e.uv_lux);
         n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "\n");
     } else {
         n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "  Env (live):   (none)\n");
@@ -3764,20 +4338,15 @@ void NexusModule::formatSensorsInfo(char *buf, size_t bufSize)
 #if !MESHTASTIC_EXCLUDE_GPS
     // GPS status (uses global gpsStatus + gps instance)
     if (gpsStatus && gps && gps->isConnected()) {
-        n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0,
-            "  GPS:          lock=%s sats=%u PDOP=%.2f",
-            gpsStatus->getHasLock() ? "yes" : "no",
-            (unsigned)gpsStatus->getNumSatellites(),
-            (double)gpsStatus->getDOP() * 0.01);
+        n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "  GPS:          lock=%s sats=%u PDOP=%.2f",
+                      gpsStatus->getHasLock() ? "yes" : "no", (unsigned)gpsStatus->getNumSatellites(),
+                      (double)gpsStatus->getDOP() * 0.01);
         if (gpsStatus->getHasLock()) {
             int32_t lat = gpsStatus->getLatitude();
             int32_t lon = gpsStatus->getLongitude();
             int32_t alt = gpsStatus->getAltitude();
-            n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0,
-                " lat=%d.%07d lon=%d.%07d alt=%d",
-                (int)(lat / 10000000), abs(lat % 10000000),
-                (int)(lon / 10000000), abs(lon % 10000000),
-                (int)alt);
+            n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, " lat=%d.%07d lon=%d.%07d alt=%d", (int)(lat / 10000000),
+                          abs(lat % 10000000), (int)(lon / 10000000), abs(lon % 10000000), (int)alt);
         }
         n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, "\n");
     } else {
@@ -3787,10 +4356,10 @@ void NexusModule::formatSensorsInfo(char *buf, size_t bufSize)
     (void)n;
 }
 
-
 void NexusModule::formatRLBuckets(char *buf, size_t bufSize)
 {
-    if (!buf || bufSize == 0) return;
+    if (!buf || bufSize == 0)
+        return;
     buf[0] = '\0';
     int n = 0;
 
@@ -3808,50 +4377,44 @@ void NexusModule::formatRLBuckets(char *buf, size_t bufSize)
     // Pairs with the /nexus RATELIMITSTAT (alias RLS) command. Output is sized
     // for 1 paging part in the common case (~470 bytes worst case at 6-digit
     // counts; appendPaging splits automatically if a future schema grows).
-    const char *names[7]   = {"TX", "TR", "OT", "NI", "PO", "TL", "PR"};
-    const uint16_t lims[7] = {rl_text_limit, rl_trace_limit, rl_other_limit,
-                              rl_nodeinfo_limit, rl_position_limit,
-                              rl_telemetry_limit, rl_private_limit};
-    const bool enabled[7]  = {drop_rl_text, drop_rl_trace, drop_rl_other,
-                              drop_rl_nodeinfo, drop_rl_position,
-                              drop_rl_telemetry, drop_rl_private};
-    const uint32_t seen[7] = {rl_seen_text, rl_seen_trace, rl_seen_other,
-                              rl_seen_nodeinfo, rl_seen_position,
-                              rl_seen_telemetry, rl_seen_private};
-    const uint32_t pass[7] = {rl_pass_text, rl_pass_trace, rl_pass_other,
-                              rl_pass_nodeinfo, rl_pass_position,
-                              rl_pass_telemetry, rl_pass_private};
-    const uint32_t drop[7] = {rl_drop_text, rl_drop_trace, rl_drop_other,
-                              rl_drop_nodeinfo, rl_drop_position,
-                              rl_drop_telemetry, rl_drop_private};
+    const char *names[7] = {"TX", "TR", "OT", "NI", "PO", "TL", "PR"};
+    const uint16_t lims[7] = {rl_text_limit,     rl_trace_limit,     rl_other_limit,  rl_nodeinfo_limit,
+                              rl_position_limit, rl_telemetry_limit, rl_private_limit};
+    const bool enabled[7] = {drop_rl_text,     drop_rl_trace,     drop_rl_other,  drop_rl_nodeinfo,
+                             drop_rl_position, drop_rl_telemetry, drop_rl_private};
+    const uint32_t seen[7] = {rl_seen_text,     rl_seen_trace,     rl_seen_other,  rl_seen_nodeinfo,
+                              rl_seen_position, rl_seen_telemetry, rl_seen_private};
+    const uint32_t pass[7] = {rl_pass_text,     rl_pass_trace,     rl_pass_other,  rl_pass_nodeinfo,
+                              rl_pass_position, rl_pass_telemetry, rl_pass_private};
+    const uint32_t drop[7] = {rl_drop_text,     rl_drop_trace,     rl_drop_other,  rl_drop_nodeinfo,
+                              rl_drop_position, rl_drop_telemetry, rl_drop_private};
 
     // Header
     n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0,
-        "JT RL Buckets (live tokens / limit, since-boot counters):\n"
-        " ID  Tokens/Limit  %%Full  En?  Seen  Pass  Drop  Drop%%\n");
+                  "JT RL Buckets (live tokens / limit, since-boot counters):\n"
+                  " ID  Tokens/Limit  %%Full  En?  Seen  Pass  Drop  Drop%%\n");
 
     for (int i = 0; i < 7; i++) {
         float tok = rl_tokens[i];
-        if (tok < 0.0f) tok = 0.0f;  // clamp
+        if (tok < 0.0f)
+            tok = 0.0f; // clamp
         int pct = 0;
         if (lims[i] > 0) {
             pct = (int)((tok * 100.0f) / (float)lims[i]);
-            if (pct < 0) pct = 0;
-            if (pct > 999) pct = 999;  // 3-digit cap so the column never wraps
+            if (pct < 0)
+                pct = 0;
+            if (pct > 999)
+                pct = 999; // 3-digit cap so the column never wraps
         }
         int dropPct = 0;
         if (seen[i] > 0) {
             dropPct = (int)((drop[i] * 100.0f) / (float)seen[i]);
-            if (dropPct > 100) dropPct = 100;
+            if (dropPct > 100)
+                dropPct = 100;
         }
-        n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0,
-            " %s:  %5.1f/%-5u  %3d%%  %s  %5u %5u %5u  %3d%%\n",
-            names[i],
-            (double)tok, (unsigned)lims[i],
-            pct,
-            enabled[i] ? "Y" : "N",
-            (unsigned)seen[i], (unsigned)pass[i], (unsigned)drop[i],
-            dropPct);
+        n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0, " %s:  %5.1f/%-5u  %3d%%  %s  %5u %5u %5u  %3d%%\n",
+                      names[i], (double)tok, (unsigned)lims[i], pct, enabled[i] ? "Y" : "N", (unsigned)seen[i], (unsigned)pass[i],
+                      (unsigned)drop[i], dropPct);
     }
     (void)n;
 }
@@ -3872,218 +4435,373 @@ void NexusModule::formatRLBuckets(char *buf, size_t bufSize)
 // a 1024-byte static char[]. Total output is ~6 KB which produces ~30-40
 // paging parts at the 179-byte body cap.
 
-static const char *roleName(meshtastic_Config_DeviceConfig_Role r) {
+static const char *roleName(meshtastic_Config_DeviceConfig_Role r)
+{
     switch (r) {
-        case meshtastic_Config_DeviceConfig_Role_CLIENT: return "CLIENT";
-        case meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE: return "CLIENT_MUTE";
-        case meshtastic_Config_DeviceConfig_Role_ROUTER: return "ROUTER";
-        case meshtastic_Config_DeviceConfig_Role_ROUTER_CLIENT: return "ROUTER_CLIENT";
-        case meshtastic_Config_DeviceConfig_Role_REPEATER: return "REPEATER";
-        case meshtastic_Config_DeviceConfig_Role_TRACKER: return "TRACKER";
-        case meshtastic_Config_DeviceConfig_Role_SENSOR: return "SENSOR";
-        case meshtastic_Config_DeviceConfig_Role_TAK: return "TAK";
-        case meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN: return "CLIENT_HIDDEN";
-        case meshtastic_Config_DeviceConfig_Role_LOST_AND_FOUND: return "LOST_AND_FOUND";
-        case meshtastic_Config_DeviceConfig_Role_TAK_TRACKER: return "TAK_TRACKER";
-        case meshtastic_Config_DeviceConfig_Role_ROUTER_LATE: return "ROUTER_LATE";
-        case meshtastic_Config_DeviceConfig_Role_CLIENT_BASE: return "CLIENT_BASE";
-        default: return "UNKNOWN";
+    case meshtastic_Config_DeviceConfig_Role_CLIENT:
+        return "CLIENT";
+    case meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE:
+        return "CLIENT_MUTE";
+    case meshtastic_Config_DeviceConfig_Role_ROUTER:
+        return "ROUTER";
+    case meshtastic_Config_DeviceConfig_Role_ROUTER_CLIENT:
+        return "ROUTER_CLIENT";
+    case meshtastic_Config_DeviceConfig_Role_REPEATER:
+        return "REPEATER";
+    case meshtastic_Config_DeviceConfig_Role_TRACKER:
+        return "TRACKER";
+    case meshtastic_Config_DeviceConfig_Role_SENSOR:
+        return "SENSOR";
+    case meshtastic_Config_DeviceConfig_Role_TAK:
+        return "TAK";
+    case meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN:
+        return "CLIENT_HIDDEN";
+    case meshtastic_Config_DeviceConfig_Role_LOST_AND_FOUND:
+        return "LOST_AND_FOUND";
+    case meshtastic_Config_DeviceConfig_Role_TAK_TRACKER:
+        return "TAK_TRACKER";
+    case meshtastic_Config_DeviceConfig_Role_ROUTER_LATE:
+        return "ROUTER_LATE";
+    case meshtastic_Config_DeviceConfig_Role_CLIENT_BASE:
+        return "CLIENT_BASE";
+    default:
+        return "UNKNOWN";
     }
 }
 
-static const char *rebroadcastName(meshtastic_Config_DeviceConfig_RebroadcastMode m) {
+static const char *rebroadcastName(meshtastic_Config_DeviceConfig_RebroadcastMode m)
+{
     switch (m) {
-        case meshtastic_Config_DeviceConfig_RebroadcastMode_ALL: return "ALL";
-        case meshtastic_Config_DeviceConfig_RebroadcastMode_ALL_SKIP_DECODING: return "ALL_SKIP_DECODING";
-        case meshtastic_Config_DeviceConfig_RebroadcastMode_LOCAL_ONLY: return "LOCAL_ONLY";
-        case meshtastic_Config_DeviceConfig_RebroadcastMode_KNOWN_ONLY: return "KNOWN_ONLY";
-        default: return "UNKNOWN";
+    case meshtastic_Config_DeviceConfig_RebroadcastMode_ALL:
+        return "ALL";
+    case meshtastic_Config_DeviceConfig_RebroadcastMode_ALL_SKIP_DECODING:
+        return "ALL_SKIP_DECODING";
+    case meshtastic_Config_DeviceConfig_RebroadcastMode_LOCAL_ONLY:
+        return "LOCAL_ONLY";
+    case meshtastic_Config_DeviceConfig_RebroadcastMode_KNOWN_ONLY:
+        return "KNOWN_ONLY";
+    default:
+        return "UNKNOWN";
     }
 }
 
-static const char *buzzerModeName(meshtastic_Config_DeviceConfig_BuzzerMode m) {
+static const char *buzzerModeName(meshtastic_Config_DeviceConfig_BuzzerMode m)
+{
     switch (m) {
-        case meshtastic_Config_DeviceConfig_BuzzerMode_ALL_ENABLED: return "ALL_ENABLED";
-        case meshtastic_Config_DeviceConfig_BuzzerMode_DISABLED: return "DISABLED";
-        case meshtastic_Config_DeviceConfig_BuzzerMode_NOTIFICATIONS_ONLY: return "NOTIFICATIONS_ONLY";
-        case meshtastic_Config_DeviceConfig_BuzzerMode_SYSTEM_ONLY: return "SYSTEM_ONLY";
-        case meshtastic_Config_DeviceConfig_BuzzerMode_DIRECT_MSG_ONLY: return "DIRECT_MSG_ONLY";
-        default: return "UNKNOWN";
+    case meshtastic_Config_DeviceConfig_BuzzerMode_ALL_ENABLED:
+        return "ALL_ENABLED";
+    case meshtastic_Config_DeviceConfig_BuzzerMode_DISABLED:
+        return "DISABLED";
+    case meshtastic_Config_DeviceConfig_BuzzerMode_NOTIFICATIONS_ONLY:
+        return "NOTIFICATIONS_ONLY";
+    case meshtastic_Config_DeviceConfig_BuzzerMode_SYSTEM_ONLY:
+        return "SYSTEM_ONLY";
+    case meshtastic_Config_DeviceConfig_BuzzerMode_DIRECT_MSG_ONLY:
+        return "DIRECT_MSG_ONLY";
+    default:
+        return "UNKNOWN";
     }
 }
 
-static const char *gpsModeName(meshtastic_Config_PositionConfig_GpsMode m) {
+static const char *gpsModeName(meshtastic_Config_PositionConfig_GpsMode m)
+{
     switch (m) {
-        case meshtastic_Config_PositionConfig_GpsMode_ENABLED: return "ENABLED";
-        case meshtastic_Config_PositionConfig_GpsMode_DISABLED: return "DISABLED";
-        case meshtastic_Config_PositionConfig_GpsMode_NOT_PRESENT: return "NOT_PRESENT";
-        default: return "UNKNOWN";
+    case meshtastic_Config_PositionConfig_GpsMode_ENABLED:
+        return "ENABLED";
+    case meshtastic_Config_PositionConfig_GpsMode_DISABLED:
+        return "DISABLED";
+    case meshtastic_Config_PositionConfig_GpsMode_NOT_PRESENT:
+        return "NOT_PRESENT";
+    default:
+        return "UNKNOWN";
     }
 }
 
-static const char *regionName(meshtastic_Config_LoRaConfig_RegionCode r) {
+static const char *regionName(meshtastic_Config_LoRaConfig_RegionCode r)
+{
     switch (r) {
-        case meshtastic_Config_LoRaConfig_RegionCode_UNSET: return "UNSET";
-        case meshtastic_Config_LoRaConfig_RegionCode_US: return "US";
-        case meshtastic_Config_LoRaConfig_RegionCode_EU_433: return "EU_433";
-        case meshtastic_Config_LoRaConfig_RegionCode_EU_868: return "EU_868";
-        case meshtastic_Config_LoRaConfig_RegionCode_CN: return "CN";
-        case meshtastic_Config_LoRaConfig_RegionCode_JP: return "JP";
-        case meshtastic_Config_LoRaConfig_RegionCode_ANZ: return "ANZ";
-        case meshtastic_Config_LoRaConfig_RegionCode_KR: return "KR";
-        case meshtastic_Config_LoRaConfig_RegionCode_TW: return "TW";
-        case meshtastic_Config_LoRaConfig_RegionCode_RU: return "RU";
-        case meshtastic_Config_LoRaConfig_RegionCode_IN: return "IN";
-        case meshtastic_Config_LoRaConfig_RegionCode_NZ_865: return "NZ_865";
-        case meshtastic_Config_LoRaConfig_RegionCode_TH: return "TH";
-        case meshtastic_Config_LoRaConfig_RegionCode_LORA_24: return "LORA_24";
-        case meshtastic_Config_LoRaConfig_RegionCode_UA_433: return "UA_433";
-        case meshtastic_Config_LoRaConfig_RegionCode_UA_868: return "UA_868";
-        case meshtastic_Config_LoRaConfig_RegionCode_MY_433: return "MY_433";
-        case meshtastic_Config_LoRaConfig_RegionCode_MY_919: return "MY_919";
-        case meshtastic_Config_LoRaConfig_RegionCode_SG_923: return "SG_923";
-        case meshtastic_Config_LoRaConfig_RegionCode_PH_433: return "PH_433";
-        case meshtastic_Config_LoRaConfig_RegionCode_PH_868: return "PH_868";
-        case meshtastic_Config_LoRaConfig_RegionCode_PH_915: return "PH_915";
-        case meshtastic_Config_LoRaConfig_RegionCode_ANZ_433: return "ANZ_433";
-        case meshtastic_Config_LoRaConfig_RegionCode_KZ_433: return "KZ_433";
-        case meshtastic_Config_LoRaConfig_RegionCode_KZ_863: return "KZ_863";
-        case meshtastic_Config_LoRaConfig_RegionCode_NP_865: return "NP_865";
-        case meshtastic_Config_LoRaConfig_RegionCode_BR_902: return "BR_902";
-        case meshtastic_Config_LoRaConfig_RegionCode_ITU1_2M: return "ITU1_2M";
-        case meshtastic_Config_LoRaConfig_RegionCode_ITU2_2M: return "ITU2_2M";
-        case meshtastic_Config_LoRaConfig_RegionCode_EU_866: return "EU_866";
-        case meshtastic_Config_LoRaConfig_RegionCode_EU_874: return "EU_874";
-        case meshtastic_Config_LoRaConfig_RegionCode_EU_917: return "EU_917";
-        case meshtastic_Config_LoRaConfig_RegionCode_EU_N_868: return "EU_N_868";
-        case meshtastic_Config_LoRaConfig_RegionCode_ITU3_2M: return "ITU3_2M";
-        default: return "UNKNOWN";
+    case meshtastic_Config_LoRaConfig_RegionCode_UNSET:
+        return "UNSET";
+    case meshtastic_Config_LoRaConfig_RegionCode_US:
+        return "US";
+    case meshtastic_Config_LoRaConfig_RegionCode_EU_433:
+        return "EU_433";
+    case meshtastic_Config_LoRaConfig_RegionCode_EU_868:
+        return "EU_868";
+    case meshtastic_Config_LoRaConfig_RegionCode_CN:
+        return "CN";
+    case meshtastic_Config_LoRaConfig_RegionCode_JP:
+        return "JP";
+    case meshtastic_Config_LoRaConfig_RegionCode_ANZ:
+        return "ANZ";
+    case meshtastic_Config_LoRaConfig_RegionCode_KR:
+        return "KR";
+    case meshtastic_Config_LoRaConfig_RegionCode_TW:
+        return "TW";
+    case meshtastic_Config_LoRaConfig_RegionCode_RU:
+        return "RU";
+    case meshtastic_Config_LoRaConfig_RegionCode_IN:
+        return "IN";
+    case meshtastic_Config_LoRaConfig_RegionCode_NZ_865:
+        return "NZ_865";
+    case meshtastic_Config_LoRaConfig_RegionCode_TH:
+        return "TH";
+    case meshtastic_Config_LoRaConfig_RegionCode_LORA_24:
+        return "LORA_24";
+    case meshtastic_Config_LoRaConfig_RegionCode_UA_433:
+        return "UA_433";
+    case meshtastic_Config_LoRaConfig_RegionCode_UA_868:
+        return "UA_868";
+    case meshtastic_Config_LoRaConfig_RegionCode_MY_433:
+        return "MY_433";
+    case meshtastic_Config_LoRaConfig_RegionCode_MY_919:
+        return "MY_919";
+    case meshtastic_Config_LoRaConfig_RegionCode_SG_923:
+        return "SG_923";
+    case meshtastic_Config_LoRaConfig_RegionCode_PH_433:
+        return "PH_433";
+    case meshtastic_Config_LoRaConfig_RegionCode_PH_868:
+        return "PH_868";
+    case meshtastic_Config_LoRaConfig_RegionCode_PH_915:
+        return "PH_915";
+    case meshtastic_Config_LoRaConfig_RegionCode_ANZ_433:
+        return "ANZ_433";
+    case meshtastic_Config_LoRaConfig_RegionCode_KZ_433:
+        return "KZ_433";
+    case meshtastic_Config_LoRaConfig_RegionCode_KZ_863:
+        return "KZ_863";
+    case meshtastic_Config_LoRaConfig_RegionCode_NP_865:
+        return "NP_865";
+    case meshtastic_Config_LoRaConfig_RegionCode_BR_902:
+        return "BR_902";
+    case meshtastic_Config_LoRaConfig_RegionCode_ITU1_2M:
+        return "ITU1_2M";
+    case meshtastic_Config_LoRaConfig_RegionCode_ITU2_2M:
+        return "ITU2_2M";
+    case meshtastic_Config_LoRaConfig_RegionCode_EU_866:
+        return "EU_866";
+    case meshtastic_Config_LoRaConfig_RegionCode_EU_874:
+        return "EU_874";
+    case meshtastic_Config_LoRaConfig_RegionCode_EU_917:
+        return "EU_917";
+    case meshtastic_Config_LoRaConfig_RegionCode_EU_N_868:
+        return "EU_N_868";
+    case meshtastic_Config_LoRaConfig_RegionCode_ITU3_2M:
+        return "ITU3_2M";
+    default:
+        return "UNKNOWN";
     }
 }
 
-static const char *modemPresetName(meshtastic_Config_LoRaConfig_ModemPreset p) {
+static const char *modemPresetName(meshtastic_Config_LoRaConfig_ModemPreset p)
+{
     switch (p) {
-        case meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST: return "LONG_FAST";
-        case meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW: return "LONG_SLOW";
-        case meshtastic_Config_LoRaConfig_ModemPreset_VERY_LONG_SLOW: return "VERY_LONG_SLOW";
-        case meshtastic_Config_LoRaConfig_ModemPreset_MEDIUM_SLOW: return "MEDIUM_SLOW";
-        case meshtastic_Config_LoRaConfig_ModemPreset_MEDIUM_FAST: return "MEDIUM_FAST";
-        case meshtastic_Config_LoRaConfig_ModemPreset_SHORT_SLOW: return "SHORT_SLOW";
-        case meshtastic_Config_LoRaConfig_ModemPreset_SHORT_FAST: return "SHORT_FAST";
-        case meshtastic_Config_LoRaConfig_ModemPreset_LONG_MODERATE: return "LONG_MODERATE";
-        case meshtastic_Config_LoRaConfig_ModemPreset_SHORT_TURBO: return "SHORT_TURBO";
-        case meshtastic_Config_LoRaConfig_ModemPreset_LONG_TURBO: return "LONG_TURBO";
-        case meshtastic_Config_LoRaConfig_ModemPreset_LITE_FAST: return "LITE_FAST";
-        case meshtastic_Config_LoRaConfig_ModemPreset_LITE_SLOW: return "LITE_SLOW";
-        case meshtastic_Config_LoRaConfig_ModemPreset_NARROW_FAST: return "NARROW_FAST";
-        case meshtastic_Config_LoRaConfig_ModemPreset_NARROW_SLOW: return "NARROW_SLOW";
-        default: return "UNKNOWN";
+    case meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST:
+        return "LONG_FAST";
+    case meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW:
+        return "LONG_SLOW";
+    case meshtastic_Config_LoRaConfig_ModemPreset_VERY_LONG_SLOW:
+        return "VERY_LONG_SLOW";
+    case meshtastic_Config_LoRaConfig_ModemPreset_MEDIUM_SLOW:
+        return "MEDIUM_SLOW";
+    case meshtastic_Config_LoRaConfig_ModemPreset_MEDIUM_FAST:
+        return "MEDIUM_FAST";
+    case meshtastic_Config_LoRaConfig_ModemPreset_SHORT_SLOW:
+        return "SHORT_SLOW";
+    case meshtastic_Config_LoRaConfig_ModemPreset_SHORT_FAST:
+        return "SHORT_FAST";
+    case meshtastic_Config_LoRaConfig_ModemPreset_LONG_MODERATE:
+        return "LONG_MODERATE";
+    case meshtastic_Config_LoRaConfig_ModemPreset_SHORT_TURBO:
+        return "SHORT_TURBO";
+    case meshtastic_Config_LoRaConfig_ModemPreset_LONG_TURBO:
+        return "LONG_TURBO";
+    case meshtastic_Config_LoRaConfig_ModemPreset_LITE_FAST:
+        return "LITE_FAST";
+    case meshtastic_Config_LoRaConfig_ModemPreset_LITE_SLOW:
+        return "LITE_SLOW";
+    case meshtastic_Config_LoRaConfig_ModemPreset_NARROW_FAST:
+        return "NARROW_FAST";
+    case meshtastic_Config_LoRaConfig_ModemPreset_NARROW_SLOW:
+        return "NARROW_SLOW";
+    default:
+        return "UNKNOWN";
     }
 }
 
-static const char *femModeName(meshtastic_Config_LoRaConfig_FEM_LNA_Mode m) {
+static const char *femModeName(meshtastic_Config_LoRaConfig_FEM_LNA_Mode m)
+{
     switch (m) {
-        case meshtastic_Config_LoRaConfig_FEM_LNA_Mode_DISABLED: return "DISABLED";
-        case meshtastic_Config_LoRaConfig_FEM_LNA_Mode_ENABLED: return "ENABLED";
-        case meshtastic_Config_LoRaConfig_FEM_LNA_Mode_NOT_PRESENT: return "NOT_PRESENT";
-        default: return "UNKNOWN";
+    case meshtastic_Config_LoRaConfig_FEM_LNA_Mode_DISABLED:
+        return "DISABLED";
+    case meshtastic_Config_LoRaConfig_FEM_LNA_Mode_ENABLED:
+        return "ENABLED";
+    case meshtastic_Config_LoRaConfig_FEM_LNA_Mode_NOT_PRESENT:
+        return "NOT_PRESENT";
+    default:
+        return "UNKNOWN";
     }
 }
 
-static const char *addressModeName(meshtastic_Config_NetworkConfig_AddressMode m) {
+static const char *addressModeName(meshtastic_Config_NetworkConfig_AddressMode m)
+{
     switch (m) {
-        case meshtastic_Config_NetworkConfig_AddressMode_DHCP: return "DHCP";
-        case meshtastic_Config_NetworkConfig_AddressMode_STATIC: return "STATIC";
-        default: return "UNKNOWN";
+    case meshtastic_Config_NetworkConfig_AddressMode_DHCP:
+        return "DHCP";
+    case meshtastic_Config_NetworkConfig_AddressMode_STATIC:
+        return "STATIC";
+    default:
+        return "UNKNOWN";
     }
 }
 
-static const char *displayModeName(meshtastic_Config_DisplayConfig_DisplayMode m) {
+static const char *displayModeName(meshtastic_Config_DisplayConfig_DisplayMode m)
+{
     switch (m) {
-        case meshtastic_Config_DisplayConfig_DisplayMode_DEFAULT: return "DEFAULT";
-        case meshtastic_Config_DisplayConfig_DisplayMode_TWOCOLOR: return "TWOCOLOR";
-        case meshtastic_Config_DisplayConfig_DisplayMode_INVERTED: return "INVERTED";
-        case meshtastic_Config_DisplayConfig_DisplayMode_COLOR: return "COLOR";
-        default: return "UNKNOWN";
+    case meshtastic_Config_DisplayConfig_DisplayMode_DEFAULT:
+        return "DEFAULT";
+    case meshtastic_Config_DisplayConfig_DisplayMode_TWOCOLOR:
+        return "TWOCOLOR";
+    case meshtastic_Config_DisplayConfig_DisplayMode_INVERTED:
+        return "INVERTED";
+    case meshtastic_Config_DisplayConfig_DisplayMode_COLOR:
+        return "COLOR";
+    default:
+        return "UNKNOWN";
     }
 }
 
-static const char *oledTypeName(meshtastic_Config_DisplayConfig_OledType t) {
+static const char *oledTypeName(meshtastic_Config_DisplayConfig_OledType t)
+{
     switch (t) {
-        case meshtastic_Config_DisplayConfig_OledType_OLED_AUTO: return "OLED_AUTO";
-        case meshtastic_Config_DisplayConfig_OledType_OLED_SSD1306: return "OLED_SSD1306";
-        case meshtastic_Config_DisplayConfig_OledType_OLED_SH1106: return "OLED_SH1106";
-        case meshtastic_Config_DisplayConfig_OledType_OLED_SH1107: return "OLED_SH1107";
-        case meshtastic_Config_DisplayConfig_OledType_OLED_SH1107_128_128: return "OLED_SH1107_128_128";
-        case meshtastic_Config_DisplayConfig_OledType_OLED_SH1107_ROTATED: return "OLED_SH1107_ROTATED";
-        default: return "UNKNOWN";
+    case meshtastic_Config_DisplayConfig_OledType_OLED_AUTO:
+        return "OLED_AUTO";
+    case meshtastic_Config_DisplayConfig_OledType_OLED_SSD1306:
+        return "OLED_SSD1306";
+    case meshtastic_Config_DisplayConfig_OledType_OLED_SH1106:
+        return "OLED_SH1106";
+    case meshtastic_Config_DisplayConfig_OledType_OLED_SH1107:
+        return "OLED_SH1107";
+    case meshtastic_Config_DisplayConfig_OledType_OLED_SH1107_128_128:
+        return "OLED_SH1107_128_128";
+    case meshtastic_Config_DisplayConfig_OledType_OLED_SH1107_ROTATED:
+        return "OLED_SH1107_ROTATED";
+    default:
+        return "UNKNOWN";
     }
 }
 
-static const char *unitsName(meshtastic_Config_DisplayConfig_DisplayUnits u) {
+static const char *unitsName(meshtastic_Config_DisplayConfig_DisplayUnits u)
+{
     switch (u) {
-        case meshtastic_Config_DisplayConfig_DisplayUnits_METRIC: return "METRIC";
-        case meshtastic_Config_DisplayConfig_DisplayUnits_IMPERIAL: return "IMPERIAL";
-        default: return "UNKNOWN";
+    case meshtastic_Config_DisplayConfig_DisplayUnits_METRIC:
+        return "METRIC";
+    case meshtastic_Config_DisplayConfig_DisplayUnits_IMPERIAL:
+        return "IMPERIAL";
+    default:
+        return "UNKNOWN";
     }
 }
 
-static const char *pairingModeName(meshtastic_Config_BluetoothConfig_PairingMode p) {
+static const char *pairingModeName(meshtastic_Config_BluetoothConfig_PairingMode p)
+{
     switch (p) {
-        case meshtastic_Config_BluetoothConfig_PairingMode_RANDOM_PIN: return "RANDOM_PIN";
-        case meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN: return "FIXED_PIN";
-        case meshtastic_Config_BluetoothConfig_PairingMode_NO_PIN: return "NO_PIN";
-        default: return "UNKNOWN";
+    case meshtastic_Config_BluetoothConfig_PairingMode_RANDOM_PIN:
+        return "RANDOM_PIN";
+    case meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN:
+        return "FIXED_PIN";
+    case meshtastic_Config_BluetoothConfig_PairingMode_NO_PIN:
+        return "NO_PIN";
+    default:
+        return "UNKNOWN";
     }
 }
 
-static const char *serialBaudName(meshtastic_ModuleConfig_SerialConfig_Serial_Baud b) {
+static const char *serialBaudName(meshtastic_ModuleConfig_SerialConfig_Serial_Baud b)
+{
     switch (b) {
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_DEFAULT: return "DEFAULT";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_110: return "110";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_300: return "300";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_600: return "600";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_1200: return "1200";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_2400: return "2400";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_4800: return "4800";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_9600: return "9600";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_19200: return "19200";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_38400: return "38400";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_57600: return "57600";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_115200: return "115200";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_230400: return "230400";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_460800: return "460800";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_576000: return "576000";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_921600: return "921600";
-        default: return "UNKNOWN";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_DEFAULT:
+        return "DEFAULT";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_110:
+        return "110";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_300:
+        return "300";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_600:
+        return "600";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_1200:
+        return "1200";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_2400:
+        return "2400";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_4800:
+        return "4800";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_9600:
+        return "9600";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_19200:
+        return "19200";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_38400:
+        return "38400";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_57600:
+        return "57600";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_115200:
+        return "115200";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_230400:
+        return "230400";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_460800:
+        return "460800";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_576000:
+        return "576000";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_921600:
+        return "921600";
+    default:
+        return "UNKNOWN";
     }
 }
 
-static const char *serialModeName(meshtastic_ModuleConfig_SerialConfig_Serial_Mode m) {
+static const char *serialModeName(meshtastic_ModuleConfig_SerialConfig_Serial_Mode m)
+{
     switch (m) {
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Mode_DEFAULT: return "DEFAULT";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Mode_SIMPLE: return "SIMPLE";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Mode_PROTO: return "PROTO";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Mode_TEXTMSG: return "TEXTMSG";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Mode_NMEA: return "NMEA";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Mode_CALTOPO: return "CALTOPO";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Mode_WS85: return "WS85";
-        case meshtastic_ModuleConfig_SerialConfig_Serial_Mode_VE_DIRECT: return "VE_DIRECT";
-        default: return "UNKNOWN";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Mode_DEFAULT:
+        return "DEFAULT";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Mode_SIMPLE:
+        return "SIMPLE";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Mode_PROTO:
+        return "PROTO";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Mode_TEXTMSG:
+        return "TEXTMSG";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Mode_NMEA:
+        return "NMEA";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Mode_CALTOPO:
+        return "CALTOPO";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Mode_WS85:
+        return "WS85";
+    case meshtastic_ModuleConfig_SerialConfig_Serial_Mode_VE_DIRECT:
+        return "VE_DIRECT";
+    default:
+        return "UNKNOWN";
     }
 }
 
-static const char *compassOrientName(meshtastic_Config_DisplayConfig_CompassOrientation o) {
+static const char *compassOrientName(meshtastic_Config_DisplayConfig_CompassOrientation o)
+{
     switch (o) {
-        case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_0: return "DEGREES_0";
-        case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_90: return "DEGREES_90";
-        case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_180: return "DEGREES_180";
-        case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_270: return "DEGREES_270";
-        case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_0_INVERTED: return "DEGREES_0_INVERTED";
-        case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_90_INVERTED: return "DEGREES_90_INVERTED";
-        case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_180_INVERTED: return "DEGREES_180_INVERTED";
-        case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_270_INVERTED: return "DEGREES_270_INVERTED";
-        default: return "UNKNOWN";
+    case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_0:
+        return "DEGREES_0";
+    case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_90:
+        return "DEGREES_90";
+    case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_180:
+        return "DEGREES_180";
+    case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_270:
+        return "DEGREES_270";
+    case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_0_INVERTED:
+        return "DEGREES_0_INVERTED";
+    case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_90_INVERTED:
+        return "DEGREES_90_INVERTED";
+    case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_180_INVERTED:
+        return "DEGREES_180_INVERTED";
+    case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_270_INVERTED:
+        return "DEGREES_270_INVERTED";
+    default:
+        return "UNKNOWN";
     }
 }
 
@@ -4102,7 +4820,12 @@ static const char *compassOrientName(meshtastic_Config_DisplayConfig_CompassOrie
 void NexusModule::appendFCDSection_DEVICE()
 {
     auto &d = config.device;
-    #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
+#define FCD_LINE(...)                                                                                                            \
+    do {                                                                                                                         \
+        char line[160];                                                                                                          \
+        snprintf(line, sizeof(line), __VA_ARGS__);                                                                               \
+        appendPaging(line);                                                                                                      \
+    } while (0)
     appendPaging("JT Full Config: DEVICE\n--\n");
     FCD_LINE("role: %s\n", roleName(d.role));
     FCD_LINE("serial_enabled: %s\n", d.serial_enabled ? "true" : "false");
@@ -4117,13 +4840,18 @@ void NexusModule::appendFCDSection_DEVICE()
     FCD_LINE("led_heartbeat_disabled: %s\n", d.led_heartbeat_disabled ? "true" : "false");
     FCD_LINE("buzzer_mode: %s\n", buzzerModeName(d.buzzer_mode));
     appendPaging("--\n");
-    #undef FCD_LINE
+#undef FCD_LINE
 }
 
 void NexusModule::appendFCDSection_POSITION()
 {
     auto &p = config.position;
-    #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
+#define FCD_LINE(...)                                                                                                            \
+    do {                                                                                                                         \
+        char line[160];                                                                                                          \
+        snprintf(line, sizeof(line), __VA_ARGS__);                                                                               \
+        appendPaging(line);                                                                                                      \
+    } while (0)
     appendPaging("JT Full Config: POSITION\n--\n");
     FCD_LINE("position_broadcast_secs: %u\n", (unsigned)p.position_broadcast_secs);
     FCD_LINE("position_broadcast_smart_enabled: %s\n", p.position_broadcast_smart_enabled ? "true" : "false");
@@ -4138,7 +4866,14 @@ void NexusModule::appendFCDSection_POSITION()
         char flags[128];
         flags[0] = '\0';
         if (f) {
-            #define APPEND_FLAG(bit, name) do { if (f & (1u << bit)) { if (flags[0]) strncat(flags, "|", sizeof(flags)-strlen(flags)-1); strncat(flags, name, sizeof(flags)-strlen(flags)-1); } } while(0)
+#define APPEND_FLAG(bit, name)                                                                                                   \
+    do {                                                                                                                         \
+        if (f & (1u << bit)) {                                                                                                   \
+            if (flags[0])                                                                                                        \
+                strncat(flags, "|", sizeof(flags) - strlen(flags) - 1);                                                          \
+            strncat(flags, name, sizeof(flags) - strlen(flags) - 1);                                                             \
+        }                                                                                                                        \
+    } while (0)
             APPEND_FLAG(0, "ALTITUDE");
             APPEND_FLAG(1, "ALTITUDE_METERS");
             APPEND_FLAG(2, "GEOIDAL_SEPARATION");
@@ -4148,7 +4883,7 @@ void NexusModule::appendFCDSection_POSITION()
             APPEND_FLAG(6, "SATELLITES");
             APPEND_FLAG(7, "SEQUENCE_NUMBER");
             APPEND_FLAG(8, "TIMESTAMP");
-            #undef APPEND_FLAG
+#undef APPEND_FLAG
         }
         FCD_LINE("position_flags: 0x%08x %s\n", (unsigned)f, flags[0] ? flags : "(none)");
     }
@@ -4159,13 +4894,18 @@ void NexusModule::appendFCDSection_POSITION()
     FCD_LINE("gps_en_gpio: %u\n", (unsigned)p.gps_en_gpio);
     FCD_LINE("gps_mode: %s\n", gpsModeName(p.gps_mode));
     appendPaging("--\n");
-    #undef FCD_LINE
+#undef FCD_LINE
 }
 
 void NexusModule::appendFCDSection_POWER()
 {
     auto &pw = config.power;
-    #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
+#define FCD_LINE(...)                                                                                                            \
+    do {                                                                                                                         \
+        char line[160];                                                                                                          \
+        snprintf(line, sizeof(line), __VA_ARGS__);                                                                               \
+        appendPaging(line);                                                                                                      \
+    } while (0)
     appendPaging("JT Full Config: POWER\n--\n");
     FCD_LINE("is_power_saving: %s\n", pw.is_power_saving ? "true" : "false");
     FCD_LINE("on_battery_shutdown_after_secs: %u\n", (unsigned)pw.on_battery_shutdown_after_secs);
@@ -4177,13 +4917,18 @@ void NexusModule::appendFCDSection_POWER()
     FCD_LINE("device_battery_ina_address: 0x%02X\n", (unsigned)pw.device_battery_ina_address);
     FCD_LINE("powermon_enables: 0x%016llx\n", (unsigned long long)pw.powermon_enables);
     appendPaging("--\n");
-    #undef FCD_LINE
+#undef FCD_LINE
 }
 
 void NexusModule::appendFCDSection_NETWORK()
 {
     auto &nw = config.network;
-    #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
+#define FCD_LINE(...)                                                                                                            \
+    do {                                                                                                                         \
+        char line[160];                                                                                                          \
+        snprintf(line, sizeof(line), __VA_ARGS__);                                                                               \
+        appendPaging(line);                                                                                                      \
+    } while (0)
     appendPaging("JT Full Config: NETWORK\n--\n");
     FCD_LINE("wifi_enabled: %s\n", nw.wifi_enabled ? "true" : "false");
     FCD_LINE("wifi_ssid: %s\n", nw.wifi_ssid);
@@ -4191,29 +4936,33 @@ void NexusModule::appendFCDSection_NETWORK()
     FCD_LINE("ntp_server: %s\n", nw.ntp_server);
     FCD_LINE("eth_enabled: %s\n", nw.eth_enabled ? "true" : "false");
     FCD_LINE("address_mode: %s\n", addressModeName(nw.address_mode));
-    FCD_LINE("ipv4_config.ip: %u.%u.%u.%u\n",
-        (unsigned)(nw.ipv4_config.ip & 0xFF), (unsigned)((nw.ipv4_config.ip >> 8) & 0xFF),
-        (unsigned)((nw.ipv4_config.ip >> 16) & 0xFF), (unsigned)((nw.ipv4_config.ip >> 24) & 0xFF));
-    FCD_LINE("ipv4_config.gateway: %u.%u.%u.%u\n",
-        (unsigned)(nw.ipv4_config.gateway & 0xFF), (unsigned)((nw.ipv4_config.gateway >> 8) & 0xFF),
-        (unsigned)((nw.ipv4_config.gateway >> 16) & 0xFF), (unsigned)((nw.ipv4_config.gateway >> 24) & 0xFF));
-    FCD_LINE("ipv4_config.subnet: %u.%u.%u.%u\n",
-        (unsigned)(nw.ipv4_config.subnet & 0xFF), (unsigned)((nw.ipv4_config.subnet >> 8) & 0xFF),
-        (unsigned)((nw.ipv4_config.subnet >> 16) & 0xFF), (unsigned)((nw.ipv4_config.subnet >> 24) & 0xFF));
-    FCD_LINE("ipv4_config.dns: %u.%u.%u.%u\n",
-        (unsigned)(nw.ipv4_config.dns & 0xFF), (unsigned)((nw.ipv4_config.dns >> 8) & 0xFF),
-        (unsigned)((nw.ipv4_config.dns >> 16) & 0xFF), (unsigned)((nw.ipv4_config.dns >> 24) & 0xFF));
+    FCD_LINE("ipv4_config.ip: %u.%u.%u.%u\n", (unsigned)(nw.ipv4_config.ip & 0xFF), (unsigned)((nw.ipv4_config.ip >> 8) & 0xFF),
+             (unsigned)((nw.ipv4_config.ip >> 16) & 0xFF), (unsigned)((nw.ipv4_config.ip >> 24) & 0xFF));
+    FCD_LINE("ipv4_config.gateway: %u.%u.%u.%u\n", (unsigned)(nw.ipv4_config.gateway & 0xFF),
+             (unsigned)((nw.ipv4_config.gateway >> 8) & 0xFF), (unsigned)((nw.ipv4_config.gateway >> 16) & 0xFF),
+             (unsigned)((nw.ipv4_config.gateway >> 24) & 0xFF));
+    FCD_LINE("ipv4_config.subnet: %u.%u.%u.%u\n", (unsigned)(nw.ipv4_config.subnet & 0xFF),
+             (unsigned)((nw.ipv4_config.subnet >> 8) & 0xFF), (unsigned)((nw.ipv4_config.subnet >> 16) & 0xFF),
+             (unsigned)((nw.ipv4_config.subnet >> 24) & 0xFF));
+    FCD_LINE("ipv4_config.dns: %u.%u.%u.%u\n", (unsigned)(nw.ipv4_config.dns & 0xFF),
+             (unsigned)((nw.ipv4_config.dns >> 8) & 0xFF), (unsigned)((nw.ipv4_config.dns >> 16) & 0xFF),
+             (unsigned)((nw.ipv4_config.dns >> 24) & 0xFF));
     FCD_LINE("rsyslog_server: %s\n", nw.rsyslog_server);
     FCD_LINE("enabled_protocols: 0x%08x\n", (unsigned)nw.enabled_protocols);
     FCD_LINE("ipv6_enabled: %s\n", nw.ipv6_enabled ? "true" : "false");
     appendPaging("--\n");
-    #undef FCD_LINE
+#undef FCD_LINE
 }
 
 void NexusModule::appendFCDSection_DISPLAY()
 {
     auto &dp = config.display;
-    #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
+#define FCD_LINE(...)                                                                                                            \
+    do {                                                                                                                         \
+        char line[160];                                                                                                          \
+        snprintf(line, sizeof(line), __VA_ARGS__);                                                                               \
+        appendPaging(line);                                                                                                      \
+    } while (0)
     appendPaging("JT Full Config: DISPLAY\n--\n");
     FCD_LINE("screen_on_secs: %u\n", (unsigned)dp.screen_on_secs);
     FCD_LINE("auto_screen_carousel_secs: %u\n", (unsigned)dp.auto_screen_carousel_secs);
@@ -4229,13 +4978,18 @@ void NexusModule::appendFCDSection_DISPLAY()
     FCD_LINE("use_long_node_name: %s\n", dp.use_long_node_name ? "true" : "false");
     FCD_LINE("enable_message_bubbles: %s\n", dp.enable_message_bubbles ? "true" : "false");
     appendPaging("--\n");
-    #undef FCD_LINE
+#undef FCD_LINE
 }
 
 void NexusModule::appendFCDSection_LORA()
 {
     auto &lr = config.lora;
-    #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
+#define FCD_LINE(...)                                                                                                            \
+    do {                                                                                                                         \
+        char line[160];                                                                                                          \
+        snprintf(line, sizeof(line), __VA_ARGS__);                                                                               \
+        appendPaging(line);                                                                                                      \
+    } while (0)
     appendPaging("JT Full Config: LORA\n--\n");
     FCD_LINE("use_preset: %s\n", lr.use_preset ? "true" : "false");
     FCD_LINE("modem_preset: %s\n", modemPresetName(lr.modem_preset));
@@ -4255,8 +5009,7 @@ void NexusModule::appendFCDSection_LORA()
     FCD_LINE("ignore_incoming_count: %u\n", (unsigned)lr.ignore_incoming_count);
     for (size_t i = 0; i < lr.ignore_incoming_count && i < 3; i++) {
         char line[64];
-        snprintf(line, sizeof(line), "ignore_incoming[%u]: !%08x\n",
-                 (unsigned)i, (unsigned)lr.ignore_incoming[i]);
+        snprintf(line, sizeof(line), "ignore_incoming[%u]: !%08x\n", (unsigned)i, (unsigned)lr.ignore_incoming[i]);
         appendPaging(line);
     }
     FCD_LINE("ignore_mqtt: %s\n", lr.ignore_mqtt ? "true" : "false");
@@ -4264,25 +5017,35 @@ void NexusModule::appendFCDSection_LORA()
     FCD_LINE("fem_lna_mode: %s\n", femModeName(lr.fem_lna_mode));
     FCD_LINE("serial_hal_only: %s\n", lr.serial_hal_only ? "true" : "false");
     appendPaging("--\n");
-    #undef FCD_LINE
+#undef FCD_LINE
 }
 
 void NexusModule::appendFCDSection_BLUETOOTH()
 {
     auto &bt = config.bluetooth;
-    #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
+#define FCD_LINE(...)                                                                                                            \
+    do {                                                                                                                         \
+        char line[160];                                                                                                          \
+        snprintf(line, sizeof(line), __VA_ARGS__);                                                                               \
+        appendPaging(line);                                                                                                      \
+    } while (0)
     appendPaging("JT Full Config: BLUETOOTH\n--\n");
     FCD_LINE("enabled: %s\n", bt.enabled ? "true" : "false");
     FCD_LINE("mode: %s\n", pairingModeName(bt.mode));
     FCD_LINE("fixed_pin: %u\n", (unsigned)bt.fixed_pin);
     appendPaging("--\n");
-    #undef FCD_LINE
+#undef FCD_LINE
 }
 
 void NexusModule::appendFCDSection_MQTT()
 {
     auto &mq = moduleConfig.mqtt;
-    #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
+#define FCD_LINE(...)                                                                                                            \
+    do {                                                                                                                         \
+        char line[160];                                                                                                          \
+        snprintf(line, sizeof(line), __VA_ARGS__);                                                                               \
+        appendPaging(line);                                                                                                      \
+    } while (0)
     appendPaging("JT Full Config: MQTT\n--\n");
     FCD_LINE("enabled: %s\n", mq.enabled ? "true" : "false");
     FCD_LINE("address: %s\n", mq.address);
@@ -4300,13 +5063,18 @@ void NexusModule::appendFCDSection_MQTT()
         appendPaging("map_report_settings: (not set)\n");
     }
     appendPaging("--\n");
-    #undef FCD_LINE
+#undef FCD_LINE
 }
 
 void NexusModule::appendFCDSection_SERIAL()
 {
     auto &se = moduleConfig.serial;
-    #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
+#define FCD_LINE(...)                                                                                                            \
+    do {                                                                                                                         \
+        char line[160];                                                                                                          \
+        snprintf(line, sizeof(line), __VA_ARGS__);                                                                               \
+        appendPaging(line);                                                                                                      \
+    } while (0)
     appendPaging("JT Full Config: SERIAL\n--\n");
     FCD_LINE("enabled: %s\n", se.enabled ? "true" : "false");
     FCD_LINE("echo: %s\n", se.echo ? "true" : "false");
@@ -4317,13 +5085,18 @@ void NexusModule::appendFCDSection_SERIAL()
     FCD_LINE("mode: %s\n", serialModeName(se.mode));
     FCD_LINE("override_console_serial_port: %s\n", se.override_console_serial_port ? "true" : "false");
     appendPaging("--\n");
-    #undef FCD_LINE
+#undef FCD_LINE
 }
 
 void NexusModule::appendFCDSection_EXTNOTIF()
 {
     auto &en = moduleConfig.external_notification;
-    #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
+#define FCD_LINE(...)                                                                                                            \
+    do {                                                                                                                         \
+        char line[160];                                                                                                          \
+        snprintf(line, sizeof(line), __VA_ARGS__);                                                                               \
+        appendPaging(line);                                                                                                      \
+    } while (0)
     appendPaging("JT Full Config: EXTNOTIF\n--\n");
     FCD_LINE("enabled: %s\n", en.enabled ? "true" : "false");
     FCD_LINE("output_ms: %u\n", (unsigned)en.output_ms);
@@ -4341,13 +5114,18 @@ void NexusModule::appendFCDSection_EXTNOTIF()
     FCD_LINE("nag_timeout: %u\n", (unsigned)en.nag_timeout);
     FCD_LINE("use_i2s_as_buzzer: %s\n", en.use_i2s_as_buzzer ? "true" : "false");
     appendPaging("--\n");
-    #undef FCD_LINE
+#undef FCD_LINE
 }
 
 void NexusModule::appendFCDSection_STOREFORWARD()
 {
     auto &sf = moduleConfig.store_forward;
-    #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
+#define FCD_LINE(...)                                                                                                            \
+    do {                                                                                                                         \
+        char line[160];                                                                                                          \
+        snprintf(line, sizeof(line), __VA_ARGS__);                                                                               \
+        appendPaging(line);                                                                                                      \
+    } while (0)
     appendPaging("JT Full Config: STOREFORWARD\n--\n");
     FCD_LINE("enabled: %s\n", sf.enabled ? "true" : "false");
     FCD_LINE("heartbeat: %s\n", sf.heartbeat ? "true" : "false");
@@ -4356,26 +5134,36 @@ void NexusModule::appendFCDSection_STOREFORWARD()
     FCD_LINE("history_return_window: %u\n", (unsigned)sf.history_return_window);
     FCD_LINE("is_server: %s\n", sf.is_server ? "true" : "false");
     appendPaging("--\n");
-    #undef FCD_LINE
+#undef FCD_LINE
 }
 
 void NexusModule::appendFCDSection_RANGETEST()
 {
     auto &rt = moduleConfig.range_test;
-    #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
+#define FCD_LINE(...)                                                                                                            \
+    do {                                                                                                                         \
+        char line[160];                                                                                                          \
+        snprintf(line, sizeof(line), __VA_ARGS__);                                                                               \
+        appendPaging(line);                                                                                                      \
+    } while (0)
     appendPaging("JT Full Config: RANGETEST\n--\n");
     FCD_LINE("enabled: %s\n", rt.enabled ? "true" : "false");
     FCD_LINE("sender: %u\n", (unsigned)rt.sender);
     FCD_LINE("save: %s\n", rt.save ? "true" : "false");
     FCD_LINE("clear_on_reboot: %s\n", rt.clear_on_reboot ? "true" : "false");
     appendPaging("--\n");
-    #undef FCD_LINE
+#undef FCD_LINE
 }
 
 void NexusModule::appendFCDSection_TELEMETRY()
 {
     auto &tl = moduleConfig.telemetry;
-    #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
+#define FCD_LINE(...)                                                                                                            \
+    do {                                                                                                                         \
+        char line[160];                                                                                                          \
+        snprintf(line, sizeof(line), __VA_ARGS__);                                                                               \
+        appendPaging(line);                                                                                                      \
+    } while (0)
     appendPaging("JT Full Config: TELEMETRY\n--\n");
     FCD_LINE("device_update_interval: %u\n", (unsigned)tl.device_update_interval);
     FCD_LINE("environment_update_interval: %u\n", (unsigned)tl.environment_update_interval);
@@ -4393,13 +5181,18 @@ void NexusModule::appendFCDSection_TELEMETRY()
     FCD_LINE("device_telemetry_enabled: %s\n", tl.device_telemetry_enabled ? "true" : "false");
     FCD_LINE("air_quality_screen_enabled: %s\n", tl.air_quality_screen_enabled ? "true" : "false");
     appendPaging("--\n");
-    #undef FCD_LINE
+#undef FCD_LINE
 }
 
 void NexusModule::appendFCDSection_CANNEDMSG()
 {
     auto &cm = moduleConfig.canned_message;
-    #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
+#define FCD_LINE(...)                                                                                                            \
+    do {                                                                                                                         \
+        char line[160];                                                                                                          \
+        snprintf(line, sizeof(line), __VA_ARGS__);                                                                               \
+        appendPaging(line);                                                                                                      \
+    } while (0)
     appendPaging("JT Full Config: CANNEDMSG\n--\n");
     FCD_LINE("rotary1_enabled: %s\n", cm.rotary1_enabled ? "true" : "false");
     FCD_LINE("inputbroker_pin_a: %u\n", (unsigned)cm.inputbroker_pin_a);
@@ -4413,13 +5206,18 @@ void NexusModule::appendFCDSection_CANNEDMSG()
     FCD_LINE("allow_input_source: %s\n", cm.allow_input_source);
     FCD_LINE("send_bell: %s\n", cm.send_bell ? "true" : "false");
     appendPaging("--\n");
-    #undef FCD_LINE
+#undef FCD_LINE
 }
 
 void NexusModule::appendFCDSection_AUDIO()
 {
     auto &au = moduleConfig.audio;
-    #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
+#define FCD_LINE(...)                                                                                                            \
+    do {                                                                                                                         \
+        char line[160];                                                                                                          \
+        snprintf(line, sizeof(line), __VA_ARGS__);                                                                               \
+        appendPaging(line);                                                                                                      \
+    } while (0)
     appendPaging("JT Full Config: AUDIO\n--\n");
     FCD_LINE("codec2_enabled: %s\n", au.codec2_enabled ? "true" : "false");
     FCD_LINE("ptt_pin: %u\n", (unsigned)au.ptt_pin);
@@ -4429,13 +5227,18 @@ void NexusModule::appendFCDSection_AUDIO()
     FCD_LINE("i2s_din: %u\n", (unsigned)au.i2s_din);
     FCD_LINE("i2s_sck: %u\n", (unsigned)au.i2s_sck);
     appendPaging("--\n");
-    #undef FCD_LINE
+#undef FCD_LINE
 }
 
 void NexusModule::appendFCDSection_REMOTEHW()
 {
     auto &rh = moduleConfig.remote_hardware;
-    #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
+#define FCD_LINE(...)                                                                                                            \
+    do {                                                                                                                         \
+        char line[160];                                                                                                          \
+        snprintf(line, sizeof(line), __VA_ARGS__);                                                                               \
+        appendPaging(line);                                                                                                      \
+    } while (0)
     appendPaging("JT Full Config: REMOTEHW\n--\n");
     FCD_LINE("enabled: %s\n", rh.enabled ? "true" : "false");
     FCD_LINE("allow_undefined_pin_access: %s\n", rh.allow_undefined_pin_access ? "true" : "false");
@@ -4444,49 +5247,60 @@ void NexusModule::appendFCDSection_REMOTEHW()
     // line includes a name string. 256 bytes covers full pin description.
     for (size_t i = 0; i < rh.available_pins_count && i < 4; i++) {
         char line[256];
-        snprintf(line, sizeof(line), "available_pins[%u]: gpio=%u name=%s\n",
-                 (unsigned)i, (unsigned)rh.available_pins[i].gpio_pin,
-                 rh.available_pins[i].name);
+        snprintf(line, sizeof(line), "available_pins[%u]: gpio=%u name=%s\n", (unsigned)i,
+                 (unsigned)rh.available_pins[i].gpio_pin, rh.available_pins[i].name);
         appendPaging(line);
     }
     appendPaging("--\n");
-    #undef FCD_LINE
+#undef FCD_LINE
 }
 
 void NexusModule::appendFCDSection_NEIGHBORINFO()
 {
     auto &nb = moduleConfig.neighbor_info;
-    #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
+#define FCD_LINE(...)                                                                                                            \
+    do {                                                                                                                         \
+        char line[160];                                                                                                          \
+        snprintf(line, sizeof(line), __VA_ARGS__);                                                                               \
+        appendPaging(line);                                                                                                      \
+    } while (0)
     appendPaging("JT Full Config: NEIGHBORINFO\n--\n");
     FCD_LINE("enabled: %s\n", nb.enabled ? "true" : "false");
     FCD_LINE("update_interval: %u\n", (unsigned)nb.update_interval);
     FCD_LINE("transmit_over_lora: %s\n", nb.transmit_over_lora ? "true" : "false");
     appendPaging("--\n");
-    #undef FCD_LINE
+#undef FCD_LINE
 }
 
-const char* NexusModule::skipToken(const char* input) {
-    if (!input || *input == '\0') return input;
+const char *NexusModule::skipToken(const char *input)
+{
+    if (!input || *input == '\0')
+        return input;
     const char *p = input;
-    while (*p == ' ') p++;
-    while (*p != '\0' && *p != ' ') p++;
-    while (*p == ' ') p++;
+    while (*p == ' ')
+        p++;
+    while (*p != '\0' && *p != ' ')
+        p++;
+    while (*p == ' ')
+        p++;
     return p;
 }
 
-uint32_t NexusModule::parseNexusID(const char* input) {
-    if (!input || *input == '\0') return 0;
+uint32_t NexusModule::parseNexusID(const char *input)
+{
+    if (!input || *input == '\0')
+        return 0;
     const char *p = input;
-    while (*p == ' ' || *p == '!') p++;
+    while (*p == ' ' || *p == '!')
+        p++;
     return (uint32_t)strtoul(p, NULL, 16);
 }
 
-size_t NexusModule::hopsToEmoji(char *out, size_t outSize, uint32_t hopsUsed) {
-    if (!out || outSize == 0) return 0;
-    static const char *keycapMap[] = {
-        "0️⃣", "1️⃣", "2️⃣", "3️⃣", "4️⃣",
-        "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"
-    };
+size_t NexusModule::hopsToEmoji(char *out, size_t outSize, uint32_t hopsUsed)
+{
+    if (!out || outSize == 0)
+        return 0;
+    static const char *keycapMap[] = {"0️⃣", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"};
     if (hopsUsed == 0) {
         // Direct link: '*' marker (matches legacy behaviour).
         return snprintf(out, outSize, "*");
@@ -4498,15 +5312,21 @@ size_t NexusModule::hopsToEmoji(char *out, size_t outSize, uint32_t hopsUsed) {
     }
 }
 
-bool NexusModule::sendToPhone(uint32_t to, uint32_t ch, uint32_t replyId, const char *msg, size_t len, bool asReaction, const meshtastic_MeshPacket *src) {
-    if (!msg || len == 0) return false;
-    if (len > NEXUS_MAX_REPLY_BODY) len = NEXUS_MAX_REPLY_BODY;
+bool NexusModule::sendToPhone(uint32_t to, uint32_t ch, uint32_t replyId, const char *msg, size_t len, bool asReaction,
+                              const meshtastic_MeshPacket *src)
+{
+    if (!msg || len == 0)
+        return false;
+    if (len > NEXUS_MAX_REPLY_BODY)
+        len = NEXUS_MAX_REPLY_BODY;
     meshtastic_MeshPacket *p = (router) ? router->allocForSending() : nullptr;
-    if (!p) return false;
+    if (!p)
+        return false;
     p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
     p->to = to;
     p->channel = ch;
-    if (replyId) p->decoded.reply_id = replyId;
+    if (replyId)
+        p->decoded.reply_id = replyId;
     if (asReaction) {
         p->decoded.emoji = 1;
         p->decoded.bitfield |= (1 << 0);
@@ -4522,30 +5342,43 @@ bool NexusModule::sendToPhone(uint32_t to, uint32_t ch, uint32_t replyId, const 
     }
     memcpy(p->decoded.payload.bytes, msg, len);
     p->decoded.payload.size = len;
-    if (service) service->sendToPhone(p);
+    if (service)
+        service->sendToPhone(p);
     return true;
 }
 
-bool NexusModule::sendToMeshPacket(uint32_t to, uint32_t ch, uint32_t replyId, const char *msg, size_t len, bool wantAck, bool reliable) {
-    if (!msg || len == 0) return false;
-    if (len > NEXUS_MAX_REPLY_BODY) len = NEXUS_MAX_REPLY_BODY;
+bool NexusModule::sendToMeshPacket(uint32_t to, uint32_t ch, uint32_t replyId, const char *msg, size_t len, bool wantAck,
+                                   bool reliable)
+{
+    if (!msg || len == 0)
+        return false;
+    if (len > NEXUS_MAX_REPLY_BODY)
+        len = NEXUS_MAX_REPLY_BODY;
     meshtastic_MeshPacket *p = (router) ? router->allocForSending() : nullptr;
-    if (!p) return false;
+    if (!p)
+        return false;
     p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
     p->to = to;
     p->channel = ch;
     p->want_ack = wantAck;
-    if (replyId) p->decoded.reply_id = replyId;
-    if (reliable) p->priority = meshtastic_MeshPacket_Priority_RELIABLE;
+    if (replyId)
+        p->decoded.reply_id = replyId;
+    if (reliable)
+        p->priority = meshtastic_MeshPacket_Priority_RELIABLE;
     memcpy(p->decoded.payload.bytes, msg, len);
     p->decoded.payload.size = len;
-    if (service) service->sendToMesh(p);
+    if (service)
+        service->sendToMesh(p);
     return true;
 }
 
-bool NexusModule::queueMeshReply(uint32_t to, uint32_t ch, uint32_t replyId, const char *msg, size_t len, bool isReaction, bool wantAck) {
-    if (!msg || len == 0) return false;
-    if (len > NEXUS_MAX_REPLY_BODY) len = NEXUS_MAX_REPLY_BODY;
+bool NexusModule::queueMeshReply(uint32_t to, uint32_t ch, uint32_t replyId, const char *msg, size_t len, bool isReaction,
+                                 bool wantAck)
+{
+    if (!msg || len == 0)
+        return false;
+    if (len > NEXUS_MAX_REPLY_BODY)
+        len = NEXUS_MAX_REPLY_BODY;
     // The isDM flag is implicit: broadcast targets (0xFFFFFFFF) get a 100-5000ms
     // jitter to look human; DM targets (specific node) get a 50ms yield.
     bool isBroadcast = (to == 0xFFFFFFFF);
@@ -4569,38 +5402,48 @@ bool NexusModule::queueMeshReply(uint32_t to, uint32_t ch, uint32_t replyId, con
     return true;
 }
 
-bool NexusModule::parsePosArgs(const char *cmd, int offset,
-                                uint32_t *outId, double *outArgs, int numArgs,
-                                int *outChannel, int *outHopLim, int *outHopStart,
-                                bool *outUseMqtt, bool *outHasCh, bool *outHasHops) {
-    if (!cmd || !outId || !outArgs) return false;
+bool NexusModule::parsePosArgs(const char *cmd, int offset, uint32_t *outId, double *outArgs, int numArgs, int *outChannel,
+                               int *outHopLim, int *outHopStart, bool *outUseMqtt, bool *outHasCh, bool *outHasHops)
+{
+    if (!cmd || !outId || !outArgs)
+        return false;
     const char *p = cmd + offset;
-    while (*p == ' ') p++;
+    while (*p == ' ')
+        p++;
 
     // 1. Target ID (mandatory)
-    if (*p == '!') p++;
-    *outId = (uint32_t)strtoul(p, (char**)&p, 16);
-    while (*p == ' ') p++;
-    if (*outId == 0) return false;
+    if (*p == '!')
+        p++;
+    *outId = (uint32_t)strtoul(p, (char **)&p, 16);
+    while (*p == ' ')
+        p++;
+    if (*outId == 0)
+        return false;
 
     // 2. Positional double args (coord triples, or coord-range min/max
     //    quintuples for the random-position variant)
     for (int i = 0; i < numArgs; i++) {
-        outArgs[i] = strtod(p, (char**)&p);
-        while (*p == ' ') p++;
+        outArgs[i] = strtod(p, (char **)&p);
+        while (*p == ' ')
+            p++;
     }
 
     // 3. Optional flags C / H / M
     bool customCh = false, customHops = false, useMqtt = false;
     while (*p != '\0' && *p != ' ') {
         char c = toupper(*p);
-        if (c == 'C') customCh = true;
-        else if (c == 'H') customHops = true;
-        else if (c == 'M') useMqtt = true;
-        else return false; // Unknown flag char
+        if (c == 'C')
+            customCh = true;
+        else if (c == 'H')
+            customHops = true;
+        else if (c == 'M')
+            useMqtt = true;
+        else
+            return false; // Unknown flag char
         p++;
     }
-    while (*p == ' ') p++;
+    while (*p == ' ')
+        p++;
 
     *outHasCh = customCh;
     *outHasHops = customHops;
@@ -4608,18 +5451,21 @@ bool NexusModule::parsePosArgs(const char *cmd, int offset,
 
     // 4. Optional channel value
     if (customCh) {
-        *outChannel = (int)strtol(p, (char**)&p, 10);
-        while (*p == ' ') p++;
+        *outChannel = (int)strtol(p, (char **)&p, 10);
+        while (*p == ' ')
+            p++;
     } else {
         *outChannel = -1;
     }
 
     // 5. Optional hop values
     if (customHops) {
-        *outHopLim = (int)strtol(p, (char**)&p, 10);
-        while (*p == ' ') p++;
-        *outHopStart = (int)strtol(p, (char**)&p, 10);
-        while (*p == ' ') p++;
+        *outHopLim = (int)strtol(p, (char **)&p, 10);
+        while (*p == ' ')
+            p++;
+        *outHopStart = (int)strtol(p, (char **)&p, 10);
+        while (*p == ' ')
+            p++;
     } else {
         *outHopLim = -1;
         *outHopStart = -1;
@@ -4628,100 +5474,118 @@ bool NexusModule::parsePosArgs(const char *cmd, int offset,
     return true;
 }
 
-bool NexusModule::sendToNexusChannel(const char *msg, size_t len, uint32_t replyId) {
-    if (!msg || len == 0) return false;
+bool NexusModule::sendToNexusChannel(const char *msg, size_t len, uint32_t replyId)
+{
+    if (!msg || len == 0)
+        return false;
     uint32_t ch = findFirstNexusChannel();
-    if (ch == 0xFFFFFFFF) return false; // No Nexus channel configured
+    if (ch == 0xFFFFFFFF)
+        return false; // No Nexus channel configured
     return sendToMeshPacket(0xFFFFFFFF, ch, replyId, msg, len, false, true);
 }
 
-const char* NexusModule::matchTargetedCmd(const char *cmdBuf, size_t *outKind) {
-    if (outKind) *outKind = TARGET_NONE;
-    if (!cmdBuf) return nullptr;
+const char *NexusModule::matchTargetedCmd(const char *cmdBuf, size_t *outKind)
+{
+    if (outKind)
+        *outKind = TARGET_NONE;
+    if (!cmdBuf)
+        return nullptr;
 
     // Suffixes (the part appended after the root). Per-suffix lengths match the literal
     // "/nexus-" + suffix (e.g. "/nexus-device " is 14 chars). The root itself contributes
     // its own length, so we compute the total prefix length per attempt.
-    static const char* const SUFFIXES[]    = {"-device ", "-node ", "-mac ", "-group "};
-    static const size_t      SUFFIX_LENS[] = { 8,          6,        5,       7         }; // includes trailing space
-    static const size_t      SUFFIX_COUNT  = sizeof(SUFFIXES) / sizeof(SUFFIXES[0]);
+    static const char *const SUFFIXES[] = {"-device ", "-node ", "-mac ", "-group "};
+    static const size_t SUFFIX_LENS[] = {8, 6, 5, 7}; // includes trailing space
+    static const size_t SUFFIX_COUNT = sizeof(SUFFIXES) / sizeof(SUFFIXES[0]);
 
     for (size_t r = 0; r < NEXUS_PREFIX_ROOTS_COUNT; r++) {
-        const char* root = NEXUS_PREFIX_ROOTS[r];
+        const char *root = NEXUS_PREFIX_ROOTS[r];
         size_t rootLen = strlen(root);
         for (size_t s = 0; s < SUFFIX_COUNT; s++) {
             size_t totalLen = rootLen + SUFFIX_LENS[s];
-            if (strncasecmp(cmdBuf, root, rootLen) != 0) continue;
+            if (strncasecmp(cmdBuf, root, rootLen) != 0)
+                continue;
             // Reject a root that isn't followed by the suffix (e.g. "/nexusx" must not match "/nexus").
-            if (strncasecmp(cmdBuf + rootLen, SUFFIXES[s], SUFFIX_LENS[s]) != 0) continue;
+            if (strncasecmp(cmdBuf + rootLen, SUFFIXES[s], SUFFIX_LENS[s]) != 0)
+                continue;
 
             const char *argPtr = cmdBuf + totalLen;
             switch (s) {
-                case 0: { // -device <id>
-                    char targetIdStr[12] = {0};
-                    int i = 0;
-                    while (argPtr[i] && argPtr[i] != ' ' && i < 11) {
-                        targetIdStr[i] = argPtr[i];
-                        i++;
-                    }
-                    if (strcasecmp(targetIdStr, owner.id) == 0) {
-                        const char *cmdStart = argPtr + i;
-                        while (*cmdStart == ' ') cmdStart++;
-                        if (outKind) *outKind = TARGET_ID;
-                        return cmdStart;
-                    }
-                    return nullptr;
+            case 0: { // -device <id>
+                char targetIdStr[12] = {0};
+                int i = 0;
+                while (argPtr[i] && argPtr[i] != ' ' && i < 11) {
+                    targetIdStr[i] = argPtr[i];
+                    i++;
                 }
-                case 1: { // -node <shortname>
-                    char targetNameStr[12] = {0};
-                    int i = 0;
-                    while (argPtr[i] && argPtr[i] != ' ' && i < 11) {
-                        targetNameStr[i] = argPtr[i];
-                        i++;
-                    }
-                    if (strcasecmp(targetNameStr, owner.short_name) == 0) {
-                        const char *cmdStart = argPtr + i;
-                        while (*cmdStart == ' ') cmdStart++;
-                        if (outKind) *outKind = TARGET_NAME;
-                        return cmdStart;
-                    }
-                    return nullptr;
+                if (strcasecmp(targetIdStr, owner.id) == 0) {
+                    const char *cmdStart = argPtr + i;
+                    while (*cmdStart == ' ')
+                        cmdStart++;
+                    if (outKind)
+                        *outKind = TARGET_ID;
+                    return cmdStart;
                 }
-                case 2: { // -mac <hex>
-                    const char *macPtr = argPtr;
-                    uint32_t targetMac = strtoul(macPtr, (char**)&macPtr, 16);
-                    uint8_t realMac[6];
-                    getMacAddr(realMac);
-                    uint32_t ourMacSuffix = (realMac[4] << 8) | realMac[5];
-                    if (targetMac == ourMacSuffix) {
-                        while (*macPtr == ' ') macPtr++;
-                        if (outKind) *outKind = TARGET_MAC;
-                        return macPtr;
-                    }
-                    return nullptr;
+                return nullptr;
+            }
+            case 1: { // -node <shortname>
+                char targetNameStr[12] = {0};
+                int i = 0;
+                while (argPtr[i] && argPtr[i] != ' ' && i < 11) {
+                    targetNameStr[i] = argPtr[i];
+                    i++;
                 }
-                case 3: { // -group <name>
-                    const char *p = argPtr;
-                    while (*p == ' ') p++; // defensive: tolerate multiple spaces after the prefix
-                    char groupName[16] = {0};
-                    int gIdx = 0;
-                    while (*p && *p != ' ' && gIdx < 15) groupName[gIdx++] = *p++;
-                    groupName[gIdx] = '\0';
+                if (strcasecmp(targetNameStr, owner.short_name) == 0) {
+                    const char *cmdStart = argPtr + i;
+                    while (*cmdStart == ' ')
+                        cmdStart++;
+                    if (outKind)
+                        *outKind = TARGET_NAME;
+                    return cmdStart;
+                }
+                return nullptr;
+            }
+            case 2: { // -mac <hex>
+                const char *macPtr = argPtr;
+                uint32_t targetMac = strtoul(macPtr, (char **)&macPtr, 16);
+                uint8_t realMac[6];
+                getMacAddr(realMac);
+                uint32_t ourMacSuffix = (realMac[4] << 8) | realMac[5];
+                if (targetMac == ourMacSuffix) {
+                    while (*macPtr == ' ')
+                        macPtr++;
+                    if (outKind)
+                        *outKind = TARGET_MAC;
+                    return macPtr;
+                }
+                return nullptr;
+            }
+            case 3: { // -group <name>
+                const char *p = argPtr;
+                while (*p == ' ')
+                    p++; // defensive: tolerate multiple spaces after the prefix
+                char groupName[16] = {0};
+                int gIdx = 0;
+                while (*p && *p != ' ' && gIdx < 15)
+                    groupName[gIdx++] = *p++;
+                groupName[gIdx] = '\0';
 
-                    bool inGroup = false;
-                    for (int i = 0; i < 4; i++) {
-                        if (nexus_groups[i][0] != '\0' && strcasecmp(nexus_groups[i], groupName) == 0) {
-                            inGroup = true;
-                            break;
-                        }
+                bool inGroup = false;
+                for (int i = 0; i < 4; i++) {
+                    if (nexus_groups[i][0] != '\0' && strcasecmp(nexus_groups[i], groupName) == 0) {
+                        inGroup = true;
+                        break;
                     }
-                    if (inGroup) {
-                        while (*p == ' ') p++;
-                        if (outKind) *outKind = TARGET_GROUP;
-                        return p;
-                    }
-                    return nullptr;
                 }
+                if (inGroup) {
+                    while (*p == ' ')
+                        p++;
+                    if (outKind)
+                        *outKind = TARGET_GROUP;
+                    return p;
+                }
+                return nullptr;
+            }
             }
         }
     }
@@ -4729,11 +5593,15 @@ const char* NexusModule::matchTargetedCmd(const char *cmdBuf, size_t *outKind) {
     return nullptr;
 }
 
-uint32_t NexusModule::findNodeByShortNameOrHex(const char* input, const char** nextToken) {
-    if (!input || *input == '\0') return 0;
+uint32_t NexusModule::findNodeByShortNameOrHex(const char *input, const char **nextToken)
+{
+    if (!input || *input == '\0')
+        return 0;
     const char *p = input;
-    while (*p == ' ') p++;
-    if (*p == '\0') return 0;
+    while (*p == ' ')
+        p++;
+    if (*p == '\0')
+        return 0;
 
     char target[32] = {0};
     int i = 0;
@@ -4744,7 +5612,8 @@ uint32_t NexusModule::findNodeByShortNameOrHex(const char* input, const char** n
     target[i] = '\0';
 
     if (nextToken) {
-        while (*scan == ' ') scan++;
+        while (*scan == ' ')
+            scan++;
         *nextToken = scan;
     }
 
@@ -4752,12 +5621,16 @@ uint32_t NexusModule::findNodeByShortNameOrHex(const char* input, const char** n
 
     // 0. Try hex first IF it starts with 0x, X or !
     if (target[0] == '!' || target[0] == 'x' || target[0] == 'X') {
-        const char *hexPtr = (target[0] == '!') ? target + 1 : ((target[0] == '0' && (target[1] == 'x' || target[1] == 'X')) ? target + 2 : target);
+        const char *hexPtr = (target[0] == '!')
+                                 ? target + 1
+                                 : ((target[0] == '0' && (target[1] == 'x' || target[1] == 'X')) ? target + 2 : target);
         targetId = (uint32_t)strtoul(hexPtr, NULL, 16);
-        if (targetId != 0) return targetId;
+        if (targetId != 0)
+            return targetId;
     } else if (target[0] == '0' && (target[1] == 'x' || target[1] == 'X')) {
         targetId = (uint32_t)strtoul(target + 2, NULL, 16);
-        if (targetId != 0) return targetId;
+        if (targetId != 0)
+            return targetId;
     }
 
     // 1. Try aliases
@@ -4778,15 +5651,19 @@ uint32_t NexusModule::findNodeByShortNameOrHex(const char* input, const char** n
     // 3. Last ditch: try plain hex without prefix
     char *endptr;
     uint32_t val = (uint32_t)strtoul(target, &endptr, 16);
-    if (*endptr == '\0' || *endptr == ' ') return val;
+    if (*endptr == '\0' || *endptr == ' ')
+        return val;
 
     return 0;
 }
 
-int NexusModule::findChannelByNameOrIndex(const char* input, const char** nextToken) {
-    if (!input || *input == '\0') return -1;
+int NexusModule::findChannelByNameOrIndex(const char *input, const char **nextToken)
+{
+    if (!input || *input == '\0')
+        return -1;
     const char *p = input;
-    while (*p == ' ') p++;
+    while (*p == ' ')
+        p++;
 
     char target[16] = {0};
     int i = 0;
@@ -4797,7 +5674,8 @@ int NexusModule::findChannelByNameOrIndex(const char* input, const char** nextTo
     target[i] = '\0';
 
     if (nextToken) {
-        while (*scan == ' ') scan++;
+        while (*scan == ' ')
+            scan++;
         *nextToken = scan;
     }
 
@@ -4820,7 +5698,8 @@ int NexusModule::findChannelByNameOrIndex(const char* input, const char** nextTo
     return -1;
 }
 
-void NexusModule::saveVault() {
+void NexusModule::saveVault()
+{
     NexusVault *v = new NexusVault();
     if (!v) {
         LOG_ERROR("Nexus: Heap allocation failed for saveVault!");
@@ -4828,43 +5707,55 @@ void NexusModule::saveVault() {
     }
     memset(v, 0, sizeof(NexusVault));
     memcpy(v->magic, "JenT", 4);
-    v->version = 67; // v67: nexusVariantBits (generic variant-bitmask pool — station-g3 PA/LNA today, future variants tomorrow)
+    v->version = 67; // v67: nexusVariantBits (generic variant-bitmask pool - station-g3 PA/LNA today, future variants tomorrow)
     // - v66 was: features_mask + secondary_keys[4] (4 slots)
     v->drop_mask = getNexusDropHex();
     v->ping_emoji_mode = ping_emoji_mode; // v41
     uint8_t flags = 0;
-    if (freeze_nodedb) flags |= 0x01;
-    if (freeze_warm) flags |= 0x02;
-    if (freeze_device) flags |= 0x04;
-    if (freeze_config) flags |= 0x08;
-    v->freeze_flags = flags; // v64
+    if (freeze_nodedb)
+        flags |= 0x01;
+    if (freeze_warm)
+        flags |= 0x02;
+    if (freeze_device)
+        flags |= 0x04;
+    if (freeze_config)
+        flags |= 0x08;
+    v->freeze_flags = flags;                          // v64
     v->broadcast_delay_max_s = broadcast_delay_max_s; // v43
 
     // Ping mask: bit 0 = public_ping, bits 1-8 = channels, bits 9-15 = flags
     v->ping_mask = public_ping ? 1 : 0;
-    for(int i=0; i<8; i++) {
-        if (ping_channels[i]) v->ping_mask |= (1 << (i+1));
+    for (int i = 0; i < 8; i++) {
+        if (ping_channels[i])
+            v->ping_mask |= (1 << (i + 1));
     }
-    if (ping_rssi) v->ping_mask |= (1 << 9);
-    if (ping_snr) v->ping_mask |= (1 << 10);
-    if (ping_freqerr) v->ping_mask |= (1 << 11);
-    if (ping_bitmask) v->ping_mask |= (1 << 12);
-    if (ping_ignore_direct) v->ping_mask |= (1 << 13);
-    if (ping_ignore_remote) v->ping_mask |= (1 << 14);
-    if (ping_allow_dm) v->ping_mask |= (1 << 15);
+    if (ping_rssi)
+        v->ping_mask |= (1 << 9);
+    if (ping_snr)
+        v->ping_mask |= (1 << 10);
+    if (ping_freqerr)
+        v->ping_mask |= (1 << 11);
+    if (ping_bitmask)
+        v->ping_mask |= (1 << 12);
+    if (ping_ignore_direct)
+        v->ping_mask |= (1 << 13);
+    if (ping_ignore_remote)
+        v->ping_mask |= (1 << 14);
+    if (ping_allow_dm)
+        v->ping_mask |= (1 << 15);
 
     // Aliases (v30)
-    for(int i=0; i<16; i++) {
+    for (int i = 0; i < 16; i++) {
         v->aliases[i] = nexus_aliases[i];
     }
 
     // Macros (v30)
-    for(int i=0; i<4; i++) {
+    for (int i = 0; i < 4; i++) {
         v->macros[i] = nexus_macros[i];
     }
 
     // Groups
-    for(int i=0; i<4; i++) {
+    for (int i = 0; i < 4; i++) {
         strncpy(v->groups[i], nexus_groups[i], 8);
     }
 
@@ -4880,14 +5771,14 @@ void NexusModule::saveVault() {
     v->base_texts = base_texts ? 1 : 0;
 
     // Secondary Keys (v8, expanded to 4 slots in v65)
-    for(int i=0; i<4; i++) {
+    for (int i = 0; i < 4; i++) {
         memcpy(v->secondary_keys[i], nexus_secondary_keys[i], 32);
     }
-    // v65: security subsystem bitmask (reserved — bits TBD)
+    // v65: security subsystem bitmask (reserved - bits TBD)
     v->nexus_security_bitmask = nexus_security_bitmask;
 
     // Channel Filtering (v14: Expanded to 16)
-    for(int i=0; i<16; i++) {
+    for (int i = 0; i < 16; i++) {
         v->ch_whitelist[i] = nexus_ch_whitelist[i];
         v->ch_blacklist[i] = nexus_ch_blacklist[i];
     }
@@ -4899,7 +5790,7 @@ void NexusModule::saveVault() {
     v->T_S_id = T_S_id;
 
     // Cron (v13)
-    for(int i=0; i<8; i++) {
+    for (int i = 0; i < 8; i++) {
         v->cron_table[i] = cron_table[i];
     }
 
@@ -4913,7 +5804,7 @@ void NexusModule::saveVault() {
     v->trace_alert_mode = trace_alert_mode;
 
     // Trusted Channels (v17)
-    for(int i=0; i<2; i++) {
+    for (int i = 0; i < 2; i++) {
         v->trusted_ch_active[i] = trusted_ch_active[i] ? 1 : 0;
         strncpy(v->trusted_ch_names[i], trusted_ch_names[i], 16);
         v->trusted_ch_names[i][15] = '\0';
@@ -4927,7 +5818,7 @@ void NexusModule::saveVault() {
     v->skip_skip_handle = skip_skip_handle ? 1 : 0;
     v->out_drop_mask = getNexusOutDropHex();
     v->features_mask = getNexusFeaturesHex(); // v66: feature toggles (FEATURE_* bits)
-    v->nexusVariantBits = nexusVariantBits;  // v67: generic variant-bitmask pool (station-g3 PA/LNA carve-out lives here)
+    v->nexusVariantBits = nexusVariantBits;   // v67: generic variant-bitmask pool (station-g3 PA/LNA carve-out lives here)
 
     // Nexus Ignores (v21)
     v->nexus_ignore_count = nexus_ignore_count;
@@ -4964,8 +5855,10 @@ void NexusModule::saveVault() {
     v->invalid_mask = getNexusInvalidHex();
 
     // Granular Hopmasks (v31)
-    for(int i=0; i<8; i++) v->per_ch_hopmask[i] = nexus_per_ch_hopmask[i];
-    for(int i=0; i<5; i++) v->per_port_hopmask[i] = nexus_per_port_hopmask[i];
+    for (int i = 0; i < 8; i++)
+        v->per_ch_hopmask[i] = nexus_per_ch_hopmask[i];
+    for (int i = 0; i < 5; i++)
+        v->per_port_hopmask[i] = nexus_per_port_hopmask[i];
 
     v->t_m = t_m;
     v->s_o_active = s_o_active ? 1 : 0;
@@ -4982,14 +5875,13 @@ void NexusModule::saveVault() {
     // Integrity
     v->crc32 = crc32Buffer(v, sizeof(NexusVault) - 4);
 
-    FSCom.remove("/nexus.bin");
-    File f = FSCom.open("/nexus.bin", FILE_O_WRITE);
-    if (f) {
-        f.write((uint8_t*)v, sizeof(NexusVault));
-        f.close();
+    SafeFile f("/nexus.bin", true);
+    bool ok = f.write((const uint8_t *)v, sizeof(NexusVault)) == sizeof(NexusVault);
+    ok = f.close() && ok;
+    if (ok) {
         LOG_INFO("Nexus: Vault saved (v%u).", (unsigned int)v->version);
     } else {
-        LOG_ERROR("Nexus: Failed to open vault for writing.");
+        LOG_ERROR("Nexus: Failed to save vault atomically.");
     }
     delete v;
 }
@@ -5000,7 +5892,7 @@ void NexusModule::saveVault() {
 //   VAULT_MIN_VERSION <= vault.version <= VAULT_MAX_VERSION
 // and rejected otherwise.
 //
-// MIN_VERSION is the floor — vaults older than this are rejected outright
+// MIN_VERSION is the floor - vaults older than this are rejected outright
 // (no migration, RAM defaults). The v66 migration-fix commit reverted MIN
 // from 66 back to 65 so existing v65 nodes don't lose their state when they
 // boot on a v66 firmware: a v65 vault is 8 bytes shorter than the v66 struct
@@ -5013,7 +5905,7 @@ void NexusModule::saveVault() {
 // struct was non-additive; v66 is purely additive so the rolling window
 // stays open for v65.
 //
-// MAX_VERSION is the ceiling — vaults NEWER than what this firmware knows
+// MAX_VERSION is the ceiling - vaults NEWER than what this firmware knows
 // about are rejected to keep field semantics correct (a vault written by a
 // v67-firmware build may carry fields this v66-firmware doesn't understand).
 // Bump MAX_VERSION whenever a new release lands so existing nodes (which saved
@@ -5023,18 +5915,24 @@ void NexusModule::saveVault() {
 // is end-of-life for the operator fleet). The window is inclusive on both
 // ends so an exact-match release (MIN=MAX=N) and a rolling-window release
 // (MIN=L..MAX=N where L < N) are both expressed by these two constants.
-static constexpr uint32_t VAULT_MIN_VERSION = 65; // preserved as-is (v67 bump kept MIN at 65; only MAX bumped). v66 migration-fix reverted MIN from 66 to 65 so existing v65 nodes don't lose their state — that logic also covers v65/v66 → v67 migration.
-static constexpr uint32_t VAULT_MAX_VERSION = 67; // v67 current release; bumped from 66 to add nexusVariantBits (generic variant-bitmask pool). Future bump to v68: MAX=68.
+static constexpr uint32_t VAULT_MIN_VERSION =
+    65; // preserved as-is (v67 bump kept MIN at 65; only MAX bumped). v66 migration-fix reverted MIN from 66 to 65 so existing
+        // v65 nodes don't lose their state - that logic also covers v65/v66 → v67 migration.
+static constexpr uint32_t VAULT_MAX_VERSION =
+    67; // v67 current release; bumped from 66 to add nexusVariantBits (generic variant-bitmask pool). Future bump to v68: MAX=68.
 
-bool NexusModule::readVaultForDisplay(NexusVault *out, const char **reason) {
+bool NexusModule::readVaultForDisplay(NexusVault *out, const char **reason)
+{
     static const char *REASON_MISSING = "no file";
     static const char *REASON_BADMAGIC = "bad magic";
     static const char *REASON_OLDVER = "version too old";
     static const char *REASON_NEWERVER = "version too new";
     static const char *REASON_BADCRC = "CRC mismatch";
     static const char *REASON_VALID = "OK";
-    if (reason) *reason = REASON_MISSING;
-    if (!out) return false;
+    if (reason)
+        *reason = REASON_MISSING;
+    if (!out)
+        return false;
 
     File f = FSCom.open("/nexus.bin", FILE_O_READ);
     if (!f) {
@@ -5042,22 +5940,25 @@ bool NexusModule::readVaultForDisplay(NexusVault *out, const char **reason) {
     }
     size_t fileSize = f.size();
     size_t readSize = (fileSize < sizeof(NexusVault)) ? fileSize : sizeof(NexusVault);
-    if (f.read((uint8_t*)out, readSize) < 12) {
+    if (f.read((uint8_t *)out, readSize) < 12) {
         f.close();
         return false;
     }
     f.close();
 
     if (memcmp(out->magic, "JenT", 4) != 0) {
-        if (reason) *reason = REASON_BADMAGIC;
+        if (reason)
+            *reason = REASON_BADMAGIC;
         return false;
     }
     if (out->version < VAULT_MIN_VERSION) {
-        if (reason) *reason = REASON_OLDVER;
+        if (reason)
+            *reason = REASON_OLDVER;
         return false;
     }
     if (out->version > VAULT_MAX_VERSION) {
-        if (reason) *reason = REASON_NEWERVER;
+        if (reason)
+            *reason = REASON_NEWERVER;
         return false;
     }
     uint32_t calcCrc = crc32Buffer(out, (fileSize < sizeof(NexusVault)) ? fileSize - 4 : sizeof(NexusVault) - 4);
@@ -5069,13 +5970,13 @@ bool NexusModule::readVaultForDisplay(NexusVault *out, const char **reason) {
         // Accept when v->version is in the actual accepted window
         // (VAULT_MIN_VERSION..VAULT_MAX_VERSION). The `version == 40`
         // check that was here was a vestige from the pre-cleanup days
-        // when v40 was the floor — replaced 2026-09-16 with the actual
+        // when v40 was the floor - replaced 2026-09-16 with the actual
         // window (Nexus-28005 code review 1B). Mirrors loadVault()'s
         // migration-accept branch.
         //
         // Every migration path must carry the NEXUS_PRIVATE_BUILD gates.
         // Mirrors loadVault()'s gate on the migration-accept branch. Public
-        // builds don't ship Nexus state to recover — they unconditionally
+        // builds don't ship Nexus state to recover - they unconditionally
         // report REASON_BADCRC on CRC mismatch (which was the pre-f93712f8c
         // behavior anyway). Private builds keep the migration accept.
 #ifdef NEXUS_PRIVATE_BUILD
@@ -5084,15 +5985,18 @@ bool NexusModule::readVaultForDisplay(NexusVault *out, const char **reason) {
         } else
 #endif
         {
-            if (reason) *reason = REASON_BADCRC;
+            if (reason)
+                *reason = REASON_BADCRC;
             return false;
         }
     }
-    if (reason) *reason = REASON_VALID;
+    if (reason)
+        *reason = REASON_VALID;
     return true;
 }
 
-void NexusModule::loadVault() {
+void NexusModule::loadVault()
+{
     File f = FSCom.open("/nexus.bin", FILE_O_READ);
     if (!f) {
         LOG_INFO("Nexus: No vault found. Using RAM defaults.");
@@ -5108,7 +6012,7 @@ void NexusModule::loadVault() {
     memset(v, 0, sizeof(NexusVault)); // Ensure zero-init before read
     size_t fileSize = f.size();
     size_t readSize = (fileSize < sizeof(NexusVault)) ? fileSize : sizeof(NexusVault);
-    if (f.read((uint8_t*)v, readSize) >= 12) { // Read at least Magic + Version + Mask
+    if (f.read((uint8_t *)v, readSize) >= 12) { // Read at least Magic + Version + Mask
         f.close();
 
         // Validate
@@ -5126,14 +6030,14 @@ void NexusModule::loadVault() {
         // during the constructor). Older vaults are rejected outright;
         // operators must /nexus SAVE once on this firmware to persist a
         // clean v65. Every numeric field below is bounds-checked before
-        // it touches live state — garbage in = safe default, never a
+        // it touches live state - garbage in = safe default, never a
         // silent corruption.
         //
         // Acceptance window: VAULT_MIN_VERSION <= v->version <= VAULT_MAX_VERSION
         // (see readVaultForDisplay for the full rolling-window rationale).
         // Today: MIN=MAX=65. Bump VAULT_MAX_VERSION on future vault releases
         // so existing nodes can load their v65 vault on a v66+ build.
-        // Vault versions skipped (v44–v63) on purpose — see Vault-Bump
+        // Vault versions skipped (v44-v63) on purpose - see Vault-Bump
         // policy: the jump leaves no migration surface for 2.8.0+
         // upstream vault-checksum drift.
 
@@ -5146,17 +6050,17 @@ void NexusModule::loadVault() {
             // block proceeds unchanged. Pre-v65 vaults (v44..v64) had
             // non-additive struct changes and would need a real migration path;
             // for v67 we accept v65 and v66 in-RAM only. Vaults NEWER than
-            // MAX_VERSION (v68+) are still strictly rejected — they may carry
+            // MAX_VERSION (v68+) are still strictly rejected - they may carry
             // fields this v67-firmware doesn't understand.
             if (v->version == 65) {
-                LOG_INFO("Nexus: Migrated v65 vault to v67 in-RAM (features_mask=0, nexusVariantBits=0, all other fields preserved). Run /nexus SAVE to persist the v67 layout.");
+                LOG_INFO("Nexus: Migrated v65 vault to v67 in-RAM (features_mask=0, nexusVariantBits=0, all other fields "
+                         "preserved). Run /nexus SAVE to persist the v67 layout.");
             } else if (v->version == 66) {
-                LOG_INFO("Nexus: Migrated v66 vault to v67 in-RAM (nexusVariantBits=0, all other fields preserved). Run /nexus SAVE to persist the v67 layout.");
+                LOG_INFO("Nexus: Migrated v66 vault to v67 in-RAM (nexusVariantBits=0, all other fields preserved). Run /nexus "
+                         "SAVE to persist the v67 layout.");
             } else {
                 LOG_ERROR("Nexus: Vault version %u outside accepted window [%u..%u]. Rejecting (no migration). Using defaults.",
-                          (unsigned int)v->version,
-                          (unsigned int)VAULT_MIN_VERSION,
-                          (unsigned int)VAULT_MAX_VERSION);
+                          (unsigned int)v->version, (unsigned int)VAULT_MIN_VERSION, (unsigned int)VAULT_MAX_VERSION);
                 delete v;
                 return;
             }
@@ -5168,14 +6072,13 @@ void NexusModule::loadVault() {
             // different struct layout doesn't byte-for-byte match what
             // crc32Buffer() recomputes against the v67 struct shape
             // (the field positions shifted when nexusVariantBits was
-	    //
+            //
             if (v->version >= VAULT_MIN_VERSION && v->version <= VAULT_MAX_VERSION) {
                 LOG_WARN("Nexus: Vault CRC mismatch on accepted-version file (v%u, %u B). "
                          "Accepting with in-RAM migration (fields preserved per the version-window block above). "
                          "Run /nexus SAVE to persist a clean v67 layout.",
                          (unsigned int)v->version, (unsigned int)fileSize);
-            } else
-            {
+            } else {
                 LOG_ERROR("Nexus: Vault CRC mismatch (Calc:%08x != Vault:%08x). Rejecting. Using defaults.",
                           (unsigned int)calcCrc, (unsigned int)v->crc32);
                 delete v;
@@ -5184,9 +6087,7 @@ void NexusModule::loadVault() {
         }
 
         // Small inline sanitizer: clamp uint16 to [lo, hi], default to lo on garbage.
-        auto clamp_u16 = [](uint16_t val, uint16_t lo, uint16_t hi) -> uint16_t {
-            return (val >= lo && val <= hi) ? val : lo;
-        };
+        auto clamp_u16 = [](uint16_t val, uint16_t lo, uint16_t hi) -> uint16_t { return (val >= lo && val <= hi) ? val : lo; };
 
         // ─── Sanitized field application ────────────────────────────────
 
@@ -5195,13 +6096,13 @@ void NexusModule::loadVault() {
         for (int i = 0; i < 8; i++) {
             ping_channels[i] = (v->ping_mask & (1 << (i + 1))) != 0;
         }
-        ping_rssi            = (v->ping_mask & (1 << 9))  != 0;
-        ping_snr             = (v->ping_mask & (1 << 10)) != 0;
-        ping_freqerr         = (v->ping_mask & (1 << 11)) != 0;
-        ping_bitmask         = (v->ping_mask & (1 << 12)) != 0;
-        ping_ignore_direct   = (v->ping_mask & (1 << 13)) != 0;
-        ping_ignore_remote   = (v->ping_mask & (1 << 14)) != 0;
-        ping_allow_dm        = (v->ping_mask & (1 << 15)) != 0;
+        ping_rssi = (v->ping_mask & (1 << 9)) != 0;
+        ping_snr = (v->ping_mask & (1 << 10)) != 0;
+        ping_freqerr = (v->ping_mask & (1 << 11)) != 0;
+        ping_bitmask = (v->ping_mask & (1 << 12)) != 0;
+        ping_ignore_direct = (v->ping_mask & (1 << 13)) != 0;
+        ping_ignore_remote = (v->ping_mask & (1 << 14)) != 0;
+        ping_allow_dm = (v->ping_mask & (1 << 15)) != 0;
 
         // Groups (string fields, bounded)
         for (int i = 0; i < 4; i++) {
@@ -5211,9 +6112,8 @@ void NexusModule::loadVault() {
 
         // Masking: hop_mask range is [0..7], start must be <= limit.
         hop_mask_active = (v->hop_mask_active != 0);
-        hop_mask_start  = (v->hop_mask_start <= 7) ? v->hop_mask_start : 0;
-        hop_mask_limit  = (v->hop_mask_limit <= 7 && v->hop_mask_limit >= v->hop_mask_start)
-                              ? v->hop_mask_limit : 7;
+        hop_mask_start = (v->hop_mask_start <= 7) ? v->hop_mask_start : 0;
+        hop_mask_limit = (v->hop_mask_limit <= 7 && v->hop_mask_limit >= v->hop_mask_start) ? v->hop_mask_limit : 7;
         // Role enum max is CLIENT_BASE (12). -1 = disabled, anything else invalid → CLIENT (0).
         if (v->M_S == -1 || (v->M_S >= 0 && v->M_S <= 12)) {
             M_S = v->M_S;
@@ -5223,13 +6123,13 @@ void NexusModule::loadVault() {
 
         client_always = (v->client_always != 0);
         R_S_mode = (v->R_S_mode <= 2) ? v->R_S_mode : 0;
-        R_S_id   = v->R_S_id; // any byte valid (uint32 relay ID)
-        base_texts    = (v->base_texts != 0);
+        R_S_id = v->R_S_id; // any byte valid (uint32 relay ID)
+        base_texts = (v->base_texts != 0);
 
         for (int i = 0; i < 4; i++) {
             memcpy(nexus_secondary_keys[i], v->secondary_keys[i], 32);
         }
-        // v65: security subsystem bitmask (reserved — bits TBD; no clamp needed)
+        // v65: security subsystem bitmask (reserved - bits TBD; no clamp needed)
         nexus_security_bitmask = v->nexus_security_bitmask;
 
         // Channel filters (uint32, any value technically valid)
@@ -5240,11 +6140,11 @@ void NexusModule::loadVault() {
 
         dm_forward = (v->dm_forward != 0);
 
-        v11_id   = v->v11_id;
+        v11_id = v->v11_id;
         v11_mode = (v->v11_mode != 0);
 
         T_S_mode = (v->T_S_mode <= 2) ? v->T_S_mode : 0;
-        T_S_id   = v->T_S_id;
+        T_S_id = v->T_S_id;
 
         for (int i = 0; i < 8; i++) {
             cron_table[i] = v->cron_table[i]; // NexusCronEntry: bounded uint8 fields, BoundedCommand string
@@ -5254,7 +6154,7 @@ void NexusModule::loadVault() {
         strncpy(pping_header, v->pping_header, 64);
         pping_header[63] = '\0';
 
-        trace_alert      = (v->trace_alert != 0);
+        trace_alert = (v->trace_alert != 0);
         trace_alert_mode = (v->trace_alert_mode <= 2) ? v->trace_alert_mode : 0;
 
         for (int i = 0; i < 2; i++) {
@@ -5263,13 +6163,14 @@ void NexusModule::loadVault() {
             trusted_ch_names[i][15] = '\0';
         }
 
-        meta_alert      = (v->meta_alert != 0);
+        meta_alert = (v->meta_alert != 0);
         meta_alert_mode = (v->meta_alert_mode <= 2) ? v->meta_alert_mode : 0;
 
         skip_skip_handle = (v->skip_skip_handle != 0);
         setNexusOutDropHex(v->out_drop_mask);
-        setNexusFeaturesHex(v->features_mask); // v66: feature toggles (FEATURE_* bits)
-        nexusVariantBits = v->nexusVariantBits; // v67: variant-bitmask pool (zero-init default when loading a v66 vault — fileSize clamp leaves the trailing 8 B at zero)
+        setNexusFeaturesHex(v->features_mask);  // v66: feature toggles (FEATURE_* bits)
+        nexusVariantBits = v->nexusVariantBits; // v67: variant-bitmask pool (zero-init default when loading a v66 vault -
+                                                // fileSize clamp leaves the trailing 8 B at zero)
 
         nexus_ignore_count = (v->nexus_ignore_count <= 64) ? v->nexus_ignore_count : 64;
         memcpy(nexus_ignore_list, v->nexus_ignore_list, sizeof(nexus_ignore_list));
@@ -5283,7 +6184,7 @@ void NexusModule::loadVault() {
         memcpy(ignore_dupe_relay_mask, v->ignore_dupe_relay_mask, 32);
 
         mqtt_override_mode = (v->mqtt_override_mode <= 2) ? v->mqtt_override_mode : 0;
-        ina_legacy_math    = (v->ina_legacy_math != 0);
+        ina_legacy_math = (v->ina_legacy_math != 0);
 
         B_S_active = (v->B_S_active != 0);
         if (v->B_S_offset >= -200.0f && v->B_S_offset <= 200.0f) {
@@ -5293,13 +6194,13 @@ void NexusModule::loadVault() {
         }
 
         // Rate limits: clamp to sane per-hour range. Default 0 = unlimited (match pre-fix semantics).
-        rl_text_limit      = clamp_u16(v->rl_text_limit,      0, 10000);
-        rl_trace_limit     = clamp_u16(v->rl_trace_limit,     0, 10000);
-        rl_other_limit     = clamp_u16(v->rl_other_limit,     0, 10000);
-        rl_nodeinfo_limit  = clamp_u16(v->rl_nodeinfo_limit,  0, 10000);
-        rl_position_limit  = clamp_u16(v->rl_position_limit,  0, 10000);
+        rl_text_limit = clamp_u16(v->rl_text_limit, 0, 10000);
+        rl_trace_limit = clamp_u16(v->rl_trace_limit, 0, 10000);
+        rl_other_limit = clamp_u16(v->rl_other_limit, 0, 10000);
+        rl_nodeinfo_limit = clamp_u16(v->rl_nodeinfo_limit, 0, 10000);
+        rl_position_limit = clamp_u16(v->rl_position_limit, 0, 10000);
         rl_telemetry_limit = clamp_u16(v->rl_telemetry_limit, 0, 10000);
-        rl_private_limit   = clamp_u16(v->rl_private_limit,   0, 10000);
+        rl_private_limit = clamp_u16(v->rl_private_limit, 0, 10000);
 
         setNexusInvalidHex(v->invalid_mask);
 
@@ -5350,8 +6251,7 @@ void NexusModule::loadVault() {
         if (v->gpio_watch_mask != 0) {
             LOG_WARN("Nexus: Vault held GPIO watch mask 0x%08lX%08lX. Default-off: ignoring. "
                      "Re-enable with /nexus GPIO WATCH <pin>.",
-                     (unsigned long)(v->gpio_watch_mask >> 32),
-                     (unsigned long)(v->gpio_watch_mask & 0xFFFFFFFFu));
+                     (unsigned long)(v->gpio_watch_mask >> 32), (unsigned long)(v->gpio_watch_mask & 0xFFFFFFFFu));
         }
         gpio_watch_mask = 0;
         gpio_watch_prev = 0;
@@ -5369,10 +6269,10 @@ void NexusModule::loadVault() {
 
         // Freeze flags (v64): bit0=NodeDB, bit1=Warm, bit2=Device, bit3=Config.
         // Other bits (4..7) reserved / ignored.
-        freeze_nodedb  = (v->freeze_flags & 0x01) != 0;
-        freeze_warm    = (v->freeze_flags & 0x02) != 0;
-        freeze_device  = (v->freeze_flags & 0x04) != 0;
-        freeze_config  = (v->freeze_flags & 0x08) != 0;
+        freeze_nodedb = (v->freeze_flags & 0x01) != 0;
+        freeze_warm = (v->freeze_flags & 0x02) != 0;
+        freeze_device = (v->freeze_flags & 0x04) != 0;
+        freeze_config = (v->freeze_flags & 0x08) != 0;
 
         // Broadcast delay: clamp [1, 300] seconds. v43 write path already clamps,
         // but sanitize on load in case the vault was edited externally.
@@ -5390,7 +6290,8 @@ void NexusModule::loadVault() {
     delete v;
 }
 
-void NexusModule::startPaging(uint32_t to, uint32_t ch, uint32_t replyId, const char* title) {
+void NexusModule::startPaging(uint32_t to, uint32_t ch, uint32_t replyId, const char *title)
+{
     paging_to = to;
     paging_ch = ch;
     paging_reply_id = replyId;
@@ -5401,7 +6302,8 @@ void NexusModule::startPaging(uint32_t to, uint32_t ch, uint32_t replyId, const 
     setIntervalFromNow(50);
 }
 
-void NexusModule::appendPaging(const char* entry) {
+void NexusModule::appendPaging(const char *entry)
+{
     int eLen = strlen(entry);
     if (paging_ptr + eLen < sizeof(paging_buf) - 2) {
         memcpy(paging_buf + paging_ptr, entry, eLen);
@@ -5409,21 +6311,26 @@ void NexusModule::appendPaging(const char* entry) {
     }
 }
 
-bool NexusModule::shouldDropOutput(const meshtastic_MeshPacket &mp) {
+bool NexusModule::shouldDropOutput(const meshtastic_MeshPacket &mp)
+{
     // 0. Trusted Channel Bypass (trusted channels always allowed out)
     for (uint8_t i = 0; i < MAX_NUM_CHANNELS; i++) {
         meshtastic_Channel *c = &channels.getByIndex(i);
         if (c->role != meshtastic_Channel_Role_DISABLED) {
             if (mp.channel == i) {
-                if (strcasecmp(c->settings.name, "Nexus") == 0 || strcasecmp(c->settings.name, "Nexus2") == 0) return false;
+                if (strcasecmp(c->settings.name, "Nexus") == 0 || strcasecmp(c->settings.name, "Nexus2") == 0)
+                    return false;
 #ifdef NEXUS_TRUSTED_CHANNEL_1
-                if (strcasecmp(c->settings.name, NEXUS_TRUSTED_CHANNEL_1) == 0) return false;
+                if (strcasecmp(c->settings.name, NEXUS_TRUSTED_CHANNEL_1) == 0)
+                    return false;
 #endif
 #ifdef NEXUS_TRUSTED_CHANNEL_2
-                if (strcasecmp(c->settings.name, NEXUS_TRUSTED_CHANNEL_2) == 0) return false;
+                if (strcasecmp(c->settings.name, NEXUS_TRUSTED_CHANNEL_2) == 0)
+                    return false;
 #endif
                 for (int j = 0; j < 2; j++) {
-                    if (trusted_ch_active[j] && strcasecmp(c->settings.name, trusted_ch_names[j]) == 0) return false;
+                    if (trusted_ch_active[j] && strcasecmp(c->settings.name, trusted_ch_names[j]) == 0)
+                        return false;
                 }
             }
         }
@@ -5433,23 +6340,42 @@ bool NexusModule::shouldDropOutput(const meshtastic_MeshPacket &mp) {
     if (fav_bypass) {
         if (mp.to != 0xFFFFFFFF) {
             auto toNode = nodeDB->getMeshNode(mp.to);
-            if (toNode && nexus_is_favorite(toNode)) return false;
+            if (toNode && nexus_is_favorite(toNode))
+                return false;
         }
     }
 
     // 2. Port-based Outbound Filters
     if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
         uint32_t port = mp.decoded.portnum;
-        if (drop_out_nodeinfo && port == meshtastic_PortNum_NODEINFO_APP) { fw_drop_out_nodeinfo++; return true; }
-        if (drop_out_position && port == meshtastic_PortNum_POSITION_APP) { fw_drop_out_position++; return true; }
-        if (drop_out_telemetry && port == meshtastic_PortNum_TELEMETRY_APP) { fw_drop_out_telemetry++; return true; }
-        if (drop_out_traceroute && port == meshtastic_PortNum_TRACEROUTE_APP) { fw_drop_out_traceroute++; return true; }
-        if (drop_out_admin && port == meshtastic_PortNum_ADMIN_APP) { fw_drop_out_admin++; return true; }
-        if (drop_out_routing && port == meshtastic_PortNum_ROUTING_APP) { fw_drop_out_routing++; return true; }
+        if (drop_out_nodeinfo && port == meshtastic_PortNum_NODEINFO_APP) {
+            fw_drop_out_nodeinfo++;
+            return true;
+        }
+        if (drop_out_position && port == meshtastic_PortNum_POSITION_APP) {
+            fw_drop_out_position++;
+            return true;
+        }
+        if (drop_out_telemetry && port == meshtastic_PortNum_TELEMETRY_APP) {
+            fw_drop_out_telemetry++;
+            return true;
+        }
+        if (drop_out_traceroute && port == meshtastic_PortNum_TRACEROUTE_APP) {
+            fw_drop_out_traceroute++;
+            return true;
+        }
+        if (drop_out_admin && port == meshtastic_PortNum_ADMIN_APP) {
+            fw_drop_out_admin++;
+            return true;
+        }
+        if (drop_out_routing && port == meshtastic_PortNum_ROUTING_APP) {
+            fw_drop_out_routing++;
+            return true;
+        }
     }
 
 #ifdef NEXUS_PRIVATE_BUILD
-    // Nexus-28006 Step C (2026-09-24) — private extension point.
+    // Nexus-28006 Step C (2026-09-24) - private extension point.
     if (privateShouldDropOutput(mp)) {
         return true;
     }
@@ -5458,15 +6384,19 @@ bool NexusModule::shouldDropOutput(const meshtastic_MeshPacket &mp) {
     return false;
 }
 
-bool NexusModule::isNexusIgnored(uint32_t nodeID) {
-    if (nodeID == 0) return false;
+bool NexusModule::isNexusIgnored(uint32_t nodeID)
+{
+    if (nodeID == 0)
+        return false;
     for (uint16_t i = 0; i < nexus_ignore_count; i++) {
-        if (nexus_ignore_list[i] == nodeID) return true;
+        if (nexus_ignore_list[i] == nodeID)
+            return true;
     }
     return false;
 }
 
-bool NexusModule::shouldDropPrivate(const meshtastic_MeshPacket &mp) {
+bool NexusModule::shouldDropPrivate(const meshtastic_MeshPacket &mp)
+{
     updateStats(mp);
 
     // Nexus: Relay Node Drop Filter (256-bit mask)
@@ -5478,13 +6408,14 @@ bool NexusModule::shouldDropPrivate(const meshtastic_MeshPacket &mp) {
     // 0. Favorite Bypass (Header-level info available for encrypted)
     if (fav_bypass) {
         auto fromNode = nodeDB->getMeshNode(mp.from);
-        if (fromNode && nexus_is_favorite(fromNode)) return false;
+        if (fromNode && nexus_is_favorite(fromNode))
+            return false;
         if (mp.to != 0xFFFFFFFF) {
             auto toNode = nodeDB->getMeshNode(mp.to);
-            if (toNode && nexus_is_favorite(toNode)) return false;
+            if (toNode && nexus_is_favorite(toNode))
+                return false;
         }
     }
-
 
     // 0.2 Nexus Ignore List Check
     if (isNexusIgnored(mp.from)) {
@@ -5493,39 +6424,61 @@ bool NexusModule::shouldDropPrivate(const meshtastic_MeshPacket &mp) {
         return true;
     }
 
-    // 1. PreHop Filter — two branches: genuine mp.pki_encrypted (decoded path sees local PKI,
+    // 1. PreHop Filter - two branches: genuine mp.pki_encrypted (decoded path sees local PKI,
     // opaque path never does) and the foreign-PKI heuristic for un-decodable PKI DMs where
     // mp.pki_encrypted is false but the wire shape signals PKI from another node.
     if (mp.pki_encrypted) {
         // Genuine PKI on the opaque path: this fires only for already-decoded PKI packets that
         // came back through this path (rare; mostly internal/MQTT-uplink replays). drop_pki_local
-        // deliberately omitted — a local PKI packet is decodable by us and lands in
+        // deliberately omitted - a local PKI packet is decodable by us and lands in
         // shouldDropPacket instead, where its drop_pki_local rule (with the auto-couple to
         // drop_pki) handles it.
-        if (drop_pki) { fw_drop_pki++; return true; }
-        if (drop_pki_remote) { fw_drop_pki_remote++; return true; }
-        return false; // Bypass other rules — mp.channel is 0 for PKI, blacklist hashes never match.
+        if (drop_pki) {
+            fw_drop_pki++;
+            return true;
+        }
+        if (drop_pki_remote) {
+            fw_drop_pki_remote++;
+            return true;
+        }
+        return false; // Bypass other rules - mp.channel is 0 for PKI, blacklist hashes never match.
     }
     if (looksLikeForeignPKI(mp)) {
         // Foreign PKI we couldn't decode. mp.channel is 0 on the wire (PKI signature) so the
         // channel blacklist/whitelist below can catch it via PRBLOCK ADD 0; drop_private also
         // fires because which_payload_variant == encrypted_tag. drop_pki_local omitted (no
         // local PKI on this path by definition).
-        if (drop_pki) { fw_drop_pki++; return true; }
-        if (drop_pki_remote) { fw_drop_pki_remote++; return true; }
+        if (drop_pki) {
+            fw_drop_pki++;
+            return true;
+        }
+        if (drop_pki_remote) {
+            fw_drop_pki_remote++;
+            return true;
+        }
         // Fall through to channel rules: PRBLOCK ADD 0, whitelist, drop_private, hop6/7.
     }
 
     // 1. Whitelist/Blacklist
-    for(int i=0; i<16; i++) {
-        if (nexus_ch_blacklist[i] != 0 && mp.channel == nexus_ch_blacklist[i]) { fw_drop_priv_blacklist++; return true; }
+    for (int i = 0; i < 16; i++) {
+        if (nexus_ch_blacklist[i] != 0 && mp.channel == nexus_ch_blacklist[i]) {
+            fw_drop_priv_blacklist++;
+            return true;
+        }
     }
     bool whitelistActive = false;
     bool onWhitelist = false;
-    for(int i=0; i<16; i++) {
-        if (nexus_ch_whitelist[i] != 0) { whitelistActive = true; if (mp.channel == nexus_ch_whitelist[i]) onWhitelist = true; }
+    for (int i = 0; i < 16; i++) {
+        if (nexus_ch_whitelist[i] != 0) {
+            whitelistActive = true;
+            if (mp.channel == nexus_ch_whitelist[i])
+                onWhitelist = true;
+        }
     }
-    if (whitelistActive && !onWhitelist) { fw_drop_priv_whitelist++; return true; }
+    if (whitelistActive && !onWhitelist) {
+        fw_drop_priv_whitelist++;
+        return true;
+    }
 
     // 2. Rate Limiting (Nexus v28). checkRateLimit() handles both the
     //    decoded and encrypted variants; in this function we always
@@ -5533,21 +6486,31 @@ bool NexusModule::shouldDropPrivate(const meshtastic_MeshPacket &mp) {
     //    is on AND rl_private_limit > 0; otherwise it's a no-op that
     //    doesn't tick rl_seen_private. Sits BEFORE the global drop_private
     //    so RL can drop a packet that drop_private would also drop
-    //    (they're independent rules — RL limits throughput, drop_private
+    //    (they're independent rules - RL limits throughput, drop_private
     //    is a blanket firewall on/off).
-    if (!checkRateLimit(mp)) return true;
+    if (!checkRateLimit(mp))
+        return true;
 
     // 3. Global Drop Private (encrypted-only - fw_drop_private counter is reserved for this rule)
     if (mp.which_payload_variant == meshtastic_MeshPacket_encrypted_tag) {
-        if (drop_private) { fw_drop_private++; return true; }
+        if (drop_private) {
+            fw_drop_private++;
+            return true;
+        }
     }
 
     // 4. Hop Filter
-    if (drop_hop6 && mp.hop_start == 6) { fw_drop_hop6++; return true; }
-    if (drop_hop7 && mp.hop_start == 7) { fw_drop_hop7++; return true; }
+    if (drop_hop6 && mp.hop_start == 6) {
+        fw_drop_hop6++;
+        return true;
+    }
+    if (drop_hop7 && mp.hop_start == 7) {
+        fw_drop_hop7++;
+        return true;
+    }
 
 #ifdef NEXUS_PRIVATE_BUILD
-    // Nexus-28006 Step C (2026-09-24) — private extension point.
+    // Nexus-28006 Step C (2026-09-24) - private extension point.
     if (privateShouldDropPrivate(mp)) {
         return true;
     }
@@ -5558,7 +6521,7 @@ bool NexusModule::shouldDropPrivate(const meshtastic_MeshPacket &mp) {
 
 // Nexus-28005 (2026-09-15): /nexus G3 (alias: FRONTEND) dispatcher body.
 // station-g3 PA / LNA GPIO control with three runtime states per pin
-// (DISABLED / OFF / ON). Gated entirely on #ifdef STATION_G3 — other boards
+// (DISABLED / OFF / ON). Gated entirely on #ifdef STATION_G3 - other boards
 // (heltec-v4, t-beam-1w, tracker-t1000-e, seeed_mesh_tracker_X1, …) don't
 // get any of this code, no RAM, no flash.
 //
@@ -5582,13 +6545,13 @@ bool NexusModule::shouldDropPrivate(const meshtastic_MeshPacket &mp) {
 //   - ON / OFF update nexusVariantBits immediately (RAM-side state mirrors).
 //   - The new bits are written to disk only on /nexus SAVE (Golden Rule
 //     saveVault scope rule). We do NOT auto-save
-//     on every state change — flash wear concerns on daily-driven stations.
+//     on every state change - flash wear concerns on daily-driven stations.
 //   - DISABLED is never persisted; it is re-detected every boot.
 #ifdef STATION_G3
 void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const char *cmd, char *replyMsg, size_t replySize)
 {
-    (void)mp; // unused — handler doesn't read the inbound packet fields
-    const uint8_t PIN_PA  = 9;
+    (void)mp; // unused - handler doesn't read the inbound packet fields
+    const uint8_t PIN_PA = 9;
     const uint8_t PIN_LNA = 10;
 
     // Tokenize: first token after the keyword ("G3" or "FRONTEND") is the
@@ -5600,47 +6563,52 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
     {
         const char *p = cmd;
         // Skip the command keyword ("G3" or "FRONTEND") and its trailing space.
-        while (*p && *p != ' ') p++;
-        while (*p == ' ') p++;
+        while (*p && *p != ' ')
+            p++;
+        while (*p == ' ')
+            p++;
         // First token → sub.
         int i = 0;
-        while (*p && *p != ' ' && i < (int)sizeof(sub) - 1) sub[i++] = *p++;
+        while (*p && *p != ' ' && i < (int)sizeof(sub) - 1)
+            sub[i++] = *p++;
         sub[i] = '\0';
         // Skip whitespace between tokens.
-        while (*p == ' ') p++;
+        while (*p == ' ')
+            p++;
         // Second token → arg.
         i = 0;
-        while (*p && *p != ' ' && i < (int)sizeof(arg) - 1) arg[i++] = *p++;
+        while (*p && *p != ' ' && i < (int)sizeof(arg) - 1)
+            arg[i++] = *p++;
         arg[i] = '\0';
     }
 
     // Bare /nexus G3 (or /nexus G3 STATUS) → full state report.
     auto format_status = [&](char *out, size_t outsz) {
         // Per-pin label: state (driven-level for OFF/ON, jumper note for DISABLED).
-        auto pa_label  = [&](char *buf, size_t bufsz) {
+        auto pa_label = [&](char *buf, size_t bufsz) {
             switch (nexus_g3_pa_runtime) {
-                case G3_DISABLED:
-                    snprintf(buf, bufsz, "DISABLED (jumper detected at boot — firmware does not control)");
-                    break;
-                case G3_OFF:
-                    snprintf(buf, bufsz, "OFF (GPIO9 INPUT / Hi-Z)");
-                    break;
-                case G3_ON:
-                    snprintf(buf, bufsz, "ON  (GPIO9 OUTPUT HIGH)");
-                    break;
+            case G3_DISABLED:
+                snprintf(buf, bufsz, "DISABLED (jumper detected at boot - firmware does not control)");
+                break;
+            case G3_OFF:
+                snprintf(buf, bufsz, "OFF (GPIO9 INPUT / Hi-Z)");
+                break;
+            case G3_ON:
+                snprintf(buf, bufsz, "ON  (GPIO9 OUTPUT HIGH)");
+                break;
             }
         };
         auto lna_label = [&](char *buf, size_t bufsz) {
             switch (nexus_g3_lna_runtime) {
-                case G3_DISABLED:
-                    snprintf(buf, bufsz, "DISABLED (jumper detected at boot — firmware does not control)");
-                    break;
-                case G3_OFF:
-                    snprintf(buf, bufsz, "OFF (GPIO10 OUTPUT HIGH / bypassed)");
-                    break;
-                case G3_ON:
-                    snprintf(buf, bufsz, "ON  (GPIO10 OUTPUT LOW)");
-                    break;
+            case G3_DISABLED:
+                snprintf(buf, bufsz, "DISABLED (jumper detected at boot - firmware does not control)");
+                break;
+            case G3_OFF:
+                snprintf(buf, bufsz, "OFF (GPIO10 OUTPUT HIGH / bypassed)");
+                break;
+            case G3_ON:
+                snprintf(buf, bufsz, "ON  (GPIO10 OUTPUT LOW)");
+                break;
             }
         };
         char pa_buf[80];
@@ -5648,7 +6616,7 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
         pa_label(pa_buf, sizeof(pa_buf));
         lna_label(lna_buf, sizeof(lna_buf));
         // Vault-persisted view (the bits that the next SAVE will write).
-        uint64_t pa_bits  = nexusVariantBits & VARIANT_PA_MASK;
+        uint64_t pa_bits = nexusVariantBits & VARIANT_PA_MASK;
         uint64_t lna_bits = (nexusVariantBits & VARIANT_LNA_MASK) >> VARIANT_LNA_SHIFT;
         snprintf(out, outsz,
                  "JT G3 STATUS\n"
@@ -5656,10 +6624,12 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
                  "  LNA = %s\n"
                  "  vault: PA=%s LNA=%s (run /nexus SAVE to persist)",
                  pa_buf, lna_buf,
-                 (pa_bits  == VARIANT_PA_ON)  ? "ON"  :
-                 (pa_bits  == VARIANT_PA_OFF) ? "OFF" : "?",
-                 (lna_bits == VARIANT_LNA_ON) ? "ON"  :
-                 (lna_bits == VARIANT_LNA_OFF) ? "OFF" : "?");
+                 (pa_bits == VARIANT_PA_ON)    ? "ON"
+                 : (pa_bits == VARIANT_PA_OFF) ? "OFF"
+                                               : "?",
+                 (lna_bits == VARIANT_LNA_ON)    ? "ON"
+                 : (lna_bits == VARIANT_LNA_OFF) ? "OFF"
+                                                 : "?");
     };
 
     // Sub=empty (bare /nexus G3) → STATUS.
@@ -5673,16 +6643,16 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
         return;
     }
 
-    // Nexus-28005 (2026-09-16): /nexus G3 REINIT — re-probe both PA / LNA
+    // Nexus-28005 (2026-09-16): /nexus G3 REINIT - re-probe both PA / LNA
     // jumper pads and restore from vault if jumper absent. Mirrors the boot-
     // detect sequence (pinMode(INPUT) → delay(1) → digitalRead) but uses the
     // CURRENT vault bits as the source of truth for the "jumper absent"
     // branch (boot-detect uses a hardcoded OFF default since no vault exists
-    // yet on first boot). Refuses to drive a pin marked DISABLED — jumper
+    // yet on first boot). Refuses to drive a pin marked DISABLED - jumper
     // installed means firmware stays out of the way, regardless of vault.
     if (strcasecmp(sub, "REINIT") == 0) {
         // --- PA (GPIO9, active-HIGH) ---
-        // Nexus-28006 (2026-09-17) — REINIT latch-clear prefix.
+        // Nexus-28006 (2026-09-17) - REINIT latch-clear prefix.
         // Same rationale as boot-detect: digitalWrite(LOW) while pin is
         // still OUTPUT forces the per-pin output latch LOW, clearing any
         // stale HIGH from prior /nexus G3 PA ON (or other prior output
@@ -5696,23 +6666,23 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
         int raw_pa = digitalRead(PIN_PA);
         if (raw_pa == HIGH) {
             nexus_g3_pa_runtime = G3_DISABLED;
-            LOG_INFO("Nexus/G3 REINIT: PA (GPIO9) DISABLED — physical jumper detected. Firmware will not drive this pin.");
+            LOG_INFO("Nexus/G3 REINIT: PA (GPIO9) DISABLED - physical jumper detected. Firmware will not drive this pin.");
         } else {
             uint64_t pa_bits = nexusVariantBits & VARIANT_PA_MASK;
             if (pa_bits == VARIANT_PA_ON) {
                 pinMode(PIN_PA, OUTPUT);
                 digitalWrite(PIN_PA, HIGH); // active-HIGH
                 nexus_g3_pa_runtime = G3_ON;
-                LOG_INFO("Nexus/G3 REINIT: PA (GPIO9) vault ON — OUTPUT HIGH.");
+                LOG_INFO("Nexus/G3 REINIT: PA (GPIO9) vault ON - OUTPUT HIGH.");
             } else {
                 pinMode(PIN_PA, INPUT); // true Hi-Z, no pull
                 nexus_g3_pa_runtime = G3_OFF;
-                LOG_INFO("Nexus/G3 REINIT: PA (GPIO9) vault OFF — INPUT / Hi-Z.");
+                LOG_INFO("Nexus/G3 REINIT: PA (GPIO9) vault OFF - INPUT / Hi-Z.");
             }
         }
 
         // --- LNA (GPIO10, active-LOW) ---
-        // Nexus-28006 (2026-09-17) — REINIT latch-clear prefix.
+        // Nexus-28006 (2026-09-17) - REINIT latch-clear prefix.
         // Same shape as PA above and as boot-detect: digitalWrite(LOW)
         // before pinMode(INPUT) clears any stale output latch so the
         // subsequent digitalRead() reads the external jumper state
@@ -5723,48 +6693,48 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
         int raw_lna = digitalRead(PIN_LNA);
         if (raw_lna == HIGH) {
             nexus_g3_lna_runtime = G3_DISABLED;
-            LOG_INFO("Nexus/G3 REINIT: LNA (GPIO10) DISABLED — physical jumper detected. Firmware will not drive this pin.");
+            LOG_INFO("Nexus/G3 REINIT: LNA (GPIO10) DISABLED - physical jumper detected. Firmware will not drive this pin.");
         } else {
             uint64_t lna_bits = (nexusVariantBits & VARIANT_LNA_MASK) >> VARIANT_LNA_SHIFT;
             if (lna_bits == VARIANT_LNA_ON) {
                 pinMode(PIN_LNA, OUTPUT);
                 digitalWrite(PIN_LNA, LOW); // active-LOW → LOW = ON
                 nexus_g3_lna_runtime = G3_ON;
-                LOG_INFO("Nexus/G3 REINIT: LNA (GPIO10) vault ON — OUTPUT LOW.");
+                LOG_INFO("Nexus/G3 REINIT: LNA (GPIO10) vault ON - OUTPUT LOW.");
             } else {
                 pinMode(PIN_LNA, OUTPUT);
                 digitalWrite(PIN_LNA, HIGH); // bypassed
                 nexus_g3_lna_runtime = G3_OFF;
-                LOG_INFO("Nexus/G3 REINIT: LNA (GPIO10) vault OFF — OUTPUT HIGH / bypassed.");
+                LOG_INFO("Nexus/G3 REINIT: LNA (GPIO10) vault OFF - OUTPUT HIGH / bypassed.");
             }
         }
 
         // Reply with the new states. Same labels as STATUS uses so the
         // operator can confirm REINIT did what they expected.
-        auto pa_label  = [&](char *buf, size_t bufsz) {
+        auto pa_label = [&](char *buf, size_t bufsz) {
             switch (nexus_g3_pa_runtime) {
-                case G3_DISABLED:
-                    snprintf(buf, bufsz, "DISABLED (jumper detected)");
-                    break;
-                case G3_OFF:
-                    snprintf(buf, bufsz, "OFF (GPIO9 INPUT / Hi-Z)");
-                    break;
-                case G3_ON:
-                    snprintf(buf, bufsz, "ON  (GPIO9 OUTPUT HIGH)");
-                    break;
+            case G3_DISABLED:
+                snprintf(buf, bufsz, "DISABLED (jumper detected)");
+                break;
+            case G3_OFF:
+                snprintf(buf, bufsz, "OFF (GPIO9 INPUT / Hi-Z)");
+                break;
+            case G3_ON:
+                snprintf(buf, bufsz, "ON  (GPIO9 OUTPUT HIGH)");
+                break;
             }
         };
         auto lna_label = [&](char *buf, size_t bufsz) {
             switch (nexus_g3_lna_runtime) {
-                case G3_DISABLED:
-                    snprintf(buf, bufsz, "DISABLED (jumper detected)");
-                    break;
-                case G3_OFF:
-                    snprintf(buf, bufsz, "OFF (GPIO10 OUTPUT HIGH / bypassed)");
-                    break;
-                case G3_ON:
-                    snprintf(buf, bufsz, "ON  (GPIO10 OUTPUT LOW)");
-                    break;
+            case G3_DISABLED:
+                snprintf(buf, bufsz, "DISABLED (jumper detected)");
+                break;
+            case G3_OFF:
+                snprintf(buf, bufsz, "OFF (GPIO10 OUTPUT HIGH / bypassed)");
+                break;
+            case G3_ON:
+                snprintf(buf, bufsz, "ON  (GPIO10 OUTPUT LOW)");
+                break;
             }
         };
         char pa_buf[64];
@@ -5783,7 +6753,7 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
         if (strcasecmp(arg, "ON") == 0) {
             if (nexus_g3_pa_runtime == G3_DISABLED) {
                 snprintf(replyMsg, replySize,
-                         "JT G3: PA ON refused — pin is DISABLED (physical jumper PL1 detected at boot). "
+                         "JT G3: PA ON refused - pin is DISABLED (physical jumper PL1 detected at boot). "
                          "Remove the jumper and reboot to regain software control.");
                 return;
             }
@@ -5791,20 +6761,18 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
             digitalWrite(PIN_PA, HIGH); // active-HIGH
             nexus_g3_pa_runtime = G3_ON;
             nexusVariantBits = (nexusVariantBits & ~VARIANT_PA_MASK) | VARIANT_PA_ON;
-            snprintf(replyMsg, replySize,
-                     "JT G3: PA=ON (GPIO9 OUTPUT HIGH). RAM-only — run /nexus SAVE to persist.");
+            snprintf(replyMsg, replySize, "JT G3: PA=ON (GPIO9 OUTPUT HIGH). RAM-only - run /nexus SAVE to persist.");
         } else if (strcasecmp(arg, "OFF") == 0) {
             if (nexus_g3_pa_runtime == G3_DISABLED) {
                 snprintf(replyMsg, replySize,
-                         "JT G3: PA OFF refused — pin is DISABLED (physical jumper PL1 detected at boot). "
+                         "JT G3: PA OFF refused - pin is DISABLED (physical jumper PL1 detected at boot). "
                          "Remove the jumper and reboot to regain software control.");
                 return;
             }
             pinMode(PIN_PA, INPUT); // true Hi-Z, no pull
             nexus_g3_pa_runtime = G3_OFF;
             nexusVariantBits = (nexusVariantBits & ~VARIANT_PA_MASK) | VARIANT_PA_OFF;
-            snprintf(replyMsg, replySize,
-                     "JT G3: PA=OFF (GPIO9 INPUT / Hi-Z). RAM-only — run /nexus SAVE to persist.");
+            snprintf(replyMsg, replySize, "JT G3: PA=OFF (GPIO9 INPUT / Hi-Z). RAM-only - run /nexus SAVE to persist.");
         } else {
             snprintf(replyMsg, replySize, "JT G3: PA expects ON|OFF (got '%s')", arg);
         }
@@ -5813,13 +6781,12 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
 
     if (strcasecmp(sub, "LNA") == 0) {
         // BYPASS is an alias for OFF (RF-native vocabulary).
-        bool want_on  = (strcasecmp(arg, "ON")     == 0);
-        bool want_off = (strcasecmp(arg, "OFF")    == 0) ||
-                        (strcasecmp(arg, "BYPASS") == 0);
+        bool want_on = (strcasecmp(arg, "ON") == 0);
+        bool want_off = (strcasecmp(arg, "OFF") == 0) || (strcasecmp(arg, "BYPASS") == 0);
         if (want_on) {
             if (nexus_g3_lna_runtime == G3_DISABLED) {
                 snprintf(replyMsg, replySize,
-                         "JT G3: LNA ON refused — pin is DISABLED (physical jumper LNA-P detected at boot). "
+                         "JT G3: LNA ON refused - pin is DISABLED (physical jumper LNA-P detected at boot). "
                          "Remove the jumper and reboot to regain software control.");
                 return;
             }
@@ -5827,12 +6794,11 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
             digitalWrite(PIN_LNA, LOW); // active-LOW → LOW = ON
             nexus_g3_lna_runtime = G3_ON;
             nexusVariantBits = (nexusVariantBits & ~VARIANT_LNA_MASK) | (VARIANT_LNA_ON << VARIANT_LNA_SHIFT);
-            snprintf(replyMsg, replySize,
-                     "JT G3: LNA=ON (GPIO10 OUTPUT LOW). RAM-only — run /nexus SAVE to persist.");
+            snprintf(replyMsg, replySize, "JT G3: LNA=ON (GPIO10 OUTPUT LOW). RAM-only - run /nexus SAVE to persist.");
         } else if (want_off) {
             if (nexus_g3_lna_runtime == G3_DISABLED) {
                 snprintf(replyMsg, replySize,
-                         "JT G3: LNA OFF refused — pin is DISABLED (physical jumper LNA-P detected at boot). "
+                         "JT G3: LNA OFF refused - pin is DISABLED (physical jumper LNA-P detected at boot). "
                          "Remove the jumper and reboot to regain software control.");
                 return;
             }
@@ -5841,14 +6807,13 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
             nexus_g3_lna_runtime = G3_OFF;
             nexusVariantBits = (nexusVariantBits & ~VARIANT_LNA_MASK) | (VARIANT_LNA_OFF << VARIANT_LNA_SHIFT);
             snprintf(replyMsg, replySize,
-                     "JT G3: LNA=OFF (GPIO10 OUTPUT HIGH / bypassed). RAM-only — run /nexus SAVE to persist.");
+                     "JT G3: LNA=OFF (GPIO10 OUTPUT HIGH / bypassed). RAM-only - run /nexus SAVE to persist.");
         } else {
             snprintf(replyMsg, replySize, "JT G3: LNA expects ON|OFF|BYPASS (got '%s')", arg);
         }
         return;
     }
 
-    snprintf(replyMsg, replySize,
-             "JT G3: unknown sub '%s'. Use PA | LNA | STATUS.", sub);
+    snprintf(replyMsg, replySize, "JT G3: unknown sub '%s'. Use PA | LNA | STATUS.", sub);
 }
 #endif // STATION_G3
