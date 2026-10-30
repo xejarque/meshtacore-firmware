@@ -674,12 +674,22 @@ public:
     bool isZeroHopNode(uint8_t relay_id) {
         if (zero_hop_mask[relay_id / 8] & (1 << (relay_id % 8)))
             return true;
-        if (isZeroHopAutoRouterEnabled() && (zero_hop_auto_router_mask[relay_id / 8] & (1 << (relay_id % 8))))
+        if (isZeroHopAutoRouterEnabled() && (zero_hop_auto_router_mask[relay_id / 8] & (1 << (relay_id % 8))) &&
+            isLiveAutoZeroHopRelay(relay_id, false))
             return true;
-        if (isZeroHopAutoClientEnabled() && (zero_hop_auto_client_mask[relay_id / 8] & (1 << (relay_id % 8))))
+        if (isZeroHopAutoClientEnabled() && (zero_hop_auto_client_mask[relay_id / 8] & (1 << (relay_id % 8))) &&
+            isLiveAutoZeroHopRelay(relay_id, true))
             return true;
         return false;
     }
+    // An auto bit counts only while the byte names a single node that still has the role and was heard recently:
+    // the masks are keyed on the last byte and never auto-cleared, so this keeps a collision or a stale bit
+    // from sparing a hop.
+    bool isLiveAutoZeroHopRelay(uint8_t relay_id, bool clientBase);
+    static constexpr uint32_t AUTO_ZERO_HOP_MAX_SILENCE_SECS = 72 * 60 * 60;
+    // Infrastructure roles get the auto masks on by default unless a v68+ vault says otherwise.
+    void applyZeroHopRoleDefaults(bool vaultHasV68);
+    bool vaultV68Loaded = false;
     void setZeroHopNode(uint8_t relay_id, bool enable) {
         if (enable) zero_hop_mask[relay_id / 8] |= (1 << (relay_id % 8));
         else zero_hop_mask[relay_id / 8] &= ~(1 << (relay_id % 8));

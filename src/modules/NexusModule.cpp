@@ -356,6 +356,7 @@ NexusModule::NexusModule()
 
     // Nexus: Capture boot parameters and restore vault
     loadVault();
+    applyZeroHopRoleDefaults(vaultV68Loaded);
     readyAnnouncePending = wokeFromBatteryWake();
 }
 
@@ -1958,6 +1959,31 @@ static const size_t NEXUS_PREFIX_ROOTS_COUNT = sizeof(NEXUS_PREFIX_ROOTS) / size
 // a demoted node's stale bit is removed only via ZH CLEAR ROUTER/CLIENT -
 // never auto-cleared, because the masks are keyed on the last byte and an
 // auto-clear keyed on one node could erase a colliding node's bit.
+bool NexusModule::isLiveAutoZeroHopRelay(uint8_t relay_id, bool clientBase)
+{
+    NodeNum resolved = 0;
+    if (!nodeDB->resolveUniqueLastByte(relay_id, /*requireDirectNeighbor=*/false, &resolved))
+        return false;
+    const meshtastic_NodeInfoLite *node = nodeDB->getMeshNode(resolved);
+    if (!node || sinceLastSeen(node) > AUTO_ZERO_HOP_MAX_SILENCE_SECS)
+        return false;
+    if (clientBase)
+        return node->role == meshtastic_Config_DeviceConfig_Role_CLIENT_BASE;
+    return node->role == meshtastic_Config_DeviceConfig_Role_ROUTER ||
+           node->role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE;
+}
+
+void NexusModule::applyZeroHopRoleDefaults(bool vaultHasV68)
+{
+    constexpr uint8_t ZERO_HOP_EN = 0x01, ZERO_HOP_AUTO_ROUTER = 0x08, ZERO_HOP_AUTO_CLIENT = 0x10;
+    if (vaultHasV68)
+        return; // the operator's saved choice wins
+    if (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER ||
+        config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE ||
+        config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_BASE)
+        zero_hop_config |= ZERO_HOP_EN | ZERO_HOP_AUTO_ROUTER | ZERO_HOP_AUTO_CLIENT;
+}
+
 void NexusModule::populateAutoZeroHopMasks(uint32_t nodeNum)
 {
     meshtastic_NodeInfoLite *node = nodeDB->getMeshNode(nodeNum);
@@ -5474,6 +5500,7 @@ void NexusModule::applyLpcompWakeLevel() {
 }
 
 void NexusModule::applyVaultV68(const NexusVault &v) {
+    vaultV68Loaded = true;
     lpcomp_wake_ref = (v.lpcomp_wake_ref < 16) ? v.lpcomp_wake_ref : 0;
     applyLpcompWakeLevel();
     battery_chemistry = v.battery_chemistry;
