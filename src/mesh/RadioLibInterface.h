@@ -448,6 +448,9 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     /** Owns the MeshCore relay's wake-ups, apart from the radio thread's single notification slot. */
     MeshCoreRelayThread *meshCoreRelayThread = nullptr;
 
+    /** Create the relay and ADVERT threads on the first armed RX. */
+    void startMeshCoreThreads();
+
     /** Schedule the relay thread for when the next queued MeshCore frame can go out. */
     void wakeMeshCoreRelay();
 
