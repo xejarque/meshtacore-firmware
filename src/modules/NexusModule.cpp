@@ -23,6 +23,7 @@
 #include "MeshService.h"
 #include "NodeDB.h"
 #include "PowerFSM.h"
+#include "mesh/Throttle.h"
 #include "RTC.h"
 #include "SPILock.h"
 #include "input/InputBroker.h"
@@ -355,6 +356,7 @@ NexusModule::NexusModule()
 
     // Nexus: Capture boot parameters and restore vault
     loadVault();
+    readyAnnouncePending = wokeFromBatteryWake();
 }
 
 void NexusModule::setup() {
@@ -2776,6 +2778,9 @@ void NexusModule::applyTS(uint32_t *traceId) {
 int32_t NexusModule::runOnce() {
     uint32_t now = millis();
 
+    serviceLowBatterySleep();
+    serviceReadyAnnounce();
+
     // 0. Delayed InputBroker Hook (Ensure inputBroker is initialized)
     if (!input_hooked && inputBroker) {
         inputEventObserver->observe(inputBroker);
@@ -3278,15 +3283,17 @@ const char* NexusModule::getResetReason() {
         default:              return "UNKNOWN";
     }
 #elif defined(ARCH_NRF52)
-    uint32_t why = NRF_POWER->RESETREAS;
-    if (why & 0x01) return "PIN";
-    if (why & 0x02) return "WDT";
-    if (why & 0x04) return "SREQ";
-    if (why & 0x08) return "LOCKUP";
-    if (why & 0x10) return "OFF";
-    if (why & 0x20) return "LPCOMP";
-    if (why & 0x40) return "DIF";
-    if (why & 0x80) return "NFC";
+    // The core caches RESETREAS and clears the register before setup(), so the raw register always reads 0.
+    uint32_t why = readResetReason();
+    if (why & POWER_RESETREAS_RESETPIN_Msk) return "PIN";
+    if (why & POWER_RESETREAS_DOG_Msk) return "WDT";
+    if (why & POWER_RESETREAS_SREQ_Msk) return "SREQ";
+    if (why & POWER_RESETREAS_LOCKUP_Msk) return "LOCKUP";
+    if (why & POWER_RESETREAS_OFF_Msk) return "OFF";
+    if (why & POWER_RESETREAS_LPCOMP_Msk) return "LPCOMP";
+    if (why & POWER_RESETREAS_DIF_Msk) return "DIF";
+    if (why & POWER_RESETREAS_NFC_Msk) return "NFC";
+    if (why & POWER_RESETREAS_VBUS_Msk) return "VBUS";
     return "POR";
 #else
     return "N/A";
@@ -4829,7 +4836,8 @@ void NexusModule::saveVault() {
     }
     memset(v, 0, sizeof(NexusVault));
     memcpy(v->magic, "JenT", 4);
-    v->version = 67; // v67: nexusVariantBits (generic variant-bitmask pool — station-g3 PA/LNA today, future variants tomorrow)
+    v->version = 68; // v68: LPCOMP wake level, battery chemistry, ext flags, persisted auto Zero-Hop masks
+    // v67: nexusVariantBits (generic variant-bitmask pool — station-g3 PA/LNA today, future variants tomorrow)
     // - v66 was: features_mask + secondary_keys[4] (4 slots)
     v->drop_mask = getNexusDropHex();
     v->ping_emoji_mode = ping_emoji_mode; // v41
@@ -4928,7 +4936,12 @@ void NexusModule::saveVault() {
     v->skip_skip_handle = skip_skip_handle ? 1 : 0;
     v->out_drop_mask = getNexusOutDropHex();
     v->features_mask = getNexusFeaturesHex(); // v66: feature toggles (FEATURE_* bits)
-    v->nexusVariantBits = nexusVariantBits;  // v67: generic variant-bitmask pool (station-g3 PA/LNA carve-out lives here)
+    v->nexusVariantBits = nexusVariantBits;
+    v->lpcomp_wake_ref = lpcomp_wake_ref;
+    v->battery_chemistry = battery_chemistry;
+    v->ext_flags = ext_flags;
+    memcpy(v->zero_hop_auto_router_mask, zero_hop_auto_router_mask, sizeof(zero_hop_auto_router_mask));
+    memcpy(v->zero_hop_auto_client_mask, zero_hop_auto_client_mask, sizeof(zero_hop_auto_client_mask));  // v67: generic variant-bitmask pool (station-g3 PA/LNA carve-out lives here)
 
     // Nexus Ignores (v21)
     v->nexus_ignore_count = nexus_ignore_count;
@@ -5025,7 +5038,8 @@ void NexusModule::saveVault() {
 // ends so an exact-match release (MIN=MAX=N) and a rolling-window release
 // (MIN=L..MAX=N where L < N) are both expressed by these two constants.
 static constexpr uint32_t VAULT_MIN_VERSION = 65; // preserved as-is (v67 bump kept MIN at 65; only MAX bumped). v66 migration-fix reverted MIN from 66 to 65 so existing v65 nodes don't lose their state — that logic also covers v65/v66 → v67 migration.
-static constexpr uint32_t VAULT_MAX_VERSION = 67; // v67 current release; bumped from 66 to add nexusVariantBits (generic variant-bitmask pool). Future bump to v68: MAX=68.
+static constexpr uint32_t VAULT_MAX_VERSION = 68; // v68: power/relay extensions appended before the CRC.
+// v67 added nexusVariantBits (generic variant-bitmask pool).
 
 bool NexusModule::readVaultForDisplay(NexusVault *out, const char **reason) {
     static const char *REASON_MISSING = "no file";
@@ -5383,12 +5397,89 @@ void NexusModule::loadVault() {
             broadcast_delay_max_s = 5;
         }
 
+        if (v->version >= 68)
+            applyVaultV68(*v);
+
         LOG_INFO("Nexus: Vault loaded successfully (v%u).", (unsigned int)v->version);
     } else {
         f.close();
         LOG_ERROR("Nexus: Failed to read vault.");
     }
     delete v;
+}
+
+bool NexusModule::hasRealNexusChannel() {
+    return isNexusChannel(findFirstNexusChannel());
+}
+
+bool NexusModule::wokeFromBatteryWake() {
+#ifdef ARCH_ESP32
+    return esp_reset_reason() == ESP_RST_DEEPSLEEP;
+#elif defined(ARCH_NRF52)
+    return (readResetReason() & POWER_RESETREAS_LPCOMP_Msk) != 0;
+#else
+    return false;
+#endif
+}
+
+bool NexusModule::deferLowBatterySleep(uint32_t batteryMv) {
+    constexpr uint32_t QUEUE_DRAIN_MS = 5000;
+    if (lowBatterySleepPending)
+        return true;
+    if (!hasRealNexusChannel())
+        return false; // never announce on a public fallback channel
+
+    char msg[96];
+    uint32_t wakeMv = 0;
+#ifdef ARCH_NRF52
+    wakeMv = nrf52EstimateBatteryLpcompWakeMv();
+#endif
+    if (wakeMv)
+        snprintf(msg, sizeof(msg), "JT: [Sleep] battery %lu mV, wakes at ~%lu mV", (unsigned long)batteryMv,
+                 (unsigned long)wakeMv);
+    else
+        snprintf(msg, sizeof(msg), "JT: [Sleep] battery %lu mV, low-battery deep sleep", (unsigned long)batteryMv);
+    sendToNexusChannel(msg, strlen(msg), 0);
+
+    lowBatterySleepPending = true;
+    lowBatterySleepDeadlineMs = millis() + QUEUE_DRAIN_MS;
+    return true;
+}
+
+void NexusModule::serviceLowBatterySleep() {
+    if (lowBatterySleepPending && Throttle::deadlinePassed(lowBatterySleepDeadlineMs)) {
+        lowBatterySleepPending = false;
+        powerFSM.trigger(EVENT_LOW_BATTERY);
+    }
+}
+
+void NexusModule::serviceReadyAnnounce() {
+    constexpr uint32_t READY_ANNOUNCE_UPTIME_MS = 60 * 1000;
+    if (!readyAnnouncePending || millis() < READY_ANNOUNCE_UPTIME_MS)
+        return;
+    readyAnnouncePending = false;
+    if (!hasRealNexusChannel())
+        return;
+    char msg[64];
+    const uint32_t mv = powerStatus ? powerStatus->getBatteryVoltageMv() : 0;
+    snprintf(msg, sizeof(msg), "JT: [Ready] awake after deep sleep, battery %lu mV", (unsigned long)mv);
+    sendToNexusChannel(msg, strlen(msg), 0);
+}
+
+void NexusModule::applyLpcompWakeLevel() {
+#ifdef ARCH_NRF52
+    if (!nrf52SetBatteryLpcompWakeFraction(lpcomp_wake_ref, lpcomp_wake_ref ? 16 : 0))
+        lpcomp_wake_ref = 0;
+#endif
+}
+
+void NexusModule::applyVaultV68(const NexusVault &v) {
+    lpcomp_wake_ref = (v.lpcomp_wake_ref < 16) ? v.lpcomp_wake_ref : 0;
+    applyLpcompWakeLevel();
+    battery_chemistry = v.battery_chemistry;
+    ext_flags = v.ext_flags;
+    memcpy(zero_hop_auto_router_mask, v.zero_hop_auto_router_mask, sizeof(zero_hop_auto_router_mask));
+    memcpy(zero_hop_auto_client_mask, v.zero_hop_auto_client_mask, sizeof(zero_hop_auto_client_mask));
 }
 
 void NexusModule::startPaging(uint32_t to, uint32_t ch, uint32_t replyId, const char* title) {

@@ -198,10 +198,12 @@ static const uint8_t SCK = PIN_SPI_SCK;
 /*
  * Battery
  */
-#define BATTERY_PIN PIN_VBAT      // P0.31: VBAT voltage divider
-#define ADC_MULTIPLIER (3)        // ... R17=1M, R18=510k
-#define ADC_CTRL VBAT_ENABLE      // P0.14: VBAT voltage divider
-#define ADC_CTRL_ENABLED LOW      // ... sink
+#define BATTERY_PIN PIN_VBAT // P0.31: VBAT voltage divider
+#define ADC_MULTIPLIER (3)   // ... R17=1M, R18=510k
+#define ADC_CTRL VBAT_ENABLE // P0.14: VBAT voltage divider
+#define ADC_CTRL_ENABLED LOW // ... sink
+#define BATTERY_LPCOMP_INPUT NRF_LPCOMP_INPUT_7
+#define BATTERY_LPCOMP_THRESHOLD NRF_LPCOMP_REF_SUPPLY_3_8
 #define EXT_CHRG_DETECT (23)      // P0.17: Charge LED
 #define EXT_CHRG_DETECT_VALUE LOW // ... BQ25101 ~CHG indicates charging
 #define HICHG (22)                // P0.13: BQ25101 ISET 100mA instead of 50mA

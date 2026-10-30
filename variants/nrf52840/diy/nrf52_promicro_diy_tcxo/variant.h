@@ -90,7 +90,7 @@ https://github.com/brad112358/easy_E22
 // Voltage divider value => 1.5M + 1M voltage divider on VBAT = (1.5M / (1M + 1.5M))
 #define VBAT_DIVIDER (0.6F)
 // Compensation factor for the VBAT divider
-#define VBAT_DIVIDER_COMP (1.73)
+#define VBAT_DIVIDER_COMP (2.0) // 1:1 divider, as on Faketec / E22P builds
 // Fixed calculation of milliVolt from compensation value
 #define REAL_VBAT_MV_PER_LSB (VBAT_DIVIDER_COMP * VBAT_MV_PER_LSB)
 #undef AREF_VOLTAGE
@@ -98,6 +98,10 @@ https://github.com/brad112358/easy_E22
 #define VBAT_AR_INTERNAL AR_INTERNAL_3_0
 #define ADC_MULTIPLIER VBAT_DIVIDER_COMP // REAL_VBAT_MV_PER_LSB
 #define VBAT_RAW_TO_SCALED(x) (REAL_VBAT_MV_PER_LSB * x)
+
+// AIN7 = P0.31 sees VBAT/2, so 9/16 VDD wakes from System OFF at VBAT ~3.7 V
+#define BATTERY_LPCOMP_INPUT NRF_LPCOMP_INPUT_7
+#define BATTERY_LPCOMP_THRESHOLD NRF_LPCOMP_REF_SUPPLY_9_16
 
 // WIRE IC AND IIC PINS
 #define WIRE_INTERFACES_COUNT 1

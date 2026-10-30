@@ -16,6 +16,7 @@
 #include "configuration.h"
 #include "graphics/Screen.h"
 #include "main.h"
+#include "meshUtils.h"
 #include "modules/StatusLEDModule.h"
 #include "sleep.h"
 #include "target_specific.h"
@@ -95,10 +96,23 @@ static void sdsEnter()
     doDeepSleep(Default::getConfiguredOrDefaultMs(config.power.sds_secs), false, false);
 }
 
+// sds_secs is set once from the role at first boot, so a client later made a router keeps "sleep forever",
+// which strands an unattended node after its battery recovers. Infrastructure roles wake on a timer instead.
+static uint32_t lowBatterySleepMs()
+{
+    constexpr uint32_t INFRASTRUCTURE_LOW_BATTERY_SLEEP_SECS = 30 * 60;
+    uint32_t sleepSecs = config.power.sds_secs;
+    if (sleepSecs == UINT32_MAX &&
+        IS_ONE_OF(config.device.role, meshtastic_Config_DeviceConfig_Role_ROUTER, meshtastic_Config_DeviceConfig_Role_ROUTER_LATE,
+                  meshtastic_Config_DeviceConfig_Role_CLIENT_BASE))
+        sleepSecs = INFRASTRUCTURE_LOW_BATTERY_SLEEP_SECS;
+    return Default::getConfiguredOrDefaultMs(sleepSecs);
+}
+
 static void lowBattSDSEnter()
 {
     LOG_POWERFSM("State: Lower batt SDS");
-    doDeepSleep(Default::getConfiguredOrDefaultMs(config.power.sds_secs), false, true);
+    doDeepSleep(lowBatterySleepMs(), false, true);
 }
 extern Power *power;
 

@@ -115,6 +115,13 @@ extern bool pauseBluetoothLogging;
 
 void nrf52Setup(), esp32Setup(), nrf52Loop(), esp32Loop(), rp2040Setup(), rp2040Loop(), clearBonds(), enterDfuMode(),
     nrf52FlashQuiesce(), stm32wlSetup();
+#ifdef ARCH_NRF52
+// LPCOMP battery wake threshold as a fraction of VDD; 0/0 restores the variant default.
+bool nrf52HasBatteryLpcompWake();
+bool nrf52SetBatteryLpcompWakeFraction(uint8_t num, uint8_t den);
+bool nrf52GetBatteryLpcompWakeFraction(uint8_t *num, uint8_t *den);
+uint32_t nrf52EstimateBatteryLpcompWakeMv(); // 0 when the divider ratio is unknown
+#endif
 #ifdef ARCH_ESP32
 void esp32ReleaseBluetoothMemoryIfUnused();
 #endif

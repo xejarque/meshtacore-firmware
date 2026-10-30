@@ -456,12 +456,14 @@ static bool waitBatteryLpcompReady()
     return true;
 }
 
+static nrf_lpcomp_ref_t batteryLpcompWakeRef = BATTERY_LPCOMP_THRESHOLD;
+
 // Arms the comparator to wake on a rising battery voltage; false if it never became ready.
 static bool armBatteryLpcompWake()
 {
     constexpr uint8_t LPCOMP_ARM_ATTEMPTS = 2;
     nrf_lpcomp_config_t c;
-    c.reference = BATTERY_LPCOMP_THRESHOLD;
+    c.reference = batteryLpcompWakeRef;
     c.detection = NRF_LPCOMP_DETECT_UP;
     c.hyst = NRF_LPCOMP_HYST_ENABLED;
 
@@ -478,7 +480,78 @@ static bool armBatteryLpcompWake()
     resetBatteryLpcomp();
     return false;
 }
+
+struct LpcompFraction {
+    uint8_t num, den;
+    nrf_lpcomp_ref_t ref;
+};
+
+static constexpr LpcompFraction LPCOMP_FRACTIONS[] = {
+    {1, 8, NRF_LPCOMP_REF_SUPPLY_1_8},     {2, 8, NRF_LPCOMP_REF_SUPPLY_2_8},     {3, 8, NRF_LPCOMP_REF_SUPPLY_3_8},
+    {4, 8, NRF_LPCOMP_REF_SUPPLY_4_8},     {5, 8, NRF_LPCOMP_REF_SUPPLY_5_8},     {6, 8, NRF_LPCOMP_REF_SUPPLY_6_8},
+    {7, 8, NRF_LPCOMP_REF_SUPPLY_7_8},     {1, 16, NRF_LPCOMP_REF_SUPPLY_1_16},   {3, 16, NRF_LPCOMP_REF_SUPPLY_3_16},
+    {5, 16, NRF_LPCOMP_REF_SUPPLY_5_16},   {7, 16, NRF_LPCOMP_REF_SUPPLY_7_16},   {9, 16, NRF_LPCOMP_REF_SUPPLY_9_16},
+    {11, 16, NRF_LPCOMP_REF_SUPPLY_11_16}, {13, 16, NRF_LPCOMP_REF_SUPPLY_13_16}, {15, 16, NRF_LPCOMP_REF_SUPPLY_15_16},
+};
+
+static const LpcompFraction *findLpcompFraction(nrf_lpcomp_ref_t ref)
+{
+    for (const auto &f : LPCOMP_FRACTIONS)
+        if (f.ref == ref)
+            return &f;
+    return nullptr;
+}
 #endif
+
+bool nrf52HasBatteryLpcompWake()
+{
+#ifdef BATTERY_LPCOMP_INPUT
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool nrf52SetBatteryLpcompWakeFraction(uint8_t num, uint8_t den)
+{
+#ifdef BATTERY_LPCOMP_INPUT
+    if (num == 0 || den == 0) {
+        batteryLpcompWakeRef = BATTERY_LPCOMP_THRESHOLD;
+        return true;
+    }
+    for (const auto &f : LPCOMP_FRACTIONS) {
+        if (f.num * den == num * f.den) {
+            batteryLpcompWakeRef = f.ref;
+            return true;
+        }
+    }
+#endif
+    return false;
+}
+
+bool nrf52GetBatteryLpcompWakeFraction(uint8_t *num, uint8_t *den)
+{
+#ifdef BATTERY_LPCOMP_INPUT
+    const LpcompFraction *f = findLpcompFraction(batteryLpcompWakeRef);
+    if (f) {
+        *num = f->num;
+        *den = f->den;
+        return true;
+    }
+#endif
+    return false;
+}
+
+uint32_t nrf52EstimateBatteryLpcompWakeMv()
+{
+#if defined(BATTERY_LPCOMP_INPUT) && defined(ADC_MULTIPLIER)
+    constexpr float NOMINAL_VDD_MV = 3300.0f;
+    const LpcompFraction *f = findLpcompFraction(batteryLpcompWakeRef);
+    if (f)
+        return (uint32_t)(NOMINAL_VDD_MV * f->num / f->den * ADC_MULTIPLIER);
+#endif
+    return 0;
+}
 
 void nrf52Setup()
 {

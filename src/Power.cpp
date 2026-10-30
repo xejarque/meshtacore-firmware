@@ -14,6 +14,9 @@
  * For more information, see: https://meshtastic.org/
  */
 #include "Power.h"
+#if HAS_NEXUS
+#include "modules/NexusModule.h"
+#endif
 #include "BluetoothCommon.h"
 #include "MessageStore.h"
 #include "NodeDB.h"
@@ -1276,6 +1279,11 @@ void Power::readPowerStatus()
             LOG_DEBUG("Low voltage counter: %d/%d", low_voltage_counter, LOW_VOLTAGE_READINGS_BEFORE_SHUTDOWN);
         if (shutdownNow) {
             LOG_INFO("Low voltage detected, trigger deep sleep");
+#if HAS_NEXUS
+            // Nexus announces the sleep on its channel and triggers EVENT_LOW_BATTERY itself once the queue drained
+            if (meshtastic::nexusModule && meshtastic::nexusModule->deferLowBatterySleep(batteryLevel->getBattVoltage()))
+                return;
+#endif
             powerFSM.trigger(EVENT_LOW_BATTERY);
         }
     }

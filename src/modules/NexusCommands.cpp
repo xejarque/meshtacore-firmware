@@ -4220,6 +4220,11 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         snprintf(replyMsg, sizeof(replyMsg), "JT TX Power:\nActive: %d dBm\nChip: %d dBm",
                  activePwr, sxPwr);
     }
+    else if (strncasecmp(cmd, "VWAKE ", 6) == 0 || strcasecmp(cmd, "VWAKE") == 0) {
+        // /nexus VWAKE [<n>/<d>|DEFAULT]: LPCOMP battery wake threshold, a fraction of VDD
+        // seen after the battery divider. Persist with SAVE.
+        handleVwakeCommand(cmd[5] ? cmd + 6 : "");
+    }
     else if (strncasecmp(cmd, "CLIENTALWAYS ", 13) == 0 || strcasecmp(cmd, "CLIENTALWAYS") == 0) {
         const char *p = (strlen(cmd) > 13) ? cmd + 13 : "";
         while (*p == ' ') p++;
@@ -9094,4 +9099,39 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) mc.payload_variant.traffic_management
         LOG_INFO("Nexus: LoRa shift scheduled in 5000ms");
         setIntervalFromNow(50);
     }
+}
+
+void NexusModule::handleVwakeCommand(const char *arg)
+{
+#ifdef ARCH_NRF52
+    while (*arg == ' ')
+        arg++;
+    if (!nrf52HasBatteryLpcompWake()) {
+        snprintf(replyMsg, sizeof(replyMsg), "JT: VWAKE not supported on this board");
+        return;
+    }
+    if (strcasecmp(arg, "DEFAULT") == 0) {
+        lpcomp_wake_ref = 0;
+        applyLpcompWakeLevel();
+    } else if (*arg) {
+        unsigned num = 0, den = 0;
+        if (sscanf(arg, "%u/%u", &num, &den) != 2 || den == 0 || (16 % den) != 0 || num == 0 || num * (16 / den) >= 16 ||
+            !nrf52SetBatteryLpcompWakeFraction(num, den)) {
+            snprintf(replyMsg, sizeof(replyMsg), "JT: VWAKE expects n/8 or n/16 below 1, or DEFAULT");
+            return;
+        }
+        lpcomp_wake_ref = (uint8_t)(num * (16 / den));
+    }
+    uint8_t num = 0, den = 0;
+    nrf52GetBatteryLpcompWakeFraction(&num, &den);
+    const uint32_t mv = nrf52EstimateBatteryLpcompWakeMv();
+    if (mv)
+        snprintf(replyMsg, sizeof(replyMsg), "JT: VWAKE %u/%u VDD%s (~%lu mV battery)", num, den,
+                 lpcomp_wake_ref ? "" : " default", (unsigned long)mv);
+    else
+        snprintf(replyMsg, sizeof(replyMsg), "JT: VWAKE %u/%u VDD%s", num, den, lpcomp_wake_ref ? "" : " default");
+#else
+    (void)arg;
+    snprintf(replyMsg, sizeof(replyMsg), "JT: VWAKE not supported on this board");
+#endif
 }

@@ -105,6 +105,10 @@ static const uint8_t SCL = PIN_WIRE_SCL;
 #define BATTERY_SENSE_RESOLUTION_BITS 12
 #define ADC_MULTIPLIER 3.3
 #define BATTERY_PIN PIN_VBAT // PIN_A7
+#define ADC_CTRL BAT_READ    // sink P0.14 to power the divider, also during System OFF for the LPCOMP wake
+#define ADC_CTRL_ENABLED LOW
+#define BATTERY_LPCOMP_INPUT NRF_LPCOMP_INPUT_7
+#define BATTERY_LPCOMP_THRESHOLD NRF_LPCOMP_REF_SUPPLY_3_8
 #define AREF_VOLTAGE 3.3
 #define OCV_ARRAY 4200, 3986, 3922, 3812, 3734, 3645, 3527, 3420, 3281, 3087, 2786
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -539,10 +539,18 @@ public:
         uint32_t nexus_security_bitmask;  // v65: security subsystem bitmask.
         uint64_t features_mask;           // v66: feature toggles (see NexusModule.h FEATURES_* constants)
         uint64_t nexusVariantBits;        // v67: generic variant-bitmask pool. Each variant carves its own bit range from this 64-bit field. Additive; defaults to 0 (all variant-extensions off) when loaded from a v66 vault (fileSize clamp leaves the trailing 8 B as zero-init).
+        // v68: only read when version >= 68 - on a shorter vault these bytes hold the old CRC.
+        uint8_t  lpcomp_wake_ref;          // 0 = variant default, else LPCOMP wake level in 1/16 VDD
+        uint8_t  battery_chemistry;        // 0 = variant OCV curve, see BatteryChemistry
+        uint8_t  ext_flags;                // see EXT_FLAG_* constants
+        uint8_t  reserved_v68;
+        uint8_t  zero_hop_auto_router_mask[32];
+        uint8_t  zero_hop_auto_client_mask[32];
         uint32_t crc32;
     };
 
     void saveVault();
+    void applyVaultV68(const NexusVault &v);
     void loadVault();
 
     // Read /nexus.bin into `out` and validate it. Does NOT apply to RAM.
@@ -554,6 +562,22 @@ public:
     char nexus_groups[4][9] = {{0}}; // RAM storage for active groups
     uint8_t nexus_secondary_keys[4][32] = {{0}}; // v65: 4 slots (was 2 in v8..v64)
     uint32_t nexus_security_bitmask = 0; // v65: security subsystem bitmask (reserved)
+    uint8_t lpcomp_wake_ref = 0;   // v68 RAM mirror, 0 = variant default, else 1/16 VDD steps
+    void applyLpcompWakeLevel();
+    void handleVwakeCommand(const char *arg);
+
+    // Low-battery sleep notice: announces on the Nexus channel, then sleeps once the queue has drained.
+    bool deferLowBatterySleep(uint32_t batteryMv);
+    bool lowBatterySleepPending = false;
+    uint32_t lowBatterySleepDeadlineMs = 0;
+    bool readyAnnouncePending = false;
+    void serviceLowBatterySleep();
+    void serviceReadyAnnounce();
+    bool hasRealNexusChannel();
+    static bool wokeFromBatteryWake();
+    uint8_t battery_chemistry = 0; // v68 RAM mirror, 0 = variant OCV curve
+    uint8_t ext_flags = 0;         // v68 RAM mirror, EXT_FLAG_* bits
+    static constexpr uint8_t EXT_FLAG_PUBLIC_SILENCE = 0x01;
     uint64_t nexusVariantBits = 0;        // v67: generic variant-bitmask pool. RAM mirror of NexusVault::nexusVariantBits. Each variant carves its own bit range; today = station-g3 (PA/LNA). Future variants repurpose the same field.
 
 #ifdef STATION_G3
