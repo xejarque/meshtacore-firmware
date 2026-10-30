@@ -914,6 +914,8 @@ public:
 
 private:
     void handleNexusCommand(const meshtastic_MeshPacket &mp, const char *cmd, bool isBroadcast, uint32_t replyId, bool toPhoneOnly = false, int redirect_depth = 0);
+    // Meshtacore commands (NexusMeshtacoreCommands.cpp): false when `cmd` is not one of them.
+    bool handleMeshtacoreCommand(const char *cmd);
     // /nexus MESHCORE [INFO|STATS|RELAY|ADVERT|RESET] (NexusMeshCoreCommand.cpp): the MeshCore relay and ADVERT settings.
     void handleMeshCoreCommand(const char *args, char *reply, size_t replyLen);
     // The MeshCore settings follow SAVE and LOAD, in their own flash file.

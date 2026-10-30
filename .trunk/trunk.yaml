@@ -208,8 +208,10 @@ lint:
     # Meshtacore's own code lives in separate files, which stay formatted.
     - linters: [ALL]
       paths:
-        - src/modules/Nexus*.cpp
-        - src/modules/Nexus*.h
+        - src/modules/NexusCommands.cpp
+        - src/modules/NexusModule.cpp
+        - src/modules/NexusModule.h
+        - src/modules/NexusRuntime.h
         - src/modules/ExternalNotificationModule.cpp
         - src/mesh/RadioInterface.h
         - src/mesh/RadioLibInterface.cpp
