@@ -89,6 +89,7 @@
 #include <pb_encode.h>
 #include <pb_decode.h>
 #include "mesh/generated/meshtastic/admin.pb.h"
+#include "mesh/generated/meshtastic/apponly.pb.h"
 #include "modules/TraceRouteModule.h"
 #include "modules/ExternalNotificationModule.h"
 #include "RadioLibInterface.h"
@@ -4219,6 +4220,21 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         int sxPwr = (int)getChipPower(activePwr);
         snprintf(replyMsg, sizeof(replyMsg), "JT TX Power:\nActive: %d dBm\nChip: %d dBm",
                  activePwr, sxPwr);
+    }
+    else if (strncasecmp(cmd, "SETURL ", 7) == 0) {
+        // /nexus SETURL <channel URL>: merge the shared channels by name, keep Nexus channels and TX power.
+        handleSetUrlCommand(cmd + 7);
+    }
+    else if (strncasecmp(cmd, "PUBSILENCE ", 11) == 0 || strcasecmp(cmd, "PUBSILENCE") == 0) {
+        // /nexus PUBSILENCE [ON|OFF]: no ACKs, replies or unicast NodeInfo from us on public-key channels.
+        const char *p = cmd[10] ? cmd + 11 : "";
+        while (*p == ' ') p++;
+        if (*p) {
+            const bool enable = (strcasecmp(p, "ON") == 0 || strcasecmp(p, "1") == 0);
+            ext_flags = enable ? (ext_flags | EXT_FLAG_PUBLIC_SILENCE) : (ext_flags & ~EXT_FLAG_PUBLIC_SILENCE);
+        }
+        snprintf(replyMsg, sizeof(replyMsg), "JT: Public channel silence %s",
+                 (ext_flags & EXT_FLAG_PUBLIC_SILENCE) ? "ON" : "OFF");
     }
     else if (strncasecmp(cmd, "VWAKE ", 6) == 0 || strcasecmp(cmd, "VWAKE") == 0) {
         // /nexus VWAKE [<n>/<d>|DEFAULT]: LPCOMP battery wake threshold, a fraction of VDD
@@ -9134,4 +9150,110 @@ void NexusModule::handleVwakeCommand(const char *arg)
     (void)arg;
     snprintf(replyMsg, sizeof(replyMsg), "JT: VWAKE not supported on this board");
 #endif
+}
+
+bool NexusModule::isTrustedNexusChannelName(const char *name)
+{
+#ifdef NEXUS_TRUSTED_CHANNEL_1
+    if (strcasecmp(name, NEXUS_TRUSTED_CHANNEL_1) == 0)
+        return true;
+#endif
+#ifdef NEXUS_TRUSTED_CHANNEL_2
+    if (strcasecmp(name, NEXUS_TRUSTED_CHANNEL_2) == 0)
+        return true;
+#endif
+    return strcasecmp(name, "Nexus") == 0 || strcasecmp(name, "Nexus2") == 0;
+}
+
+// Returns the slot written, or -1 when the channel was refused (reason appended to notes).
+int NexusModule::mergeSharedChannel(const meshtastic_ChannelSettings &settings, bool asPrimary, char *notes, size_t notesLen)
+{
+    const size_t used = strlen(notes);
+    int slot = -1;
+    if (asPrimary) {
+        if (isTrustedNexusChannelName(channels.getByIndex(0).settings.name)) {
+            snprintf(notes + used, notesLen - used, " primary kept (Nexus);");
+            return -1;
+        }
+        slot = 0;
+    } else {
+        for (int i = 1; i < MAX_NUM_CHANNELS && slot < 0; i++) {
+            const meshtastic_Channel &ch = channels.getByIndex(i);
+            if (ch.role != meshtastic_Channel_Role_DISABLED && strcasecmp(ch.settings.name, settings.name) == 0)
+                slot = i;
+        }
+        for (int i = 1; i < MAX_NUM_CHANNELS && slot < 0; i++) {
+            if (channels.getByIndex(i).role == meshtastic_Channel_Role_DISABLED)
+                slot = i;
+        }
+        if (slot < 0) {
+            snprintf(notes + used, notesLen - used, " '%s' no free slot;", settings.name);
+            return -1;
+        }
+        if (isTrustedNexusChannelName(channels.getByIndex(slot).settings.name)) {
+            snprintf(notes + used, notesLen - used, " '%s' kept (Nexus);", settings.name);
+            return -1;
+        }
+    }
+    meshtastic_Channel ch = channels.getByIndex(slot);
+    ch.index = slot;
+    ch.role = asPrimary ? meshtastic_Channel_Role_PRIMARY : meshtastic_Channel_Role_SECONDARY;
+    ch.has_settings = true;
+    ch.settings = settings;
+    channels.setChannel(ch);
+    if (cryptoKeyIsPublic(channels.getKey(slot))) {
+        const size_t now = strlen(notes);
+        snprintf(notes + now, notesLen - now, " ch%d public key, readable by anyone;", slot);
+    }
+    return slot;
+}
+
+void NexusModule::handleSetUrlCommand(const char *url)
+{
+    while (*url == ' ')
+        url++;
+    const char *hashPart = strchr(url, '#');
+    if (hashPart)
+        url = hashPart + 1;
+
+    // Static (BSS): nRF52 loopTask has a 4 KB stack. The command buffer bounds the URL anyway.
+    static unsigned char buffer[256];
+    static meshtastic_ChannelSet set;
+    size_t dlen = 0;
+    memset(&set, 0, sizeof(set));
+    if (nexus_base64_decode(buffer, sizeof(buffer), &dlen, url) != 0 ||
+        !pb_decode_from_bytes(buffer, dlen, &meshtastic_ChannelSet_msg, &set) || set.settings_count == 0) {
+        snprintf(replyMsg, sizeof(replyMsg), "JT: SETURL could not decode the channel URL");
+        return;
+    }
+
+    char notes[160] = {0};
+    int applied = 0;
+    for (pb_size_t i = 0; i < set.settings_count; i++) {
+        if (mergeSharedChannel(set.settings[i], i == 0, notes, sizeof(notes)) >= 0)
+            applied++;
+    }
+    if (applied) {
+        channels.onConfigChanged();
+        nodeDB->saveToDisk(SEGMENT_CHANNELS);
+        if (service)
+            service->configChanged.notifyObservers(nullptr);
+    }
+
+    bool loraChanged = false;
+    if (set.has_lora_config) {
+        meshtastic_Config pc = meshtastic_Config_init_default;
+        pc.which_payload_variant = meshtastic_Config_lora_tag;
+        pc.payload_variant.lora = set.lora_config;
+        pc.payload_variant.lora.tx_power = config.lora.tx_power; // the shared link never sets our power
+        if (pc.payload_variant.lora.region == meshtastic_Config_LoRaConfig_RegionCode_UNSET)
+            pc.payload_variant.lora.region = config.lora.region; // an unset region would mute the radio
+        pendingConfig = pc;
+        pendingLoRaApplyAt = millis() + 5000;
+        pendingLoRaConfig = true;
+        setIntervalFromNow(50);
+        loraChanged = true;
+    }
+    snprintf(replyMsg, sizeof(replyMsg), "JT: SETURL %d/%u channels%s.%s", applied, (unsigned)set.settings_count,
+             loraChanged ? ", LoRa in 5s" : "", notes);
 }

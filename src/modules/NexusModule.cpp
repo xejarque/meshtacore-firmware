@@ -5528,7 +5528,21 @@ void NexusModule::appendPaging(const char* entry) {
     }
 }
 
+bool NexusModule::isSilencedPublicReply(const meshtastic_MeshPacket &mp) {
+    if (!(ext_flags & EXT_FLAG_PUBLIC_SILENCE) || !isFromUs(&mp) || mp.pki_encrypted)
+        return false;
+    if (mp.which_payload_variant != meshtastic_MeshPacket_decoded_tag || mp.channel >= MAX_NUM_CHANNELS)
+        return false;
+    if (!cryptoKeyIsPublic(channels.getKey(mp.channel)))
+        return false;
+    const bool isReply = mp.decoded.portnum == meshtastic_PortNum_ROUTING_APP || mp.decoded.request_id != 0 ||
+                         (mp.decoded.portnum == meshtastic_PortNum_NODEINFO_APP && !isBroadcast(mp.to));
+    return isReply;
+}
+
 bool NexusModule::shouldDropOutput(const meshtastic_MeshPacket &mp) {
+    if (isSilencedPublicReply(mp))
+        return true;
     // 0. Trusted Channel Bypass (trusted channels always allowed out)
     for (uint8_t i = 0; i < MAX_NUM_CHANNELS; i++) {
         meshtastic_Channel *c = &channels.getByIndex(i);

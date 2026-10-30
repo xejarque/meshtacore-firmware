@@ -96,6 +96,9 @@ public:
     bool shouldInvalidatePacket(const meshtastic_MeshPacket &mp);
     bool shouldDropPrivate(const meshtastic_MeshPacket &mp);
     bool shouldDropOutput(const meshtastic_MeshPacket &mp);
+    // EXT_FLAG_PUBLIC_SILENCE: our ACKs, NAKs, request replies and unicast NodeInfo on a channel with the
+    // public key are dropped; relaying and our own broadcasts are untouched.
+    bool isSilencedPublicReply(const meshtastic_MeshPacket &mp);
     bool isNexusIgnored(uint32_t nodeID);
     // Wire-shape heuristic for foreign PKI packets we couldn't decode (no destination key).
     // The mp.pki_encrypted flag is only set on successful PKI decrypt (Router.cpp:1052), so for
@@ -565,6 +568,9 @@ public:
     uint8_t lpcomp_wake_ref = 0;   // v68 RAM mirror, 0 = variant default, else 1/16 VDD steps
     void applyLpcompWakeLevel();
     void handleVwakeCommand(const char *arg);
+    void handleSetUrlCommand(const char *url);
+    bool isTrustedNexusChannelName(const char *name);
+    int mergeSharedChannel(const meshtastic_ChannelSettings &settings, bool asPrimary, char *notes, size_t notesLen);
 
     // Low-battery sleep notice: announces on the Nexus channel, then sleeps once the queue has drained.
     bool deferLowBatterySleep(uint32_t batteryMv);
