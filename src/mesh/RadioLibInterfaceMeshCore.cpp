@@ -68,6 +68,10 @@ bool RadioLibInterface::meshCoreTxAllowed()
 {
     if (disabled || !config.lora.tx_enabled)
         return false;
+    // MeshCore is LoRa with its own sync word: not on the alternate modem (SETFSK/SETFLRC), and only on chips whose driver
+    // sets that sync word for a raw frame.
+    if (altModemActive() || !meshCoreTxSupported())
+        return false;
     // Same duty-cycle guard as Router::send: a foreign-protocol frame must not push us over the regional limit.
     const float effectiveDutyCycle = getEffectiveDutyCycle();
     return config.lora.override_duty_cycle || effectiveDutyCycle >= 100 || airTime->utilizationTXPercent() <= effectiveDutyCycle;

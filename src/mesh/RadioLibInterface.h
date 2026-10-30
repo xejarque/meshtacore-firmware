@@ -430,6 +430,9 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     /** True if a MeshCore frame may go on air now: radio enabled, tx_enabled and within the duty cycle. */
     bool meshCoreTxAllowed();
 
+    /** True when the driver switches to the MeshCore sync word for a raw frame (SX126x only). */
+    virtual bool meshCoreTxSupported() const { return false; }
+
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
     /** Dedup + optional relay for MeshCore frames, fed from handleReceiveInterrupt. */
     MeshCoreRepeater meshCoreRepeater;

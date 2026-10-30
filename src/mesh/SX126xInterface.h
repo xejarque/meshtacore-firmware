@@ -31,6 +31,10 @@ template <class T> class SX126xInterface : public RadioLibInterface
 
     void resetAGC() override;
 
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+    bool meshCoreTxSupported() const override { return true; }
+#endif
+
     /** Nexus LCS: chip state via GetStatus SPI (mode bits 6:4). */
     uint8_t readChipState() override;
 

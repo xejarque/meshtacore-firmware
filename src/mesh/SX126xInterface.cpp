@@ -581,10 +581,13 @@ template <typename T> void SX126xInterface<T>::addReceiveMetadata(meshtastic_Mes
 template <typename T> void SX126xInterface<T>::configHardwareForSend()
 {
 #if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
-    // RX runs on the hybrid sync word; each protocol must go out on its own.
-    int err = lora.setSyncWord(isRawSending() ? meshCoreSyncWord : syncWord);
-    if (err != RADIOLIB_ERR_NONE)
-        LOG_ERROR("SX126X setSyncWord %s%d", radioLibErr, err);
+    // RX runs on the hybrid sync word; each protocol must go out on its own. The alternate modem (SETFSK/SETFLRC) has
+    // no LoRa sync word register: RadioLib rejects the write.
+    if (!altModemActive()) {
+        int err = lora.setSyncWord(isRawSending() ? meshCoreSyncWord : syncWord);
+        if (err != RADIOLIB_ERR_NONE)
+            LOG_ERROR("SX126X setSyncWord %s%d", radioLibErr, err);
+    }
 #endif
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
     // MeshCore listens for a longer preamble at low SF (RadioLibWrapper::preambleLengthForSF: 32 at SF<=8, else 16).
@@ -625,12 +628,15 @@ template <typename T> void SX126xInterface<T>::startReceive()
     setTransmitEnable(false);
 
 #if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
-    setSyncWordRegister(MESHTASTIC_MESHCORE_RX_SYNCWORD);
+    if (!altModemActive())
+        setSyncWordRegister(MESHTASTIC_MESHCORE_RX_SYNCWORD);
 #endif
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
     // Back to our preamble after a MeshCore frame: the RX duty cycle below is sized from it, and Meshtastic TX uses it.
+    // The alternate modem programmed its own preamble in bits, which this LoRa value would overwrite.
     if (meshCorePreambleSet) {
-        lora.setPreambleLength(preambleLength);
+        if (!altModemActive())
+            lora.setPreambleLength(preambleLength);
         meshCorePreambleSet = false;
     }
 #endif

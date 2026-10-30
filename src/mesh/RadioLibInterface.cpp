@@ -714,7 +714,8 @@ void RadioLibInterface::handleReceiveInterrupt()
         // must be intercepted before the PacketHeader interpretation below. When enabled, such
         // frames are logged and (optionally) flood-relayed, and never enter the Meshtastic router.
         MeshCoreRepeater::FrameInfo mcInfo;
-        if (meshCoreRepeater.looksLikeMeshCoreFrame((const uint8_t *)&radioBuffer, length, nodeDB->getNodeNum(), &mcInfo) &&
+        if (!altModemActive() &&
+            meshCoreRepeater.looksLikeMeshCoreFrame((const uint8_t *)&radioBuffer, length, nodeDB->getNodeNum(), &mcInfo) &&
             !isMeshtasticOnOurChannels(length)) {
             LOG_INFO("MeshCore frame: len=%u route=%u type=0x%02x path=%u/%u payload=%u snr=%g rssi=%d", (unsigned)length,
                      mcInfo.route_type, mcInfo.payload_type, mcInfo.path_hash_count, mcInfo.path_hash_size, mcInfo.payload_len,
