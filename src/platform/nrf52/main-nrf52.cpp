@@ -622,6 +622,14 @@ void nrf52FlashQuiesce()
     flash_nrf5x_flush();
 }
 
+// System OFF has no timer wake, so a timed sleep stays in System ON low power and resets when it ends.
+static bool timedSleepRequested = false;
+
+void nrf52RequestTimedSleep()
+{
+    timedSleepRequested = true;
+}
+
 void cpuDeepSleep(uint32_t msecToWake)
 {
     // FIXME, configure RTC or button press to wake us
@@ -659,12 +667,13 @@ void cpuDeepSleep(uint32_t msecToWake)
 
     nrf52FlashQuiesce();
 
-    // Sleepy trackers or sensors can low power "sleep"
+    // Sleepy trackers or sensors can low power "sleep", and so can any role after nrf52RequestTimedSleep()
     // Don't enter this if we're sleeping portMAX_DELAY, since that's a shutdown event
     if (msecToWake != portMAX_DELAY &&
-        (IS_ONE_OF(config.device.role, meshtastic_Config_DeviceConfig_Role_TRACKER,
-                   meshtastic_Config_DeviceConfig_Role_TAK_TRACKER, meshtastic_Config_DeviceConfig_Role_SENSOR) &&
-         config.power.is_power_saving == true)) {
+        (timedSleepRequested ||
+         (IS_ONE_OF(config.device.role, meshtastic_Config_DeviceConfig_Role_TRACKER,
+                    meshtastic_Config_DeviceConfig_Role_TAK_TRACKER, meshtastic_Config_DeviceConfig_Role_SENSOR) &&
+          config.power.is_power_saving == true))) {
         sd_power_mode_set(NRF_POWER_MODE_LOWPWR);
         delay(msecToWake);
         NVIC_SystemReset();

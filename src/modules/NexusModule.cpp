@@ -24,6 +24,7 @@
 #include "MeshService.h"
 #include "NodeDB.h"
 #include "PowerFSM.h"
+#include "sleep.h"
 #include "mesh/Throttle.h"
 #include "RTC.h"
 #include "SPILock.h"
@@ -2810,6 +2811,7 @@ int32_t NexusModule::runOnce() {
 
     serviceLowBatterySleep();
     serviceReadyAnnounce();
+    serviceStormSleep();
 
     // 0. Delayed InputBroker Hook (Ensure inputBroker is initialized)
     if (!input_hooked && inputBroker) {
@@ -5481,6 +5483,17 @@ void NexusModule::serviceLowBatterySleep() {
         lowBatterySleepPending = false;
         powerFSM.trigger(EVENT_LOW_BATTERY);
     }
+}
+
+void NexusModule::serviceStormSleep() {
+    if (!stormPending || !Throttle::deadlinePassed(stormStartDeadlineMs))
+        return;
+    stormPending = false;
+    LOG_WARN("Nexus: STORM sleep for %lu min", (unsigned long)stormSleepMinutes);
+#ifdef ARCH_NRF52
+    nrf52RequestTimedSleep();
+#endif
+    doDeepSleep(stormSleepMinutes * 60UL * 1000UL, false, false);
 }
 
 void NexusModule::serviceReadyAnnounce() {

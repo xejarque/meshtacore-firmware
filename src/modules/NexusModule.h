@@ -569,6 +569,13 @@ public:
     void applyLpcompWakeLevel();
     void handleVwakeCommand(const char *arg);
     void handleSetUrlCommand(const char *url);
+
+    // STORM: radio-off timed deep sleep, started after a short notice so the reply leaves first.
+    void handleStormCommand(const char *arg);
+    void serviceStormSleep();
+    bool stormPending = false;
+    uint32_t stormStartDeadlineMs = 0;
+    uint32_t stormSleepMinutes = 0;
     bool isTrustedNexusChannelName(const char *name);
     int mergeSharedChannel(const meshtastic_ChannelSettings &settings, bool asPrimary, char *notes, size_t notesLen);
 

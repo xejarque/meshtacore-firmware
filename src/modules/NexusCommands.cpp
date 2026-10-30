@@ -4233,6 +4233,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         NexusRescue::snapshot();
         NexusRescue::describe(replyMsg, sizeof(replyMsg));
     }
+    else if (strncasecmp(cmd, "STORM ", 6) == 0 || strcasecmp(cmd, "STORM") == 0) {
+        // /nexus STORM <minutes 1-1440>|OFF: radio off and deep sleep, then reboot.
+        handleStormCommand(cmd[5] ? cmd + 6 : "");
+    }
     else if (strncasecmp(cmd, "SETURL ", 7) == 0) {
         // /nexus SETURL <channel URL>: merge the shared channels by name, keep Nexus channels and TX power.
         handleSetUrlCommand(cmd + 7);
@@ -9268,4 +9272,31 @@ void NexusModule::handleSetUrlCommand(const char *url)
     }
     snprintf(replyMsg, sizeof(replyMsg), "JT: SETURL %d/%u channels%s.%s", applied, (unsigned)set.settings_count,
              loraChanged ? ", LoRa in 5s" : "", notes);
+}
+
+void NexusModule::handleStormCommand(const char *arg)
+{
+    constexpr uint32_t STORM_MAX_MINUTES = 24 * 60;
+    constexpr uint32_t STORM_NOTICE_MS = 10 * 1000;
+    while (*arg == ' ')
+        arg++;
+    if (strcasecmp(arg, "OFF") == 0) {
+        snprintf(replyMsg, sizeof(replyMsg), "JT: STORM %s", stormPending ? "cancelled" : "not pending");
+        stormPending = false;
+        return;
+    }
+    if (!*arg) {
+        snprintf(replyMsg, sizeof(replyMsg), stormPending ? "JT: STORM pending, %lu min" : "JT: STORM idle",
+                 (unsigned long)stormSleepMinutes);
+        return;
+    }
+    const long minutes = strtol(arg, nullptr, 10);
+    if (minutes < 1 || minutes > (long)STORM_MAX_MINUTES) {
+        snprintf(replyMsg, sizeof(replyMsg), "JT: STORM expects 1-%lu minutes or OFF", (unsigned long)STORM_MAX_MINUTES);
+        return;
+    }
+    stormSleepMinutes = (uint32_t)minutes;
+    stormStartDeadlineMs = millis() + STORM_NOTICE_MS;
+    stormPending = true;
+    snprintf(replyMsg, sizeof(replyMsg), "JT: STORM radio off for %ld min in 10 s (STORM OFF cancels)", minutes);
 }

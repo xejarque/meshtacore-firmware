@@ -121,6 +121,7 @@ bool nrf52HasBatteryLpcompWake();
 bool nrf52SetBatteryLpcompWakeFraction(uint8_t num, uint8_t den);
 bool nrf52GetBatteryLpcompWakeFraction(uint8_t *num, uint8_t *den);
 uint32_t nrf52EstimateBatteryLpcompWakeMv(); // 0 when the divider ratio is unknown
+void nrf52RequestTimedSleep();               // the next cpuDeepSleep() wakes on its timer instead of System OFF
 #endif
 #ifdef ARCH_ESP32
 void esp32ReleaseBluetoothMemoryIfUnused();
