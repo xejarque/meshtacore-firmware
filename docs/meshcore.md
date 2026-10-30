@@ -199,7 +199,7 @@ The announced node type follows the Meshtastic role: `ROUTER`, `ROUTER_LATE` and
 
 ### Relay alias
 
-A node that relays while its main key announces itself as a chat node signs the hop it appends to the path with a second Ed25519 key, the *relay alias*: `SHA256("meshtastic-meshcore-relay" || seed || attempt)`, derived from the stored seed and never written anywhere (the attempt counter only moves when MeshCore would reject the derived key). MeshCore applications name a path hop only from a contact they hold as a repeater, so the alias also sends a repeater-typed ADVERT, with the same name plus ` (relay)`, in the same slot as the main flood. Without it the hop shows as an unknown repeater and the key prefix; with it the hop resolves to the node's name while the chat identity stays in the clients' contact list. A repeater-typed main identity (`ROUTER`, `ROUTER_LATE`, `REPEATER`) needs no alias, and a node that does not relay (`CLIENT_MUTE`, or rebroadcast `NONE`) derives none.
+A node that relays while its main key announces itself as a chat node signs the hop it appends to the path with a second Ed25519 key, the _relay alias_: `SHA256("meshtastic-meshcore-relay" || seed || attempt)`, derived from the stored seed and never written anywhere (the attempt counter only moves when MeshCore would reject the derived key). MeshCore applications name a path hop only from a contact they hold as a repeater, so the alias also sends a repeater-typed ADVERT, with the same name plus ` (relay)`, in the same slot as the main flood. Without it the hop shows as an unknown repeater and the key prefix; with it the hop resolves to the node's name while the chat identity stays in the clients' contact list. A repeater-typed main identity (`ROUTER`, `ROUTER_LATE`, `REPEATER`) needs no alias, and a node that does not relay (`CLIENT_MUTE`, or rebroadcast `NONE`) derives none.
 
 Direct frames and traces whose next hop is the alias are forwarded like any other (a hop naming the main key still is, because a peer messaging the chat contact addresses us by it); the alias only claims a hop while it is announced. An own alias ADVERT heard back is neither relayed nor learned as a contact. Neighbour discovery answers with the alias for a repeater request and with the main key for a chat one, so a filter covering both gets two replies and spends two slots of the shared rate limit (four replies per two minutes).
 
@@ -385,9 +385,8 @@ Run them with the rest of the suite:
 ./bin/run-tests.sh
 ```
 
-Debug environments:
+Diagnostic environment:
 
-- `thinknode_m1_meshcore_debug` logs every RX/preamble event and the sync word register the chip actually holds, which distinguishes "the radio never matched the sync word" from "the frame was rejected later".
 - `thinknode_m1_meshcore_rxtest` receives on MeshCore's own sync word (`0x1424`), isolating the hybrid value from a radio or parameter problem.
 
 Useful log lines: `MeshCore frame:` (classification), `MeshCore relay queued:` (delay and priority), `MeshCore TX own/relay` (raw transmission), `MeshCore identity ready` and `MeshCore ADVERT queued`.

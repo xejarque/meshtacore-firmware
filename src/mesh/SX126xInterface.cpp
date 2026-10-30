@@ -627,19 +627,6 @@ template <typename T> void SX126xInterface<T>::startReceive()
 #if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
     setSyncWordRegister(MESHTASTIC_MESHCORE_RX_SYNCWORD);
 #endif
-#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER && MESHTASTIC_MESHCORE_RX_DEBUG && RADIOLIB_LOW_LEVEL
-    {
-        // What the chip really holds, not what we think we wrote; logged when it changes.
-        static uint16_t lastLogged = 0;
-        uint8_t reg[2] = {0, 0};
-        lora.readRegister(RADIOLIB_SX126X_REG_LORA_SYNC_WORD_MSB, reg, 2);
-        const uint16_t value = (uint16_t)(reg[0] << 8) | reg[1];
-        if (value != lastLogged) {
-            LOG_INFO("RXDBG RX sync word register=0x%04x preamble=%u", value, preambleLength);
-            lastLogged = value;
-        }
-    }
-#endif
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
     // Back to our preamble after a MeshCore frame: the RX duty cycle below is sized from it, and Meshtastic TX uses it.
     if (meshCorePreambleSet) {
@@ -774,14 +761,7 @@ template <typename T> bool SX126xInterface<T>::isActivelyReceiving()
         }
         return detected;
     }
-    const uint16_t irq = lora.getIrqFlags();
-#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER && MESHTASTIC_MESHCORE_RX_DEBUG
-    // Preamble/header seen by the chip: shows whether a foreign sync word is ever matched, even when the frame
-    // never reaches RX_DONE (a non-matching sync word is dropped silently by the demodulator).
-    if (irq & (RADIOLIB_SX126X_IRQ_HEADER_VALID | RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED))
-        LOG_INFO("RXDBG preamble/header irq=0x%04x", irq);
-#endif
-    return receiveDetected(irq, RADIOLIB_SX126X_IRQ_HEADER_VALID, RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED);
+    return receiveDetected(lora.getIrqFlags(), RADIOLIB_SX126X_IRQ_HEADER_VALID, RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED);
 }
 
 template <typename T> bool SX126xInterface<T>::sleep()

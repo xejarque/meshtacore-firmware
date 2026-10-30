@@ -76,12 +76,11 @@ pio run -e thinknode_m1_meshcore
 pio run -e thinknode_m1_meshcore -t upload --upload-port <port>
 ```
 
-| Env                              | Purpose                                                                      |
-| -------------------------------- | ---------------------------------------------------------------------------- |
-| `thinknode_m1_meshcore`          | Release build: sniffer, relay, companion and hybrid sync word.               |
-| `thinknode_m1_meshcore_debug`    | Logs every RX/preamble event and the real sync word register.                |
-| `thinknode_m1_meshcore_rxtest`   | Receives on MeshCore's own sync word (`0x1424`) to isolate the hybrid value. |
-| `nrf52_promicro_diy_tcxo_meshcore` | DIY nRF52840 Pro Micro with a TCXO SX126x, MeshCore enabled.               |
+| Env                                | Purpose                                                                      |
+| ---------------------------------- | ---------------------------------------------------------------------------- |
+| `thinknode_m1_meshcore`            | Release build: sniffer, relay, companion and hybrid sync word.               |
+| `thinknode_m1_meshcore_rxtest`     | Receives on MeshCore's own sync word (`0x1424`) to isolate the hybrid value. |
+| `nrf52_promicro_diy_tcxo_meshcore` | DIY nRF52840 Pro Micro with a TCXO SX126x, MeshCore enabled.                 |
 
 ### Build flags
 
@@ -94,7 +93,6 @@ MeshCore support is on by default; pass `-D<flag>=0` to opt out.
 | `MESHTASTIC_ENABLE_MESHCORE_COMPANION`   | `1`      | Expose `MC:` group channels and MeshCore direct messages to the client (implies the sniffer). |
 | `MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC` | `1`      | SX126x hybrid RX sync word (implies the sniffer).                                             |
 | `MESHTASTIC_MESHCORE_RX_SYNCWORD`        | `0x14B4` | Raw SX126x sync word register value used in RX.                                               |
-| `MESHTASTIC_MESHCORE_RX_DEBUG`           | `0`      | Log every RX/preamble event and the sync word register the chip really holds. Debug only.     |
 
 ### Tuning the hybrid sync word
 

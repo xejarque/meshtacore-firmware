@@ -1276,17 +1276,6 @@ void RadioLibInterface::handleReceiveInterrupt()
         printBytes("Raw incoming packet: ", (uint8_t *)&radioBuffer, length);
     }
 #endif
-#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER && MESHTASTIC_MESHCORE_RX_DEBUG
-    {
-        // First 16 bytes of every frame that reached the radio, whatever it turns out to be.
-        const uint8_t *raw = (const uint8_t *)&radioBuffer;
-        char hex[16 * 3 + 1] = {0};
-        size_t n = length < 16 ? length : 16;
-        for (size_t i = 0; i < n; i++)
-            snprintf(hex + i * 3, 4, "%02x ", raw[i]);
-        LOG_INFO("RXDBG len=%u state=%d bytes=%s", (unsigned)length, state, hex);
-    }
-#endif
     if (state != RADIOLIB_ERR_NONE) {
         // Log PacketHeader similar to RadioInterface::printPacket so we can try to match RX errors to other packets in the logs.
         LOG_ERROR("Ignore rx packet, error=%d (maybe id=0x%08x fr=0x%08x to=0x%08x flags=0x%02x rxSNR=%g rxRSSI=%i "
