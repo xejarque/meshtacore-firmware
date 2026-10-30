@@ -544,7 +544,7 @@ public:
         uint64_t nexusVariantBits;        // v67: generic variant-bitmask pool. Each variant carves its own bit range from this 64-bit field. Additive; defaults to 0 (all variant-extensions off) when loaded from a v66 vault (fileSize clamp leaves the trailing 8 B as zero-init).
         // v68: only read when version >= 68 - on a shorter vault these bytes hold the old CRC.
         uint8_t  lpcomp_wake_ref;          // 0 = variant default, else LPCOMP wake level in 1/16 VDD
-        uint8_t  battery_chemistry;        // 0 = variant OCV curve, see BatteryChemistry
+        uint8_t  battery_chemistry;        // BatteryChemistry, 0 = variant OCV curve
         uint8_t  ext_flags;                // see EXT_FLAG_* constants
         uint8_t  reserved_v68;
         uint8_t  zero_hop_auto_router_mask[32];
@@ -572,6 +572,7 @@ public:
 
     // STORM: radio-off timed deep sleep, started after a short notice so the reply leaves first.
     void handleStormCommand(const char *arg);
+    void handleChemCommand(const char *arg);
     void serviceStormSleep();
     bool stormPending = false;
     uint32_t stormStartDeadlineMs = 0;

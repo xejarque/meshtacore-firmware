@@ -5520,7 +5520,7 @@ void NexusModule::applyVaultV68(const NexusVault &v) {
     vaultV68Loaded = true;
     lpcomp_wake_ref = (v.lpcomp_wake_ref < 16) ? v.lpcomp_wake_ref : 0;
     applyLpcompWakeLevel();
-    battery_chemistry = v.battery_chemistry;
+    battery_chemistry = setBatteryChemistry((BatteryChemistry)v.battery_chemistry) ? v.battery_chemistry : 0;
     ext_flags = v.ext_flags;
     memcpy(zero_hop_auto_router_mask, v.zero_hop_auto_router_mask, sizeof(zero_hop_auto_router_mask));
     memcpy(zero_hop_auto_client_mask, v.zero_hop_auto_client_mask, sizeof(zero_hop_auto_client_mask));

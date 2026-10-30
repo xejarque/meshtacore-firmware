@@ -308,6 +308,44 @@ class HasBatteryLevel
 };
 #endif
 
+static constexpr uint16_t VARIANT_OCV[NUM_OCV_POINTS] = {OCV_ARRAY};
+uint16_t activeBatteryOcv[NUM_OCV_POINTS] = {OCV_ARRAY};
+
+struct ChemistryCurve {
+    const char *name;
+    uint16_t ocv[11];
+};
+
+// Indexed by BatteryChemistry; VARIANT's row is unused (VARIANT_OCV may have another point count).
+static constexpr ChemistryCurve CHEMISTRY_CURVES[] = {
+    {"VARIANT", {0}},
+    {"LIPO", {4190, 4050, 3990, 3890, 3800, 3720, 3630, 3530, 3420, 3300, 3100}},
+    {"NIMH", {4300, 4100, 4000, 3900, 3800, 3700, 3600, 3500, 3450, 3400, 3400}},
+    {"SODIUM", {3950, 3800, 3700, 3600, 3500, 3400, 3200, 3000, 2800, 2600, 2500}},
+    {"LIFEPO4", {3650, 3550, 3450, 3380, 3320, 3270, 3220, 3170, 3100, 3000, 2800}},
+};
+static_assert(sizeof(CHEMISTRY_CURVES) / sizeof(CHEMISTRY_CURVES[0]) == (size_t)BatteryChemistry::COUNT,
+              "one curve per chemistry");
+
+bool setBatteryChemistry(BatteryChemistry chemistry)
+{
+    if (chemistry >= BatteryChemistry::COUNT)
+        return false;
+    if (chemistry == BatteryChemistry::VARIANT) {
+        memcpy(activeBatteryOcv, VARIANT_OCV, sizeof(activeBatteryOcv));
+        return true;
+    }
+    if (NUM_OCV_POINTS != 11)
+        return false; // the chemistry curves have 11 points
+    memcpy(activeBatteryOcv, CHEMISTRY_CURVES[(size_t)chemistry].ocv, sizeof(activeBatteryOcv));
+    return true;
+}
+
+const char *batteryChemistryName(BatteryChemistry chemistry)
+{
+    return chemistry < BatteryChemistry::COUNT ? CHEMISTRY_CURVES[(size_t)chemistry].name : "?";
+}
+
 bool pmu_irq = false;
 
 Power *power;
@@ -385,12 +423,12 @@ class AnalogBatteryLevel : public HasBatteryLevel
 
         float v = getBattVoltage();
 
-        if (v < noBatVolt)
+        if (v < noBatVolt())
             return -1; // If voltage is super low assume no battery installed
 
 #ifdef NO_BATTERY_LEVEL_ON_CHARGE
         // This does not work on a RAK4631 with battery connected
-        if (v > chargingVolt)
+        if (v > chargingVolt())
             return 0; // While charging we can't report % full on the battery
 #endif
         /**
@@ -604,7 +642,7 @@ class AnalogBatteryLevel : public HasBatteryLevel
         // EXT_PWR_DETECT pin.
         return HWCDC::isPlugged();
 #endif
-        return getBattVoltage() > chargingVolt;
+        return getBattVoltage() > chargingVolt();
     }
 
     /// Assume charging if we have a battery and external power is connected.
@@ -663,9 +701,9 @@ class AnalogBatteryLevel : public HasBatteryLevel
 
     /// For heltecs with no battery connected, the measured voltage is 2204, so
     // need to be higher than that, in this case is 2500mV (3000-500)
-    const uint16_t OCV[NUM_OCV_POINTS] = {OCV_ARRAY};
-    const float chargingVolt = (OCV[0] + 10) * NUM_CELLS;
-    const float noBatVolt = (OCV[NUM_OCV_POINTS - 1] - 500) * NUM_CELLS;
+    const uint16_t *const OCV = activeBatteryOcv;
+    float chargingVolt() const { return (OCV[0] + 10) * NUM_CELLS; }
+    float noBatVolt() const { return (OCV[NUM_OCV_POINTS - 1] - 500) * NUM_CELLS; }
     // Start value from minimum voltage for the filter to not start from 0
     // that could trigger some events.
     // This value is over-written by the first ADC reading, it the voltage seems

@@ -20,6 +20,14 @@
 #define NUM_OCV_POINTS 11
 #endif
 
+/// Battery chemistry for the open-circuit voltage curve; VARIANT keeps the board's OCV_ARRAY.
+enum class BatteryChemistry : uint8_t { VARIANT = 0, LIPO, NIMH, SODIUM, LIFEPO4, COUNT };
+
+/// Per-cell OCV curve in use (100% .. 0%), shared by the battery reader and the low-voltage cutoff.
+extern uint16_t activeBatteryOcv[];
+bool setBatteryChemistry(BatteryChemistry chemistry);
+const char *batteryChemistryName(BatteryChemistry chemistry);
+
 // Device specific curves go in variant.h
 #ifndef OCV_ARRAY
 #if defined(ARCH_STM32) && BATTERY_PIN == AVBAT
@@ -108,7 +116,7 @@ class Power : public concurrency::OSThread
     virtual bool setup();
     virtual int32_t runOnce() override;
     void setStatusHandler(meshtastic::PowerStatus *handler) { statusHandler = handler; }
-    const uint16_t OCV[11] = {OCV_ARRAY};
+    const uint16_t *const OCV = activeBatteryOcv;
     bool isLowBattery() { return low_voltage_counter >= LOW_VOLTAGE_READINGS_BEFORE_SHUTDOWN; };
 
 #ifdef ARCH_ESP32

@@ -4233,6 +4233,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         NexusRescue::snapshot();
         NexusRescue::describe(replyMsg, sizeof(replyMsg));
     }
+    else if (strncasecmp(cmd, "CHEM ", 5) == 0 || strcasecmp(cmd, "CHEM") == 0) {
+        // /nexus CHEM [VARIANT|LIPO|NIMH|SODIUM|LIFEPO4]: battery OCV curve and low-voltage cutoff. Persist with SAVE.
+        handleChemCommand(cmd[4] ? cmd + 5 : "");
+    }
     else if (strncasecmp(cmd, "STORM ", 6) == 0 || strcasecmp(cmd, "STORM") == 0) {
         // /nexus STORM <minutes 1-1440>|OFF: radio off and deep sleep, then reboot.
         handleStormCommand(cmd[5] ? cmd + 6 : "");
@@ -9299,4 +9303,23 @@ void NexusModule::handleStormCommand(const char *arg)
     stormStartDeadlineMs = millis() + STORM_NOTICE_MS;
     stormPending = true;
     snprintf(replyMsg, sizeof(replyMsg), "JT: STORM radio off for %ld min in 10 s (STORM OFF cancels)", minutes);
+}
+
+void NexusModule::handleChemCommand(const char *arg)
+{
+    while (*arg == ' ')
+        arg++;
+    if (*arg) {
+        uint8_t chosen = (uint8_t)BatteryChemistry::COUNT;
+        for (uint8_t c = 0; c < (uint8_t)BatteryChemistry::COUNT; c++)
+            if (strcasecmp(arg, batteryChemistryName((BatteryChemistry)c)) == 0)
+                chosen = c;
+        if (!setBatteryChemistry((BatteryChemistry)chosen)) {
+            snprintf(replyMsg, sizeof(replyMsg), "JT: CHEM expects VARIANT, LIPO, NIMH, SODIUM or LIFEPO4");
+            return;
+        }
+        battery_chemistry = chosen;
+    }
+    snprintf(replyMsg, sizeof(replyMsg), "JT: CHEM %s, full %u mV, cutoff %u mV per cell",
+             batteryChemistryName((BatteryChemistry)battery_chemistry), activeBatteryOcv[0], activeBatteryOcv[NUM_OCV_POINTS - 1]);
 }
