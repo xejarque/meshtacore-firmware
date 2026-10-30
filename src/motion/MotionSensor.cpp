@@ -12,8 +12,8 @@
 // include, the I2C-enabled body fails with `'config' was not declared
 // in this scope` at the two `config.display.*` call sites. Adding the
 // include is universally correct and harmless.
-#include "NodeDB.h"
 #include "FSCommon.h"
+#include "NodeDB.h"
 #include "SPILock.h"
 #include "SafeFile.h"
 #include "Throttle.h"
@@ -104,7 +104,8 @@ bool MotionSensor::saveMagnetometerCalibration(const char *filePath, float highe
 
     auto file = SafeFile(filePath, true);
     const size_t written = file.write(reinterpret_cast<const uint8_t *>(&record), sizeof(record));
-    return (written == sizeof(record)) && file.close();
+    const bool closed = file.close(); // always close, even after a short write
+    return (written == sizeof(record)) && closed;
 #else
     return false;
 #endif

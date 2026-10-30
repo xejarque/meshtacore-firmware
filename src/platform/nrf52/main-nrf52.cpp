@@ -432,6 +432,54 @@ void nrf52InitSemiHosting()
 }
 #endif
 
+#ifdef BATTERY_LPCOMP_INPUT
+// Stops the comparator and clears its interrupts and events, so a System OFF wake leaves no stale state.
+static void resetBatteryLpcomp()
+{
+    nrf_lpcomp_task_trigger(NRF_LPCOMP, NRF_LPCOMP_TASK_STOP);
+    nrf_lpcomp_disable(NRF_LPCOMP);
+    nrf_lpcomp_int_disable(NRF_LPCOMP, 0xFFFFFFFF);
+    nrf_lpcomp_event_clear(NRF_LPCOMP, NRF_LPCOMP_EVENT_READY);
+    nrf_lpcomp_event_clear(NRF_LPCOMP, NRF_LPCOMP_EVENT_DOWN);
+    nrf_lpcomp_event_clear(NRF_LPCOMP, NRF_LPCOMP_EVENT_UP);
+    nrf_lpcomp_event_clear(NRF_LPCOMP, NRF_LPCOMP_EVENT_CROSS);
+}
+
+static bool waitBatteryLpcompReady()
+{
+    constexpr uint32_t LPCOMP_READY_TIMEOUT_US = 1000;
+    uint32_t start = micros();
+    while (!nrf_lpcomp_event_check(NRF_LPCOMP, NRF_LPCOMP_EVENT_READY)) {
+        if ((uint32_t)(micros() - start) >= LPCOMP_READY_TIMEOUT_US)
+            return false;
+    }
+    return true;
+}
+
+// Arms the comparator to wake on a rising battery voltage; false if it never became ready.
+static bool armBatteryLpcompWake()
+{
+    constexpr uint8_t LPCOMP_ARM_ATTEMPTS = 2;
+    nrf_lpcomp_config_t c;
+    c.reference = BATTERY_LPCOMP_THRESHOLD;
+    c.detection = NRF_LPCOMP_DETECT_UP;
+    c.hyst = NRF_LPCOMP_HYST_ENABLED;
+
+    battery_adcEnable();
+    for (uint8_t attempt = 0; attempt < LPCOMP_ARM_ATTEMPTS; attempt++) {
+        resetBatteryLpcomp();
+        nrf_lpcomp_configure(NRF_LPCOMP, &c);
+        nrf_lpcomp_input_select(NRF_LPCOMP, BATTERY_LPCOMP_INPUT);
+        nrf_lpcomp_enable(NRF_LPCOMP);
+        nrf_lpcomp_task_trigger(NRF_LPCOMP, NRF_LPCOMP_TASK_START);
+        if (waitBatteryLpcompReady())
+            return true;
+    }
+    resetBatteryLpcomp();
+    return false;
+}
+#endif
+
 void nrf52Setup()
 {
 #ifdef ADC_V
@@ -446,6 +494,9 @@ void nrf52Setup()
     // per
     // https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.nrf52832.ps.v1.1%2Fpower.html
     LOG_DEBUG("Reset reason: 0x%x", why);
+#ifdef BATTERY_LPCOMP_INPUT
+    resetBatteryLpcomp();
+#endif
 
 #ifdef USE_SEMIHOSTING
     nrf52InitSemiHosting();
@@ -556,23 +607,10 @@ void cpuDeepSleep(uint32_t msecToWake)
         // https://devzone.nordicsemi.com/f/nordic-q-a/48919/ram-retention-settings-with-softdevice-enabled
 
 #ifdef BATTERY_LPCOMP_INPUT
-        // Only enable LPCOMP wake if the variant allows it
-        if (variant_enableBatteryLpcompWake()) {
-            // Wake up if power rises again
-            nrf_lpcomp_config_t c;
-            c.reference = BATTERY_LPCOMP_THRESHOLD;
-            c.detection = NRF_LPCOMP_DETECT_UP;
-            c.hyst = NRF_LPCOMP_HYST_NOHYST;
-            nrf_lpcomp_configure(NRF_LPCOMP, &c);
-            nrf_lpcomp_input_select(NRF_LPCOMP, BATTERY_LPCOMP_INPUT);
-            nrf_lpcomp_enable(NRF_LPCOMP);
-
-            battery_adcEnable();
-
-            nrf_lpcomp_task_trigger(NRF_LPCOMP, NRF_LPCOMP_TASK_START);
-            while (!nrf_lpcomp_event_check(NRF_LPCOMP, NRF_LPCOMP_EVENT_READY))
-                ;
-        }
+        // Only enable LPCOMP wake if the variant allows it. System OFF without a working wake
+        // source would need a site visit, so a comparator that never reports READY resets instead.
+        if (variant_enableBatteryLpcompWake() && !armBatteryLpcompWake())
+            NVIC_SystemReset();
 #endif
 
         auto ok = sd_power_system_off();

@@ -31,12 +31,12 @@
 #endif
 
 #include "Default.h"
-#include "modules/NexusModule.h"
 #include "MeshRadio.h"
 #include "MessageStore.h"
 #include "RadioInterface.h"
 #include "TypeConversions.h"
 #include "mesh/RadioLibInterface.h"
+#include "modules/NexusModule.h"
 #ifdef MESHTASTIC_PHONEAPI_ACCESS_CONTROL
 #include "mesh/PhoneAPI.h"
 #endif
@@ -249,6 +249,7 @@ bool AdminModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshta
                 } else {
                     if (nodeDB->setProtectedFlag(remoteNode, NODEINFO_BITFIELD_IS_FAVORITE_MASK, true)) {
                         LOG_INFO("PKC admin valid. Auto-favoriting node 0x%08x", mp.from);
+                        nodeDB->saveToDisk(SEGMENT_NODEDATABASE); // otherwise the favorite is lost on reboot
                     } else {
                         LOG_WARN("PKC admin valid, but auto-favorite refused for node %x (protected-node cap)", mp.from);
                     }
