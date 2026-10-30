@@ -109,9 +109,7 @@ class RadioInterface
     static constexpr uint16_t wideLoraPreambleLengthDefault = 12; // 12 is default for wide Lora
     uint32_t preambleTimeMsec = 165;                              // calculated on startup, this is the default for LongFast
     static constexpr uint32_t PROCESSING_TIME_MSEC =
-        4500;                           // time to construct, process and construct a packet again (empirically determined)
-    static constexpr uint8_t CWmin = 3; // minimum CWsize
-    static constexpr uint8_t CWmax = 8; // maximum CWsize
+        4500; // time to construct, process and construct a packet again (empirically determined)
 
     meshtastic_MeshPacket *sendingPacket = NULL; // The packet we are currently sending
     uint32_t lastTxStart = 0L;
@@ -130,6 +128,9 @@ class RadioInterface
   public:
     /** pool is the pool we will alloc our rx packets from
      */
+    static constexpr uint8_t CWmin = 3; // minimum CWsize
+    static constexpr uint8_t CWmax = 8; // maximum CWsize
+
     RadioInterface();
 
     virtual ~RadioInterface() {}
@@ -281,7 +282,7 @@ class RadioInterface
     /**
      * Nexus-28002 (2026-08-21): rest of the Nexus-269 LRS getter set.
      * /nexus LRS uses these to surface the actual chip-side values written by
-     * applyModemConfig() — NOT config.lora.* (operator intent). The wrapper's
+     * applyModemConfig() - NOT config.lora.* (operator intent). The wrapper's
      * own fields are the truth: configured values, then limitPower() clamps,
      * then passed verbatim to lora.setOutputPower() / lora.begin(). For
      * upstream 2.8 there is no RadioLib getPower()/getTxPower() getter, so
@@ -301,7 +302,7 @@ class RadioInterface
      * Set by RadioInterface::initLoRa() at the per-driver init-success sites
      * (SX1262/68, LLCC68, LR1110/1120/1121). Read by /nexus HW to report the
      * actual clock source the radio is running on, not just the board's compile-time
-     * possibility. Default false (XTAL) — overwritten to true on any TCXO path.
+     * possibility. Default false (XTAL) - overwritten to true on any TCXO path.
      *
      * Nexus-269 original comment:
      *   "Nexus: Detected clock source at runtime."
