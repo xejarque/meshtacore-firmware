@@ -4,6 +4,7 @@
 #include "configuration.h"
 #include "error.h"
 #include "mesh/NodeDB.h"
+#include "modules/NexusModule.h" // Nexus SETFSK: altModem state (Phase 2: LR11x0/T1000-E GFSK)
 
 // A variant may define LR11X0_UPDATE_FIRMWARE_TO to a Semtech transceiver firmware version (e.g. 0x0402) to
 // bake that image in and update the radio on first boot. Every supported image is 61320 words, so this costs
@@ -288,10 +289,103 @@ template <typename T> bool LR11x0Interface<T>::init()
     return res == RADIOLIB_ERR_NONE;
 }
 
+template <typename T> int16_t LR11x0Interface<T>::programAltModemFSK()
+{
+    const meshtastic::NexusModule::NexusAltModem &m = meshtastic::nexusModule->altModem;
+    // beginGFSK(br kbps, freqDev kHz, rxBw kHz, preamble bits) — no freq argument
+    // (same shape as SX126x); frequency/power/gain below mirror the LoRa tail so
+    // T1000-E and SX126x boards share one uniform wire profile (Jenny ruling
+    // 2026-10-14: GFSK chips must interop with each other).
+    // QUALIFIED CALL — do NOT un-qualify: LR1110/LR1120 declare their own
+    // beginGFSK(freq, br, freqDev, rxBw, ...) chip-level overload with no
+    // `using LR11x0::beginGFSK`, so name hiding would bind an unqualified 4-arg
+    // call to that one with our bit rate read as the FREQUENCY (same bug as
+    // SX126x SETFSK, bench 2026-10-17 -> INVALID_FREQUENCY, radio down).
+    int16_t err = lora.LR11x0::beginGFSK(m.brKbps, m.freqDevKHz, m.rxBwKHz, m.preambleBits);
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("LR11x0 beginGFSK(%.1fk/%.1fk/%.1fk/%u) %s%d", m.brKbps, m.freqDevKHz,
+                  m.rxBwKHz, m.preambleBits, radioLibErr, err);
+        return err;
+    }
+    // beginGFSK() internally calls modSetup() -> findChip() -> reset(), which hardware-resets
+    // the LR11x0 chip (wiping DIO RF switch config, image calibration, and switching to LDO).
+    // Force image calibration for the active frequency before setFrequency() (whose 4 MHz
+    // delta check against cached this->freqMHz would otherwise skip calibration after reset).
+    (void)lora.calibrateImageRejection(getFreq() - 4.0f, getFreq() + 4.0f);
+    err = lora.setFrequency(getFreq());
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("LR11x0 setFrequency(%.3f) %s%d", getFreq(), radioLibErr, err);
+        return err;
+    }
+    uint8_t wireSync[2] = {0x12, 0xAD};
+    err = lora.setSyncWord(wireSync, sizeof(wireSync)); // GFSK multi-byte overload
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("LR11x0 GFSK setSyncWord %s%d", radioLibErr, err);
+        return err;
+    }
+    err = lora.setCRC(2, 0x1D0F, 0x1021, true); // uniform 2-byte CCITT inverted
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("LR11x0 GFSK setCRC %s%d", radioLibErr, err);
+        return err;
+    }
+    err = lora.setWhitening(false, 0x01FF); // wire profile: whitening OFF
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("LR11x0 GFSK setWhitening %s%d", radioLibErr, err);
+        return err;
+    }
+
+    // Restore DCDC regulator and DIO RF switch table wiped by beginGFSK()'s hardware reset
+    err = lora.setRegulatorDCDC();
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_WARN("LR11x0 GFSK setRegulatorDCDC %s%d", radioLibErr, err);
+    }
+#ifdef LR11X0_DIO_AS_RF_SWITCH
+    lora.setRfSwitchTable(rfswitch_dio_pins, rfswitch_table);
+#elif defined(ARCH_PORTDUINO)
+    if (portduino_config.has_rfswitch_table)
+        lora.setRfSwitchTable(rfswitch_dio_pins, rfswitch_table);
+#endif
+
+    // Power + RX gain — same tail as the LoRa path.
+    if (config.lora.region == meshtastic_Config_LoRaConfig_RegionCode_LORA_24) {
+        limitPower(LR1120_MAX_POWER);
+    } else {
+        limitPower(LR1110_MAX_POWER);
+    }
+    err = lora.setOutputPower(power);
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("LR11x0 setOutputPower(%d) %s%d", power, radioLibErr, err);
+        return err;
+    }
+    err = lora.setRxBoostedGainMode(config.lora.sx126x_rx_boosted_gain);
+    if (err != RADIOLIB_ERR_NONE)
+        LOG_WARN("LR11x0 setRxBoostedGainMode %s%d", radioLibErr, err);
+
+    LOG_INFO("LR11x0 GFSK armed: BR=%.1fk dev=%.1fk bw=%.1fk pre=%u freq=%.3f", m.brKbps,
+             m.freqDevKHz, m.rxBwKHz, m.preambleBits, getFreq());
+    return RADIOLIB_ERR_NONE;
+}
+
 template <typename T> int16_t LR11x0Interface<T>::programModemParams()
 {
+    // Nexus SETFSK (Phase 2): GFSK armed -> program GFSK instead of LoRa; re-read on
+    // every reconfigure (persist-until-disabled ruling, 2026-10-14).
+    if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode == 1) {
+        return programAltModemFSK();
+    }
+
     // configure publicly accessible settings
     int16_t err = lora.setSpreadingFactor(sf);
+    // Nexus SETFSK: Returning to LoRa from FSK modem triggers RADIOLIB_ERR_WRONG_MODEM
+    // because hardware packet type is still GFSK. Re-init chip cleanly to restore LoRa
+    // packet mode without triggering a spurious critical error.
+    if (err == RADIOLIB_ERR_WRONG_MODEM) {
+        LOG_INFO("LR11x0 wrong modem (returning to LoRa), re-initializing");
+        if (!reinitChip()) {
+            return RADIOLIB_ERR_CHIP_NOT_FOUND;
+        }
+        err = lora.setSpreadingFactor(sf);
+    }
     if (err != RADIOLIB_ERR_NONE) {
         LOG_ERROR("LR11x0 setSpreadingFactor(%u) %s%d", sf, radioLibErr, err);
         return err;
@@ -445,7 +539,12 @@ template <typename T> void LR11x0Interface<T>::setStandby()
 template <typename T> void LR11x0Interface<T>::addReceiveMetadata(meshtastic_MeshPacket *mp)
 {
     // LOG_DEBUG("PacketStatus %x", lora.getPacketStatus());
-    mp->rx_snr = lora.getSNR();
+    // Nexus SETFSK: no chirp SNR in GFSK — RSSI-based pseudo-SNR (Jenny ruling 2026-10-14).
+    if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
+        mp->rx_snr = meshtastic::NexusModule::altPseudoSnr(lora.getRSSI());
+    } else {
+        mp->rx_snr = lora.getSNR();
+    }
     mp->rx_rssi = lround(lora.getRSSI());
     mp->has_rx_rssi = true; // rx_rssi has explicit presence - a genuine reading must be marked present to survive encoding
     // Nexus port (Nexus-28001, 2026-08-16): see SX126xInterface.cpp for rationale.
@@ -481,7 +580,9 @@ template <typename T> void LR11x0Interface<T>::startReceive()
     int16_t err = trySetStandby();
 
     if (err == RADIOLIB_ERR_NONE) {
-        lora.setPreambleLength(preambleLength); // Solve RX ack fail after direct message sent.  Not sure why this is needed.
+        if (!meshtastic::nexusModule || meshtastic::nexusModule->altModem.mode == 0) {
+            lora.setPreambleLength(preambleLength); // Solve RX ack fail after direct message sent.  Not sure why this is needed.
+        }
 
         // We use a 16 bit preamble so this should save some power by letting radio sit in standby mostly.
         err =
@@ -491,7 +592,9 @@ template <typename T> void LR11x0Interface<T>::startReceive()
     if (err != RADIOLIB_ERR_NONE) {
         LOG_ERROR("StartReceive error: %d", err);
         if (maybeRecoverChipStateLoss()) {
-            lora.setPreambleLength(preambleLength);
+            if (!meshtastic::nexusModule || meshtastic::nexusModule->altModem.mode == 0) {
+                lora.setPreambleLength(preambleLength);
+            }
             err = lora.startReceive(RADIOLIB_LR11X0_RX_TIMEOUT_INF, MESHTASTIC_RADIOLIB_IRQ_RX_FLAGS,
                                     RADIOLIB_IRQ_RX_DEFAULT_MASK, 0);
         }
@@ -523,6 +626,22 @@ template <typename T> bool LR11x0Interface<T>::isChannelActive()
                                        .timeout = 0,
                                        .irqFlags = RADIOLIB_IRQ_CAD_DEFAULT_FLAGS,
                                        .irqMask = RADIOLIB_IRQ_CAD_DEFAULT_MASK}};
+    // Nexus SETFSK: GFSK has no LoRa CAD — RSSI energy sniff instead (Jenny ruling
+    // 2026-10-14): an active FSK carrier sits well above -100 dBm.
+    // MUST sample instantaneous RSSI while still in continuous RX mode: entering standby
+    // drops getRSSI to the standby floor and makes channel activity detection blind.
+    if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
+        float rssi = lora.getRSSI(false, true); // instantaneous, not last-packet status
+        LOG_TRACE("LR11x0 alt-modem channel sniff RSSI=%.1f dBm", rssi);
+        if (rssi > -100.0f)
+            return true;
+        int16_t result = trySetStandby();
+        if (result != RADIOLIB_ERR_NONE) {
+            maybeRecoverChipStateLoss();
+        }
+        return false;
+    }
+
     int16_t result = trySetStandby();
     if (result == RADIOLIB_ERR_NONE) {
         result = lora.scanChannel(cfg);
@@ -542,6 +661,20 @@ template <typename T> bool LR11x0Interface<T>::isActivelyReceiving()
 {
     // The IRQ status will be cleared when we start our read operation. Check if we've started a header, but haven't yet
     // received and handled the interrupt for reading the packet/handling errors.
+    // Nexus SETFSK: the shared sync/header bit also covers GFSK sync-word detection, so the
+    // LoRa flags stay valid in alt mode — but the stale-latch hazard (bench 2026-10-17,
+    // same as SX126x FSK) applies there: clear false-detection latches.
+    if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
+        const uint16_t irq = lora.getIrqStatus();
+        const uint16_t latch = RADIOLIB_LR11X0_IRQ_SYNC_WORD_HEADER_VALID | RADIOLIB_LR11X0_IRQ_PREAMBLE_DETECTED;
+        const bool detected = receiveDetected(irq, RADIOLIB_LR11X0_IRQ_SYNC_WORD_HEADER_VALID,
+                                              RADIOLIB_LR11X0_IRQ_PREAMBLE_DETECTED);
+        if (!detected && (irq & latch)) {
+            lora.clearIrqFlags(latch);
+            LOG_TRACE("LR11x0 alt-modem stale RX latch cleared (irq=0x%04X)", (unsigned)irq);
+        }
+        return detected;
+    }
     return receiveDetected(lora.getIrqStatus(), RADIOLIB_LR11X0_IRQ_SYNC_WORD_HEADER_VALID,
                            RADIOLIB_LR11X0_IRQ_PREAMBLE_DETECTED);
 }

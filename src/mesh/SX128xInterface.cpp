@@ -5,6 +5,7 @@
 #include "error.h"
 #include "main.h"
 #include "mesh/NodeDB.h"
+#include "modules/NexusModule.h" // Nexus SETFSK/SETFLRC: altModem state (Phase 2: SX128x)
 
 #if ARCH_PORTDUINO
 #include "PortduinoGlue.h"
@@ -131,10 +132,113 @@ template <typename T> bool SX128xInterface<T>::reinitChip(bool fromInit)
     return res == RADIOLIB_ERR_NONE;
 }
 
+template <typename T> int16_t SX128xInterface<T>::programAltModemFSK()
+{
+    const meshtastic::NexusModule::NexusAltModem &m = meshtastic::nexusModule->altModem;
+    limitPower(SX128X_MAX_POWER);
+    // beginGFSK(freq MHz, br kbps, freqDev kHz, pwr dBm, preamble bits) — freq+pwr baked in.
+    int16_t err = lora.beginGFSK(getFreq(), (uint16_t)m.brKbps, m.freqDevKHz, power, m.preambleBits);
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("SX128X beginGFSK(%.3fM/%.1fk/%.1fk/%d/%u) %s%d", getFreq(), m.brKbps,
+                  m.freqDevKHz, power, m.preambleBits, radioLibErr, err);
+        return err;
+    }
+    // Uniform Nexus wire profile (Jenny ruling 2026-10-14): pin sync/whitening/NRZ/ CRC —
+    // note §7: SX128x GFSK whitening defaults ON (silent killer), so OFF must be explicit.
+    uint8_t wireSync[2] = {0x12, 0xAD};
+    err = lora.setSyncWord(wireSync, sizeof(wireSync));
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("SX128X GFSK setSyncWord %s%d", radioLibErr, err);
+        return err;
+    }
+    err = lora.setCRC(2, 0x1D0F, 0x1021); // no inverted variant on SX128x
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("SX128X GFSK setCRC %s%d", radioLibErr, err);
+        return err;
+    }
+    err = lora.setWhitening(false);
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("SX128X GFSK setWhitening %s%d", radioLibErr, err);
+        return err;
+    }
+    err = lora.setDataShaping(RADIOLIB_SHAPING_NONE);
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("SX128X GFSK setDataShaping %s%d", radioLibErr, err);
+        return err;
+    }
+    err = lora.variablePacketLengthMode(RADIOLIB_SX128X_MAX_PACKET_LENGTH);
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("SX128X GFSK variablePacketLengthMode %s%d", radioLibErr, err);
+        return err;
+    }
+#ifdef SX128X_RXEN
+    lora.setRfSwitchPins(SX128X_RXEN, SX128X_TXEN);
+#elif ARCH_PORTDUINO
+    if (portduino_config.lora_rxen_pin.pin != RADIOLIB_NC && portduino_config.lora_txen_pin.pin != RADIOLIB_NC)
+        lora.setRfSwitchPins(portduino_config.lora_rxen_pin.pin, portduino_config.lora_txen_pin.pin);
+#endif
+    LOG_INFO("SX128X GFSK armed: BR=%.1fk dev=%.1fk pre=%u freq=%.3f", m.brKbps, m.freqDevKHz,
+             m.preambleBits, getFreq());
+    return RADIOLIB_ERR_NONE;
+}
+
+template <typename T> int16_t SX128xInterface<T>::programAltModemFLRC()
+{
+    const meshtastic::NexusModule::NexusAltModem &m = meshtastic::nexusModule->altModem;
+    limitPower(SX128X_MAX_POWER);
+    uint8_t cr = (m.cr == 2) ? RADIOLIB_SX128X_FLRC_CR_1_2
+               : (m.cr == 3) ? RADIOLIB_SX128X_FLRC_CR_3_4
+                             : RADIOLIB_SX128X_FLRC_CR_1_0;
+    uint8_t shaping = (m.bt == 0) ? RADIOLIB_SHAPING_NONE
+                    : (m.bt == 1) ? RADIOLIB_SHAPING_0_3
+                                  : RADIOLIB_SHAPING_0_5;
+    // beginFLRC(freq MHz, br kbps, cr selector, pwr dBm, preamble bits, shaping) —
+    // explicit params so both sides of an SX128x pair always match (Phase 2 ruling).
+    int16_t err = lora.beginFLRC(getFreq(), (uint16_t)m.brKbps, cr, power, m.preambleBits, shaping);
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("SX128X beginFLRC(%.3fM/%.1fk/cr=%u/%d/%u) %s%d", getFreq(), m.brKbps, cr,
+                  power, m.preambleBits, radioLibErr, err);
+        return err;
+    }
+    err = lora.variablePacketLengthMode(RADIOLIB_SX128X_MAX_PACKET_LENGTH);
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("SX128X FLRC variablePacketLengthMode %s%d", radioLibErr, err);
+        return err;
+    }
+#ifdef SX128X_RXEN
+    lora.setRfSwitchPins(SX128X_RXEN, SX128X_TXEN);
+#elif ARCH_PORTDUINO
+    if (portduino_config.lora_rxen_pin.pin != RADIOLIB_NC && portduino_config.lora_txen_pin.pin != RADIOLIB_NC)
+        lora.setRfSwitchPins(portduino_config.lora_rxen_pin.pin, portduino_config.lora_txen_pin.pin);
+#endif
+    LOG_INFO("SX128X FLRC armed: BR=%.1fk cr=%u bt=%u pre=%u freq=%.3f", m.brKbps, cr, shaping,
+             m.preambleBits, getFreq());
+    return RADIOLIB_ERR_NONE;
+}
+
 template <typename T> int16_t SX128xInterface<T>::programModemParams()
 {
+    // Nexus SETFSK/SETFLRC (Phase 2): alt modem armed -> program GFSK/FLRC instead of
+    // LoRa; re-read on every reconfigure (persist-until-disabled ruling, 2026-10-14).
+    if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode == 1) {
+        return programAltModemFSK();
+    }
+    if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode == 2) {
+        return programAltModemFLRC();
+    }
+
     // configure publicly accessible settings
     int16_t err = lora.setSpreadingFactor(sf);
+    // Nexus SETFSK/SETFLRC: Returning to LoRa from FSK/FLRC modem triggers RADIOLIB_ERR_WRONG_MODEM
+    // because hardware packet type is still GFSK/FLRC. Re-init chip cleanly to restore LoRa
+    // packet mode without triggering a spurious critical error.
+    if (err == RADIOLIB_ERR_WRONG_MODEM) {
+        LOG_INFO("SX128X wrong modem (returning to LoRa), re-initializing");
+        if (!reinitChip()) {
+            return RADIOLIB_ERR_CHIP_NOT_FOUND;
+        }
+        err = lora.setSpreadingFactor(sf);
+    }
     if (err != RADIOLIB_ERR_NONE) {
         LOG_ERROR("SX128X setSpreadingFactor(%u) %s%d", sf, radioLibErr, err);
         return err;
@@ -305,7 +409,12 @@ template <typename T> uint8_t SX128xInterface<T>::readChipState()
 template <typename T> void SX128xInterface<T>::addReceiveMetadata(meshtastic_MeshPacket *mp)
 {
     // LOG_DEBUG("PacketStatus %x", lora.getPacketStatus());
-    mp->rx_snr = lora.getSNR();
+    // Nexus SETFSK/SETFLRC: no chirp SNR in GFSK/FLRC — RSSI-based pseudo-SNR (2026-10-14).
+    if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
+        mp->rx_snr = meshtastic::NexusModule::altPseudoSnr(lora.getRSSI());
+    } else {
+        mp->rx_snr = lora.getSNR();
+    }
     mp->rx_rssi = lround(lora.getRSSI());
     mp->has_rx_rssi = true; // rx_rssi has explicit presence - a genuine reading must be marked present to survive encoding
     // Nexus port (Nexus-28001, 2026-08-16): see SX126xInterface.cpp for rationale.
@@ -374,13 +483,21 @@ template <typename T> void SX128xInterface<T>::startReceive()
 #endif
 
     int16_t err = trySetStandby();
-    if (err == RADIOLIB_ERR_NONE)
+    if (err == RADIOLIB_ERR_NONE) {
+        if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
+            (void)lora.variablePacketLengthMode(RADIOLIB_SX128X_MAX_PACKET_LENGTH);
+        }
         err = lora.startReceive(RADIOLIB_SX128X_RX_TIMEOUT_INF, MESHTASTIC_RADIOLIB_IRQ_RX_FLAGS);
+    }
 
     if (err != RADIOLIB_ERR_NONE) {
         LOG_ERROR("SX128X startReceive %s%d", radioLibErr, err);
-        if (maybeRecoverChipStateLoss())
+        if (maybeRecoverChipStateLoss()) {
+            if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
+                (void)lora.variablePacketLengthMode(RADIOLIB_SX128X_MAX_PACKET_LENGTH);
+            }
             err = lora.startReceive(RADIOLIB_SX128X_RX_TIMEOUT_INF, MESHTASTIC_RADIOLIB_IRQ_RX_FLAGS);
+        }
     }
 
     if (err != RADIOLIB_ERR_NONE) {
@@ -409,6 +526,21 @@ template <typename T> bool SX128xInterface<T>::isChannelActive()
                                        .timeout = 0,
                                        .irqFlags = RADIOLIB_IRQ_CAD_DEFAULT_FLAGS,
                                        .irqMask = RADIOLIB_IRQ_CAD_DEFAULT_MASK}};
+    // Nexus SETFSK/SETFLRC: no LoRa CAD in GFSK/FLRC — RSSI energy sniff (2026-10-14).
+    // MUST sample instantaneous RSSI while still in continuous RX mode: entering standby
+    // drops getRSSI to the standby floor and makes channel activity detection blind.
+    if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
+        float rssi = lora.getRSSI(false); // instantaneous, not last-packet status
+        LOG_TRACE("SX128X alt-modem channel sniff RSSI=%.1f dBm", rssi);
+        if (rssi > -100.0f)
+            return true;
+        int16_t result = trySetStandby();
+        if (result != RADIOLIB_ERR_NONE) {
+            LOG_ERROR("SX128X trySetStandby %s%d", radioLibErr, result);
+        }
+        return false;
+    }
+
     int16_t result = trySetStandby();
     if (result == RADIOLIB_ERR_NONE) {
         result = lora.scanChannel(cfg);
@@ -428,6 +560,22 @@ template <typename T> bool SX128xInterface<T>::isChannelActive()
 /** Could we send right now (i.e. either not actively receiving or transmitting)? */
 template <typename T> bool SX128xInterface<T>::isActivelyReceiving()
 {
+    // Nexus SETFSK/SETFLRC: LoRa detects on HEADER_VALID; GFSK/FLRC detect on
+    // SYNC_WORD_VALID (the GFSK packet-start event).
+    if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
+        const uint16_t irq = lora.getIrqStatus();
+        const uint16_t latch = RADIOLIB_SX128X_IRQ_SYNC_WORD_VALID | RADIOLIB_SX128X_IRQ_PREAMBLE_DETECTED;
+        const bool detected = receiveDetected(irq, RADIOLIB_SX128X_IRQ_SYNC_WORD_VALID,
+                                              RADIOLIB_SX128X_IRQ_PREAMBLE_DETECTED);
+        // Stale-latch hazard (bench 2026-10-17, same as SX126x FSK): false noise
+        // detections latch non-terminal IRQ bits that the interrupt path never clears
+        // -> busyRx latches forever -> TX starved. Clear once receiveDetected() rules it stale.
+        if (!detected && (irq & latch)) {
+            lora.clearIrqFlags(latch);
+            LOG_TRACE("SX128X alt-modem stale RX latch cleared (irq=0x%04X)", (unsigned)irq);
+        }
+        return detected;
+    }
     return receiveDetected(lora.getIrqStatus(), RADIOLIB_SX128X_IRQ_HEADER_VALID, RADIOLIB_SX128X_IRQ_PREAMBLE_DETECTED);
 }
 

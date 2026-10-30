@@ -592,11 +592,27 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     // case (the class member is already initialized to 0x2b).
     void applyNexusSyncwordOverride() override;
 
+    /** True while the Nexus alternate modem (SETFSK/SETFLRC) is active. Defined in the .cpp to keep NexusModule.h out of this header. */
+    static bool altModemActive();
+
+    /**
+     * Airtime in ms of a pl-byte packet on the alternate modem, from RadioLib's reported time-on-air or, when RadioLib
+     * omits the active modem branch, from the modem parameters. 0 when neither is usable (caller falls back to LoRa maths).
+     */
+    static uint32_t altModemPacketTime(uint32_t pl, RadioLibTime_t reported);
+
     /**
      * Derive packet time either for a received (using header info) or a transmitted packet
      */
     template <typename T> uint32_t computePacketTime(T &lora, uint32_t pl, bool received)
     {
+        // Nexus SETFSK/SETFLRC: When alternate modem is active, calculate airtime directly
+        // from the active modem driver parameters rather than applying LoRa DR math.
+        if (altModemActive()) {
+            if (uint32_t ms = altModemPacketTime(pl, lora.getTimeOnAir(pl)))
+                return ms;
+        }
+
         DataRate_t dr = getDataRate();
         PacketConfig_t pc = getPacketConfig();
 

@@ -438,6 +438,25 @@ void RadioLibInterface::onNotify(uint32_t notification)
 #endif
         break;
     case ISR_RX:
+        // PREAMBLE_DETECTED/HEADER_VALID/SYNC are routed to the edge-triggered DIO1
+        // (MESHTASTIC_RADIOLIB_IRQ_RX_FLAGS), so every packet's own preamble fires this
+        // notification BEFORE RX_DONE. Handled as a completed receive it reads an empty
+        // buffer (silent rxBad) and the startReceive() below puts the chip in standby —
+        // aborting the packet in flight. LoRa only survives because its 32 ms preamble
+        // outlasts the ~1 ms abort+re-arm; FSK's whole preamble+sync is ~0.3 ms (16 bits
+        // @ 50 kbps), so the chip never re-syncs and the receiver is deaf to every
+        // packet — bench 2026-10-18: SX1262 AND SX1280 pairs both deaf, clean logs.
+        // Guard: terminal events only. A preamble/header-only edge: clear the latch so
+        // DIO1 drops (RX_DONE then produces a fresh edge instead of waiting for the
+        // ~1 s pollMissedIrqs backup), re-arm the interrupt, no abort.
+        if (!iface->checkIrq(RADIOLIB_IRQ_RX_DONE) && !iface->checkIrq(RADIOLIB_IRQ_TIMEOUT) &&
+            !iface->checkIrq(RADIOLIB_IRQ_CRC_ERR) && !iface->checkIrq(RADIOLIB_IRQ_HEADER_ERR)) {
+            iface->clearIrq((1UL << RADIOLIB_IRQ_PREAMBLE_DETECTED) | (1UL << RADIOLIB_IRQ_HEADER_VALID) |
+                            (1UL << RADIOLIB_IRQ_SYNC_WORD_VALID));
+            if (!sendingPacket)
+                enableInterrupt(isrRxLevel0);
+            return;
+        }
         handleReceiveInterrupt();
         startReceive();
         setTransmitDelay();
@@ -1501,6 +1520,35 @@ void RadioLibInterface::setStandby()
     // neither sending nor receiving
     powerMon->clearState(meshtastic_PowerMon_State_Lora_RXOn);
     powerMon->clearState(meshtastic_PowerMon_State_Lora_TXOn);
+}
+
+bool RadioLibInterface::altModemActive()
+{
+    return meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0;
+}
+
+uint32_t RadioLibInterface::altModemPacketTime(uint32_t pl, RadioLibTime_t reported)
+{
+    if (!isRadioLibTimeError(reported)) {
+        uint32_t ms = (reported + 999) / 1000;
+        return ms > 0 ? ms : 1;
+    }
+    // Fallback when RadioLib's getTimeOnAir omits the active modem branch (e.g. SX128x::getTimeOnAir
+    // in RadioLib 7.6.0 returns RADIOLIB_ERR_WRONG_MODEM for RADIOLIB_SX128X_PACKET_TYPE_FLRC):
+    const auto &m = meshtastic::nexusModule->altModem;
+    if (m.brKbps <= 0.0f)
+        return 0;
+    uint32_t totalBits = (uint32_t)m.preambleBits + 32 + ((pl + 3) * 8);
+    if (m.mode == 2) {
+        uint32_t codedBits = ((pl + 3) * 8) + 6;
+        if (m.cr == 2)
+            codedBits *= 2;
+        else if (m.cr == 3)
+            codedBits = (codedBits * 4) / 3;
+        totalBits = (uint32_t)m.preambleBits + 21 + 32 + codedBits;
+    }
+    uint32_t ms = (uint32_t)((totalBits / m.brKbps) + 0.999f);
+    return ms > 0 ? ms : 1;
 }
 
 // Nexus port (Nexus-28001, 2026-08-16): read NexusModule::syncword_override (vault v40) and

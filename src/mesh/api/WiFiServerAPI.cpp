@@ -35,13 +35,15 @@ bool WiFiServerPort::hasActiveClient() {
 String WiFiServerPort::getClientInfo() {
     if (openAPI) {
 #ifdef ARCH_PORTDUINO
-        // The portduino IPAddress has no toString().
-        const auto ip = openAPI->getClient().remoteIP();
-        const String address = String(ip[0]) + "." + String(ip[1]) + "." + String(ip[2]) + "." + String(ip[3]);
+        auto ip = openAPI->getClient().remoteIP();
+        char endpoint[24];
+        snprintf(endpoint, sizeof(endpoint), "%u.%u.%u.%u:%u", static_cast<unsigned>(ip[0]), static_cast<unsigned>(ip[1]),
+                 static_cast<unsigned>(ip[2]), static_cast<unsigned>(ip[3]),
+                 static_cast<unsigned>(openAPI->getClient().remotePort()));
+        return String(endpoint);
 #else
-        const String address = openAPI->getClient().remoteIP().toString();
+        return openAPI->getClient().remoteIP().toString() + ":" + String(openAPI->getClient().remotePort());
 #endif
-        return address + ":" + String(openAPI->getClient().remotePort());
     }
     return "N/A";
 }

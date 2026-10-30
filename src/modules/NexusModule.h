@@ -7,14 +7,15 @@
 // NexusModule — remote CLI module for Meshtastic firmware
 
 #pragma once
-#include "mesh/MeshModule.h"
-#include "detect/ScanI2CConsumer.h"
-#include "concurrency/OSThread.h"
-#include <vector>
-#include "mesh/generated/meshtastic/mesh.pb.h"
-#include "configuration.h"
 #include "Channels.h"
+#include "concurrency/OSThread.h"
+#include "configuration.h"
+#include "detect/ScanI2CConsumer.h"
 #include "input/InputBroker.h"
+#include "mesh/MeshModule.h"
+#include "mesh/generated/meshtastic/mesh.pb.h"
+#include "modules/NexusRuntime.h"
+#include <vector>
 
 namespace meshtastic {
 
@@ -414,6 +415,16 @@ public:
     NexusTargetStats targetWatchlist[8];
     uint8_t watchlistCount = 0;
 
+    struct ReplyContext {
+        uint32_t to = 0xFFFFFFFF;
+        uint32_t channel = 0;
+        uint32_t replyId = 0;
+        bool phoneOnly = false;
+        bool copyToPhone = true;
+    };
+    ReplyContext traceReply, netscanReply, clientscanReply, noiseReply;
+    bool sendReply(const ReplyContext &context, const char *message, size_t length, bool reliable = true);
+
     // Trace context
     bool trace_active = false;
     bool input_hooked = false;
@@ -447,6 +458,7 @@ public:
         char     command[64]; // Command string (Updated to 64 for complex commands)
     };
     NexusCronEntry cron_table[8] = {{0}};
+    uint32_t cronLastRunMs[8] = {};
 
     struct __attribute__((packed)) NexusAliasEntry {
         uint32_t nodeID;
@@ -552,9 +564,9 @@ public:
         uint32_t crc32;
     };
 
-    void saveVault();
+    bool saveVault();
     void applyVaultV68(const NexusVault &v);
-    void loadVault();
+    bool loadVault();
 
     // Read /nexus.bin into `out` and validate it. Does NOT apply to RAM.
     // Returns true if a valid vault was read; false if the file is missing,
@@ -666,8 +678,11 @@ public:
     uint32_t macro_reply_to = 0;
     uint32_t macro_reply_ch = 0;
     uint32_t macro_from_id = 0;
+    meshtastic_MeshPacket macroRequest = meshtastic_MeshPacket_init_default;
+    bool macroIsBroadcast = false;
+    bool macroStepExecuting = false;
+    int macroDepth = 0;
     bool macro_to_phone = false;
-    bool macro_is_shadow = false;
 
     uint16_t nexus_ignore_count = 0;
     uint32_t nexus_ignore_list[64] = {0};
@@ -769,6 +784,29 @@ public:
     float s_o_value = 0.0f;  // v34 slot (RAM mirror)
     uint16_t preamble_override = 0;   // v35: RAM preamble override (0 = default)
     uint8_t syncword_override = 0;    // v40: RAM syncword override (0 = Meshtastic default 0x2B)
+
+    // Nexus SETFSK/SETFLRC (research 2026-10-09; Jenny rulings 2026-10-14): RAM-only
+    // alternate-modem state. mode: 0 = LoRa (disabled), 1 = FSK/GFSK, 2 = FLRC.
+    // NOT vaulted (RAM-only ruling) and re-read on every applyModemConfig() /
+    // programModemParams() so it persists until explicitly disabled
+    // (persist-until-disabled ruling); a reboot returns the node to LoRa.
+    struct NexusAltModem {
+        uint8_t mode;       // 0 = LoRa, 1 = FSK/GFSK, 2 = FLRC
+        float brKbps;       // bit rate (kbps)
+        float freqDevKHz;   // FSK frequency deviation (kHz)
+        float rxBwKHz;      // RX bandwidth (kHz)
+        uint16_t preambleBits;
+        uint8_t cr;         // FLRC coding-rate shorthand: 2=1/2, 3=3/4, 4=uncoded (Phase 2)
+        uint8_t bt;         // shaping selector: 0=NONE, 1=BT 0.3, 2=BT 0.5 (Phase 2)
+    };
+    NexusAltModem altModem = {};
+
+    // FSK pseudo-SNR: GFSK has no chirp SNR — map RSSI [-120..-50] dBm -> [-10..+10] dB
+    // so getCWsize()/TX-delay math keeps differentiating near/far (RSSI-based ruling).
+    static float altPseudoSnr(float rssi) {
+        float s = (rssi + 120.0f) * (20.0f / 70.0f) - 10.0f;
+        return s < -10.0f ? -10.0f : (s > 10.0f ? 10.0f : s);
+    }
 
     // Nexus Channel Helpers
     bool isNexusChannel(uint32_t channelIndex);
@@ -875,7 +913,7 @@ public:
 #endif
 
 private:
-    void handleNexusCommand(const meshtastic_MeshPacket &mp, const char *cmd, bool isBroadcast, uint32_t replyId, bool toPhoneOnly = false, bool isShadow = false, int redirect_depth = 0);
+    void handleNexusCommand(const meshtastic_MeshPacket &mp, const char *cmd, bool isBroadcast, uint32_t replyId, bool toPhoneOnly = false, int redirect_depth = 0);
     // /nexus MESHCORE [INFO|STATS|RELAY|ADVERT|RESET] (NexusMeshCoreCommand.cpp): the MeshCore relay and ADVERT settings.
     void handleMeshCoreCommand(const char *args, char *reply, size_t replyLen);
     // The MeshCore settings follow SAVE and LOAD, in their own flash file.
@@ -965,7 +1003,7 @@ private:
     // buffers the firmware relies on). All other scratch buffers are
     // declared 'static' inside the handlers themselves to keep them
     // out of loopTask's stack without polluting the public ABI.
-    char cmdBuf[128] = {0};
+    char cmdBuf[sizeof(((meshtastic_Data *)nullptr)->payload.bytes) + 1] = {0};
     char replyMsg[NEXUS_MAX_REPLY] = {0};
 
     // Deferred LoRa config (replaces blocking loop drain)
@@ -984,6 +1022,20 @@ private:
     uint32_t paging_reply_id = 0;
     uint32_t paging_next_send = 0;
     int paging_part = 0;
+
+    nexus::PagingWindow pagingWindow;
+    meshtastic_MeshPacket pagingRequest = meshtastic_MeshPacket_init_default;
+    ReplyContext pagingReply;
+    char pagingCommand[sizeof(cmdBuf)] = {};
+    size_t pagingOffset = 0;
+    bool pagingRendering = false;
+    bool pagingIsBroadcast = false;
+    unsigned pagingGeneration = 0;
+    unsigned commandDepth = 0;
+    const char *activeCommand = nullptr;
+    const meshtastic_MeshPacket *activeRequest = nullptr;
+    bool activePhoneOnly = false;
+    bool activeIsBroadcast = false;
 
     void startPaging(uint32_t to, uint32_t ch, uint32_t replyId, const char* title);
     void appendPaging(const char* entry);
@@ -1166,9 +1218,7 @@ private:
     // Meshtastic's 32-bit monotonically-increasing ID space, a real replay
     // attack has to collide within the same ~256-command window.
     static constexpr size_t REPLAY_RING_SIZE = 256;
-    uint32_t replay_ids[REPLAY_RING_SIZE] = {0};
-    uint8_t replay_next = 0;          // next slot to write
-    uint8_t replay_count = 0;         // filled slots (caps at REPLAY_RING_SIZE)
+    nexus::ReplayRing<REPLAY_RING_SIZE> replayRing;
 
     // Returns true if `id` was already in the ring (replay). On a miss, the
     // id is recorded (evicting oldest when full). Caller skips dispatch on

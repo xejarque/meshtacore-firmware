@@ -6,6 +6,7 @@
 #include "LR2021Interface.h" // Nexus-28005: apply hook for /nexus LR2021_SF uses LR2021Interface accessors
 #include "error.h"
 #include "mesh/NodeDB.h"
+#include "modules/NexusModule.h" // Nexus SETFSK/SETFLRC: altModem state (Phase 2: LR2021/X1)
 
 #if defined(LR2021_DCDC_WORKAROUND) && RADIOLIB_GODMODE
 // The DCDC sensitivity workaround pokes RadioLib-internal DCDC registers that are NOT exposed via the
@@ -284,6 +285,106 @@ template <typename T> bool LR20x0Interface<T>::init()
     return res == RADIOLIB_ERR_NONE;
 }
 
+template <typename T> int16_t LR20x0Interface<T>::programAltModemFSK()
+{
+    const meshtastic::NexusModule::NexusAltModem &m = meshtastic::nexusModule->altModem;
+    // fullBegin() already ran (RF-switch GPIOs + resolved TCXO + chip begin) — pass
+    // lora.tcxoVoltage back through beginGFSK so the DIO3 reference fullBegin resolved
+    // is preserved instead of RadioLib's 1.6 V default.
+    int16_t err = lora.beginGFSK(getFreq(), m.brKbps, m.freqDevKHz, m.rxBwKHz, power,
+                                 m.preambleBits, lora.tcxoVoltage);
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("LR2021 beginGFSK(%.3fM/%.1fk/%.1fk/%.1fk/%d/%u) %s%d", getFreq(), m.brKbps,
+                  m.freqDevKHz, m.rxBwKHz, power, m.preambleBits, radioLibErr, err);
+        return err;
+    }
+    // Uniform Nexus wire profile (same pins as SX126x/LR11x0 GFSK).
+    uint8_t wireSync[2] = {0x12, 0xAD};
+    err = lora.setSyncWord(wireSync, sizeof(wireSync));
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("LR2021 GFSK setSyncWord %s%d", radioLibErr, err);
+        return err;
+    }
+    err = lora.setCRC(2, 0x1D0F, 0x1021, true);
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("LR2021 GFSK setCRC %s%d", radioLibErr, err);
+        return err;
+    }
+    err = lora.setWhitening(false, 0x01FF);
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("LR2021 GFSK setWhitening %s%d", radioLibErr, err);
+        return err;
+    }
+    err = lora.setDataShaping(RADIOLIB_SHAPING_NONE);
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("LR2021 GFSK setDataShaping %s%d", radioLibErr, err);
+        return err;
+    }
+
+    // beginGFSK() internally calls modSetup() -> findChip() -> reset(), which hardware-resets
+    // the LR2021 chip and wipes DIO RF switch config, custom PA table, RX boosted gain, and
+    // DCDC regulator setup configured by fullBegin(). Re-apply them here.
+    applyCustomLfPaTable(getFreq());
+#ifdef LR2021_DIO_AS_RF_SWITCH
+    lora.setRfSwitchTable(lr20x0_rfswitch_dio_pins, lr20x0_rfswitch_table);
+#elif ARCH_PORTDUINO
+    if (portduino_config.has_rfswitch_table)
+        lora.setRfSwitchTable(lr20x0_rfswitch_dio_pins, lr20x0_rfswitch_table);
+#endif
+    (void)lora.setRxBoostedGainMode(config.lora.sx126x_rx_boosted_gain ? LR2021_RX_GAIN_BOOST_LEVEL : 0);
+#if RADIOLIB_GODMODE
+    {
+        uint8_t rampTimes[4] = {15, 15, 15, 15};
+        (void)lora.setRegMode(RADIOLIB_LR2021_REG_MODE_SIMO_NORMAL, rampTimes);
+    }
+#endif
+    applyDcdcWorkaround();
+
+    LOG_INFO("LR2021 GFSK armed: BR=%.1fk dev=%.1fk bw=%.1fk pre=%u freq=%.3f", m.brKbps,
+             m.freqDevKHz, m.rxBwKHz, m.preambleBits, getFreq());
+    return RADIOLIB_ERR_NONE;
+}
+
+template <typename T> int16_t LR20x0Interface<T>::programAltModemFLRC()
+{
+    const meshtastic::NexusModule::NexusAltModem &m = meshtastic::nexusModule->altModem;
+    uint8_t cr = (m.cr == 2) ? RADIOLIB_LR2021_FLRC_CR_1_2
+               : (m.cr == 3) ? RADIOLIB_LR2021_FLRC_CR_3_4
+                             : RADIOLIB_LR2021_FLRC_CR_1_0;
+    uint8_t shaping = (m.bt == 0) ? RADIOLIB_SHAPING_NONE
+                    : (m.bt == 1) ? RADIOLIB_SHAPING_0_3
+                                  : RADIOLIB_SHAPING_0_5;
+    int16_t err = lora.beginFLRC(getFreq(), (uint16_t)m.brKbps, cr, power, m.preambleBits,
+                                 shaping, lora.tcxoVoltage);
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_ERROR("LR2021 beginFLRC(%.3fM/%.1fk/cr=%u/%d/%u) %s%d", getFreq(), m.brKbps, cr,
+                  power, m.preambleBits, radioLibErr, err);
+        return err;
+    }
+
+    // beginFLRC() internally calls modSetup() -> findChip() -> reset(), wiping DIO RF switch
+    // config, custom PA table, RX boosted gain, and DCDC regulator setup. Re-apply them here.
+    applyCustomLfPaTable(getFreq());
+#ifdef LR2021_DIO_AS_RF_SWITCH
+    lora.setRfSwitchTable(lr20x0_rfswitch_dio_pins, lr20x0_rfswitch_table);
+#elif ARCH_PORTDUINO
+    if (portduino_config.has_rfswitch_table)
+        lora.setRfSwitchTable(lr20x0_rfswitch_dio_pins, lr20x0_rfswitch_table);
+#endif
+    (void)lora.setRxBoostedGainMode(config.lora.sx126x_rx_boosted_gain ? LR2021_RX_GAIN_BOOST_LEVEL : 0);
+#if RADIOLIB_GODMODE
+    {
+        uint8_t rampTimes[4] = {15, 15, 15, 15};
+        (void)lora.setRegMode(RADIOLIB_LR2021_REG_MODE_SIMO_NORMAL, rampTimes);
+    }
+#endif
+    applyDcdcWorkaround();
+
+    LOG_INFO("LR2021 FLRC armed: BR=%.1fk cr=%u bt=%u pre=%u freq=%.3f", m.brKbps, cr, shaping,
+             m.preambleBits, getFreq());
+    return RADIOLIB_ERR_NONE;
+}
+
 template <typename T> bool LR20x0Interface<T>::reconfigure()
 {
     // Propagated to the return value below, separately from the chip-programming outcome, so a
@@ -294,6 +395,25 @@ template <typename T> bool LR20x0Interface<T>::reconfigure()
         limitPower(LR2021_MAX_POWER_HF);
     } else {
         limitPower(LR2021_MAX_POWER);
+    }
+
+    // Nexus SETFSK/SETFLRC (Phase 2): alt modem armed -> program GFSK/FLRC instead of
+    // the incremental LoRa path below (persist-until-disabled ruling, 2026-10-14).
+    // Mirrors the bandHop path: fullBegin() handles RF-switch GPIOs + resolved TCXO,
+    // then the alt begin() switches packet type, then startReceive.
+    if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
+        (void)trySetStandby();
+        if (!fullBegin(getFreq()))
+            return false;
+        int16_t altErr = (meshtastic::nexusModule->altModem.mode == 1) ? programAltModemFSK()
+                                                                      : programAltModemFLRC();
+        if (altErr != RADIOLIB_ERR_NONE) {
+            LOG_ERROR("LR2021 alt-modem programming failed %s%d", radioLibErr, altErr);
+            RECORD_CRITICALERROR(meshtastic_CriticalErrorCode_INVALID_RADIO_SETTING);
+            return false;
+        }
+        startReceive();
+        return reconfigureSuccess;
     }
 
     const float freq = getFreq();
@@ -326,6 +446,16 @@ template <typename T> bool LR20x0Interface<T>::reconfigure()
         }
 
         err = lora.setSpreadingFactor(sf);
+        // Nexus SETFSK/SETFLRC: Returning to LoRa from FSK/FLRC modem triggers RADIOLIB_ERR_WRONG_MODEM
+        // because hardware packet type is still GFSK/FLRC. fullBegin() re-initializes the chip cleanly.
+        if (err == RADIOLIB_ERR_WRONG_MODEM) {
+            LOG_INFO("LR2021 wrong modem (returning to LoRa), full begin");
+            (void)trySetStandby();
+            if (!fullBegin(freq))
+                return false;
+            startReceive();
+            return reconfigureSuccess;
+        }
         if (err != RADIOLIB_ERR_NONE) {
             LOG_ERROR("LR20x0 setSpreadingFactor(%u) %s%d", sf, radioLibErr, err);
             RECORD_CRITICALERROR(meshtastic_CriticalErrorCode_INVALID_RADIO_SETTING);
@@ -625,7 +755,12 @@ template <typename T> void LR20x0Interface<T>::setStandby()
 template <typename T> void LR20x0Interface<T>::addReceiveMetadata(meshtastic_MeshPacket *mp)
 {
     // LOG_DEBUG("PacketStatus %x", lora.getPacketStatus());
-    mp->rx_snr = lora.getSNR();
+    // Nexus SETFSK/SETFLRC: no chirp SNR in GFSK/FLRC — RSSI-based pseudo-SNR (2026-10-14).
+    if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
+        mp->rx_snr = meshtastic::NexusModule::altPseudoSnr(lora.getRSSI());
+    } else {
+        mp->rx_snr = lora.getSNR();
+    }
     mp->rx_rssi = lround(lora.getRSSI());
     mp->has_rx_rssi = true; // rx_rssi has explicit presence - a genuine reading must be marked present to survive encoding
 
@@ -671,7 +806,9 @@ template <typename T> void LR20x0Interface<T>::startReceive()
     int16_t err = trySetStandby();
 
     if (err == RADIOLIB_ERR_NONE) {
-        lora.setPreambleLength(preambleLength); // Solve RX ack fail after direct message sent.  Not sure why this is needed.
+        if (!meshtastic::nexusModule || meshtastic::nexusModule->altModem.mode == 0) {
+            lora.setPreambleLength(preambleLength); // Solve RX ack fail after direct message sent.  Not sure why this is needed.
+        }
 
         // We use a 16 bit preamble so this should save some power by letting radio sit in standby mostly.
         err =
@@ -681,7 +818,9 @@ template <typename T> void LR20x0Interface<T>::startReceive()
     if (err != RADIOLIB_ERR_NONE) {
         LOG_ERROR("StartReceive error: %d", err);
         if (maybeRecoverChipStateLoss()) {
-            lora.setPreambleLength(preambleLength);
+            if (!meshtastic::nexusModule || meshtastic::nexusModule->altModem.mode == 0) {
+                lora.setPreambleLength(preambleLength);
+            }
             err = lora.startReceive(RADIOLIB_LR2021_RX_TIMEOUT_INF, MESHTASTIC_RADIOLIB_IRQ_RX_FLAGS,
                                     RADIOLIB_IRQ_RX_DEFAULT_MASK, 0);
         }
@@ -713,6 +852,21 @@ template <typename T> bool LR20x0Interface<T>::isChannelActive()
                                        .timeout = 0,
                                        .irqFlags = RADIOLIB_IRQ_CAD_DEFAULT_FLAGS,
                                        .irqMask = RADIOLIB_IRQ_CAD_DEFAULT_MASK}};
+    // Nexus SETFSK/SETFLRC: no LoRa CAD in GFSK/FLRC — RSSI energy sniff (2026-10-14).
+    // MUST sample instantaneous RSSI while still in continuous RX mode: entering standby
+    // drops getRSSI to the standby floor and makes channel activity detection blind.
+    if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
+        float rssi = lora.getRSSI(false, true); // instantaneous, not last-packet status
+        LOG_TRACE("LR2021 alt-modem channel sniff RSSI=%.1f dBm", rssi);
+        if (rssi > -100.0f)
+            return true;
+        int16_t result = trySetStandby();
+        if (result != RADIOLIB_ERR_NONE) {
+            maybeRecoverChipStateLoss();
+        }
+        return false;
+    }
+
     int16_t result = trySetStandby();
     if (result == RADIOLIB_ERR_NONE) {
         result = lora.scanChannel(cfg);
@@ -732,6 +886,20 @@ template <typename T> bool LR20x0Interface<T>::isActivelyReceiving()
 {
     // The IRQ status will be cleared when we start our read operation. Check if we've started a header, but haven't yet
     // received and handled the interrupt for reading the packet/handling errors.
+    // Nexus SETFSK/SETFLRC: the shared header/sync bit also covers alt-modem packet start,
+    // so the LoRa flags stay valid there — but the stale-latch hazard (bench 2026-10-17,
+    // same as SX126x FSK) applies: clear false-detection latches in alt mode.
+    if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
+        const uint16_t irq = lora.getIrqStatus();
+        const uint16_t latch = RADIOLIB_LR2021_IRQ_LORA_HEADER_VALID | RADIOLIB_LR2021_IRQ_PREAMBLE_DETECTED;
+        const bool detected = receiveDetected(irq, RADIOLIB_LR2021_IRQ_LORA_HEADER_VALID,
+                                              RADIOLIB_LR2021_IRQ_PREAMBLE_DETECTED);
+        if (!detected && (irq & latch)) {
+            lora.clearIrqFlags(latch);
+            LOG_TRACE("LR2021 alt-modem stale RX latch cleared (irq=0x%04X)", (unsigned)irq);
+        }
+        return detected;
+    }
     return receiveDetected(lora.getIrqStatus(), RADIOLIB_LR2021_IRQ_LORA_HEADER_VALID, RADIOLIB_LR2021_IRQ_PREAMBLE_DETECTED);
 }
 
@@ -803,6 +971,17 @@ template <typename T> int16_t LR20x0Interface<T>::getCurrentRSSI()
 {
     float rssi = lora.getRSSI(false, true);
     return (int16_t)round(rssi);
+}
+
+template <typename T> bool LR20x0Interface<T>::recoverChipStateLoss()
+{
+    if (!fullBegin(getFreq()))
+        return false;
+    if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
+        int16_t err = (meshtastic::nexusModule->altModem.mode == 1) ? programAltModemFSK() : programAltModemFLRC();
+        return err == RADIOLIB_ERR_NONE;
+    }
+    return true;
 }
 
 // Don't leak the alias into the files InterfacesTemplates.cpp includes after this one.

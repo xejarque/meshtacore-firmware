@@ -648,7 +648,8 @@ int ExternalNotificationModule::handleInputEvent(const InputEvent *event)
 // and /nexus PLAYRTTTL <melody>.
 void ExternalNotificationModule::playRTTTL(const char *melody)
 {
-    if (!melody || *melody == ' ') return;
+    if (!melody || *melody == '\0')
+        return;
     LOG_INFO("Nexus: Playing RTTTL: %s", melody);
 
     // Nexus-28005 (2026-09-13): same manual-trigger fix as
