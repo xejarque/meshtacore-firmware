@@ -86,6 +86,60 @@ class NexusModule : public MeshModule,
 public:
     NexusModule();
 
+    // ---- Meshtacore extensions ----------------------------------------------------------------------------------------
+    // Declared together, here, so a merge of the jentastic upstream has no reason to touch this part of the class. The
+    // code is in NexusMeshtacoreCommands.cpp, NexusMeshtacoreRuntime.cpp and NexusMeshCoreCommand.cpp.
+    // EXT_FLAG_PUBLIC_SILENCE: our ACKs, NAKs, request replies and unicast NodeInfo on a channel with the
+    // public key are dropped; relaying and our own broadcasts are untouched.
+    bool isSilencedPublicReply(const meshtastic_MeshPacket &mp);
+    uint8_t lpcomp_wake_ref = 0;   // v68 RAM mirror, 0 = variant default, else 1/16 VDD steps
+    void applyLpcompWakeLevel();
+    void handleVwakeCommand(const char *arg);
+    void handleSetUrlCommand(const char *url);
+
+    // STORM: radio-off timed deep sleep, started after a short notice so the reply leaves first.
+    void handleStormCommand(const char *arg);
+    void handleChemCommand(const char *arg);
+    void serviceStormSleep();
+    bool stormPending = false;
+    uint32_t stormStartDeadlineMs = 0;
+    uint32_t stormSleepMinutes = 0;
+    bool isTrustedNexusChannelName(const char *name);
+    int mergeSharedChannel(const meshtastic_ChannelSettings &settings, bool asPrimary, char *notes, size_t notesLen);
+
+    // Low-battery sleep notice: announces on the Nexus channel, then sleeps once the queue has drained.
+    bool deferLowBatterySleep(uint32_t batteryMv);
+    bool lowBatterySleepPending = false;
+    uint32_t lowBatterySleepDeadlineMs = 0;
+    bool readyAnnouncePending = false;
+    void serviceLowBatterySleep();
+    void serviceReadyAnnounce();
+    bool hasRealNexusChannel();
+    static bool wokeFromBatteryWake();
+    uint8_t battery_chemistry = 0; // v68 RAM mirror, 0 = variant OCV curve
+    uint8_t ext_flags = 0;         // v68 RAM mirror, EXT_FLAG_* bits
+    static constexpr uint8_t EXT_FLAG_PUBLIC_SILENCE = 0x01;
+    // An auto bit counts only while the byte names a single node that still has the role and was heard recently:
+    // the masks are keyed on the last byte and never auto-cleared, so this keeps a collision or a stale bit
+    // from sparing a hop.
+    bool isLiveAutoZeroHopRelay(uint8_t relay_id, bool clientBase);
+    static constexpr uint32_t AUTO_ZERO_HOP_MAX_SILENCE_SECS = 72 * 60 * 60;
+    // Infrastructure roles get the auto masks on by default unless a v68+ vault says otherwise.
+    void applyZeroHopRoleDefaults(bool vaultHasV68);
+    bool vaultV68Loaded = false;
+private:
+    // Meshtacore commands (NexusMeshtacoreCommands.cpp): false when `cmd` is not one of them.
+    bool handleMeshtacoreCommand(const char *cmd);
+    // /nexus MESHCORE [INFO|STATS|RELAY|ADVERT|RESET] (NexusMeshCoreCommand.cpp): the MeshCore relay and ADVERT settings.
+    void handleMeshCoreCommand(const char *args, char *reply, size_t replyLen);
+    // The MeshCore settings follow SAVE and LOAD, in their own flash file.
+    void saveMeshCoreSettings();
+    void loadMeshCoreSettings();
+    // /nexus VECINOS (NexusMeshCoreCommand.cpp): the direct neighbours, Meshtastic and MeshCore, in one reply.
+    void formatNeighbors(char *reply, size_t replyLen);
+public:
+    // ---- end of the Meshtacore extensions -----------------------------------------------------------------------------
+
     virtual bool wantPacket(const meshtastic_MeshPacket *p) override;
     virtual ProcessMessage handleReceived(const meshtastic_MeshPacket &mp) override;
     ProcessMessage handleLocal(const meshtastic_MeshPacket &mp);
@@ -97,9 +151,6 @@ public:
     bool shouldInvalidatePacket(const meshtastic_MeshPacket &mp);
     bool shouldDropPrivate(const meshtastic_MeshPacket &mp);
     bool shouldDropOutput(const meshtastic_MeshPacket &mp);
-    // EXT_FLAG_PUBLIC_SILENCE: our ACKs, NAKs, request replies and unicast NodeInfo on a channel with the
-    // public key are dropped; relaying and our own broadcasts are untouched.
-    bool isSilencedPublicReply(const meshtastic_MeshPacket &mp);
     bool isNexusIgnored(uint32_t nodeID);
     // Wire-shape heuristic for foreign PKI packets we couldn't decode (no destination key).
     // The mp.pki_encrypted flag is only set on successful PKI decrypt (Router.cpp:1052), so for
@@ -578,33 +629,6 @@ public:
     char nexus_groups[4][9] = {{0}}; // RAM storage for active groups
     uint8_t nexus_secondary_keys[4][32] = {{0}}; // v65: 4 slots (was 2 in v8..v64)
     uint32_t nexus_security_bitmask = 0; // v65: security subsystem bitmask (reserved)
-    uint8_t lpcomp_wake_ref = 0;   // v68 RAM mirror, 0 = variant default, else 1/16 VDD steps
-    void applyLpcompWakeLevel();
-    void handleVwakeCommand(const char *arg);
-    void handleSetUrlCommand(const char *url);
-
-    // STORM: radio-off timed deep sleep, started after a short notice so the reply leaves first.
-    void handleStormCommand(const char *arg);
-    void handleChemCommand(const char *arg);
-    void serviceStormSleep();
-    bool stormPending = false;
-    uint32_t stormStartDeadlineMs = 0;
-    uint32_t stormSleepMinutes = 0;
-    bool isTrustedNexusChannelName(const char *name);
-    int mergeSharedChannel(const meshtastic_ChannelSettings &settings, bool asPrimary, char *notes, size_t notesLen);
-
-    // Low-battery sleep notice: announces on the Nexus channel, then sleeps once the queue has drained.
-    bool deferLowBatterySleep(uint32_t batteryMv);
-    bool lowBatterySleepPending = false;
-    uint32_t lowBatterySleepDeadlineMs = 0;
-    bool readyAnnouncePending = false;
-    void serviceLowBatterySleep();
-    void serviceReadyAnnounce();
-    bool hasRealNexusChannel();
-    static bool wokeFromBatteryWake();
-    uint8_t battery_chemistry = 0; // v68 RAM mirror, 0 = variant OCV curve
-    uint8_t ext_flags = 0;         // v68 RAM mirror, EXT_FLAG_* bits
-    static constexpr uint8_t EXT_FLAG_PUBLIC_SILENCE = 0x01;
     uint64_t nexusVariantBits = 0;        // v67: generic variant-bitmask pool. RAM mirror of NexusVault::nexusVariantBits. Each variant carves its own bit range; today = station-g3 (PA/LNA). Future variants repurpose the same field.
 
 #ifdef STATION_G3
@@ -712,14 +736,6 @@ public:
             return true;
         return false;
     }
-    // An auto bit counts only while the byte names a single node that still has the role and was heard recently:
-    // the masks are keyed on the last byte and never auto-cleared, so this keeps a collision or a stale bit
-    // from sparing a hop.
-    bool isLiveAutoZeroHopRelay(uint8_t relay_id, bool clientBase);
-    static constexpr uint32_t AUTO_ZERO_HOP_MAX_SILENCE_SECS = 72 * 60 * 60;
-    // Infrastructure roles get the auto masks on by default unless a v68+ vault says otherwise.
-    void applyZeroHopRoleDefaults(bool vaultHasV68);
-    bool vaultV68Loaded = false;
     void setZeroHopNode(uint8_t relay_id, bool enable) {
         if (enable) zero_hop_mask[relay_id / 8] |= (1 << (relay_id % 8));
         else zero_hop_mask[relay_id / 8] &= ~(1 << (relay_id % 8));
@@ -915,15 +931,6 @@ public:
 
 private:
     void handleNexusCommand(const meshtastic_MeshPacket &mp, const char *cmd, bool isBroadcast, uint32_t replyId, bool toPhoneOnly = false, int redirect_depth = 0);
-    // Meshtacore commands (NexusMeshtacoreCommands.cpp): false when `cmd` is not one of them.
-    bool handleMeshtacoreCommand(const char *cmd);
-    // /nexus MESHCORE [INFO|STATS|RELAY|ADVERT|RESET] (NexusMeshCoreCommand.cpp): the MeshCore relay and ADVERT settings.
-    void handleMeshCoreCommand(const char *args, char *reply, size_t replyLen);
-    // The MeshCore settings follow SAVE and LOAD, in their own flash file.
-    void saveMeshCoreSettings();
-    void loadMeshCoreSettings();
-    // /nexus VECINOS (NexusMeshCoreCommand.cpp): the direct neighbours, Meshtastic and MeshCore, in one reply.
-    void formatNeighbors(char *reply, size_t replyLen);
     int onInputEvent(const InputEvent *event);
     void updateSigint(const meshtastic_MeshPacket &mp);
     int nexus_base64_decode(unsigned char *out, size_t out_len, size_t *out_written, const char *in);
