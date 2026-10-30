@@ -229,12 +229,16 @@ class MeshService
 
     /// Handle a packet that just arrived from the radio.  This method does _not_ free the provided packet.  If it
     /// needs to keep the packet around it makes a copy. Pre-v66 this was private with a `friend class RoutingModule`
-    /// carve-out — Nexus v66's /nexus FEATURES FORWARD_OPAQUE_TO_PHONE needs Router to forward still-encrypted
+    /// carve-out - Nexus v66's /nexus FEATURES FORWARD_OPAQUE_TO_PHONE needs Router to forward still-encrypted
     /// packets into the phone pipeline from the OPAQUE_RELAY_ONLY short-circuit in Router.cpp, so promote to
     /// public. The friend workaround predates that third caller and would only have grown.
     int handleFromRadio(const meshtastic_MeshPacket *p);
 
   private:
+    /// A ".path" query or a text for MeshCore: consumed here instead of going to the Meshtastic mesh. See
+    /// MeshServiceMeshCore.cpp.
+    bool consumeMeshCorePacket(meshtastic_MeshPacket *p, RxSource src, uint32_t mesh_packet_id, ErrorCode &result);
+
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
     /// Encode p as a MeshCore GRP_TXT and queue it on the radio. False if it could not be queued.
     bool sendMeshCoreGroupText(const meshtastic_MeshPacket *p);
