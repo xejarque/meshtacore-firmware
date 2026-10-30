@@ -202,6 +202,28 @@ lint:
     - linters: [ALL]
       paths:
         - .github/nightly/*.html
+    # Files that the jentastic upstream edits and does not run through trunk fmt. Formatting
+    # them here rewrites their lines (em-dashes, wrapped calls) and turns every later
+    # `git merge origin/main` into a conflict on code that never changed in meaning.
+    # Meshtacore's own code lives in separate files, which stay formatted.
+    - linters: [ALL]
+      paths:
+        - src/modules/Nexus*.cpp
+        - src/modules/Nexus*.h
+        - src/modules/ExternalNotificationModule.cpp
+        - src/mesh/RadioInterface.h
+        - src/mesh/RadioLibInterface.cpp
+        - src/mesh/RadioLibInterface.h
+        - src/mesh/SX126xInterface.cpp
+        - src/mesh/SX126xInterface.h
+        - src/mesh/SX128xInterface.cpp
+        - src/mesh/SX128xInterface.h
+        - src/mesh/LR11x0Interface.cpp
+        - src/mesh/LR11x0Interface.h
+        - src/mesh/LR20x0Interface.cpp
+        - src/mesh/LR20x0Interface.h
+        - src/mesh/MeshService.cpp
+        - src/mesh/api/WiFiServerAPI.cpp
 runtimes:
   enabled:
     - python@3.14.4
