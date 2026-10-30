@@ -32,6 +32,7 @@
 #include "meshUtils.h"
 #include "modules/NeighborInfoModule.h"
 #include "modules/NexusModule.h"
+#include "modules/NexusRescue.h"
 #include "target_specific.h"
 #if HAS_VARIABLE_HOPS
 #include "modules/HopScalingModule.h"
@@ -2700,6 +2701,7 @@ void NodeDB::loadFromDisk()
     } else if (state != LoadFileResult::LOAD_SUCCESS) {
         // No decodable config to work with: the file is absent (first boot) or could not be opened (OTHER_FAILURE
         // / NO_FILESYSTEM). Unlike DECODE_FAILED there are no usable contents to protect, so install defaults.
+        configWasMissing = true;
         installDefaultConfig();
     } else if (config.version < DEVICESTATE_MIN_VER) {
         LOG_WARN("config %d is old, discard", config.version);
@@ -3447,6 +3449,13 @@ bool NodeDB::saveToDiskNoRetry(int saveWhat)
     if (saveWhat & SEGMENT_NODEDATABASE) {
         success &= saveNodeDatabaseToDisk();
     }
+
+#if HAS_NEXUS
+    // nexusModule exists only once boot-time restoring is over; a degraded boot holds defaults, never copy them.
+    constexpr int RESCUED_SEGMENTS = SEGMENT_CONFIG | SEGMENT_MODULECONFIG | SEGMENT_CHANNELS | SEGMENT_DEVICESTATE;
+    if (success && (saveWhat & RESCUED_SEGMENTS) && meshtastic::nexusModule)
+        NexusRescue::snapshot();
+#endif
 
     return success;
 }

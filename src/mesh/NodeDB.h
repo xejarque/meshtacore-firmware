@@ -300,14 +300,17 @@ LoraSlotSnapshot loraSlotSnapshotFrom(const meshtastic_Config_LoRaConfig &lora, 
 // Nexus port (Nexus-28001): forward-declare NexusModule at file scope so we can friend it
 // without including the full NexusModule.h header (which would create a circular include with
 // MeshModule.h and pull in too much compile-time surface for this central type).
-namespace meshtastic { class NexusModule; }
+namespace meshtastic
+{
+class NexusModule;
+}
 
 class NodeDB
 {
     // Nexus port: NexusModule calls pickNewNodeNum() and saveNodeDatabaseToDisk() directly
     // to drive /nexus ID rotation (regenerate our NodeNum and persist) and to force a
     // save after a manual /nexus NODEINFO edit. Friend is preferred over moving those
-    // methods to public — they're internal NodeDB plumbing that Nexus orchestrates.
+    // methods to public - they're internal NodeDB plumbing that Nexus orchestrates.
     friend class meshtastic::NexusModule;
 
     // NodeNum provisionalNodeNum; // if we are trying to find a node num this is our current attempt
@@ -703,8 +706,14 @@ class NodeDB
     bool storageCorruptThisLoad = false;
 #endif
 
+    /// True when this boot found no config file (first boot, factory reset or wiped /prefs) and installed defaults.
+    bool bootedWithMissingConfig() const { return configWasMissing; }
+    /// True when this boot found a config it could not decode and is running degraded on defaults.
+    bool bootedWithUndecodableConfig() const { return configDecodeFailed; }
+
   private:
     mutable concurrency::Lock satelliteMutex;
+    bool configWasMissing = false;
     bool duplicateWarned = false;
     bool localPositionUpdatedSinceBoot = false;
     bool migrationSavePending = false;
@@ -762,7 +771,6 @@ class NodeDB
 
     /// pick a provisional nodenum we hope no one is using
     void pickNewNodeNum();
-
 
     /// read our db from flash
     void loadFromDisk();

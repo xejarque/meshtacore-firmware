@@ -9,6 +9,7 @@
 
 #include "modules/NexusModule.h"
 #include "SafeFile.h"
+#include "modules/NexusRescue.h"
 
 /*
  * Nexus module implementation.
@@ -356,6 +357,9 @@ NexusModule::NexusModule()
 
     // Nexus: Capture boot parameters and restore vault
     loadVault();
+    // Before initLoRa(), so the radio starts on the restored settings; otherwise make sure a copy exists.
+    if (!NexusRescue::restoreIfConfigWasMissing())
+        NexusRescue::snapshot();
     applyZeroHopRoleDefaults(vaultV68Loaded);
     readyAnnouncePending = wokeFromBatteryWake();
 }

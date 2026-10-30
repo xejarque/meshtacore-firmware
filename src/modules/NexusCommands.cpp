@@ -90,6 +90,7 @@
 #include <pb_decode.h>
 #include "mesh/generated/meshtastic/admin.pb.h"
 #include "mesh/generated/meshtastic/apponly.pb.h"
+#include "modules/NexusRescue.h"
 #include "modules/TraceRouteModule.h"
 #include "modules/ExternalNotificationModule.h"
 #include "RadioLibInterface.h"
@@ -4220,6 +4221,17 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         int sxPwr = (int)getChipPower(activePwr);
         snprintf(replyMsg, sizeof(replyMsg), "JT TX Power:\nActive: %d dBm\nChip: %d dBm",
                  activePwr, sxPwr);
+    }
+    else if (strcasecmp(cmd, "RESCUE") == 0 || strcasecmp(cmd, "RESCUE SHOW") == 0) {
+        // /nexus RESCUE [SHOW]: the copy restored after a factory reset or a wiped /prefs.
+        NexusRescue::describe(replyMsg, sizeof(replyMsg));
+    }
+    else if (strcasecmp(cmd, "RESCUE CLEAR") == 0) {
+        snprintf(replyMsg, sizeof(replyMsg), "JT: RESCUE %s", NexusRescue::clear() ? "copy deleted" : "delete failed");
+    }
+    else if (strcasecmp(cmd, "RESCUE SAVE") == 0) {
+        NexusRescue::snapshot();
+        NexusRescue::describe(replyMsg, sizeof(replyMsg));
     }
     else if (strncasecmp(cmd, "SETURL ", 7) == 0) {
         // /nexus SETURL <channel URL>: merge the shared channels by name, keep Nexus channels and TX power.
