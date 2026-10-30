@@ -124,9 +124,12 @@ public:
     // from sparing a hop.
     bool isLiveAutoZeroHopRelay(uint8_t relay_id, bool clientBase);
     static constexpr uint32_t AUTO_ZERO_HOP_MAX_SILENCE_SECS = 72 * 60 * 60;
-    // Infrastructure roles get the auto masks on by default unless a v68+ vault says otherwise.
+    // Infrastructure roles get Zero-Hop and its auto masks on by default. A v68 vault holds the operator's own choice and
+    // wins. An older vault (v65-v67) predates the defaults: they are applied once and saved as v68. With no vault they
+    // apply in RAM until the first SAVE.
     void applyZeroHopRoleDefaults(bool vaultHasV68);
     bool vaultV68Loaded = false;
+    uint32_t vaultVersionLoaded = 0; // 0 = no vault was loaded
 private:
     // Meshtacore commands (NexusMeshtacoreCommands.cpp): false when `cmd` is not one of them.
     bool handleMeshtacoreCommand(const char *cmd);
@@ -618,6 +621,10 @@ public:
     bool saveVault();
     void fillVaultV68(NexusVault &v) const;
     void applyVaultV68(const NexusVault &v);
+    void noteLoadedVault(const NexusVault &v);
+    // VAULT DIFF / VAULT: the v68 fields against RAM, and a one-line summary of what the vault holds.
+    int diffVaultV68(const NexusVault &v);
+    void summarizeVaultV68(const NexusVault &v, char *out, size_t len) const;
     bool loadVault();
 
     // Read /nexus.bin into `out` and validate it. Does NOT apply to RAM.

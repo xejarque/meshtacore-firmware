@@ -4335,6 +4335,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                      (unsigned int)v->invalid_mask,
                      (unsigned int)groupsUsed, (unsigned int)aliasesUsed,
                      (unsigned int)macrosUsed, (unsigned int)cronUsed);
+            summarizeVaultV68(*v, replyMsg, sizeof(replyMsg));
         }
     }
     else if (strncasecmp(cmd, "VAULT DIFF", 10) == 0 || strcasecmp(cmd, "VDF") == 0) {
@@ -4913,6 +4914,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 appendPaging(line);
                 diffs++;
             }
+
+            diffs += diffVaultV68(*v);
 
             // Summary footer
             char summary[64];

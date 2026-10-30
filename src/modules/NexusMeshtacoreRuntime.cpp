@@ -113,6 +113,74 @@ void NexusModule::applyLpcompWakeLevel()
 #endif
 }
 
+static unsigned countBits(const uint8_t *bytes, size_t len)
+{
+    unsigned bits = 0;
+    for (size_t i = 0; i < len; i++)
+        bits += __builtin_popcount(bytes[i]);
+    return bits;
+}
+
+// Appends one line per v68 field that differs from RAM to the VAULT DIFF paging; returns how many.
+int NexusModule::diffVaultV68(const NexusVault &v)
+{
+    int diffs = 0;
+    char line[96];
+    if (lpcomp_wake_ref != v.lpcomp_wake_ref) {
+        snprintf(line, sizeof(line), "lpcomp_wake_ref: RAM=%u Vault=%u", (unsigned)lpcomp_wake_ref, (unsigned)v.lpcomp_wake_ref);
+        appendPaging(line);
+        diffs++;
+    }
+    if (battery_chemistry != v.battery_chemistry) {
+        snprintf(line, sizeof(line), "battery_chemistry: RAM=%u Vault=%u", (unsigned)battery_chemistry,
+                 (unsigned)v.battery_chemistry);
+        appendPaging(line);
+        diffs++;
+    }
+    if (ext_flags != v.ext_flags) {
+        snprintf(line, sizeof(line), "ext_flags: RAM=0x%02X Vault=0x%02X", (unsigned)ext_flags, (unsigned)v.ext_flags);
+        appendPaging(line);
+        diffs++;
+    }
+    if (memcmp(zero_hop_auto_router_mask, v.zero_hop_auto_router_mask, sizeof(zero_hop_auto_router_mask)) != 0) {
+        snprintf(line, sizeof(line), "zero_hop_auto_router_mask: RAM=%u bits Vault=%u bits",
+                 countBits(zero_hop_auto_router_mask, sizeof(zero_hop_auto_router_mask)),
+                 countBits(v.zero_hop_auto_router_mask, sizeof(v.zero_hop_auto_router_mask)));
+        appendPaging(line);
+        diffs++;
+    }
+    if (memcmp(zero_hop_auto_client_mask, v.zero_hop_auto_client_mask, sizeof(zero_hop_auto_client_mask)) != 0) {
+        snprintf(line, sizeof(line), "zero_hop_auto_client_mask: RAM=%u bits Vault=%u bits",
+                 countBits(zero_hop_auto_client_mask, sizeof(zero_hop_auto_client_mask)),
+                 countBits(v.zero_hop_auto_client_mask, sizeof(v.zero_hop_auto_client_mask)));
+        appendPaging(line);
+        diffs++;
+    }
+    return diffs;
+}
+
+// Adds the v68 fields to the VAULT summary already in `out`. Older vaults have none, so they add nothing.
+void NexusModule::summarizeVaultV68(const NexusVault &v, char *out, size_t len) const
+{
+    if (v.version < 68)
+        return;
+    const size_t used = strlen(out);
+    if (used >= len)
+        return;
+    snprintf(out + used, len - used, "\nWake:%u Chem:%u Ext:0x%02X ZH:%u/%u", (unsigned)v.lpcomp_wake_ref,
+             (unsigned)v.battery_chemistry, (unsigned)v.ext_flags,
+             countBits(v.zero_hop_auto_router_mask, sizeof(v.zero_hop_auto_router_mask)),
+             countBits(v.zero_hop_auto_client_mask, sizeof(v.zero_hop_auto_client_mask)));
+}
+
+// Called by loadVault() once a vault passed validation: remembers its version and applies the v68 fields it carries.
+void NexusModule::noteLoadedVault(const NexusVault &v)
+{
+    vaultVersionLoaded = v.version;
+    if (v.version >= 68)
+        applyVaultV68(v);
+}
+
 void NexusModule::applyVaultV68(const NexusVault &v)
 {
     vaultV68Loaded = true;
@@ -143,10 +211,14 @@ void NexusModule::applyZeroHopRoleDefaults(bool vaultHasV68)
     constexpr uint8_t ZERO_HOP_EN = 0x01, ZERO_HOP_AUTO_ROUTER = 0x08, ZERO_HOP_AUTO_CLIENT = 0x10;
     if (vaultHasV68)
         return; // the operator's saved choice wins
-    if (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER ||
-        config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE ||
-        config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_BASE)
-        zero_hop_config |= ZERO_HOP_EN | ZERO_HOP_AUTO_ROUTER | ZERO_HOP_AUTO_CLIENT;
+    if (config.device.role != meshtastic_Config_DeviceConfig_Role_ROUTER &&
+        config.device.role != meshtastic_Config_DeviceConfig_Role_ROUTER_LATE &&
+        config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_BASE)
+        return;
+    zero_hop_config |= ZERO_HOP_EN | ZERO_HOP_AUTO_ROUTER | ZERO_HOP_AUTO_CLIENT;
+    // An older vault is migrated here, once: saved as v68 so the operator can turn these off and have it stick.
+    if (vaultVersionLoaded != 0 && !saveVault())
+        LOG_WARN("Nexus: could not save the migrated vault, Zero-Hop defaults apply again next boot");
 }
 
 bool NexusModule::isSilencedPublicReply(const meshtastic_MeshPacket &mp)

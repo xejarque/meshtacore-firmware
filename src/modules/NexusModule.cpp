@@ -5154,8 +5154,7 @@ bool NexusModule::loadVault()
             broadcast_delay_max_s = 5;
         }
 
-        if (v->version >= 68)
-            applyVaultV68(*v);
+        noteLoadedVault(*v);
 
         LOG_INFO("Nexus: Vault loaded successfully (v%u).", (unsigned int)v->version);
     }
