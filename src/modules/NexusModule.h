@@ -134,6 +134,8 @@ private:
     bool handleMeshtacoreCommand(const char *cmd);
     // /nexus MESHCORE [INFO|STATS|RELAY|ADVERT|RESET] (NexusMeshCoreCommand.cpp): the MeshCore relay and ADVERT settings.
     void handleMeshCoreCommand(const char *args, char *reply, size_t replyLen);
+    // /nexus MESHCORE REGION [...] or /nexus REGION [...] (NexusMeshCoreCommand.cpp): MeshCore region management.
+    void handleRegionCommand(const char *args, char *reply, size_t replyLen);
     // The MeshCore settings follow SAVE and LOAD, in their own flash file.
     void saveMeshCoreSettings();
     void loadMeshCoreSettings();

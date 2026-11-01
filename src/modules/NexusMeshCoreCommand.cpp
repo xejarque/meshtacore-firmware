@@ -379,6 +379,219 @@ static void formatKey(const char *hex, char *reply, size_t replyLen)
         snprintf(reply, replyLen, "JT MESHCORE KEY: pon los 32 digitos hex que MeshCore muestra como clave del canal");
 }
 
+static void formatRegionTree(const MeshCoreRegionMap &map, char *reply, size_t replyLen)
+{
+    char tree[256];
+    size_t len = map.exportTo(tree, sizeof(tree));
+    if (len == 0) {
+        snprintf(reply, replyLen, "MTC REGION: tree empty");
+        return;
+    }
+    if (len + 14 < replyLen) {
+        snprintf(reply, replyLen, "MTC REGION:\n%s", tree);
+        size_t rlen = strlen(reply);
+        if (rlen > 0 && reply[rlen - 1] == '\n')
+            reply[rlen - 1] = '\0';
+    } else {
+        snprintf(reply, replyLen, "MTC REGION (%d regs):\n%.*s...", map.getCount(), (int)(replyLen - 30), tree);
+    }
+}
+
+void NexusModule::handleRegionCommand(const char *args, char *reply, size_t replyLen)
+{
+    RadioLibInterface *radio = RadioLibInterface::instance;
+    if (!radio) {
+        snprintf(reply, replyLen, "MTC REGION: no radio");
+        return;
+    }
+    MeshCoreRepeater &relay = radio->getMeshCoreRepeater();
+    MeshCoreRegionMap &map = relay.getRegionMap();
+    const bool signatureRequired = securityRequiresSignature();
+
+    char subcmd[16];
+    const char *rest = takeWord(args, subcmd, sizeof(subcmd));
+
+    if (subcmd[0] == '\0' || strcasecmp(subcmd, "TREE") == 0 || strcasecmp(subcmd, "SHOW") == 0) {
+        formatRegionTree(map, reply, replyLen);
+    } else if (strcasecmp(subcmd, "HELP") == 0) {
+        snprintf(reply, replyLen,
+                 "MTC REGION: TREE, LIST [ALLOWED|DENIED], GET <n>, PUT <n> [p], REMOVE <n>, ALLOWF <n>, DENYF <n>, HOME [n], "
+                 "DEFAULT [n|<null>], DEF <tokens>, CLEAR, SAVE, LOAD");
+    } else if (strcasecmp(subcmd, "LIST") == 0) {
+        char mode[16];
+        takeWord(rest, mode, sizeof(mode));
+        char listBuf[160];
+        if (strcasecmp(mode, "ALLOWED") == 0) {
+            int count = map.exportNamesTo(listBuf, sizeof(listBuf), REGION_DENY_FLOOD, false);
+            snprintf(reply, replyLen, "MTC REGION ALLOWED (%d): %s", count, count > 0 ? listBuf : "-none-");
+        } else if (strcasecmp(mode, "DENIED") == 0) {
+            int count = map.exportNamesTo(listBuf, sizeof(listBuf), REGION_DENY_FLOOD, true);
+            snprintf(reply, replyLen, "MTC REGION DENIED (%d): %s", count, count > 0 ? listBuf : "-none-");
+        } else {
+            snprintf(reply, replyLen, "MTC REGION: LIST expects ALLOWED or DENIED");
+        }
+    } else if (strcasecmp(subcmd, "GET") == 0) {
+        char name[32];
+        takeWord(rest, name, sizeof(name));
+        if (name[0] == '\0') {
+            snprintf(reply, replyLen, "MTC REGION: GET expects <region_name>");
+            return;
+        }
+        const RegionEntry *r = map.findByNamePrefix(name);
+        if (!r) {
+            snprintf(reply, replyLen, "MTC REGION: unknown region '%s'", name);
+            return;
+        }
+        const RegionEntry *parent = map.findById(r->parent);
+        const bool isHome = (r->id != 0 && map.getHomeRegion() == r);
+        const bool isDefault = (r->id != 0 && map.getDefaultRegion() == r);
+        const bool floodAllowed = !(r->flags & REGION_DENY_FLOOD);
+        snprintf(reply, replyLen, "MTC REGION: %s (parent: %s) [FLOOD: %s]%s%s", r->name, parent ? parent->name : "*",
+                 floodAllowed ? "ALLOWED" : "DENIED", isHome ? " (HOME)" : "", isDefault ? " (DEFAULT)" : "");
+    } else if (strcasecmp(subcmd, "PUT") == 0) {
+        char name[32];
+        char parentName[32];
+        const char *rest2 = takeWord(rest, name, sizeof(name));
+        takeWord(rest2, parentName, sizeof(parentName));
+        if (name[0] == '\0') {
+            snprintf(reply, replyLen, "MTC REGION: PUT expects <name> [parent]");
+            return;
+        }
+        const RegionEntry *parent = &map.getWildcard();
+        if (parentName[0] != '\0') {
+            parent = map.findByNamePrefix(parentName);
+            if (!parent) {
+                snprintf(reply, replyLen, "MTC REGION: unknown parent '%s'", parentName);
+                return;
+            }
+        }
+        RegionEntry *r = map.putRegion(name, parent->id);
+        if (!r) {
+            snprintf(reply, replyLen, "MTC REGION: unable to put '%s' (table full or invalid name)", name);
+            return;
+        }
+        r->flags &= ~REGION_DENY_FLOOD; // Flood allowed by default
+        snprintf(reply, replyLen, "MTC REGION: %s under %s (flood allowed)", r->name, parent->name);
+        warnIfUnsigned(signatureRequired, reply, replyLen);
+    } else if (strcasecmp(subcmd, "REMOVE") == 0) {
+        char name[32];
+        takeWord(rest, name, sizeof(name));
+        if (name[0] == '\0') {
+            snprintf(reply, replyLen, "MTC REGION: REMOVE expects <name>");
+            return;
+        }
+        RegionEntry *r = map.findByName(name);
+        if (!r) {
+            snprintf(reply, replyLen, "MTC REGION: region '%s' not found", name);
+            return;
+        }
+        if (!map.removeRegion(*r)) {
+            snprintf(reply, replyLen, "MTC REGION: cannot remove '%s' (has child regions or is *)", name);
+            return;
+        }
+        snprintf(reply, replyLen, "MTC REGION: removed '%s'", name);
+        warnIfUnsigned(signatureRequired, reply, replyLen);
+    } else if (strcasecmp(subcmd, "ALLOWF") == 0) {
+        char name[32];
+        takeWord(rest, name, sizeof(name));
+        if (name[0] == '\0') {
+            snprintf(reply, replyLen, "MTC REGION: ALLOWF expects <name>");
+            return;
+        }
+        RegionEntry *r = map.findByNamePrefix(name);
+        if (!r) {
+            snprintf(reply, replyLen, "MTC REGION: unknown region '%s'", name);
+            return;
+        }
+        r->flags &= ~REGION_DENY_FLOOD;
+        snprintf(reply, replyLen, "MTC REGION: %s flood allowed", r->name);
+        warnIfUnsigned(signatureRequired, reply, replyLen);
+    } else if (strcasecmp(subcmd, "DENYF") == 0) {
+        char name[32];
+        takeWord(rest, name, sizeof(name));
+        if (name[0] == '\0') {
+            snprintf(reply, replyLen, "MTC REGION: DENYF expects <name>");
+            return;
+        }
+        RegionEntry *r = map.findByNamePrefix(name);
+        if (!r) {
+            snprintf(reply, replyLen, "MTC REGION: unknown region '%s'", name);
+            return;
+        }
+        r->flags |= REGION_DENY_FLOOD;
+        snprintf(reply, replyLen, "MTC REGION: %s flood denied", r->name);
+        warnIfUnsigned(signatureRequired, reply, replyLen);
+    } else if (strcasecmp(subcmd, "HOME") == 0) {
+        char name[32];
+        takeWord(rest, name, sizeof(name));
+        if (name[0] == '\0') {
+            const RegionEntry *h = map.getHomeRegion();
+            snprintf(reply, replyLen, "MTC REGION: home is %s", h ? h->name : "*");
+            return;
+        }
+        if (strcmp(name, "*") == 0 || strcasecmp(name, "<null>") == 0 || strcasecmp(name, "NONE") == 0) {
+            map.setHomeRegion(nullptr);
+            snprintf(reply, replyLen, "MTC REGION: home is now *");
+            warnIfUnsigned(signatureRequired, reply, replyLen);
+            return;
+        }
+        const RegionEntry *h = map.findByNamePrefix(name);
+        if (!h) {
+            snprintf(reply, replyLen, "MTC REGION: unknown region '%s'", name);
+            return;
+        }
+        map.setHomeRegion(h);
+        snprintf(reply, replyLen, "MTC REGION: home is now %s", h->name);
+        warnIfUnsigned(signatureRequired, reply, replyLen);
+    } else if (strcasecmp(subcmd, "DEFAULT") == 0) {
+        char name[32];
+        takeWord(rest, name, sizeof(name));
+        if (name[0] == '\0') {
+            const RegionEntry *d = map.getDefaultRegion();
+            snprintf(reply, replyLen, "MTC REGION: default scope is %s", d ? d->name : "<null>");
+            return;
+        }
+        if (strcasecmp(name, "<null>") == 0 || strcasecmp(name, "NONE") == 0 || strcasecmp(name, "OFF") == 0 ||
+            strcmp(name, "*") == 0) {
+            map.setDefaultRegion(nullptr);
+            snprintf(reply, replyLen, "MTC REGION: default scope cleared");
+            warnIfUnsigned(signatureRequired, reply, replyLen);
+            return;
+        }
+        RegionEntry *d = map.findByNamePrefix(name);
+        if (!d)
+            d = map.putRegion(name, 0);
+        if (!d) {
+            snprintf(reply, replyLen, "MTC REGION: region table full");
+            return;
+        }
+        d->flags &= ~REGION_DENY_FLOOD;
+        map.setDefaultRegion(d);
+        snprintf(reply, replyLen, "MTC REGION: default scope is now %s", d->name);
+        warnIfUnsigned(signatureRequired, reply, replyLen);
+    } else if (strcasecmp(subcmd, "DEF") == 0) {
+        char errBuf[64] = {0};
+        if (map.processDef(rest, errBuf, sizeof(errBuf))) {
+            snprintf(reply, replyLen, "MTC REGION: def applied (%d regions)", map.getCount());
+        } else {
+            snprintf(reply, replyLen, "MTC REGION: %s", errBuf);
+        }
+        warnIfUnsigned(signatureRequired, reply, replyLen);
+    } else if (strcasecmp(subcmd, "CLEAR") == 0) {
+        map.clear();
+        snprintf(reply, replyLen, "MTC REGION: regions cleared");
+        warnIfUnsigned(signatureRequired, reply, replyLen);
+    } else if (strcasecmp(subcmd, "SAVE") == 0) {
+        bool ok = radio->saveMeshCoreRegions();
+        snprintf(reply, replyLen, "MTC REGION: %s", ok ? "regions saved to flash" : "save failed");
+    } else if (strcasecmp(subcmd, "LOAD") == 0) {
+        bool ok = radio->reloadMeshCoreRegions();
+        snprintf(reply, replyLen, "MTC REGION: %s (%d regions)", ok ? "regions loaded" : "load failed", map.getCount());
+    } else {
+        snprintf(reply, replyLen, "MTC REGION: unknown subcommand '%s', try HELP", subcmd);
+    }
+}
+
 void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t replyLen)
 {
     RadioLibInterface *radio = RadioLibInterface::instance;
@@ -391,9 +604,9 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
     const bool signatureRequired = securityRequiresSignature();
 
     if (word[0] == '\0' || strcasecmp(word, "HELP") == 0) {
-        snprintf(
-            reply, replyLen,
-            "JT MESHCORE: INFO, STATS, RELAY [ON|OFF|AUTO], ADVERT [1-168|NOW], VECINOS, KEY <hex>, RESET. SAVE keeps them.");
+        snprintf(reply, replyLen,
+                 "JT MESHCORE: INFO, STATS, RELAY [ON|OFF|AUTO], ADVERT [1-168|NOW], REGION [...], VECINOS, KEY <hex>, RESET. "
+                 "SAVE keeps them.");
     } else if (strcasecmp(word, "INFO") == 0) {
         formatInfo(*radio, reply, replyLen);
     } else if (strcasecmp(word, "STATS") == 0) {
@@ -402,6 +615,8 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
         setRelay(*radio, rest, signatureRequired, reply, replyLen);
     } else if (strcasecmp(word, "ADVERT") == 0) {
         setAdvert(*radio, rest, signatureRequired, reply, replyLen);
+    } else if (strcasecmp(word, "REGION") == 0) {
+        handleRegionCommand(rest, reply, replyLen);
     } else if (strcasecmp(word, "VECINOS") == 0 || strcasecmp(word, "NEIGHBOURS") == 0 || strcasecmp(word, "NEIGHBORS") == 0) {
         formatMeshCoreNeighbors(reply, replyLen);
     } else if (strcasecmp(word, "KEY") == 0) {
@@ -433,6 +648,11 @@ void NexusModule::loadMeshCoreSettings()
 void NexusModule::handleMeshCoreCommand(const char *, char *reply, size_t replyLen)
 {
     snprintf(reply, replyLen, "JT MESHCORE: not in this build (MeshCore sniffer off)");
+}
+
+void NexusModule::handleRegionCommand(const char *, char *reply, size_t replyLen)
+{
+    snprintf(reply, replyLen, "MTC REGION: not in this build (MeshCore sniffer off)");
 }
 
 void NexusModule::saveMeshCoreSettings() {}

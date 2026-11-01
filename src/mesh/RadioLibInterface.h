@@ -497,6 +497,10 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     /// Write the settings to /prefs/meshcore_config.bin. False if the write failed.
     bool saveMeshCoreConfig();
 
+    /// Save and load MeshCore regions to /prefs/meshcore_regions.bin.
+    bool saveMeshCoreRegions();
+    bool reloadMeshCoreRegions();
+
     /// Set the relay policy (MeshCoreConfig::RelayMode) and apply it at once.
     void setMeshCoreRelayMode(MeshCoreConfig::RelayMode mode);
 
@@ -509,9 +513,10 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     /// Milliseconds until the next scheduled flood ADVERT, 0 when it is due.
     uint32_t meshCoreAdvertDueInMs() const;
 
-    /// Read-only views for /nexus MESHCORE.
+    /// Views for /nexus MESHCORE.
     const MeshCoreConfig &getMeshCoreConfig() const { return meshCoreConfig; }
     const MeshCoreRepeater &getMeshCoreRepeater() const { return meshCoreRepeater; }
+    MeshCoreRepeater &getMeshCoreRepeater() { return meshCoreRepeater; }
 
   private:
     uint32_t meshCoreContactsFingerprint = 0; // of what is on flash, so a save happens only on a change

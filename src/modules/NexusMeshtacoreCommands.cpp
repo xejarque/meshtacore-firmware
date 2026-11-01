@@ -31,6 +31,9 @@ bool NexusModule::handleMeshtacoreCommand(const char *cmd)
         strncasecmp(cmd, "MCORE ", 6) == 0) {
         const char *args = strchr(cmd, ' ');
         handleMeshCoreCommand(args ? args + 1 : "", replyMsg, sizeof(replyMsg));
+    } else if (strcasecmp(cmd, "REGION") == 0 || strncasecmp(cmd, "REGION ", 7) == 0) {
+        const char *args = strchr(cmd, ' ');
+        handleRegionCommand(args ? args + 1 : "", replyMsg, sizeof(replyMsg));
     } else if (strcasecmp(cmd, "RESCUE") == 0 || strcasecmp(cmd, "RESCUE SHOW") == 0) {
         // /nexus RESCUE [SHOW]: the copy restored after a factory reset or a wiped /prefs.
         NexusRescue::describe(replyMsg, sizeof(replyMsg));

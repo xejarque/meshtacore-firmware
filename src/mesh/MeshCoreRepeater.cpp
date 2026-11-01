@@ -243,6 +243,26 @@ void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, float
     }
     rxFlood++;
 
+    if (info.route_type == MC_ROUTE_FLOOD) {
+        if (regionMap.getWildcard().flags & REGION_DENY_FLOOD) {
+            LOG_DEBUG("MeshCore: unscoped flood dropped (wildcard denyf)");
+            rxDropped++;
+            return;
+        }
+    } else if (info.route_type == MC_ROUTE_TRANSPORT_FLOOD) {
+        if (len < 5) {
+            rxDropped++;
+            return;
+        }
+        uint16_t transportCode = (uint16_t)raw[1] | ((uint16_t)raw[2] << 8);
+        const uint8_t *payload = (info.header_len <= len) ? &raw[info.header_len] : nullptr;
+        if (!regionMap.findMatch(transportCode, info.payload_type, payload, info.payload_len, REGION_DENY_FLOOD)) {
+            LOG_DEBUG("MeshCore: transport flood dropped (no allowed region for code 0x%04X)", (unsigned)transportCode);
+            rxDropped++;
+            return;
+        }
+    }
+
     // A flood that never got its turn is worthless once its dupe window is over: free its slot.
     expireStale();
 
@@ -1005,14 +1025,30 @@ size_t MeshCoreRepeater::buildAdvert(uint8_t *out, size_t outLen, const char *na
         appLen += nameLen;
     }
 
-    const size_t total = 2 + MC_PUB_KEY_SIZE + 4 + MC_SIGNATURE_SIZE + appLen;
+    const RegionEntry *defRegion = flood ? regionMap.getDefaultRegion() : nullptr;
+    MeshCoreTransportKey defKey;
+    const bool scoped = (defRegion && regionMap.getTransportKeysFor(*defRegion, &defKey, 1) > 0);
+    const size_t prefixLen = scoped ? 6 : 2;
+    const size_t total = prefixLen + MC_PUB_KEY_SIZE + 4 + MC_SIGNATURE_SIZE + appLen;
     if (outLen < total)
         return 0;
 
-    // Header: payload type ADVERT, version 0. Flood, or zero-hop (route DIRECT with an empty path, Mesh::sendZeroHop).
-    out[0] = (MC_PAYLOAD_TYPE_ADVERT << 2) | (flood ? MC_ROUTE_FLOOD : MC_ROUTE_DIRECT);
-    out[1] = flood ? OWN_FLOOD_PATH_LEN_BYTE : 0x00;
-    size_t i = 2;
+    // Header: payload type ADVERT, version 0. Flood (scoped or unscoped), or zero-hop (route DIRECT).
+    uint8_t routeType = MC_ROUTE_DIRECT;
+    if (flood)
+        routeType = scoped ? MC_ROUTE_TRANSPORT_FLOOD : MC_ROUTE_FLOOD;
+
+    out[0] = (MC_PAYLOAD_TYPE_ADVERT << 2) | routeType;
+    size_t i = 1;
+    if (scoped) {
+        out[i++] = 0; // Transport code 0 (filled below)
+        out[i++] = 0;
+        out[i++] = 0; // Transport code 1
+        out[i++] = 0;
+    }
+    out[i++] = flood ? OWN_FLOOD_PATH_LEN_BYTE : 0x00;
+
+    const size_t payloadStart = i;
     memcpy(&out[i], pub, MC_PUB_KEY_SIZE);
     i += MC_PUB_KEY_SIZE;
     memcpy(&out[i], &timestamp, 4); // little-endian, as MeshCore writes it
@@ -1031,6 +1067,13 @@ size_t MeshCoreRepeater::buildAdvert(uint8_t *out, size_t outLen, const char *na
     memcpy(&message[msgLen], appData, appLen);
     msgLen += appLen;
     Ed25519::sign(signature, seed, pub, message, msgLen);
+
+    if (scoped) {
+        const size_t payloadLen = MC_PUB_KEY_SIZE + 4 + MC_SIGNATURE_SIZE + appLen;
+        uint16_t code = defKey.calcTransportCode(MC_PAYLOAD_TYPE_ADVERT, &out[payloadStart], payloadLen);
+        out[1] = (uint8_t)code;
+        out[2] = (uint8_t)(code >> 8);
+    }
 
     return total;
 }

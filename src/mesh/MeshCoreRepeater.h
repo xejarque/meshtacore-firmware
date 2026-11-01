@@ -2,6 +2,7 @@
 
 #include "MeshCoreConfig.h"
 #include "MeshCoreDedup.h"
+#include "MeshCoreRegionMap.h"
 #include "configuration.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -161,12 +162,16 @@ class MeshCoreRepeater
     /** Public key whose prefix goes on the path: the alias when enabled, else our main key. */
     const uint8_t *pathPub() const { return usesAlias() ? aliasPub : identityPub; }
 
-    /** True when this node forwards MeshCore frames at all: the relay mode decides, and under AUTO the role and rebroadcast policy. */
+    /** True when this node forwards MeshCore frames at all: the relay mode decides, and under AUTO the role and rebroadcast
+     * policy. */
     bool canRelay() const;
 
     /// Relay policy Nexus sets: AUTO follows the role and rebroadcast policy, OFF never relays, ON relays regardless.
     void setRelayMode(MeshCoreConfig::RelayMode mode) { relayMode = mode; }
     MeshCoreConfig::RelayMode getRelayMode() const { return relayMode; }
+
+    const MeshCoreRegionMap &getRegionMap() const { return regionMap; }
+    MeshCoreRegionMap &getRegionMap() { return regionMap; }
 
     /** Check an ADVERT payload's Ed25519 signature over pub_key || timestamp || app_data. */
     static bool verifyAdvert(const uint8_t *payload, size_t payloadLen);
@@ -278,6 +283,7 @@ class MeshCoreRepeater
     uint8_t nodeType = ADV_TYPE_REPEATER;
     // Written by the command thread, read by the relay thread. One byte, so no lock, as with aliasEnabled.
     MeshCoreConfig::RelayMode relayMode = MeshCoreConfig::RELAY_AUTO;
+    MeshCoreRegionMap regionMap;
 
     // Second identity for the path, derived from the same seed (see the public accessors).
     uint8_t aliasSeed[32] = {0};

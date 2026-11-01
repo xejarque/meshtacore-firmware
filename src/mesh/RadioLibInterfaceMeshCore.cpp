@@ -197,6 +197,44 @@ static bool saveMeshCoreConfigImage(const MeshCoreConfig &settings)
 #endif
 }
 
+static const char *meshCoreRegionsPath = "/prefs/meshcore_regions.bin";
+
+static bool loadMeshCoreRegionsData(MeshCoreRegionMap &map)
+{
+#ifdef FSCom
+    uint8_t image[MeshCoreRegionMap::SERIALIZED_MAX_LEN];
+    size_t n = 0;
+    {
+        concurrency::LockGuard g(spiLock);
+        auto f = FSCom.open(meshCoreRegionsPath, FILE_O_READ);
+        if (!f)
+            return false;
+        n = f.size() <= sizeof(image) ? f.read(image, f.size()) : 0;
+        f.close();
+    }
+    return map.decode(image, n);
+#else
+    (void)map;
+    return false;
+#endif
+}
+
+static bool saveMeshCoreRegionsData(const MeshCoreRegionMap &map)
+{
+#ifdef FSCom
+    uint8_t image[MeshCoreRegionMap::SERIALIZED_MAX_LEN];
+    size_t len = map.encode(image, sizeof(image));
+    if (len == 0)
+        return false;
+    SafeFile out(meshCoreRegionsPath, true);
+    out.write(image, len);
+    return out.close();
+#else
+    (void)map;
+    return false;
+#endif
+}
+
 /**
  * The repeater's MeshCore identity seed, kept in flash so the node keeps the same MeshCore key across reboots.
  * Created from the hardware RNG on first use; never created from a weak source.
@@ -350,6 +388,7 @@ void RadioLibInterface::ensureMeshCoreConfigLoaded()
 
 void RadioLibInterface::reloadMeshCoreConfig()
 {
+    reloadMeshCoreRegions();
     MeshCoreConfig loaded;
     if (!loadMeshCoreConfigImage(&loaded)) {
         LOG_INFO("MeshCore config: no valid %s, settings unchanged", meshCoreConfigPath);
@@ -363,9 +402,27 @@ void RadioLibInterface::reloadMeshCoreConfig()
 
 bool RadioLibInterface::saveMeshCoreConfig()
 {
+    saveMeshCoreRegions();
     if (saveMeshCoreConfigImage(meshCoreConfig))
         return true;
     LOG_ERROR("MeshCore config: could not save %s", meshCoreConfigPath);
+    return false;
+}
+
+bool RadioLibInterface::saveMeshCoreRegions()
+{
+    if (saveMeshCoreRegionsData(meshCoreRepeater.getRegionMap()))
+        return true;
+    LOG_ERROR("MeshCore regions: could not save %s", meshCoreRegionsPath);
+    return false;
+}
+
+bool RadioLibInterface::reloadMeshCoreRegions()
+{
+    if (loadMeshCoreRegionsData(meshCoreRepeater.getRegionMap())) {
+        LOG_INFO("MeshCore regions: loaded %d regions", meshCoreRepeater.getRegionMap().getCount());
+        return true;
+    }
     return false;
 }
 
