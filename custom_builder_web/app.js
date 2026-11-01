@@ -15,18 +15,162 @@ const NEXUS_PREDEFINED_KEYS = {
     "{ 0xe7, 0x05, 0x7e, 0xe7, 0xeb, 0x80, 0xf9, 0x04, 0x0d, 0xf2, 0x30, 0xff, 0x0c, 0x4a, 0x09, 0x74, 0x94, 0xb9, 0x47, 0x92, 0xa0, 0x65, 0x78, 0xcb, 0xfd, 0xeb, 0xdc, 0xda, 0x57, 0x73, 0x26, 0x7e }",
 };
 
+// Generates random 4-character hex suffix (e.g. "A3DC")
+function getRandomHex(len = 4) {
+  const chars = "0123456789ABCDEF";
+  let res = "";
+  for (let i = 0; i < len; i++) {
+    res += chars[Math.floor(Math.random() * 16)];
+  }
+  return res;
+}
+
+// Convert any PSK format (1, 2, AQ==, Base64, Hex) to C byte array format
+function formatPskToCArray(pskVal) {
+  const val = String(pskVal || "").trim();
+  if (!val) return "{ 0x01 }";
+  if (val.startsWith("{") && val.endsWith("}")) return val;
+  if (/^\d+$/.test(val)) {
+    const num = parseInt(val, 10);
+    return `{ 0x${num.toString(16).padStart(2, "0")} }`;
+  }
+  if (val.startsWith("0x") || val.startsWith("0X")) {
+    const hex = val.slice(2).replace(/[^0-9a-fA-F]/g, "");
+    const bytes = [];
+    for (let i = 0; i < hex.length; i += 2) {
+      bytes.push("0x" + hex.substring(i, i + 2));
+    }
+    return "{ " + bytes.join(", ") + " }";
+  }
+  try {
+    const binStr = atob(val);
+    const bytes = [];
+    for (let i = 0; i < binStr.length; i++) {
+      bytes.push("0x" + binStr.charCodeAt(i).toString(16).padStart(2, "0"));
+    }
+    return "{ " + bytes.join(", ") + " }";
+  } catch (e) {
+    return "{ 0x01 }";
+  }
+}
+
+// Default Spanish community channel matrix
+// Uplink enabled ONLY for Meshtastic channels by default, Downlink disabled
+const DEFAULT_CHANNELS = [
+  {
+    slot: 0,
+    enabled: true,
+    name: "SFNarrow",
+    psk: "1",
+    uplink: true,
+    downlink: false,
+    precision: 16,
+    tag: "Primario",
+    tagClass: "tag-primary",
+  },
+  {
+    slot: 1,
+    enabled: true,
+    name: "Test",
+    psk: "2",
+    uplink: true,
+    downlink: false,
+    precision: 0,
+    tag: "Secundario",
+    tagClass: "tag-secondary",
+  },
+  {
+    slot: 2,
+    enabled: true,
+    name: "Bots",
+    psk: "2",
+    uplink: true,
+    downlink: false,
+    precision: 0,
+    tag: "Secundario",
+    tagClass: "tag-secondary",
+  },
+  {
+    slot: 3,
+    enabled: true,
+    name: "Catalunya",
+    psk: "1",
+    uplink: true,
+    downlink: false,
+    precision: 0,
+    tag: "Secundario",
+    tagClass: "tag-secondary",
+  },
+  {
+    slot: 4,
+    enabled: true,
+    name: "Barcelona",
+    psk: "1",
+    uplink: true,
+    downlink: false,
+    precision: 0,
+    tag: "Secundario",
+    tagClass: "tag-secondary",
+  },
+  {
+    slot: 5,
+    enabled: true,
+    name: "MC:Public",
+    psk: "AQ==",
+    uplink: false,
+    downlink: false,
+    precision: 0,
+    tag: "MeshCore",
+    tagClass: "tag-mc",
+  },
+  {
+    slot: 6,
+    enabled: true,
+    name: "MC:#test",
+    psk: "AQ==",
+    uplink: false,
+    downlink: false,
+    precision: 0,
+    tag: "MeshCore",
+    tagClass: "tag-mc",
+  },
+  {
+    slot: 7,
+    enabled: true,
+    name: "MC:#bot",
+    psk: "AQ==",
+    uplink: false,
+    downlink: false,
+    precision: 0,
+    tag: "MeshCore",
+    tagClass: "tag-mc",
+  },
+];
+
+let channelsData = JSON.parse(JSON.stringify(DEFAULT_CHANNELS));
+
 document.addEventListener("DOMContentLoaded", () => {
   const boardTarget = document.getElementById("boardTarget");
   const customTargetGroup = document.getElementById("customTargetGroup");
-  const autoRandomName = document.getElementById("autoRandomName");
   const ownerLongName = document.getElementById("ownerLongName");
   const ownerShortName = document.getElementById("ownerShortName");
+  const btnRollRandomName = document.getElementById("btnRollRandomName");
   const enableMeshcore = document.getElementById("enableMeshcore");
   const meshcoreSettings = document.getElementById("meshcoreSettings");
   const nexusMasterKey = document.getElementById("nexusMasterKey");
   const customMasterKeyGroup = document.getElementById("customMasterKeyGroup");
   const customMasterKey = document.getElementById("customMasterKey");
-  const channelsPreset = document.getElementById("channelsPreset");
+  const channelsTableBody = document.getElementById("channelsTableBody");
+  const btnResetChannels = document.getElementById("btnResetChannels");
+  const btnSingleChannel = document.getElementById("btnSingleChannel");
+  const mqttEnabled = document.getElementById("mqttEnabled");
+  const mqttFields = document.getElementById("mqttFields");
+  const fixedLat = document.getElementById("fixedLat");
+  const fixedLon = document.getElementById("fixedLon");
+  const fixedAlt = document.getElementById("fixedAlt");
+  const btnGeolocate = document.getElementById("btnGeolocate");
+  const btnClearLocation = document.getElementById("btnClearLocation");
+  const mapStatus = document.getElementById("mapStatus");
   const wifiEnabled = document.getElementById("wifiEnabled");
   const wifiFields = document.getElementById("wifiFields");
   const githubToken = document.getElementById("githubToken");
@@ -40,35 +184,26 @@ document.addEventListener("DOMContentLoaded", () => {
   if (savedToken) {
     githubToken.value = savedToken;
   }
-
   githubToken.addEventListener("input", () => {
     localStorage.setItem("meshtacore_gh_token", githubToken.value.trim());
   });
 
-  // Toggle custom board input
+  // Roll initial random name on load
+  function rollRandomName() {
+    const hex = getRandomHex(4);
+    ownerLongName.value = `Meshtacore ${hex}`;
+    ownerShortName.value = hex;
+  }
+  rollRandomName();
+
+  btnRollRandomName.addEventListener("click", rollRandomName);
+
+  // Toggle custom board target input
   boardTarget.addEventListener("change", () => {
     if (boardTarget.value === "custom") {
       customTargetGroup.classList.remove("hidden");
     } else {
       customTargetGroup.classList.add("hidden");
-    }
-  });
-
-  // Toggle Auto Random Name vs Custom Name
-  autoRandomName.addEventListener("change", () => {
-    if (autoRandomName.checked) {
-      ownerLongName.value = "Meshtacore *RANDOM*";
-      ownerShortName.value = "*RANDOM*";
-      ownerLongName.disabled = true;
-      ownerShortName.disabled = true;
-    } else {
-      ownerLongName.disabled = false;
-      ownerShortName.disabled = false;
-      if (ownerLongName.value.includes("*RANDOM*")) {
-        ownerLongName.value = "Meshtacore Node";
-        ownerShortName.value = "MTC";
-      }
-      ownerLongName.focus();
     }
   });
 
@@ -90,15 +225,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Toggle channels table view
-  channelsPreset.addEventListener("change", () => {
-    const rows = document.querySelectorAll(".channels-table tbody tr");
-    if (channelsPreset.value === "single_channel_default") {
-      rows.forEach((row, idx) => {
-        if (idx > 0) row.classList.add("hidden");
-      });
+  // Toggle MQTT fields
+  mqttEnabled.addEventListener("change", () => {
+    if (mqttEnabled.checked) {
+      mqttFields.classList.remove("hidden");
     } else {
-      rows.forEach((row) => row.classList.remove("hidden"));
+      mqttFields.classList.add("hidden");
     }
   });
 
@@ -111,23 +243,225 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // Render Editable Channels Table
+  function renderChannelsTable() {
+    channelsTableBody.innerHTML = "";
+    channelsData.forEach((ch, idx) => {
+      const tr = document.createElement("tr");
+      if (!ch.enabled) tr.classList.add("ch-disabled");
+
+      tr.innerHTML = `
+        <td style="text-align: center;">
+          <input type="checkbox" class="ch-checkbox ch-toggle-enable" data-idx="${idx}" ${ch.enabled ? "checked" : ""} />
+        </td>
+        <td>
+          <code>Ch ${ch.slot}</code>
+          <span class="tag ${ch.tagClass}">${ch.tag}</span>
+        </td>
+        <td>
+          <input type="text" class="ch-input ch-field-name" data-idx="${idx}" value="${ch.name}" maxlength="11" placeholder="Nombre" />
+        </td>
+        <td>
+          <input type="text" class="ch-input font-mono ch-field-psk" data-idx="${idx}" value="${ch.psk}" placeholder="1 / AQ== / Key" title="Índice (1 o 2) o Base64/Hex" />
+        </td>
+        <td style="text-align: center;">
+          <input type="checkbox" class="ch-checkbox ch-field-uplink" data-idx="${idx}" ${ch.uplink ? "checked" : ""} />
+        </td>
+        <td style="text-align: center;">
+          <input type="checkbox" class="ch-checkbox ch-field-downlink" data-idx="${idx}" ${ch.downlink ? "checked" : ""} />
+        </td>
+        <td>
+          <select class="ch-input ch-field-precision" data-idx="${idx}">
+            <option value="16" ${ch.precision === 16 ? "selected" : ""}>16 (~1.5m)</option>
+            <option value="14" ${ch.precision === 14 ? "selected" : ""}>14 (~6m)</option>
+            <option value="12" ${ch.precision === 12 ? "selected" : ""}>12 (~25m)</option>
+            <option value="10" ${ch.precision === 10 ? "selected" : ""}>10 (~100m)</option>
+            <option value="0" ${ch.precision === 0 ? "selected" : ""}>0 (Sin pos)</option>
+          </select>
+        </td>
+      `;
+
+      channelsTableBody.appendChild(tr);
+    });
+
+    // Wire table event listeners
+    channelsTableBody.querySelectorAll(".ch-toggle-enable").forEach((el) => {
+      el.addEventListener("change", (e) => {
+        const i = parseInt(e.target.dataset.idx, 10);
+        channelsData[i].enabled = e.target.checked;
+        const row = e.target.closest("tr");
+        if (e.target.checked) row.classList.remove("ch-disabled");
+        else row.classList.add("ch-disabled");
+      });
+    });
+
+    channelsTableBody.querySelectorAll(".ch-field-name").forEach((el) => {
+      el.addEventListener("input", (e) => {
+        const i = parseInt(e.target.dataset.idx, 10);
+        channelsData[i].name = e.target.value.trim();
+      });
+    });
+
+    channelsTableBody.querySelectorAll(".ch-field-psk").forEach((el) => {
+      el.addEventListener("input", (e) => {
+        const i = parseInt(e.target.dataset.idx, 10);
+        channelsData[i].psk = e.target.value.trim();
+      });
+    });
+
+    channelsTableBody.querySelectorAll(".ch-field-uplink").forEach((el) => {
+      el.addEventListener("change", (e) => {
+        const i = parseInt(e.target.dataset.idx, 10);
+        channelsData[i].uplink = e.target.checked;
+      });
+    });
+
+    channelsTableBody.querySelectorAll(".ch-field-downlink").forEach((el) => {
+      el.addEventListener("change", (e) => {
+        const i = parseInt(e.target.dataset.idx, 10);
+        channelsData[i].downlink = e.target.checked;
+      });
+    });
+
+    channelsTableBody.querySelectorAll(".ch-field-precision").forEach((el) => {
+      el.addEventListener("change", (e) => {
+        const i = parseInt(e.target.dataset.idx, 10);
+        channelsData[i].precision = parseInt(e.target.value, 10);
+      });
+    });
+  }
+
+  renderChannelsTable();
+
+  // Reset to Spanish defaults
+  btnResetChannels.addEventListener("click", () => {
+    channelsData = JSON.parse(JSON.stringify(DEFAULT_CHANNELS));
+    renderChannelsTable();
+  });
+
+  // Configure single channel only (Ch 0)
+  btnSingleChannel.addEventListener("click", () => {
+    channelsData.forEach((ch, idx) => {
+      ch.enabled = idx === 0;
+    });
+    renderChannelsTable();
+  });
+
+  // --- Interactive Leaflet Map & Geolocation ---
+  let map = null;
+  let marker = null;
+  const SPAIN_CENTER = [40.4168, -3.7038];
+
+  function initMap() {
+    const mapContainer = document.getElementById("locationMap");
+    if (window.L && mapContainer) {
+      map = L.map("locationMap").setView(SPAIN_CENTER, 6);
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "© OpenStreetMap",
+      }).addTo(map);
+
+      marker = L.marker(SPAIN_CENTER, { draggable: true });
+
+      marker.on("dragend", (e) => {
+        const pos = e.target.getLatLng();
+        setCoordsFromMap(pos.lat, pos.lng);
+      });
+
+      map.on("click", (e) => {
+        if (!map.hasLayer(marker)) {
+          marker.addTo(map);
+        }
+        marker.setLatLng(e.latlng);
+        setCoordsFromMap(e.latlng.lat, e.latlng.lng);
+      });
+    }
+  }
+
+  function setCoordsFromMap(lat, lon) {
+    fixedLat.value = lat.toFixed(6);
+    fixedLon.value = lon.toFixed(6);
+    mapStatus.innerHTML = `📍 Coordenadas seleccionadas: <strong>${lat.toFixed(6)}, ${lon.toFixed(6)}</strong>`;
+  }
+
+  function syncMapFromInputs() {
+    const lat = parseFloat(fixedLat.value);
+    const lon = parseFloat(fixedLon.value);
+    if (!isNaN(lat) && !isNaN(lon) && map && marker) {
+      if (!map.hasLayer(marker)) {
+        marker.addTo(map);
+      }
+      marker.setLatLng([lat, lon]);
+      map.setView([lat, lon], 14);
+      mapStatus.innerHTML = `📍 Coordenadas seleccionadas: <strong>${lat.toFixed(6)}, ${lon.toFixed(6)}</strong>`;
+    }
+  }
+
+  fixedLat.addEventListener("input", syncMapFromInputs);
+  fixedLon.addEventListener("input", syncMapFromInputs);
+
+  btnGeolocate.addEventListener("click", () => {
+    if (!navigator.geolocation) {
+      alert("Tu navegador no soporta la API de geolocalización.");
+      return;
+    }
+    mapStatus.textContent = "Obteniendo ubicación actual vía GPS/WiFi...";
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        const alt = pos.coords.altitude
+          ? Math.round(pos.coords.altitude)
+          : null;
+
+        fixedLat.value = lat.toFixed(6);
+        fixedLon.value = lon.toFixed(6);
+        if (alt !== null) {
+          fixedAlt.value = alt;
+        }
+
+        if (map && marker) {
+          if (!map.hasLayer(marker)) marker.addTo(map);
+          marker.setLatLng([lat, lon]);
+          map.setView([lat, lon], 15);
+        }
+        mapStatus.innerHTML = `✅ Ubicación detectada: <strong>${lat.toFixed(6)}, ${lon.toFixed(6)}</strong>${alt ? ` (Alt: ${alt}m)` : ""}`;
+      },
+      (err) => {
+        mapStatus.innerHTML = `⚠️ Error al obtener ubicación: ${err.message}`;
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  });
+
+  btnClearLocation.addEventListener("click", () => {
+    fixedLat.value = "";
+    fixedLon.value = "";
+    fixedAlt.value = "";
+    if (map && marker && map.hasLayer(marker)) {
+      map.removeLayer(marker);
+      map.setView(SPAIN_CENTER, 6);
+    }
+    mapStatus.textContent =
+      "Haz clic o arrastra el marcador para fijar la posición exacta del nodo.";
+  });
+
+  // Initialize map
+  initMap();
+
   // Open Actions in GitHub
   btnOpenActions.addEventListener("click", () => {
     const url = `https://github.com/${REPO_OWNER}/${REPO_NAME}/actions/workflows/${WORKFLOW_FILE}`;
     window.open(url, "_blank");
   });
 
-  // Collect inputs into object matching workflow dispatch
+  // Collect form inputs
   function getFormData() {
     const target = boardTarget.value;
     const customTarget = document.getElementById("customTarget").value.trim();
-    const isAutoName = autoRandomName.checked;
-    const longName = isAutoName
-      ? "Meshtacore *RANDOM*"
-      : ownerLongName.value.trim() || "Meshtacore Node";
-    const shortName = isAutoName
-      ? "*RANDOM*"
-      : ownerShortName.value.trim() || "MTC";
+    const longName = ownerLongName.value.trim();
+    const shortName = ownerShortName.value.trim();
     const hasScreen = document.getElementById("hasScreen").checked;
     const enableBluetooth = document.getElementById("enableBluetooth").checked;
     const isMeshcoreOn = enableMeshcore.checked;
@@ -146,11 +480,19 @@ document.addEventListener("DOMContentLoaded", () => {
     const deviceRole = document.getElementById("deviceRole").value;
     const loraRegion = document.getElementById("loraRegion").value;
     const loraPreset = document.getElementById("loraPreset").value;
-    const chPreset = channelsPreset.value;
     const gpsMode = document.getElementById("gpsMode").value;
-    const fixedLat = document.getElementById("fixedLat").value.trim();
-    const fixedLon = document.getElementById("fixedLon").value.trim();
-    const fixedAlt = document.getElementById("fixedAlt").value.trim();
+    const lat = fixedLat.value.trim();
+    const lon = fixedLon.value.trim();
+    const alt = fixedAlt.value.trim();
+
+    const isMqttOn = mqttEnabled.checked;
+    const mAddress = document.getElementById("mqttAddress").value.trim();
+    const mRoot = document.getElementById("mqttRoot").value.trim();
+    const mUser = document.getElementById("mqttUsername").value.trim();
+    const mPass = document.getElementById("mqttPassword").value.trim();
+    const mEnc = document.getElementById("mqttEncryption").checked;
+    const mTls = document.getElementById("mqttTls").checked;
+
     const wifiOn = wifiEnabled.checked;
     const wifiSsid = document.getElementById("wifiSsid").value.trim();
     const wifiPassword = document.getElementById("wifiPassword").value.trim();
@@ -172,11 +514,19 @@ document.addEventListener("DOMContentLoaded", () => {
       device_role: deviceRole,
       lora_region: loraRegion,
       lora_preset_mode: loraPreset,
-      channels_preset: chPreset,
+      channels_preset: "repo_default_5_channels",
+      channels_json: JSON.stringify(channelsData),
+      mqtt_enabled: isMqttOn,
+      mqtt_address: mAddress || "mqtt.meshtastic.es",
+      mqtt_root: mRoot || "msh",
+      mqtt_username: mUser || "meshdev",
+      mqtt_password: mPass || "large4cats",
+      mqtt_encryption_enabled: mEnc,
+      mqtt_tls_enabled: mTls,
       gps_mode: gpsMode,
-      fixed_latitude: fixedLat,
-      fixed_longitude: fixedLon,
-      fixed_altitude: fixedAlt,
+      fixed_latitude: lat,
+      fixed_longitude: lon,
+      fixed_altitude: alt,
       wifi_enabled: wifiOn,
       wifi_ssid: wifiSsid,
       wifi_password: wifiPassword,
@@ -223,6 +573,16 @@ document.addEventListener("DOMContentLoaded", () => {
         lora_region: data.lora_region,
         lora_preset_mode: data.lora_preset_mode,
         channels_preset: data.channels_preset,
+        channels_json: data.channels_json,
+        mqtt_enabled: data.mqtt_enabled ? "true" : "false",
+        mqtt_address: data.mqtt_address,
+        mqtt_username: data.mqtt_username,
+        mqtt_password: data.mqtt_password,
+        mqtt_root: data.mqtt_root,
+        mqtt_encryption_enabled: data.mqtt_encryption_enabled
+          ? "true"
+          : "false",
+        mqtt_tls_enabled: data.mqtt_tls_enabled ? "true" : "false",
         gps_mode: data.gps_mode,
         fixed_latitude: data.fixed_latitude,
         fixed_longitude: data.fixed_longitude,
@@ -253,8 +613,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const runUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}/actions/workflows/${WORKFLOW_FILE}`;
         dispatchStatus.innerHTML = `
           <strong>🚀 ¡Compilación iniciada con éxito!</strong><br>
-          GitHub está compilando tu firmware personalizado. En 2-3 minutos estará disponible.<br>
-          <a href="${runUrl}" target="_blank" style="color: #58a6ff; font-weight: 600; text-decoration: underline; margin-top: 4px; display: inline-block;">
+          GitHub Actions está compilando tu firmware para la placa <strong>${data.target}</strong>.<br>
+          <a href="${runUrl}" target="_blank" style="color: #58a6ff; font-weight: 600; text-decoration: underline; margin-top: 6px; display: inline-block;">
             Ver progreso de compilación en GitHub Actions ↗
           </a>
         `;
@@ -281,9 +641,10 @@ document.addEventListener("DOMContentLoaded", () => {
       USERPREFS_CONFIG_GPS_MODE: `meshtastic_Config_PositionConfig_GpsMode_${data.gps_mode}`,
     };
 
-    // If not auto MAC name, write specific custom name
-    if (!autoRandomName.checked) {
+    if (data.owner_long_name) {
       prefs["USERPREFS_CONFIG_OWNER_LONG_NAME"] = data.owner_long_name;
+    }
+    if (data.owner_short_name) {
       prefs["USERPREFS_CONFIG_OWNER_SHORT_NAME"] = data.owner_short_name;
     }
 
@@ -348,44 +709,43 @@ document.addEventListener("DOMContentLoaded", () => {
         `meshtastic_Config_LoRaConfig_ModemPreset_${p}`;
     }
 
-    if (data.channels_preset === "repo_default_5_channels") {
-      prefs["USERPREFS_CHANNELS_TO_WRITE"] = "5";
-      prefs["USERPREFS_CHANNEL_0_NAME"] = "SFNarrow";
-      prefs["USERPREFS_CHANNEL_0_PSK"] = "{ 0x01 }"; // 1 -> AQ==
-      prefs["USERPREFS_CHANNEL_0_PRECISION"] = "16";
-      prefs["USERPREFS_CHANNEL_0_IS_MUTED"] = "false";
-      prefs["USERPREFS_CHANNEL_0_UPLINK_ENABLED"] = "true";
-      prefs["USERPREFS_CHANNEL_0_DOWNLINK_ENABLED"] = "true";
-
-      prefs["USERPREFS_CHANNEL_1_NAME"] = "Test";
-      prefs["USERPREFS_CHANNEL_1_PSK"] = "{ 0x02 }"; // 2 -> Ag==
-      prefs["USERPREFS_CHANNEL_1_PRECISION"] = "0";
-      prefs["USERPREFS_CHANNEL_1_IS_MUTED"] = "false";
-      prefs["USERPREFS_CHANNEL_1_UPLINK_ENABLED"] = "true";
-      prefs["USERPREFS_CHANNEL_1_DOWNLINK_ENABLED"] = "true";
-
-      prefs["USERPREFS_CHANNEL_2_NAME"] = "Bots";
-      prefs["USERPREFS_CHANNEL_2_PSK"] = "{ 0x02 }"; // 2 -> Ag==
-      prefs["USERPREFS_CHANNEL_2_PRECISION"] = "0";
-      prefs["USERPREFS_CHANNEL_2_IS_MUTED"] = "false";
-      prefs["USERPREFS_CHANNEL_2_UPLINK_ENABLED"] = "true";
-      prefs["USERPREFS_CHANNEL_2_DOWNLINK_ENABLED"] = "true";
-
-      prefs["USERPREFS_CHANNEL_3_NAME"] = "Catalunya";
-      prefs["USERPREFS_CHANNEL_3_PSK"] = "{ 0x01 }"; // 1 -> AQ==
-      prefs["USERPREFS_CHANNEL_3_PRECISION"] = "0";
-      prefs["USERPREFS_CHANNEL_3_IS_MUTED"] = "false";
-      prefs["USERPREFS_CHANNEL_3_UPLINK_ENABLED"] = "false";
-      prefs["USERPREFS_CHANNEL_3_DOWNLINK_ENABLED"] = "false";
-
-      prefs["USERPREFS_CHANNEL_4_NAME"] = "Barcelona";
-      prefs["USERPREFS_CHANNEL_4_PSK"] = "{ 0x01 }"; // 1 -> AQ==
-      prefs["USERPREFS_CHANNEL_4_PRECISION"] = "0";
-      prefs["USERPREFS_CHANNEL_4_IS_MUTED"] = "false";
-      prefs["USERPREFS_CHANNEL_4_UPLINK_ENABLED"] = "false";
-      prefs["USERPREFS_CHANNEL_4_DOWNLINK_ENABLED"] = "false";
+    // Write channels
+    const activeChannels = channelsData.filter((c) => c.enabled);
+    if (activeChannels.length > 0) {
+      prefs["USERPREFS_CHANNELS_TO_WRITE"] = String(
+        Math.min(activeChannels.length, 8),
+      );
+      activeChannels.slice(0, 8).forEach((ch, idx) => {
+        prefs[`USERPREFS_CHANNEL_${idx}_NAME`] = ch.name;
+        prefs[`USERPREFS_CHANNEL_${idx}_PSK`] = formatPskToCArray(ch.psk);
+        prefs[`USERPREFS_CHANNEL_${idx}_PRECISION`] = String(ch.precision);
+        prefs[`USERPREFS_CHANNEL_${idx}_IS_MUTED`] = "false";
+        prefs[`USERPREFS_CHANNEL_${idx}_UPLINK_ENABLED`] = ch.uplink
+          ? "true"
+          : "false";
+        prefs[`USERPREFS_CHANNEL_${idx}_DOWNLINK_ENABLED`] = ch.downlink
+          ? "true"
+          : "false";
+      });
     }
 
+    // MQTT
+    if (data.mqtt_enabled) {
+      prefs["USERPREFS_MQTT_ENABLED"] = "1";
+      prefs["USERPREFS_MQTT_ADDRESS"] =
+        data.mqtt_address || "mqtt.meshtastic.es";
+      prefs["USERPREFS_MQTT_ROOT_TOPIC"] = data.mqtt_root || "msh";
+      prefs["USERPREFS_MQTT_USERNAME"] = data.mqtt_username || "meshdev";
+      prefs["USERPREFS_MQTT_PASSWORD"] = data.mqtt_password || "large4cats";
+      prefs["USERPREFS_MQTT_ENCRYPTION_ENABLED"] = data.mqtt_encryption_enabled
+        ? "true"
+        : "false";
+      prefs["USERPREFS_MQTT_TLS_ENABLED"] = data.mqtt_tls_enabled
+        ? "true"
+        : "false";
+    }
+
+    // Fixed Location
     if (data.fixed_latitude && data.fixed_longitude) {
       prefs["USERPREFS_FIXED_GPS"] = "1";
       prefs["USERPREFS_FIXED_GPS_LAT"] = data.fixed_latitude;
@@ -395,6 +755,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
+    // WiFi
     if (data.wifi_enabled && data.wifi_ssid) {
       prefs["USERPREFS_NETWORK_WIFI_ENABLED"] = "true";
       prefs["USERPREFS_NETWORK_WIFI_SSID"] = data.wifi_ssid;

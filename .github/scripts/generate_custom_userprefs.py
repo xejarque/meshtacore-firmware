@@ -23,6 +23,32 @@ def b64_to_c_array(b64_str: str) -> str:
     return "{ " + ", ".join(f"0x{b:02x}" for b in raw) + " }"
 
 
+def format_psk(psk_val: str) -> str:
+    psk_str = str(psk_val).strip()
+    if not psk_str:
+        return "{ 0x01 }"
+    if psk_str.startswith("{") and psk_str.endswith("}"):
+        return psk_str
+    if psk_str.isdigit():
+        val = int(psk_str)
+        return f"{{ 0x{val:02x} }}"
+    if psk_str.startswith("0x") or psk_str.startswith("0X"):
+        try:
+            raw = bytes.fromhex(psk_str[2:])
+            return "{ " + ", ".join(f"0x{b:02x}" for b in raw) + " }"
+        except ValueError:
+            pass
+    try:
+        raw = base64.b64decode(psk_str)
+        return "{ " + ", ".join(f"0x{b:02x}" for b in raw) + " }"
+    except Exception:
+        try:
+            raw = bytes.fromhex(psk_str)
+            return "{ " + ", ".join(f"0x{b:02x}" for b in raw) + " }"
+        except Exception:
+            return "{ 0x01 }"
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Customize userPrefs.jsonc for firmware build"
@@ -55,6 +81,28 @@ def main():
     parser.add_argument("--lora-region", default="EU_868")
     parser.add_argument("--lora-preset-mode", default="custom_sfnarrow_default")
     parser.add_argument("--channels-preset", default="repo_default_5_channels")
+    parser.add_argument(
+        "--channels-json", default="", help="JSON string with custom channels array"
+    )
+    parser.add_argument(
+        "--mqtt-enabled",
+        type=lambda v: v.lower() in ("true", "1", "yes"),
+        default=True,
+    )
+    parser.add_argument("--mqtt-address", default="mqtt.meshtastic.es")
+    parser.add_argument("--mqtt-username", default="meshdev")
+    parser.add_argument("--mqtt-password", default="large4cats")
+    parser.add_argument("--mqtt-root", default="msh")
+    parser.add_argument(
+        "--mqtt-encryption-enabled",
+        type=lambda v: v.lower() in ("true", "1", "yes"),
+        default=True,
+    )
+    parser.add_argument(
+        "--mqtt-tls-enabled",
+        type=lambda v: v.lower() in ("true", "1", "yes"),
+        default=False,
+    )
     parser.add_argument(
         "--wifi-enabled",
         type=lambda v: v.lower() in ("true", "1", "yes"),
@@ -183,50 +231,102 @@ def main():
         prefs.pop("USERPREFS_LORACONFIG_CODING_RATE", None)
         prefs.pop("USERPREFS_LORACONFIG_OVERRIDE_FREQUENCY", None)
 
-    # Channels Preset
-    if args.channels_preset == "single_channel_default":
+    # Channels configuration
+    custom_channels = None
+    if args.channels_json:
+        try:
+            custom_channels = json.loads(args.channels_json)
+        except Exception as e:
+            print(f"Warning: could not parse channels_json: {e}", file=sys.stderr)
+
+    if custom_channels and isinstance(custom_channels, list):
+        active = [c for c in custom_channels if c.get("enabled", True)]
+        # Clean existing channel prefs
+        for i in range(8):
+            for k in list(prefs.keys()):
+                if k.startswith(f"USERPREFS_CHANNEL_{i}_"):
+                    del prefs[k]
+
+        count = min(len(active), 8)
+        prefs["USERPREFS_CHANNELS_TO_WRITE"] = str(count)
+        for i, ch in enumerate(active[:8]):
+            prefs[f"USERPREFS_CHANNEL_{i}_NAME"] = str(ch.get("name", ""))[:11]
+            prefs[f"USERPREFS_CHANNEL_{i}_PSK"] = format_psk(str(ch.get("psk", "AQ==")))
+            prefs[f"USERPREFS_CHANNEL_{i}_PRECISION"] = str(ch.get("precision", 0))
+            prefs[f"USERPREFS_CHANNEL_{i}_IS_MUTED"] = (
+                "true" if ch.get("muted", False) else "false"
+            )
+            prefs[f"USERPREFS_CHANNEL_{i}_UPLINK_ENABLED"] = (
+                "true" if ch.get("uplink", False) else "false"
+            )
+            prefs[f"USERPREFS_CHANNEL_{i}_DOWNLINK_ENABLED"] = (
+                "true" if ch.get("downlink", False) else "false"
+            )
+    elif args.channels_preset == "single_channel_default":
         prefs["USERPREFS_CHANNELS_TO_WRITE"] = "1"
         for i in range(1, 8):
             for k in list(prefs.keys()):
                 if k.startswith(f"USERPREFS_CHANNEL_{i}_"):
                     del prefs[k]
     elif args.channels_preset == "repo_default_5_channels":
-        # Keep repository 5-channel defaults if not already present
-        prefs.setdefault("USERPREFS_CHANNELS_TO_WRITE", "5")
-        prefs.setdefault("USERPREFS_CHANNEL_0_NAME", "SFNarrow")
-        prefs.setdefault("USERPREFS_CHANNEL_0_PSK", "{ 0x01 }")
-        prefs.setdefault("USERPREFS_CHANNEL_0_PRECISION", "16")
-        prefs.setdefault("USERPREFS_CHANNEL_0_IS_MUTED", "false")
-        prefs.setdefault("USERPREFS_CHANNEL_0_UPLINK_ENABLED", "true")
-        prefs.setdefault("USERPREFS_CHANNEL_0_DOWNLINK_ENABLED", "true")
+        # Defaults: uplink enabled only for Meshtastic channels, downlink disabled
+        prefs["USERPREFS_CHANNELS_TO_WRITE"] = "5"
+        prefs["USERPREFS_CHANNEL_0_NAME"] = "SFNarrow"
+        prefs["USERPREFS_CHANNEL_0_PSK"] = "{ 0x01 }"
+        prefs["USERPREFS_CHANNEL_0_PRECISION"] = "16"
+        prefs["USERPREFS_CHANNEL_0_IS_MUTED"] = "false"
+        prefs["USERPREFS_CHANNEL_0_UPLINK_ENABLED"] = "true"
+        prefs["USERPREFS_CHANNEL_0_DOWNLINK_ENABLED"] = "false"
 
-        prefs.setdefault("USERPREFS_CHANNEL_1_NAME", "Test")
-        prefs.setdefault("USERPREFS_CHANNEL_1_PSK", "{ 0x02 }")
-        prefs.setdefault("USERPREFS_CHANNEL_1_PRECISION", "0")
-        prefs.setdefault("USERPREFS_CHANNEL_1_IS_MUTED", "false")
-        prefs.setdefault("USERPREFS_CHANNEL_1_UPLINK_ENABLED", "true")
-        prefs.setdefault("USERPREFS_CHANNEL_1_DOWNLINK_ENABLED", "true")
+        prefs["USERPREFS_CHANNEL_1_NAME"] = "Test"
+        prefs["USERPREFS_CHANNEL_1_PSK"] = "{ 0x02 }"
+        prefs["USERPREFS_CHANNEL_1_PRECISION"] = "0"
+        prefs["USERPREFS_CHANNEL_1_IS_MUTED"] = "false"
+        prefs["USERPREFS_CHANNEL_1_UPLINK_ENABLED"] = "true"
+        prefs["USERPREFS_CHANNEL_1_DOWNLINK_ENABLED"] = "false"
 
-        prefs.setdefault("USERPREFS_CHANNEL_2_NAME", "Bots")
-        prefs.setdefault("USERPREFS_CHANNEL_2_PSK", "{ 0x02 }")
-        prefs.setdefault("USERPREFS_CHANNEL_2_PRECISION", "0")
-        prefs.setdefault("USERPREFS_CHANNEL_2_IS_MUTED", "false")
-        prefs.setdefault("USERPREFS_CHANNEL_2_UPLINK_ENABLED", "true")
-        prefs.setdefault("USERPREFS_CHANNEL_2_DOWNLINK_ENABLED", "true")
+        prefs["USERPREFS_CHANNEL_2_NAME"] = "Bots"
+        prefs["USERPREFS_CHANNEL_2_PSK"] = "{ 0x02 }"
+        prefs["USERPREFS_CHANNEL_2_PRECISION"] = "0"
+        prefs["USERPREFS_CHANNEL_2_IS_MUTED"] = "false"
+        prefs["USERPREFS_CHANNEL_2_UPLINK_ENABLED"] = "true"
+        prefs["USERPREFS_CHANNEL_2_DOWNLINK_ENABLED"] = "false"
 
-        prefs.setdefault("USERPREFS_CHANNEL_3_NAME", "Catalunya")
-        prefs.setdefault("USERPREFS_CHANNEL_3_PSK", "{ 0x01 }")
-        prefs.setdefault("USERPREFS_CHANNEL_3_PRECISION", "0")
-        prefs.setdefault("USERPREFS_CHANNEL_3_IS_MUTED", "false")
-        prefs.setdefault("USERPREFS_CHANNEL_3_UPLINK_ENABLED", "false")
-        prefs.setdefault("USERPREFS_CHANNEL_3_DOWNLINK_ENABLED", "false")
+        prefs["USERPREFS_CHANNEL_3_NAME"] = "Catalunya"
+        prefs["USERPREFS_CHANNEL_3_PSK"] = "{ 0x01 }"
+        prefs["USERPREFS_CHANNEL_3_PRECISION"] = "0"
+        prefs["USERPREFS_CHANNEL_3_IS_MUTED"] = "false"
+        prefs["USERPREFS_CHANNEL_3_UPLINK_ENABLED"] = "true"
+        prefs["USERPREFS_CHANNEL_3_DOWNLINK_ENABLED"] = "false"
 
-        prefs.setdefault("USERPREFS_CHANNEL_4_NAME", "Barcelona")
-        prefs.setdefault("USERPREFS_CHANNEL_4_PSK", "{ 0x01 }")
-        prefs.setdefault("USERPREFS_CHANNEL_4_PRECISION", "0")
-        prefs.setdefault("USERPREFS_CHANNEL_4_IS_MUTED", "false")
-        prefs.setdefault("USERPREFS_CHANNEL_4_UPLINK_ENABLED", "false")
-        prefs.setdefault("USERPREFS_CHANNEL_4_DOWNLINK_ENABLED", "false")
+        prefs["USERPREFS_CHANNEL_4_NAME"] = "Barcelona"
+        prefs["USERPREFS_CHANNEL_4_PSK"] = "{ 0x01 }"
+        prefs["USERPREFS_CHANNEL_4_PRECISION"] = "0"
+        prefs["USERPREFS_CHANNEL_4_IS_MUTED"] = "false"
+        prefs["USERPREFS_CHANNEL_4_UPLINK_ENABLED"] = "true"
+        prefs["USERPREFS_CHANNEL_4_DOWNLINK_ENABLED"] = "false"
+
+    # MQTT configuration
+    if args.mqtt_enabled:
+        prefs["USERPREFS_MQTT_ENABLED"] = "1"
+        prefs["USERPREFS_MQTT_ADDRESS"] = args.mqtt_address or "mqtt.meshtastic.es"
+        prefs["USERPREFS_MQTT_USERNAME"] = args.mqtt_username or "meshdev"
+        prefs["USERPREFS_MQTT_PASSWORD"] = args.mqtt_password or "large4cats"
+        prefs["USERPREFS_MQTT_ROOT_TOPIC"] = args.mqtt_root or "msh"
+        prefs["USERPREFS_MQTT_ENCRYPTION_ENABLED"] = (
+            "true" if args.mqtt_encryption_enabled else "false"
+        )
+        prefs["USERPREFS_MQTT_TLS_ENABLED"] = (
+            "true" if args.mqtt_tls_enabled else "false"
+        )
+    else:
+        prefs.pop("USERPREFS_MQTT_ENABLED", None)
+        prefs.pop("USERPREFS_MQTT_ADDRESS", None)
+        prefs.pop("USERPREFS_MQTT_USERNAME", None)
+        prefs.pop("USERPREFS_MQTT_PASSWORD", None)
+        prefs.pop("USERPREFS_MQTT_ROOT_TOPIC", None)
+        prefs.pop("USERPREFS_MQTT_ENCRYPTION_ENABLED", None)
+        prefs.pop("USERPREFS_MQTT_TLS_ENABLED", None)
 
     # WiFi
     if args.wifi_enabled and args.wifi_ssid:

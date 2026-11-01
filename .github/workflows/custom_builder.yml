@@ -7,31 +7,96 @@ on:
         type: choice
         description: "Placa objetivo (o 'custom' para especificarla abajo)"
         options:
-          - heltec-v3
-          - heltec-v4
+          # --- nRF52840 ---
           - heltec-mesh-node-t114
-          - heltec-wireless-tracker
-          - heltec-wireless-paper
-          - heltec-vision-master-e213
-          - heltec-vision-master-e290
           - rak4631
           - rak3401-1watt
           - rak_wismesh_pocket
+          - rak_wismesh_pod
+          - rak_wismeshtag
           - rak_wismesh_repeater_mini
+          - rak_wismesh_repeater_mini_hp
+          - seeed_xiao_nrf52840_kit
+          - seeed_mesh_tracker_X1
+          - seeed_solar_node
+          - seeed_wio_tracker_L1
           - t-echo
           - t-echo-plus
-          - tbeam
-          - tbeam-s3-core
+          - t-echo-lite
+          - t-impulse-plus
+          - tracker-t1000-e
+          - wio-tracker-wm1110
+          - thinknode_m1
+          - gat562_mesh_trial_tracker
+          - nrf52_promicro_diy_tcxo
+          - nrf52_promicro_diy_sx1262
+          # --- ESP32-S3 ---
+          - heltec-v3
+          - heltec-v4
+          - heltec-v4-tft
+          - heltec-v4-r8-oled
+          - heltec-v4-r8-tft
+          - heltec-wireless-paper
+          - heltec-wireless-tracker
+          - heltec-wireless-tracker-v2
+          - heltec-wsl-v3
+          - heltec-vision-master-e213
+          - heltec-vision-master-e290
+          - heltec-vision-master-t190
           - t-deck
           - t-deck-tft
-          - tracker-t1000-e
-          - seeed_wio_tracker_L1
-          - seeed-xiao-s3
+          - t-deck-pro
+          - t-deck-pro-v1_1
+          - t-watch-s3
+          - t-watch-ultra
+          - tbeam-s3-core
+          - tlora-t3s3-v1
+          - tlora-t3s3-epaper
+          - t5s3-epaper-v1
+          - t5s3-epaper-v2
+          - t5s3_epaper_inkhud
           - station-g2
           - station-g3
-          - thinknode_m1
+          - rak3312
+          - rak_wismesh_tap_v2
+          - rak_wismesh_tap_v2-tft
+          - seeed-xiao-s3
+          - seeed_wio_tracker_L2-tft
+          - seeed-sensecap-indicator
+          - seeed-sensecap-indicator-tft
+          - elecrow-adv-24-28-tft
+          - elecrow-adv-35-tft
+          - elecrow-adv1-43-50-70-tft
+          - mini-epaper-s3
+          - picomputer-s3
+          - picomputer-s3-tft
+          - thinknode_m2
+          - thinknode_m5
+          - thinknode_m9
+          - thinknode_m9-tft
+          - tlora-pager
+          - tracksenger
+          - tracksenger-lcd
+          - tracksenger-oled
+          - CDEBYTE_EoRa-S3
+          - axiometa-genesis-mini
+          - meshnology_w10
+          - meshnology_w12
+          - t-connect-pro
+          - unphone
+          # --- ESP32 Clásico ---
+          - tbeam
+          - t-beam-1w
+          - t-beam-bpf
+          - tlora-v2-1-1_6
+          # --- ESP32-C3 / C6 ---
+          - heltec-ht62-esp32c3-sx1262
+          - heltec-rc32
+          - heltec-rcc6
+          - m5stack-unitc6l
+          - tlora-c6
+          # --- RP2040 ---
           - picow
-          - nrf52_promicro_diy_tcxo
           - custom
         default: heltec-v3
       custom_target:
@@ -91,6 +156,46 @@ on:
           - repo_default_5_channels
           - single_channel_default
         default: repo_default_5_channels
+      channels_json:
+        type: string
+        required: false
+        default: ""
+        description: "Configuración JSON de canales (generado desde Web Builder)"
+      mqtt_enabled:
+        type: boolean
+        required: false
+        default: true
+        description: "Habilitar cliente MQTT"
+      mqtt_address:
+        type: string
+        required: false
+        default: "mqtt.meshtastic.es"
+        description: "Servidor MQTT"
+      mqtt_username:
+        type: string
+        required: false
+        default: "meshdev"
+        description: "Usuario MQTT"
+      mqtt_password:
+        type: string
+        required: false
+        default: "large4cats"
+        description: "Contraseña MQTT"
+      mqtt_root:
+        type: string
+        required: false
+        default: "msh"
+        description: "Tópico raíz MQTT"
+      mqtt_encryption_enabled:
+        type: boolean
+        required: false
+        default: true
+        description: "Cifrado de paquetes en MQTT"
+      mqtt_tls_enabled:
+        type: boolean
+        required: false
+        default: false
+        description: "Conexión segura TLS para MQTT"
       enable_bluetooth:
         type: boolean
         required: false
@@ -271,6 +376,14 @@ jobs:
             --lora-region "${{ inputs.lora_region }}" \
             --lora-preset-mode "${{ inputs.lora_preset_mode }}" \
             --channels-preset "${{ inputs.channels_preset }}" \
+            --channels-json '${{ inputs.channels_json }}' \
+            --mqtt-enabled "${{ inputs.mqtt_enabled }}" \
+            --mqtt-address "${{ inputs.mqtt_address }}" \
+            --mqtt-username "${{ inputs.mqtt_username }}" \
+            --mqtt-password "${{ inputs.mqtt_password }}" \
+            --mqtt-root "${{ inputs.mqtt_root }}" \
+            --mqtt-encryption-enabled "${{ inputs.mqtt_encryption_enabled }}" \
+            --mqtt-tls-enabled "${{ inputs.mqtt_tls_enabled }}" \
             --wifi-enabled "${{ inputs.wifi_enabled }}" \
             --wifi-ssid "${{ inputs.wifi_ssid }}" \
             --wifi-password "${{ inputs.wifi_password }}" \

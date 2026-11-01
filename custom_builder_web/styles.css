@@ -486,6 +486,165 @@ input:checked + .slider:before {
   background-color: rgba(163, 113, 247, 0.04);
 }
 
+.input-with-button {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.input-with-button .form-control {
+  flex: 1;
+}
+
+.btn-sm {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
+}
+
+.info-alert {
+  background-color: rgba(56, 139, 253, 0.1);
+  border: 1px solid rgba(56, 139, 253, 0.25);
+  border-radius: 6px;
+  padding: 0.65rem 0.9rem;
+  font-size: 0.85rem;
+  color: #79c0ff;
+  line-height: 1.4;
+}
+
+.info-alert code {
+  color: #fff;
+  background-color: rgba(255, 255, 255, 0.1);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.88rem;
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.channels-header-flex {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.channels-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.channels-table-responsive {
+  overflow-x: auto;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background-color: rgba(0, 0, 0, 0.25);
+}
+
+.channels-edit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.channels-edit-table th {
+  padding: 0.6rem 0.75rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  border-bottom: 1px solid var(--card-border);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+.channels-edit-table td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  vertical-align: middle;
+}
+
+.channels-edit-table tr:last-child td {
+  border-bottom: none;
+}
+
+.channels-edit-table tr.ch-disabled td {
+  opacity: 0.45;
+}
+
+.ch-input {
+  width: 100%;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--text-main);
+  border-radius: 4px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.82rem;
+  font-family: inherit;
+  transition: border-color 0.15s ease;
+}
+
+.ch-input:focus {
+  outline: none;
+  border-color: var(--input-focus);
+}
+
+.ch-input.font-mono {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
+.ch-checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  display: block;
+  margin: 0 auto;
+}
+
+.location-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.location-toolbar-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+#locationMap {
+  width: 100%;
+  height: 280px;
+  border-radius: 8px;
+  border: 1px solid var(--card-border);
+  z-index: 1;
+}
+
+/* Ensure Leaflet controls match dark theme styling nicely */
+.leaflet-container {
+  font-family: var(--font-family) !important;
+  background: #1e2530 !important;
+}
+
 .app-footer {
   text-align: center;
   margin-top: 3rem;
