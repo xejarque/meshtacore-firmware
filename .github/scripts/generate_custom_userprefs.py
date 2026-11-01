@@ -45,6 +45,12 @@ def main():
         type=lambda v: v.lower() in ("true", "1", "yes"),
         default=True,
     )
+    parser.add_argument("--meshcore-advert-hours", default="12")
+    parser.add_argument("--meshcore-relay-mode", default="AUTO")
+    parser.add_argument("--meshcore-regions-def", default="es, es/cat, es/cat/bcn")
+    parser.add_argument("--meshcore-home-region", default="cat")
+    parser.add_argument("--meshcore-default-region", default="es")
+    parser.add_argument("--nexus-master-key", default="")
     parser.add_argument("--device-role", default="CLIENT")
     parser.add_argument("--lora-region", default="EU_868")
     parser.add_argument("--lora-preset-mode", default="custom_sfnarrow_default")
@@ -96,17 +102,57 @@ def main():
         prefs.pop("MESHTASTIC_EXCLUDE_BLUETOOTH", None)
         prefs.pop("HAS_BLUETOOTH", None)
 
+    NEXUS_PREDEFINED_KEYS = {
+        "eevee": "{ 0x9a, 0xd2, 0x47, 0xb0, 0x2f, 0x4f, 0xa5, 0x08, 0x95, 0x3f, 0x5c, 0x1b, 0x6e, 0x13, 0x93, 0x98, 0x2c, 0xb3, 0xd6, 0xf3, 0x19, 0x3b, 0x87, 0xa5, 0xc8, 0x33, 0x2d, 0xce, 0x67, 0xae, 0x9d, 0x15 }",
+        "bloom": "{ 0x6c, 0x5c, 0xa6, 0xe8, 0xfa, 0x3f, 0xe9, 0x46, 0x19, 0x6b, 0x82, 0x14, 0xa7, 0xe2, 0xd9, 0x96, 0xed, 0x6a, 0xe1, 0x10, 0xe4, 0xe5, 0xf3, 0xe8, 0xc6, 0x1b, 0xfb, 0xc4, 0x9e, 0x8b, 0x8f, 0x61 }",
+        "mew": "{ 0x11, 0x0c, 0x24, 0x41, 0x08, 0x40, 0xd7, 0xca, 0xec, 0x9f, 0xb8, 0xf8, 0x71, 0x99, 0xcb, 0xcc, 0xb6, 0xac, 0xd9, 0x56, 0x77, 0x14, 0x9b, 0x3e, 0xee, 0xf2, 0x9c, 0x4c, 0xf5, 0x08, 0x12, 0x60 }",
+        "fennekin": "{ 0xe7, 0x05, 0x7e, 0xe7, 0xeb, 0x80, 0xf9, 0x04, 0x0d, 0xf2, 0x30, 0xff, 0x0c, 0x4a, 0x09, 0x74, 0x94, 0xb9, 0x47, 0x92, 0xa0, 0x65, 0x78, 0xcb, 0xfd, 0xeb, 0xdc, 0xda, 0x57, 0x73, 0x26, 0x7e }",
+    }
+
     # MeshCore subsystem (Sniffer, Relay, Companion, Hybrid Sync)
     if not args.enable_meshcore:
         prefs["MESHTASTIC_ENABLE_MESHCORE_SNIFFER"] = "0"
         prefs["MESHTASTIC_ENABLE_MESHCORE_RELAY"] = "0"
         prefs["MESHTASTIC_ENABLE_MESHCORE_COMPANION"] = "0"
         prefs["MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC"] = "0"
+        prefs.pop("USERPREFS_MESHCORE_ADVERT_HOURS", None)
+        prefs.pop("USERPREFS_MESHCORE_RELAY_MODE", None)
+        prefs.pop("USERPREFS_MESHCORE_REGIONS_DEF", None)
+        prefs.pop("USERPREFS_MESHCORE_HOME_REGION", None)
+        prefs.pop("USERPREFS_MESHCORE_DEFAULT_REGION", None)
     else:
         prefs.pop("MESHTASTIC_ENABLE_MESHCORE_SNIFFER", None)
         prefs.pop("MESHTASTIC_ENABLE_MESHCORE_RELAY", None)
         prefs.pop("MESHTASTIC_ENABLE_MESHCORE_COMPANION", None)
         prefs.pop("MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC", None)
+
+        if args.meshcore_advert_hours and args.meshcore_advert_hours.isdigit():
+            prefs["USERPREFS_MESHCORE_ADVERT_HOURS"] = args.meshcore_advert_hours
+        mode_val = {"AUTO": "0", "OFF": "1", "ON": "2"}.get(
+            args.meshcore_relay_mode.upper(), "0"
+        )
+        prefs["USERPREFS_MESHCORE_RELAY_MODE"] = mode_val
+        if args.meshcore_regions_def:
+            prefs["USERPREFS_MESHCORE_REGIONS_DEF"] = args.meshcore_regions_def
+        if args.meshcore_home_region:
+            prefs["USERPREFS_MESHCORE_HOME_REGION"] = args.meshcore_home_region
+        if args.meshcore_default_region:
+            prefs["USERPREFS_MESHCORE_DEFAULT_REGION"] = args.meshcore_default_region
+
+    # Nexus Master Key (Remote Admin)
+    if args.nexus_master_key:
+        k = args.nexus_master_key.strip().lower()
+        if k in NEXUS_PREDEFINED_KEYS:
+            prefs["NEXUS_MASTER_KEY_1"] = NEXUS_PREDEFINED_KEYS[k]
+        elif k.startswith("{") and k.endswith("}"):
+            prefs["NEXUS_MASTER_KEY_1"] = args.nexus_master_key.strip()
+        else:
+            try:
+                prefs["NEXUS_MASTER_KEY_1"] = b64_to_c_array(args.nexus_master_key)
+            except Exception:
+                pass
+    else:
+        prefs.pop("NEXUS_MASTER_KEY_1", None)
 
     # Device role
     role_enum = f"meshtastic_Config_DeviceConfig_Role_{args.device_role.upper()}"

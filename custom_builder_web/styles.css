@@ -262,6 +262,20 @@ input:checked + .slider:before {
 }
 
 /* Actions Card */
+.subcard {
+  background-color: rgba(163, 113, 247, 0.04);
+  border: 1px solid rgba(163, 113, 247, 0.25);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.subcard-header {
+  color: #d2a8ff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
 .action-card {
   border-color: rgba(46, 160, 67, 0.4);
 }

@@ -391,6 +391,13 @@ void RadioLibInterface::reloadMeshCoreConfig()
     reloadMeshCoreRegions();
     MeshCoreConfig loaded;
     if (!loadMeshCoreConfigImage(&loaded)) {
+#ifdef USERPREFS_MESHCORE_RELAY_MODE
+        meshCoreConfig.relay = (MeshCoreConfig::RelayMode)USERPREFS_MESHCORE_RELAY_MODE;
+        meshCoreRepeater.setRelayMode(meshCoreConfig.relay);
+#endif
+#ifdef USERPREFS_MESHCORE_ADVERT_HOURS
+        meshCoreConfig.advertHours = USERPREFS_MESHCORE_ADVERT_HOURS;
+#endif
         LOG_INFO("MeshCore config: no valid %s, settings unchanged", meshCoreConfigPath);
         return;
     }
@@ -423,6 +430,22 @@ bool RadioLibInterface::reloadMeshCoreRegions()
         LOG_INFO("MeshCore regions: loaded %d regions", meshCoreRepeater.getRegionMap().getCount());
         return true;
     }
+#ifdef USERPREFS_MESHCORE_REGIONS_DEF
+    char dummy[128];
+    meshCoreRepeater.getRegionMap().processDef((const char *)USERPREFS_MESHCORE_REGIONS_DEF, dummy, sizeof(dummy));
+#ifdef USERPREFS_MESHCORE_HOME_REGION
+    RegionEntry *home = meshCoreRepeater.getRegionMap().findByNamePrefix((const char *)USERPREFS_MESHCORE_HOME_REGION);
+    if (home)
+        meshCoreRepeater.getRegionMap().setHomeRegion(home);
+#endif
+#ifdef USERPREFS_MESHCORE_DEFAULT_REGION
+    RegionEntry *def = meshCoreRepeater.getRegionMap().findByNamePrefix((const char *)USERPREFS_MESHCORE_DEFAULT_REGION);
+    if (def)
+        meshCoreRepeater.getRegionMap().setDefaultRegion(def);
+#endif
+    LOG_INFO("MeshCore regions: factory defaults installed (%d regions)", meshCoreRepeater.getRegionMap().getCount());
+    return true;
+#endif
     return false;
 }
 

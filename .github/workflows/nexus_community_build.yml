@@ -208,6 +208,9 @@ jobs:
           cat > ./notes.md <<EOF
           Community firmware - \`$VERSION\`
 
+          > 🌐 **[Meshtacore Web Builder](https://xejarque.github.io/meshtacore-firmware/)**  
+          > ¿Prefieres un firmware a medida con tu nombre, canales comunitarios (SFNarrow/MeshCore) y ajustes grabados de fábrica? Genera tu firmware online aquí: https://xejarque.github.io/meshtacore-firmware/
+
           - Commit: \`${{ github.sha }}\`
           - Targets: $TARGETS
           - Run: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})

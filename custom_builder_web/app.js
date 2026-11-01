@@ -5,14 +5,28 @@ const REPO_NAME = "meshtacore-firmware";
 const DEFAULT_BRANCH = "meshtacore";
 const WORKFLOW_FILE = "custom_builder.yml";
 
+const NEXUS_PREDEFINED_KEYS = {
+  eevee:
+    "{ 0x9a, 0xd2, 0x47, 0xb0, 0x2f, 0x4f, 0xa5, 0x08, 0x95, 0x3f, 0x5c, 0x1b, 0x6e, 0x13, 0x93, 0x98, 0x2c, 0xb3, 0xd6, 0xf3, 0x19, 0x3b, 0x87, 0xa5, 0xc8, 0x33, 0x2d, 0xce, 0x67, 0xae, 0x9d, 0x15 }",
+  bloom:
+    "{ 0x6c, 0x5c, 0xa6, 0xe8, 0xfa, 0x3f, 0xe9, 0x46, 0x19, 0x6b, 0x82, 0x14, 0xa7, 0xe2, 0xd9, 0x96, 0xed, 0x6a, 0xe1, 0x10, 0xe4, 0xe5, 0xf3, 0xe8, 0xc6, 0x1b, 0xfb, 0xc4, 0x9e, 0x8b, 0x8f, 0x61 }",
+  mew: "{ 0x11, 0x0c, 0x24, 0x41, 0x08, 0x40, 0xd7, 0xca, 0xec, 0x9f, 0xb8, 0xf8, 0x71, 0x99, 0xcb, 0xcc, 0xb6, 0xac, 0xd9, 0x56, 0x77, 0x14, 0x9b, 0x3e, 0xee, 0xf2, 0x9c, 0x4c, 0xf5, 0x08, 0x12, 0x60 }",
+  fennekin:
+    "{ 0xe7, 0x05, 0x7e, 0xe7, 0xeb, 0x80, 0xf9, 0x04, 0x0d, 0xf2, 0x30, 0xff, 0x0c, 0x4a, 0x09, 0x74, 0x94, 0xb9, 0x47, 0x92, 0xa0, 0x65, 0x78, 0xcb, 0xfd, 0xeb, 0xdc, 0xda, 0x57, 0x73, 0x26, 0x7e }",
+};
+
 document.addEventListener("DOMContentLoaded", () => {
   const boardTarget = document.getElementById("boardTarget");
   const customTargetGroup = document.getElementById("customTargetGroup");
   const autoRandomName = document.getElementById("autoRandomName");
   const ownerLongName = document.getElementById("ownerLongName");
   const ownerShortName = document.getElementById("ownerShortName");
+  const enableMeshcore = document.getElementById("enableMeshcore");
+  const meshcoreSettings = document.getElementById("meshcoreSettings");
+  const nexusMasterKey = document.getElementById("nexusMasterKey");
+  const customMasterKeyGroup = document.getElementById("customMasterKeyGroup");
+  const customMasterKey = document.getElementById("customMasterKey");
   const channelsPreset = document.getElementById("channelsPreset");
-  const channelsTableWrapper = document.getElementById("channelsTableWrapper");
   const wifiEnabled = document.getElementById("wifiEnabled");
   const wifiFields = document.getElementById("wifiFields");
   const githubToken = document.getElementById("githubToken");
@@ -58,6 +72,24 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // Toggle MeshCore settings card
+  enableMeshcore.addEventListener("change", () => {
+    if (enableMeshcore.checked) {
+      meshcoreSettings.classList.remove("hidden");
+    } else {
+      meshcoreSettings.classList.add("hidden");
+    }
+  });
+
+  // Toggle Custom Master Key input
+  nexusMasterKey.addEventListener("change", () => {
+    if (nexusMasterKey.value === "custom") {
+      customMasterKeyGroup.classList.remove("hidden");
+    } else {
+      customMasterKeyGroup.classList.add("hidden");
+    }
+  });
+
   // Toggle channels table view
   channelsPreset.addEventListener("change", () => {
     const rows = document.querySelectorAll(".channels-table tbody tr");
@@ -98,9 +130,19 @@ document.addEventListener("DOMContentLoaded", () => {
       : ownerShortName.value.trim() || "MTC";
     const hasScreen = document.getElementById("hasScreen").checked;
     const enableBluetooth = document.getElementById("enableBluetooth").checked;
-    const enableMeshcore = document.getElementById("enableMeshcore")
-      ? document.getElementById("enableMeshcore").checked
-      : true;
+    const isMeshcoreOn = enableMeshcore.checked;
+    const mcRelay = document.getElementById("meshcoreRelayMode").value;
+    const mcAdvert =
+      document.getElementById("meshcoreAdvertHours").value.trim() || "12";
+    const mcRegions = document
+      .getElementById("meshcoreRegionsDef")
+      .value.trim();
+    const mcHome = document.getElementById("meshcoreHomeRegion").value.trim();
+    const mcDef = document.getElementById("meshcoreDefaultRegion").value.trim();
+    const keyChoice = nexusMasterKey.value;
+    const masterKey =
+      keyChoice === "custom" ? customMasterKey.value.trim() : keyChoice;
+
     const deviceRole = document.getElementById("deviceRole").value;
     const loraRegion = document.getElementById("loraRegion").value;
     const loraPreset = document.getElementById("loraPreset").value;
@@ -120,7 +162,13 @@ document.addEventListener("DOMContentLoaded", () => {
       owner_short_name: shortName.substring(0, 4),
       has_screen: hasScreen,
       enable_bluetooth: enableBluetooth,
-      enable_meshcore: enableMeshcore,
+      enable_meshcore: isMeshcoreOn,
+      meshcore_advert_hours: mcAdvert,
+      meshcore_relay_mode: mcRelay,
+      meshcore_regions_def: mcRegions,
+      meshcore_home_region: mcHome,
+      meshcore_default_region: mcDef,
+      nexus_master_key: masterKey,
       device_role: deviceRole,
       lora_region: loraRegion,
       lora_preset_mode: loraPreset,
@@ -165,6 +213,12 @@ document.addEventListener("DOMContentLoaded", () => {
         has_screen: data.has_screen ? "true" : "false",
         enable_bluetooth: data.enable_bluetooth ? "true" : "false",
         enable_meshcore: data.enable_meshcore ? "true" : "false",
+        meshcore_advert_hours: data.meshcore_advert_hours,
+        meshcore_relay_mode: data.meshcore_relay_mode,
+        meshcore_regions_def: data.meshcore_regions_def,
+        meshcore_home_region: data.meshcore_home_region,
+        meshcore_default_region: data.meshcore_default_region,
+        nexus_master_key: data.nexus_master_key,
         device_role: data.device_role,
         lora_region: data.lora_region,
         lora_preset_mode: data.lora_preset_mode,
@@ -249,6 +303,32 @@ document.addEventListener("DOMContentLoaded", () => {
       prefs["MESHTASTIC_ENABLE_MESHCORE_RELAY"] = "0";
       prefs["MESHTASTIC_ENABLE_MESHCORE_COMPANION"] = "0";
       prefs["MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC"] = "0";
+    } else {
+      if (data.meshcore_advert_hours) {
+        prefs["USERPREFS_MESHCORE_ADVERT_HOURS"] = data.meshcore_advert_hours;
+      }
+      const modeVal =
+        { AUTO: "0", OFF: "1", ON: "2" }[data.meshcore_relay_mode] || "0";
+      prefs["USERPREFS_MESHCORE_RELAY_MODE"] = modeVal;
+      if (data.meshcore_regions_def) {
+        prefs["USERPREFS_MESHCORE_REGIONS_DEF"] = data.meshcore_regions_def;
+      }
+      if (data.meshcore_home_region) {
+        prefs["USERPREFS_MESHCORE_HOME_REGION"] = data.meshcore_home_region;
+      }
+      if (data.meshcore_default_region) {
+        prefs["USERPREFS_MESHCORE_DEFAULT_REGION"] =
+          data.meshcore_default_region;
+      }
+    }
+
+    if (data.nexus_master_key) {
+      const k = data.nexus_master_key.toLowerCase();
+      if (NEXUS_PREDEFINED_KEYS[k]) {
+        prefs["NEXUS_MASTER_KEY_1"] = NEXUS_PREDEFINED_KEYS[k];
+      } else if (k.startsWith("{") && k.endsWith("}")) {
+        prefs["NEXUS_MASTER_KEY_1"] = data.nexus_master_key;
+      }
     }
 
     if (data.lora_preset_mode === "custom_sfnarrow_default") {

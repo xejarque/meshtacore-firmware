@@ -6,7 +6,7 @@ name: Nexus Draft Release
 # 'Beta'/'Alpha' in the title selects that packaging channel).
 #
 # Unlike the upstream release path (main_matrix.yml), nothing here is gated
-# on github.repository_owner — it runs on any fork. Build failures do not
+# on github.repository_owner - it runs on any fork. Build failures do not
 # block the draft: whatever compiled gets attached.
 #
 # NOTE: top-level `permissions: read-all` is REQUIRED here (mirrors
@@ -16,13 +16,13 @@ name: Nexus Draft Release
 # startup_failure before any job starts ('The workflow is requesting ...').
 # Narrowing it (e.g. contents: write) OR omitting it (falls back to the repo's
 # restricted default) both fail. Write access lives on the draft-release job
-# only — same pattern as main_matrix's release-artifacts job.
+# only - same pattern as main_matrix's release-artifacts job.
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag for the release — type an existing tag (e.g. v2.8.103) or leave EMPTY when dispatched on a tag ref (the tag must already contain this workflow file, otherwise pick a branch and type the tag here)"
+        description: "Tag for the release - type an existing tag (e.g. v2.8.103) or leave EMPTY when dispatched on a tag ref (the tag must already contain this workflow file, otherwise pick a branch and type the tag here)"
         required: false
         default: ""
         type: string
@@ -37,9 +37,9 @@ on:
         default: release
         type: choice
         options:
-          - release   # pr + release boards (the normal set)
-          - pr        # PR subset only (fast)
-          - extra     # everything, incl. opt-in boards
+          - release # pr + release boards (the normal set)
+          - pr # PR subset only (fast)
+          - extra # everything, incl. opt-in boards
       prerelease:
         description: "Mark the draft as a prerelease (new releases only)"
         required: true
@@ -64,7 +64,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       # Pinned to match nexus_build_firmware: pio 6.2.0 has the tool-scons
-      # wipe bug (FortranCommon link failure) — see that file's comment.
+      # wipe bug (FortranCommon link failure) - see that file's comment.
       - run: pip install -U platformio==6.1.19
       - name: Generate matrix
         id: jsonStep
@@ -142,17 +142,17 @@ jobs:
         run: |
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null 2>&1; then
             echo "tag_exists=true" >> "$GITHUB_OUTPUT"
-            echo "📌 Tag \`$TAG\` already exists — it will be used as-is." >> "$GITHUB_STEP_SUMMARY"
+            echo "📌 Tag \`$TAG\` already exists - it will be used as-is." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "tag_exists=false" >> "$GITHUB_OUTPUT"
-            echo "🏷️ Tag \`$TAG\` does not exist — it will be created at \`$GITHUB_SHA\`." >> "$GITHUB_STEP_SUMMARY"
+            echo "🏷️ Tag \`$TAG\` does not exist - it will be created at \`$GITHUB_SHA\`." >> "$GITHUB_STEP_SUMMARY"
           fi
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             echo "release_exists=true" >> "$GITHUB_OUTPUT"
-            echo "📦 A release for \`$TAG\` already exists — artifacts will be attached to it, its state stays untouched." >> "$GITHUB_STEP_SUMMARY"
+            echo "📦 A release for \`$TAG\` already exists - artifacts will be attached to it, its state stays untouched." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "release_exists=false" >> "$GITHUB_OUTPUT"
-            echo "📦 No visible release for \`$TAG\` — a new draft will be created." >> "$GITHUB_STEP_SUMMARY"
+            echo "📦 No visible release for \`$TAG\` - a new draft will be created." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Download firmware artifacts
@@ -196,6 +196,8 @@ jobs:
           chmod +x ./bin/generate_release_notes.py
           ./bin/generate_release_notes.py "${{ needs.version.outputs.long }}" --compare-ref HEAD > ./notes.md \
             || echo "Nexus draft release ${{ needs.version.outputs.tag }}" > ./notes.md
+          HEADER="> 🌐 **[Meshtacore Web Builder](https://xejarque.github.io/meshtacore-firmware/)**\n> ¿Prefieres un firmware a medida con tu nombre, canales comunitarios (SFNarrow/MeshCore) y ajustes grabados de fábrica? Genera tu firmware online aquí: https://xejarque.github.io/meshtacore-firmware/\n\n"
+          printf "%b%s" "$HEADER" "$(cat ./notes.md)" > ./notes.md
           head -50 ./notes.md
 
       - name: Attach artifacts to existing release

@@ -265,6 +265,122 @@
                 </label>
               </div>
 
+              <!-- Configuración Detallada de MeshCore -->
+              <div id="meshcoreSettings" class="subcard mt-3">
+                <div class="subcard-header">
+                  <strong>Parámetros Avanzados MeshCore & Regiones</strong>
+                </div>
+                <div class="grid-2 mt-2">
+                  <div class="form-group">
+                    <label for="meshcoreRelayMode">Modo MeshCore Relay</label>
+                    <select id="meshcoreRelayMode" class="form-control">
+                      <option value="AUTO" selected>
+                        AUTO (Sigue el rol del nodo)
+                      </option>
+                      <option value="ON">
+                        ON (Retransmisión forzada siempre)
+                      </option>
+                      <option value="OFF">
+                        OFF (Solo escuchar, no retransmitir)
+                      </option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="meshcoreAdvertHours"
+                      >Intervalo Flood ADVERT (horas)</label
+                    >
+                    <input
+                      type="number"
+                      id="meshcoreAdvertHours"
+                      class="form-control"
+                      value="12"
+                      min="1"
+                      max="168"
+                    />
+                    <small class="helper-text"
+                      >Periodo del anuncio de identidad firmado (1 a 168
+                      horas).</small
+                    >
+                  </div>
+                </div>
+
+                <div class="form-group mt-2">
+                  <label for="meshcoreRegionsDef"
+                    >Árbol de Regiones MeshCore (RegionMap)</label
+                  >
+                  <input
+                    type="text"
+                    id="meshcoreRegionsDef"
+                    class="form-control"
+                    value="es, es/cat, es/cat/bcn"
+                  />
+                  <small class="helper-text"
+                    >Rutas jerárquicas separadas por comas (ej.
+                    <code>es, es/cat, es/cat/bcn</code>).</small
+                  >
+                </div>
+
+                <div class="grid-2 mt-2">
+                  <div class="form-group">
+                    <label for="meshcoreHomeRegion">Región HOME</label>
+                    <input
+                      type="text"
+                      id="meshcoreHomeRegion"
+                      class="form-control"
+                      value="cat"
+                      placeholder="ej. cat"
+                    />
+                    <small class="helper-text"
+                      >Región de pertenencia de este nodo.</small
+                    >
+                  </div>
+                  <div class="form-group">
+                    <label for="meshcoreDefaultRegion">Región DEFAULT</label>
+                    <input
+                      type="text"
+                      id="meshcoreDefaultRegion"
+                      class="form-control"
+                      value="es"
+                      placeholder="ej. es"
+                    />
+                    <small class="helper-text"
+                      >Región por defecto para flood adverts.</small
+                    >
+                  </div>
+                </div>
+
+                <div class="form-group mt-2">
+                  <label for="nexusMasterKey"
+                    >Clave de Administración Remota (Nexus Master Key)</label
+                  >
+                  <select id="nexusMasterKey" class="form-control">
+                    <option value="" selected>
+                      (Ninguna - Solo administración local)
+                    </option>
+                    <option value="eevee">eevee (Nexus Master Key 1)</option>
+                    <option value="bloom">bloom (Nexus Master Key 2)</option>
+                    <option value="mew">mew (Nexus Master Key 3)</option>
+                    <option value="fennekin">
+                      fennekin (Nexus Master Key 4)
+                    </option>
+                    <option value="custom">
+                      Clave personalizada (Base64 o Hex)
+                    </option>
+                  </select>
+                </div>
+                <div class="form-group hidden mt-2" id="customMasterKeyGroup">
+                  <label for="customMasterKey"
+                    >Clave Pública Ed25519 personalizada</label
+                  >
+                  <input
+                    type="text"
+                    id="customMasterKey"
+                    class="form-control"
+                    placeholder="32 bytes en formato Hex o Base64"
+                  />
+                </div>
+              </div>
+
               <div class="form-group mt-3">
                 <label for="deviceRole">Rol del Dispositivo</label>
                 <select id="deviceRole" class="form-control">
