@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Meshtacore Custom Firmware Builder</title>
+    <title>Meshtacore - Custom Firmware Builder</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -16,13 +16,13 @@
     <div class="app-container">
       <header class="app-header">
         <div class="logo-area">
-          <div class="badge">Meshtacore</div>
-          <h1>Custom Firmware Builder</h1>
+          <h1>Meshtacore</h1>
+          <div class="badge">Builder</div>
         </div>
         <p class="subtitle">
-          Genera firmwares para tus placas con configuración de fábrica
-          integrada en el código binario. Inmune a <em>Factory Reset</em>: si se
-          reinicia, mantiene tu nombre, canales y ajustes.
+          Genera firmwares personalizados para tus nodos con configuración de
+          fábrica integrada en el binario. Inmune a <em>Factory Reset</em>: si
+          se reinicia, mantiene tus canales comunitarios, frecuencias y ajustes.
         </p>
       </header>
 
@@ -32,44 +32,128 @@
           <section class="card">
             <div class="card-header">
               <span class="step-num">1</span>
-              <h2>Dispositivo & Hardware</h2>
+              <h2>Dispositivo & Placa Objetivo</h2>
             </div>
             <div class="card-body">
               <div class="form-group">
-                <label for="boardTarget">Placa Objetivo</label>
+                <label for="boardTarget">Selecciona tu Placa</label>
                 <select id="boardTarget" class="form-control">
-                  <option value="heltec-v3" selected>
-                    Heltec WiFi LoRa 32 V3 (ESP32-S3)
-                  </option>
-                  <option value="rak4631">WisBlock RAK4631 (nRF52840)</option>
-                  <option value="heltec-mesh-node-t114">
-                    Heltec Mesh Node T114 (nRF52840)
-                  </option>
-                  <option value="t-echo">LilyGO T-Echo (nRF52840)</option>
-                  <option value="t-beam">LilyGO T-Beam (ESP32)</option>
-                  <option value="t-deck-tft">
-                    LilyGO T-Deck TFT (ESP32-S3)
-                  </option>
-                  <option value="station-g2">B&Q Station G2 (ESP32-S3)</option>
-                  <option value="tracker-t1000-e">
-                    Seeed Tracker T1000-E (nRF52840)
-                  </option>
-                  <option value="seeed_wio_tracker_L1">
-                    Seeed Wio Tracker L1 (nRF52840)
-                  </option>
-                  <option value="picow">Raspberry Pi Pico W (RP2040)</option>
-                  <option value="custom">
-                    Otra placa (especificar entorno PlatformIO)
-                  </option>
+                  <optgroup label="Heltec">
+                    <option value="heltec-v3" selected>
+                      Heltec WiFi LoRa 32 V3 (ESP32-S3)
+                    </option>
+                    <option value="heltec-v4">
+                      Heltec WiFi LoRa 32 V4 (ESP32-S3)
+                    </option>
+                    <option value="heltec-mesh-node-t114">
+                      Heltec Mesh Node T114 (nRF52840)
+                    </option>
+                    <option value="heltec-wireless-tracker">
+                      Heltec Wireless Tracker (ESP32-S3 + GPS)
+                    </option>
+                    <option value="heltec-wireless-paper">
+                      Heltec Wireless Paper (ESP32-S3 + E-Ink)
+                    </option>
+                    <option value="heltec-vision-master-e213">
+                      Heltec Vision Master E213
+                    </option>
+                    <option value="heltec-vision-master-e290">
+                      Heltec Vision Master E290
+                    </option>
+                    <option value="heltec-ht62-esp32c3-sx1262">
+                      Heltec HT62 (ESP32-C3 + SX1262)
+                    </option>
+                  </optgroup>
+                  <optgroup label="RAK Wireless">
+                    <option value="rak4631">WisBlock RAK4631 (nRF52840)</option>
+                    <option value="rak3401-1watt">
+                      WisBlock RAK3401 1-Watt
+                    </option>
+                    <option value="rak_wismesh_pocket">
+                      RAK WisMesh Pocket
+                    </option>
+                    <option value="rak_wismesh_repeater_mini">
+                      RAK WisMesh Repeater Mini
+                    </option>
+                    <option value="rak_wismesh_repeater_mini_hp">
+                      RAK WisMesh Repeater Mini HP
+                    </option>
+                    <option value="rak_wismeshtag">RAK WisMesh Tag</option>
+                    <option value="rak_wismesh_tap_v2">
+                      RAK WisMesh Tap V2
+                    </option>
+                  </optgroup>
+                  <optgroup label="LilyGO">
+                    <option value="t-echo">
+                      LilyGO T-Echo (nRF52840 + E-Ink + GPS)
+                    </option>
+                    <option value="t-echo-plus">LilyGO T-Echo Plus</option>
+                    <option value="tbeam">LilyGO T-Beam (ESP32 + GPS)</option>
+                    <option value="tbeam-s3-core">LilyGO T-Beam S3 Core</option>
+                    <option value="t-deck">LilyGO T-Deck</option>
+                    <option value="t-deck-tft">
+                      LilyGO T-Deck TFT (ESP32-S3)
+                    </option>
+                    <option value="t-deck-pro">LilyGO T-Deck Pro</option>
+                    <option value="tlora-v2-1-1_6">
+                      TTGO T-LoRa V2.1-1.6 (ESP32)
+                    </option>
+                    <option value="tlora-t3s3-v1">
+                      LilyGO T3S3 V1 (ESP32-S3)
+                    </option>
+                    <option value="t-watch-s3">LilyGO T-Watch S3</option>
+                  </optgroup>
+                  <optgroup label="Seeed Studio">
+                    <option value="tracker-t1000-e">
+                      Seeed SenseCAP Tracker T1000-E (nRF52840)
+                    </option>
+                    <option value="seeed_wio_tracker_L1">
+                      Seeed Wio Tracker L1 (nRF52840)
+                    </option>
+                    <option value="seeed_mesh_tracker_X1">
+                      Seeed Mesh Tracker X1
+                    </option>
+                    <option value="seeed_solar_node">Seeed Solar Node</option>
+                    <option value="seeed-xiao-s3">Seeed XIAO ESP32-S3</option>
+                    <option value="seeed_xiao_nrf52840_kit">
+                      Seeed XIAO nRF52840
+                    </option>
+                    <option value="seeed-sensecap-indicator">
+                      Seeed SenseCAP Indicator
+                    </option>
+                  </optgroup>
+                  <optgroup label="B&Q & ThinkNode & Otras">
+                    <option value="station-g2">
+                      B&Q Station G2 (ESP32-S3)
+                    </option>
+                    <option value="station-g3">B&Q Station G3</option>
+                    <option value="thinknode_m1">
+                      ThinkNode M1 (nRF52840)
+                    </option>
+                    <option value="thinknode_m2">ThinkNode M2</option>
+                    <option value="thinknode_m5">ThinkNode M5</option>
+                    <option value="picow">Raspberry Pi Pico W (RP2040)</option>
+                    <option value="nrf52_promicro_diy_tcxo">
+                      nRF52 ProMicro DIY TCXO
+                    </option>
+                    <option value="nrf52_promicro_diy_sx1262">
+                      nRF52 ProMicro DIY SX1262
+                    </option>
+                    <option value="custom">
+                      Otra placa (especificar entorno PlatformIO)
+                    </option>
+                  </optgroup>
                 </select>
               </div>
-              <div class="form-group hidden" id="customTargetGroup">
-                <label for="customTarget">Nombre de entorno PlatformIO</label>
+              <div class="form-group hidden mt-2" id="customTargetGroup">
+                <label for="customTarget"
+                  >Nombre de entorno en platformio.ini</label
+                >
                 <input
                   type="text"
                   id="customTarget"
                   class="form-control"
-                  placeholder="ej. heltec-v2, tlora-v2-1-1-6..."
+                  placeholder="ej. heltec-v2, tlora-c6..."
                 />
               </div>
             </div>
@@ -81,30 +165,51 @@
               <span class="step-num">2</span>
               <h2>Identidad del Nodo</h2>
             </div>
-            <div class="card-body grid-2">
-              <div class="form-group">
-                <label for="ownerLongName">Nombre Largo (Long Name)</label>
-                <input
-                  type="text"
-                  id="ownerLongName"
-                  class="form-control"
-                  value="Meshtacore Node"
-                  maxlength="24"
-                />
-                <small class="helper-text">Hasta 24 bytes UTF-8.</small>
+            <div class="card-body">
+              <div class="toggle-row">
+                <div class="toggle-info">
+                  <strong
+                    >Nombre dinámico aleatorio basado en MAC
+                    (Recomendado)</strong
+                  >
+                  <p>
+                    Genera automáticamente <code>Meshtacore XXXX</code> y
+                    <code>XXXX</code> usando los últimos 4 dígitos hexadecimales
+                    de la MAC del nodo (evita nombres duplicados al flashear
+                    múltiples placas).
+                  </p>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="autoRandomName" checked />
+                  <span class="slider"></span>
+                </label>
               </div>
-              <div class="form-group">
-                <label for="ownerShortName">Nombre Corto (Short Name)</label>
-                <input
-                  type="text"
-                  id="ownerShortName"
-                  class="form-control"
-                  value="MTC"
-                  maxlength="4"
-                />
-                <small class="helper-text"
-                  >Hasta 4 bytes UTF-8 (ej. MTC, 73, NODO).</small
-                >
+
+              <div class="grid-2 mt-3" id="customNameFields">
+                <div class="form-group">
+                  <label for="ownerLongName">Nombre Largo (Long Name)</label>
+                  <input
+                    type="text"
+                    id="ownerLongName"
+                    class="form-control"
+                    value="Meshtacore *RANDOM*"
+                    maxlength="24"
+                    disabled
+                  />
+                  <small class="helper-text">Hasta 24 bytes UTF-8.</small>
+                </div>
+                <div class="form-group">
+                  <label for="ownerShortName">Nombre Corto (Short Name)</label>
+                  <input
+                    type="text"
+                    id="ownerShortName"
+                    class="form-control"
+                    value="*RANDOM*"
+                    maxlength="4"
+                    disabled
+                  />
+                  <small class="helper-text">Hasta 4 bytes UTF-8.</small>
+                </div>
               </div>
             </div>
           </section>
@@ -150,7 +255,8 @@
                   <strong>Compatibilidad MeshCore & Nexus</strong>
                   <p>
                     Activa el sniffer de tramas MeshCore, repetidor
-                    transparente, comandos /mcore y SyncWord híbrido (0x14B4).
+                    transparente, comandos <code>/mcore</code> y SyncWord
+                    híbrido (<code>0x14B4</code>).
                   </p>
                 </div>
                 <label class="switch">
@@ -165,6 +271,10 @@
                   <option value="CLIENT" selected>
                     CLIENT (Cliente normal de usuario)
                   </option>
+                  <option value="CLIENT_BASE">
+                    CLIENT_BASE (Estación base de usuario en tejado/ático con
+                    prioridad)
+                  </option>
                   <option value="CLIENT_MUTE">
                     CLIENT_MUTE (Escucha sin retransmitir paquetes de terceros)
                   </option>
@@ -175,12 +285,6 @@
                   <option value="ROUTER">
                     ROUTER (Enrutador de alta prioridad)
                   </option>
-                  <option value="TRACKER">
-                    TRACKER (Seguidor GPS de bajo consumo)
-                  </option>
-                  <option value="SENSOR">
-                    SENSOR (Nodo de telemetría / sensores)
-                  </option>
                 </select>
               </div>
             </div>
@@ -190,7 +294,7 @@
           <section class="card">
             <div class="card-header">
               <span class="step-num">4</span>
-              <h2>Radio LoRa & Canales</h2>
+              <h2>Radio LoRa & Canales de Fábrica</h2>
             </div>
             <div class="card-body">
               <div class="grid-2">
@@ -229,22 +333,110 @@
               </div>
 
               <div class="form-group mt-3">
-                <label for="channelsPreset"
-                  >Configuración de Canales de Fábrica</label
-                >
+                <label for="channelsPreset">Preset de Canales</label>
                 <select id="channelsPreset" class="form-control">
                   <option value="repo_default_5_channels" selected>
-                    5 Canales por defecto (SFNarrow, Test, Bots, Catalunya,
-                    Barcelona con sus PSKs)
+                    Configuración Comunitaria (5 Canales España + 3 Canales
+                    MeshCore)
                   </option>
                   <option value="single_channel_default">
                     1 Solo canal primario (Default estándar)
                   </option>
                 </select>
-                <small class="helper-text">
-                  Los 5 canales ya incluyen sus claves preconfiguradas, permisos
-                  de uplink/downlink y precisión de coordenadas.
-                </small>
+              </div>
+
+              <!-- Tabla de Canales Detallada -->
+              <div
+                class="channels-table-container mt-3"
+                id="channelsTableWrapper"
+              >
+                <div class="table-title">
+                  Canales preconfigurados en la compilación:
+                </div>
+                <table class="channels-table">
+                  <thead>
+                    <tr>
+                      <th>Ranura</th>
+                      <th>Nombre</th>
+                      <th>Clave PSK</th>
+                      <th>Tipo / Modo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr class="ch-primary">
+                      <td><code>Ch 0</code></td>
+                      <td>
+                        <strong>SFNarrow</strong>
+                        <span class="tag tag-primary">Primario</span>
+                      </td>
+                      <td><span class="psk-badge">1 (AQ==)</span></td>
+                      <td>Uplink & Downlink • Precisión 16</td>
+                    </tr>
+                    <tr>
+                      <td><code>Ch 1</code></td>
+                      <td>
+                        <strong>Test</strong>
+                        <span class="tag tag-secondary">Secundario</span>
+                      </td>
+                      <td><span class="psk-badge">2 (Ag==)</span></td>
+                      <td>Uplink & Downlink</td>
+                    </tr>
+                    <tr>
+                      <td><code>Ch 2</code></td>
+                      <td>
+                        <strong>Bots</strong>
+                        <span class="tag tag-secondary">Secundario</span>
+                      </td>
+                      <td><span class="psk-badge">2 (Ag==)</span></td>
+                      <td>Uplink & Downlink</td>
+                    </tr>
+                    <tr>
+                      <td><code>Ch 3</code></td>
+                      <td>
+                        <strong>Catalunya</strong>
+                        <span class="tag tag-secondary">Secundario</span>
+                      </td>
+                      <td><span class="psk-badge">1 (AQ==)</span></td>
+                      <td>Local / Sin uplink</td>
+                    </tr>
+                    <tr>
+                      <td><code>Ch 4</code></td>
+                      <td>
+                        <strong>Barcelona</strong>
+                        <span class="tag tag-secondary">Secundario</span>
+                      </td>
+                      <td><span class="psk-badge">1 (AQ==)</span></td>
+                      <td>Local / Sin uplink</td>
+                    </tr>
+                    <tr class="ch-meshcore">
+                      <td><code>Ch 5</code></td>
+                      <td>
+                        <strong>MC:Public</strong>
+                        <span class="tag tag-mc">MeshCore</span>
+                      </td>
+                      <td><span class="psk-badge psk-mc">AQ==</span></td>
+                      <td>Canal público MeshCore GRP_TXT</td>
+                    </tr>
+                    <tr class="ch-meshcore">
+                      <td><code>Ch 6</code></td>
+                      <td>
+                        <strong>MC:#test</strong>
+                        <span class="tag tag-mc">MeshCore</span>
+                      </td>
+                      <td><span class="psk-badge psk-mc">AQ==</span></td>
+                      <td>Hashtag room MeshCore #test</td>
+                    </tr>
+                    <tr class="ch-meshcore">
+                      <td><code>Ch 7</code></td>
+                      <td>
+                        <strong>MC:#bot</strong>
+                        <span class="tag tag-mc">MeshCore</span>
+                      </td>
+                      <td><span class="psk-badge psk-mc">AQ==</span></td>
+                      <td>Hashtag room MeshCore #bot</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           </section>
@@ -408,10 +600,7 @@
       </main>
 
       <footer class="app-footer">
-        <p>
-          Meshtacore Firmware Builder • Basado en el firmware Meshtastic con
-          extensiones comunitarias.
-        </p>
+        <p>Meshtacore • Firmware comunitario para Meshtastic & MeshCore.</p>
       </footer>
     </div>
 

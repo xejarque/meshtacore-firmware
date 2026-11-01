@@ -67,10 +67,17 @@ def main():
     prefs = load_userprefs(Path(args.file))
 
     # Owner identity (UTF-8 byte limits: long <= 24, short <= 4)
-    if args.owner_long_name:
+    # If set to empty or containing *RANDOM*, leave unset so firmware uses its
+    # native unique hardware MAC based name: "Meshtacore <hex>" and "<hex>"
+    if args.owner_long_name and "*RANDOM*" not in args.owner_long_name.upper():
         prefs["USERPREFS_CONFIG_OWNER_LONG_NAME"] = args.owner_long_name[:24]
-    if args.owner_short_name:
+    else:
+        prefs.pop("USERPREFS_CONFIG_OWNER_LONG_NAME", None)
+
+    if args.owner_short_name and "*RANDOM*" not in args.owner_short_name.upper():
         prefs["USERPREFS_CONFIG_OWNER_SHORT_NAME"] = args.owner_short_name[:4]
+    else:
+        prefs.pop("USERPREFS_CONFIG_OWNER_SHORT_NAME", None)
 
     # Screen optimization
     if not args.has_screen:

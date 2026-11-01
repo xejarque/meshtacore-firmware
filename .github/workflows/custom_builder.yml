@@ -8,15 +8,30 @@ on:
         description: "Placa objetivo (o 'custom' para especificarla abajo)"
         options:
           - heltec-v3
-          - rak4631
+          - heltec-v4
           - heltec-mesh-node-t114
+          - heltec-wireless-tracker
+          - heltec-wireless-paper
+          - heltec-vision-master-e213
+          - heltec-vision-master-e290
+          - rak4631
+          - rak3401-1watt
+          - rak_wismesh_pocket
+          - rak_wismesh_repeater_mini
           - t-echo
-          - t-beam
+          - t-echo-plus
+          - tbeam
+          - tbeam-s3-core
+          - t-deck
           - t-deck-tft
-          - station-g2
           - tracker-t1000-e
           - seeed_wio_tracker_L1
+          - seeed-xiao-s3
+          - station-g2
+          - station-g3
+          - thinknode_m1
           - picow
+          - nrf52_promicro_diy_tcxo
           - custom
         default: heltec-v3
       custom_target:
@@ -26,14 +41,14 @@ on:
         description: "Nombre de placa custom (si seleccionaste 'custom')"
       owner_long_name:
         type: string
-        required: true
-        default: "Meshtacore Node"
-        description: "Nombre largo del nodo (máx 24 bytes)"
+        required: false
+        default: "Meshtacore *RANDOM*"
+        description: "Nombre largo (deja *RANDOM* para auto-generar 'Meshtacore XXXX' con la MAC del nodo)"
       owner_short_name:
         type: string
-        required: true
-        default: "MTC"
-        description: "Nombre corto del nodo (máx 4 bytes)"
+        required: false
+        default: "*RANDOM*"
+        description: "Nombre corto (deja *RANDOM* para auto-generar 'XXXX' con la MAC del nodo)"
       has_screen:
         type: boolean
         required: false
@@ -44,11 +59,10 @@ on:
         description: "Rol del dispositivo"
         options:
           - CLIENT
+          - CLIENT_BASE
           - CLIENT_MUTE
           - ROUTER
           - REPEATER
-          - TRACKER
-          - SENSOR
         default: CLIENT
       lora_region:
         type: choice

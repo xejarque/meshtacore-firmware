@@ -8,6 +8,11 @@ const WORKFLOW_FILE = "custom_builder.yml";
 document.addEventListener("DOMContentLoaded", () => {
   const boardTarget = document.getElementById("boardTarget");
   const customTargetGroup = document.getElementById("customTargetGroup");
+  const autoRandomName = document.getElementById("autoRandomName");
+  const ownerLongName = document.getElementById("ownerLongName");
+  const ownerShortName = document.getElementById("ownerShortName");
+  const channelsPreset = document.getElementById("channelsPreset");
+  const channelsTableWrapper = document.getElementById("channelsTableWrapper");
   const wifiEnabled = document.getElementById("wifiEnabled");
   const wifiFields = document.getElementById("wifiFields");
   const githubToken = document.getElementById("githubToken");
@@ -35,6 +40,36 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // Toggle Auto Random Name vs Custom Name
+  autoRandomName.addEventListener("change", () => {
+    if (autoRandomName.checked) {
+      ownerLongName.value = "Meshtacore *RANDOM*";
+      ownerShortName.value = "*RANDOM*";
+      ownerLongName.disabled = true;
+      ownerShortName.disabled = true;
+    } else {
+      ownerLongName.disabled = false;
+      ownerShortName.disabled = false;
+      if (ownerLongName.value.includes("*RANDOM*")) {
+        ownerLongName.value = "Meshtacore Node";
+        ownerShortName.value = "MTC";
+      }
+      ownerLongName.focus();
+    }
+  });
+
+  // Toggle channels table view
+  channelsPreset.addEventListener("change", () => {
+    const rows = document.querySelectorAll(".channels-table tbody tr");
+    if (channelsPreset.value === "single_channel_default") {
+      rows.forEach((row, idx) => {
+        if (idx > 0) row.classList.add("hidden");
+      });
+    } else {
+      rows.forEach((row) => row.classList.remove("hidden"));
+    }
+  });
+
   // Toggle WiFi fields
   wifiEnabled.addEventListener("change", () => {
     if (wifiEnabled.checked) {
@@ -54,11 +89,13 @@ document.addEventListener("DOMContentLoaded", () => {
   function getFormData() {
     const target = boardTarget.value;
     const customTarget = document.getElementById("customTarget").value.trim();
-    const ownerLongName =
-      document.getElementById("ownerLongName").value.trim() ||
-      "Meshtacore Node";
-    const ownerShortName =
-      document.getElementById("ownerShortName").value.trim() || "MTC";
+    const isAutoName = autoRandomName.checked;
+    const longName = isAutoName
+      ? "Meshtacore *RANDOM*"
+      : ownerLongName.value.trim() || "Meshtacore Node";
+    const shortName = isAutoName
+      ? "*RANDOM*"
+      : ownerShortName.value.trim() || "MTC";
     const hasScreen = document.getElementById("hasScreen").checked;
     const enableBluetooth = document.getElementById("enableBluetooth").checked;
     const enableMeshcore = document.getElementById("enableMeshcore")
@@ -67,7 +104,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const deviceRole = document.getElementById("deviceRole").value;
     const loraRegion = document.getElementById("loraRegion").value;
     const loraPreset = document.getElementById("loraPreset").value;
-    const channelsPreset = document.getElementById("channelsPreset").value;
+    const chPreset = channelsPreset.value;
     const gpsMode = document.getElementById("gpsMode").value;
     const fixedLat = document.getElementById("fixedLat").value.trim();
     const fixedLon = document.getElementById("fixedLon").value.trim();
@@ -79,15 +116,15 @@ document.addEventListener("DOMContentLoaded", () => {
     return {
       target: target,
       custom_target: customTarget,
-      owner_long_name: ownerLongName.substring(0, 24),
-      owner_short_name: ownerShortName.substring(0, 4),
+      owner_long_name: longName.substring(0, 24),
+      owner_short_name: shortName.substring(0, 4),
       has_screen: hasScreen,
       enable_bluetooth: enableBluetooth,
       enable_meshcore: enableMeshcore,
       device_role: deviceRole,
       lora_region: loraRegion,
       lora_preset_mode: loraPreset,
-      channels_preset: channelsPreset,
+      channels_preset: chPreset,
       gps_mode: gpsMode,
       fixed_latitude: fixedLat,
       fixed_longitude: fixedLon,
@@ -185,12 +222,16 @@ document.addEventListener("DOMContentLoaded", () => {
   btnDownloadJson.addEventListener("click", () => {
     const data = getFormData();
     const prefs = {
-      USERPREFS_CONFIG_OWNER_LONG_NAME: data.owner_long_name,
-      USERPREFS_CONFIG_OWNER_SHORT_NAME: data.owner_short_name,
       USERPREFS_CONFIG_DEVICE_ROLE: `meshtastic_Config_DeviceConfig_Role_${data.device_role}`,
       USERPREFS_CONFIG_LORA_REGION: `meshtastic_Config_LoRaConfig_RegionCode_${data.lora_region}`,
       USERPREFS_CONFIG_GPS_MODE: `meshtastic_Config_PositionConfig_GpsMode_${data.gps_mode}`,
     };
+
+    // If not auto MAC name, write specific custom name
+    if (!autoRandomName.checked) {
+      prefs["USERPREFS_CONFIG_OWNER_LONG_NAME"] = data.owner_long_name;
+      prefs["USERPREFS_CONFIG_OWNER_SHORT_NAME"] = data.owner_short_name;
+    }
 
     if (!data.has_screen) {
       prefs["MESHTASTIC_EXCLUDE_SCREEN"] = "1";
@@ -201,6 +242,13 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!data.enable_bluetooth) {
       prefs["MESHTASTIC_EXCLUDE_BLUETOOTH"] = "1";
       prefs["HAS_BLUETOOTH"] = "0";
+    }
+
+    if (!data.enable_meshcore) {
+      prefs["MESHTASTIC_ENABLE_MESHCORE_SNIFFER"] = "0";
+      prefs["MESHTASTIC_ENABLE_MESHCORE_RELAY"] = "0";
+      prefs["MESHTASTIC_ENABLE_MESHCORE_COMPANION"] = "0";
+      prefs["MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC"] = "0";
     }
 
     if (data.lora_preset_mode === "custom_sfnarrow_default") {
@@ -223,35 +271,35 @@ document.addEventListener("DOMContentLoaded", () => {
     if (data.channels_preset === "repo_default_5_channels") {
       prefs["USERPREFS_CHANNELS_TO_WRITE"] = "5";
       prefs["USERPREFS_CHANNEL_0_NAME"] = "SFNarrow";
-      prefs["USERPREFS_CHANNEL_0_PSK"] = "{ 0x01 }";
+      prefs["USERPREFS_CHANNEL_0_PSK"] = "{ 0x01 }"; // 1 -> AQ==
       prefs["USERPREFS_CHANNEL_0_PRECISION"] = "16";
       prefs["USERPREFS_CHANNEL_0_IS_MUTED"] = "false";
       prefs["USERPREFS_CHANNEL_0_UPLINK_ENABLED"] = "true";
       prefs["USERPREFS_CHANNEL_0_DOWNLINK_ENABLED"] = "true";
 
       prefs["USERPREFS_CHANNEL_1_NAME"] = "Test";
-      prefs["USERPREFS_CHANNEL_1_PSK"] = "{ 0x02 }";
+      prefs["USERPREFS_CHANNEL_1_PSK"] = "{ 0x02 }"; // 2 -> Ag==
       prefs["USERPREFS_CHANNEL_1_PRECISION"] = "0";
       prefs["USERPREFS_CHANNEL_1_IS_MUTED"] = "false";
       prefs["USERPREFS_CHANNEL_1_UPLINK_ENABLED"] = "true";
       prefs["USERPREFS_CHANNEL_1_DOWNLINK_ENABLED"] = "true";
 
       prefs["USERPREFS_CHANNEL_2_NAME"] = "Bots";
-      prefs["USERPREFS_CHANNEL_2_PSK"] = "{ 0x02 }";
+      prefs["USERPREFS_CHANNEL_2_PSK"] = "{ 0x02 }"; // 2 -> Ag==
       prefs["USERPREFS_CHANNEL_2_PRECISION"] = "0";
       prefs["USERPREFS_CHANNEL_2_IS_MUTED"] = "false";
       prefs["USERPREFS_CHANNEL_2_UPLINK_ENABLED"] = "true";
       prefs["USERPREFS_CHANNEL_2_DOWNLINK_ENABLED"] = "true";
 
       prefs["USERPREFS_CHANNEL_3_NAME"] = "Catalunya";
-      prefs["USERPREFS_CHANNEL_3_PSK"] = "{ 0x01 }";
+      prefs["USERPREFS_CHANNEL_3_PSK"] = "{ 0x01 }"; // 1 -> AQ==
       prefs["USERPREFS_CHANNEL_3_PRECISION"] = "0";
       prefs["USERPREFS_CHANNEL_3_IS_MUTED"] = "false";
       prefs["USERPREFS_CHANNEL_3_UPLINK_ENABLED"] = "false";
       prefs["USERPREFS_CHANNEL_3_DOWNLINK_ENABLED"] = "false";
 
       prefs["USERPREFS_CHANNEL_4_NAME"] = "Barcelona";
-      prefs["USERPREFS_CHANNEL_4_PSK"] = "{ 0x01 }";
+      prefs["USERPREFS_CHANNEL_4_PSK"] = "{ 0x01 }"; // 1 -> AQ==
       prefs["USERPREFS_CHANNEL_4_PRECISION"] = "0";
       prefs["USERPREFS_CHANNEL_4_IS_MUTED"] = "false";
       prefs["USERPREFS_CHANNEL_4_UPLINK_ENABLED"] = "false";
