@@ -155,8 +155,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const ownerLongName = document.getElementById("ownerLongName");
   const ownerShortName = document.getElementById("ownerShortName");
   const btnRollRandomName = document.getElementById("btnRollRandomName");
-  const enableMeshcore = document.getElementById("enableMeshcore");
-  const meshcoreSettings = document.getElementById("meshcoreSettings");
   const nexusMasterKey = document.getElementById("nexusMasterKey");
   const customMasterKeyGroup = document.getElementById("customMasterKeyGroup");
   const customMasterKey = document.getElementById("customMasterKey");
@@ -204,15 +202,6 @@ document.addEventListener("DOMContentLoaded", () => {
       customTargetGroup.classList.remove("hidden");
     } else {
       customTargetGroup.classList.add("hidden");
-    }
-  });
-
-  // Toggle MeshCore settings card
-  enableMeshcore.addEventListener("change", () => {
-    if (enableMeshcore.checked) {
-      meshcoreSettings.classList.remove("hidden");
-    } else {
-      meshcoreSettings.classList.add("hidden");
     }
   });
 
@@ -464,7 +453,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const shortName = ownerShortName.value.trim();
     const hasScreen = document.getElementById("hasScreen").checked;
     const enableBluetooth = document.getElementById("enableBluetooth").checked;
-    const isMeshcoreOn = enableMeshcore.checked;
     const mcRelay = document.getElementById("meshcoreRelayMode").value;
     const mcAdvert =
       document.getElementById("meshcoreAdvertHours").value.trim() || "12";
@@ -504,7 +492,7 @@ document.addEventListener("DOMContentLoaded", () => {
       owner_short_name: shortName.substring(0, 4),
       has_screen: hasScreen,
       enable_bluetooth: enableBluetooth,
-      enable_meshcore: isMeshcoreOn,
+      enable_meshcore: true,
       meshcore_advert_hours: mcAdvert,
       meshcore_relay_mode: mcRelay,
       meshcore_regions_def: mcRegions,
@@ -644,28 +632,26 @@ document.addEventListener("DOMContentLoaded", () => {
       prefs["HAS_BLUETOOTH"] = "0";
     }
 
-    if (!data.enable_meshcore) {
-      prefs["MESHTASTIC_ENABLE_MESHCORE_SNIFFER"] = "0";
-      prefs["MESHTASTIC_ENABLE_MESHCORE_RELAY"] = "0";
-      prefs["MESHTASTIC_ENABLE_MESHCORE_COMPANION"] = "0";
-      prefs["MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC"] = "0";
-    } else {
-      if (data.meshcore_advert_hours) {
-        prefs["USERPREFS_MESHCORE_ADVERT_HOURS"] = data.meshcore_advert_hours;
-      }
-      const modeVal =
-        { AUTO: "0", OFF: "1", ON: "2" }[data.meshcore_relay_mode] || "0";
-      prefs["USERPREFS_MESHCORE_RELAY_MODE"] = modeVal;
-      if (data.meshcore_regions_def) {
-        prefs["USERPREFS_MESHCORE_REGIONS_DEF"] = data.meshcore_regions_def;
-      }
-      if (data.meshcore_home_region) {
-        prefs["USERPREFS_MESHCORE_HOME_REGION"] = data.meshcore_home_region;
-      }
-      if (data.meshcore_default_region) {
-        prefs["USERPREFS_MESHCORE_DEFAULT_REGION"] =
-          data.meshcore_default_region;
-      }
+    // MeshCore is always enabled in Meshtacore firmware
+    if (data.meshcore_advert_hours) {
+      prefs["USERPREFS_MESHCORE_ADVERT_HOURS"] = data.meshcore_advert_hours;
+    }
+    const modeVal =
+      { AUTO: "0", OFF: "1", ON: "2" }[data.meshcore_relay_mode] || "0";
+    prefs["USERPREFS_MESHCORE_RELAY_MODE"] = modeVal;
+
+    // Regions: only define if non-empty (empty = all permitted)
+    if (data.meshcore_regions_def && data.meshcore_regions_def.trim()) {
+      prefs["USERPREFS_MESHCORE_REGIONS_DEF"] =
+        data.meshcore_regions_def.trim();
+    }
+    if (data.meshcore_home_region && data.meshcore_home_region.trim()) {
+      prefs["USERPREFS_MESHCORE_HOME_REGION"] =
+        data.meshcore_home_region.trim();
+    }
+    if (data.meshcore_default_region && data.meshcore_default_region.trim()) {
+      prefs["USERPREFS_MESHCORE_DEFAULT_REGION"] =
+        data.meshcore_default_region.trim();
     }
 
     if (data.nexus_master_key) {

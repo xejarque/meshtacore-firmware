@@ -73,9 +73,21 @@ def main():
     )
     parser.add_argument("--meshcore-advert-hours", default="12")
     parser.add_argument("--meshcore-relay-mode", default="AUTO")
-    parser.add_argument("--meshcore-regions-def", default="es, es/cat, es/cat/bcn")
-    parser.add_argument("--meshcore-home-region", default="cat")
-    parser.add_argument("--meshcore-default-region", default="es")
+    parser.add_argument(
+        "--meshcore-regions-def",
+        default="",
+        help="Hierarchical regions tree (empty = all regions permitted)",
+    )
+    parser.add_argument(
+        "--meshcore-home-region",
+        default="",
+        help="Home region prefix (empty = none)",
+    )
+    parser.add_argument(
+        "--meshcore-default-region",
+        default="",
+        help="Default region prefix for adverts (empty = none)",
+    )
     parser.add_argument("--nexus-master-key", default="")
     parser.add_argument("--device-role", default="CLIENT")
     parser.add_argument("--lora-region", default="EU_868")
@@ -162,35 +174,36 @@ def main():
         "fennekin": "{ 0xe7, 0x05, 0x7e, 0xe7, 0xeb, 0x80, 0xf9, 0x04, 0x0d, 0xf2, 0x30, 0xff, 0x0c, 0x4a, 0x09, 0x74, 0x94, 0xb9, 0x47, 0x92, 0xa0, 0x65, 0x78, 0xcb, 0xfd, 0xeb, 0xdc, 0xda, 0x57, 0x73, 0x26, 0x7e }",
     }
 
-    # MeshCore subsystem (Sniffer, Relay, Companion, Hybrid Sync)
-    if not args.enable_meshcore:
-        prefs["MESHTASTIC_ENABLE_MESHCORE_SNIFFER"] = "0"
-        prefs["MESHTASTIC_ENABLE_MESHCORE_RELAY"] = "0"
-        prefs["MESHTASTIC_ENABLE_MESHCORE_COMPANION"] = "0"
-        prefs["MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC"] = "0"
-        prefs.pop("USERPREFS_MESHCORE_ADVERT_HOURS", None)
-        prefs.pop("USERPREFS_MESHCORE_RELAY_MODE", None)
-        prefs.pop("USERPREFS_MESHCORE_REGIONS_DEF", None)
-        prefs.pop("USERPREFS_MESHCORE_HOME_REGION", None)
-        prefs.pop("USERPREFS_MESHCORE_DEFAULT_REGION", None)
-    else:
-        prefs.pop("MESHTASTIC_ENABLE_MESHCORE_SNIFFER", None)
-        prefs.pop("MESHTASTIC_ENABLE_MESHCORE_RELAY", None)
-        prefs.pop("MESHTASTIC_ENABLE_MESHCORE_COMPANION", None)
-        prefs.pop("MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC", None)
+    # MeshCore subsystem (Sniffer, Relay, Companion, Hybrid Sync) is ALWAYS enabled in Meshtacore
+    prefs.pop("MESHTASTIC_ENABLE_MESHCORE_SNIFFER", None)
+    prefs.pop("MESHTASTIC_ENABLE_MESHCORE_RELAY", None)
+    prefs.pop("MESHTASTIC_ENABLE_MESHCORE_COMPANION", None)
+    prefs.pop("MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC", None)
 
-        if args.meshcore_advert_hours and args.meshcore_advert_hours.isdigit():
-            prefs["USERPREFS_MESHCORE_ADVERT_HOURS"] = args.meshcore_advert_hours
-        mode_val = {"AUTO": "0", "OFF": "1", "ON": "2"}.get(
-            args.meshcore_relay_mode.upper(), "0"
+    if args.meshcore_advert_hours and args.meshcore_advert_hours.isdigit():
+        prefs["USERPREFS_MESHCORE_ADVERT_HOURS"] = args.meshcore_advert_hours
+    mode_val = {"AUTO": "0", "OFF": "1", "ON": "2"}.get(
+        args.meshcore_relay_mode.upper(), "0"
+    )
+    prefs["USERPREFS_MESHCORE_RELAY_MODE"] = mode_val
+
+    # Regions: by default empty (all permitted without restriction)
+    if args.meshcore_regions_def and args.meshcore_regions_def.strip():
+        prefs["USERPREFS_MESHCORE_REGIONS_DEF"] = args.meshcore_regions_def.strip()
+    else:
+        prefs.pop("USERPREFS_MESHCORE_REGIONS_DEF", None)
+
+    if args.meshcore_home_region and args.meshcore_home_region.strip():
+        prefs["USERPREFS_MESHCORE_HOME_REGION"] = args.meshcore_home_region.strip()
+    else:
+        prefs.pop("USERPREFS_MESHCORE_HOME_REGION", None)
+
+    if args.meshcore_default_region and args.meshcore_default_region.strip():
+        prefs["USERPREFS_MESHCORE_DEFAULT_REGION"] = (
+            args.meshcore_default_region.strip()
         )
-        prefs["USERPREFS_MESHCORE_RELAY_MODE"] = mode_val
-        if args.meshcore_regions_def:
-            prefs["USERPREFS_MESHCORE_REGIONS_DEF"] = args.meshcore_regions_def
-        if args.meshcore_home_region:
-            prefs["USERPREFS_MESHCORE_HOME_REGION"] = args.meshcore_home_region
-        if args.meshcore_default_region:
-            prefs["USERPREFS_MESHCORE_DEFAULT_REGION"] = args.meshcore_default_region
+    else:
+        prefs.pop("USERPREFS_MESHCORE_DEFAULT_REGION", None)
 
     # Nexus Master Key (Remote Admin)
     if args.nexus_master_key:

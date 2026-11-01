@@ -333,25 +333,17 @@
                 </label>
               </div>
 
-              <div class="toggle-row">
-                <div class="toggle-info">
-                  <strong>Compatibilidad MeshCore & Nexus</strong>
-                  <p>
-                    Activa el sniffer de tramas MeshCore, repetidor
-                    transparente, comandos <code>/mcore</code> y SyncWord
-                    híbrido (<code>0x14B4</code>).
-                  </p>
-                </div>
-                <label class="switch">
-                  <input type="checkbox" id="enableMeshcore" checked />
-                  <span class="slider"></span>
-                </label>
+              <div class="info-alert mt-3">
+                ⚡ <strong>Motor MeshCore & Nexus: Siempre Activo</strong><br />
+                El sniffer de tramas MeshCore, el repetidor transparente
+                híbrido, los comandos <code>/mcore</code> y el SyncWord híbrido
+                (<code>0x14B4</code>) forman parte integral de Meshtacore.
               </div>
 
               <!-- Configuración Detallada de MeshCore -->
               <div id="meshcoreSettings" class="subcard mt-3">
                 <div class="subcard-header">
-                  <strong>Parámetros Avanzados MeshCore & Regiones</strong>
+                  <strong>Ajustes de Retransmisión & Regiones MeshCore</strong>
                 </div>
                 <div class="grid-2 mt-2">
                   <div class="form-group">
@@ -389,16 +381,19 @@
 
                 <div class="form-group mt-2">
                   <label for="meshcoreRegionsDef"
-                    >Árbol de Regiones MeshCore (RegionMap)</label
+                    >Filtro de Regiones MeshCore (RegionMap)</label
                   >
                   <input
                     type="text"
                     id="meshcoreRegionsDef"
                     class="form-control"
-                    value="es, es/cat, es/cat/bcn"
+                    value=""
+                    placeholder="Vacío por defecto = Todas las regiones permitidas"
                   />
                   <small class="helper-text"
-                    >Rutas jerárquicas separadas por comas (ej.
+                    >Por defecto está vacío: todas las regiones están permitidas
+                    sin restricción. Si deseas acotar el tráfico, introduce
+                    rutas jerárquicas (ej.
                     <code>es, es/cat, es/cat/bcn</code>).</small
                   >
                 </div>
@@ -410,11 +405,12 @@
                       type="text"
                       id="meshcoreHomeRegion"
                       class="form-control"
-                      value="cat"
-                      placeholder="ej. cat"
+                      value=""
+                      placeholder="Opcional (ej. cat)"
                     />
                     <small class="helper-text"
-                      >Región de pertenencia de este nodo.</small
+                      >Región de pertenencia de este nodo (deja vacío si no usas
+                      filtrado regional).</small
                     >
                   </div>
                   <div class="form-group">
@@ -423,11 +419,12 @@
                       type="text"
                       id="meshcoreDefaultRegion"
                       class="form-control"
-                      value="es"
-                      placeholder="ej. es"
+                      value=""
+                      placeholder="Opcional (ej. es)"
                     />
                     <small class="helper-text"
-                      >Región por defecto para flood adverts.</small
+                      >Región por defecto para flood adverts (deja vacío si no
+                      usas filtrado regional).</small
                     >
                   </div>
                 </div>
