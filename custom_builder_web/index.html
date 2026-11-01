@@ -296,6 +296,115 @@
                   <span class="slider"></span>
                 </label>
               </div>
+
+              <!-- Ajustes Avanzados de Comportamiento -->
+              <details class="collapsible mt-3">
+                <summary>
+                  ⚙️ Ajustes Avanzados de Comportamiento (Retransmisión,
+                  Intervalos, PIN BLE)
+                </summary>
+                <div class="grid-2 mt-2">
+                  <div class="form-group">
+                    <label for="rebroadcastMode"
+                      >Modo de Retransmisión (Rebroadcast Mode)</label
+                    >
+                    <select id="rebroadcastMode" class="form-control">
+                      <option value="ALL" selected>
+                        ALL (Retransmite todos los paquetes de la malla)
+                      </option>
+                      <option value="LOCAL_ONLY">
+                        LOCAL_ONLY (Solo paquetes locales propios)
+                      </option>
+                      <option value="KNOWN_ONLY">
+                        KNOWN_ONLY (Solo nodos conocidos en NodeDB)
+                      </option>
+                      <option value="NONE">
+                        NONE (Sin retransmisión de terceros)
+                      </option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="fixedBlePin"
+                      >PIN Bluetooth Fijo (6 dígitos)</label
+                    >
+                    <input
+                      type="text"
+                      id="fixedBlePin"
+                      class="form-control font-mono"
+                      maxlength="6"
+                      placeholder="ej. 123456 (vacío = aleatorio)"
+                    />
+                    <small class="helper-text"
+                      >Código numérico para vincular la app móvil sin
+                      pantalla.</small
+                    >
+                  </div>
+                </div>
+
+                <div class="grid-3 mt-2">
+                  <div class="form-group">
+                    <label for="nodeInfoBroadcastSecs"
+                      >Difusión NodeInfo (seg)</label
+                    >
+                    <input
+                      type="number"
+                      id="nodeInfoBroadcastSecs"
+                      class="form-control font-mono"
+                      value="10800"
+                      min="3600"
+                      step="3600"
+                    />
+                    <small class="helper-text"
+                      >10800s = 3 horas (mínimo 3600s).</small
+                    >
+                  </div>
+                  <div class="form-group">
+                    <label for="positionBroadcastInterval"
+                      >Difusión Posición (seg)</label
+                    >
+                    <input
+                      type="number"
+                      id="positionBroadcastInterval"
+                      class="form-control font-mono"
+                      value="1800"
+                      min="60"
+                      step="60"
+                    />
+                    <small class="helper-text">1800s = 30 minutos.</small>
+                  </div>
+                  <div class="form-group">
+                    <label for="deviceTelemInterval"
+                      >Telemetría Estado (seg)</label
+                    >
+                    <input
+                      type="number"
+                      id="deviceTelemInterval"
+                      class="form-control font-mono"
+                      value="900"
+                      min="60"
+                      step="60"
+                    />
+                    <small class="helper-text"
+                      >900s = 15 min (batería, voltaje).</small
+                    >
+                  </div>
+                </div>
+
+                <div class="toggle-row mt-2">
+                  <div class="toggle-info">
+                    <strong>Smart Position (Posición Inteligente)</strong>
+                    <p>
+                      Envía paquetes de ubicación solo si el nodo se ha
+                      desplazado una distancia significativa respecto al último
+                      punto.
+                    </p>
+                  </div>
+                  <label class="switch">
+                    <input type="checkbox" id="smartPosition" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </details>
             </div>
           </section>
 
@@ -511,11 +620,25 @@
                   </select>
                 </div>
                 <div class="form-group">
-                  <label for="loraPreset">Perfil LoRa</label>
+                  <div class="flex-between">
+                    <label for="loraPreset">Perfil LoRa</label>
+                    <button
+                      type="button"
+                      id="btnToggleCustomLora"
+                      class="btn btn-outline btn-sm"
+                      style="padding: 2px 8px; font-size: 0.75rem"
+                    >
+                      ⚙️ Modificar parámetros
+                    </button>
+                  </div>
                   <select id="loraPreset" class="form-control">
                     <option value="custom_sfnarrow_default" selected>
                       SFNarrow (869.618 MHz, BW 62.5, SF 7, CR 4/6, 22 dBm) -
-                      Por defecto
+                      Recomendado España
+                    </option>
+                    <option value="custom">
+                      ⚙️ Perfil LoRa Personalizado (Definir Frecuencia, BW, SF,
+                      CR, Potencia...)
                     </option>
                     <option value="modem_preset_long_fast">
                       LongFast (Estándar Meshtastic)
@@ -527,6 +650,152 @@
                       ShortFast (Alta velocidad / corto alcance)
                     </option>
                   </select>
+                </div>
+              </div>
+
+              <!-- Parámetros Personalizados LoRa (estilo lazynoda builder) -->
+              <div
+                id="customLoraContainer"
+                class="subcard subcard-lora mt-3 hidden"
+              >
+                <div class="subcard-header flex-between">
+                  <strong>⚙️ Parámetros de Radio LoRa Personalizados</strong>
+                  <span class="badge-mini">Modo Personalizado</span>
+                </div>
+                <p class="helper-text mb-2">
+                  Ajusta al milímetro la modulación LoRa física. Si cambias
+                  estos valores, los demás nodos deben usar los mismos
+                  parámetros para poder comunicarse.
+                </p>
+
+                <div class="grid-3 mt-2">
+                  <div class="form-group">
+                    <label for="loraOverrideFreq">Frecuencia (MHz)</label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      id="loraOverrideFreq"
+                      class="form-control font-mono"
+                      value="869.618"
+                      min="0"
+                      max="1000"
+                    />
+                    <small class="helper-text"
+                      >ej. 869.618 (0 = default región).</small
+                    >
+                  </div>
+                  <div class="form-group">
+                    <label for="loraBandwidth">Ancho de Banda (BW)</label>
+                    <select id="loraBandwidth" class="form-control">
+                      <option value="31">31.25 kHz</option>
+                      <option value="62" selected>
+                        62.5 kHz (SFNarrow España)
+                      </option>
+                      <option value="125">125 kHz (Estándar Meshtastic)</option>
+                      <option value="250">250 kHz (Alta velocidad)</option>
+                      <option value="500">500 kHz</option>
+                    </select>
+                    <small class="helper-text">Menor BW = mayor alcance.</small>
+                  </div>
+                  <div class="form-group">
+                    <label for="loraSpreadFactor"
+                      >Factor de Dispersión (SF)</label
+                    >
+                    <select id="loraSpreadFactor" class="form-control">
+                      <option value="5">SF5</option>
+                      <option value="6">SF6</option>
+                      <option value="7" selected>SF7 (SFNarrow España)</option>
+                      <option value="8">SF8</option>
+                      <option value="9">SF9</option>
+                      <option value="10">SF10</option>
+                      <option value="11">SF11 (Largo alcance)</option>
+                      <option value="12">SF12 (Máximo alcance / lento)</option>
+                    </select>
+                    <small class="helper-text"
+                      >Mayor SF = más alcance y tiempo al aire.</small
+                    >
+                  </div>
+                </div>
+
+                <div class="grid-3 mt-2">
+                  <div class="form-group">
+                    <label for="loraCodingRate">Tasa Codificación (CR)</label>
+                    <select id="loraCodingRate" class="form-control">
+                      <option value="5">4/5</option>
+                      <option value="6" selected>
+                        4/6 (SFNarrow recomendado)
+                      </option>
+                      <option value="7">4/7</option>
+                      <option value="8">4/8 (Máxima corrección)</option>
+                    </select>
+                    <small class="helper-text">Corrección de errores.</small>
+                  </div>
+                  <div class="form-group">
+                    <label for="loraTxPower">Potencia TX (dBm)</label>
+                    <input
+                      type="number"
+                      id="loraTxPower"
+                      class="form-control font-mono"
+                      value="22"
+                      min="0"
+                      max="30"
+                    />
+                    <small class="helper-text"
+                      >22 dBm legal España (0 = default placa).</small
+                    >
+                  </div>
+                  <div class="form-group">
+                    <label for="loraHopLimit"
+                      >Límite de Saltos (Hop Limit)</label
+                    >
+                    <input
+                      type="number"
+                      id="loraHopLimit"
+                      class="form-control font-mono"
+                      value="7"
+                      min="1"
+                      max="7"
+                    />
+                    <small class="helper-text">1 a 7 saltos en la malla.</small>
+                  </div>
+                </div>
+
+                <div class="grid-2 mt-2">
+                  <div class="form-group">
+                    <label for="loraChannelNum"
+                      >Número de Canal LoRa (Frecuencia Offset)</label
+                    >
+                    <input
+                      type="number"
+                      id="loraChannelNum"
+                      class="form-control font-mono"
+                      value="0"
+                      min="0"
+                      max="255"
+                    />
+                    <small class="helper-text"
+                      >Normalmente 0 salvo que se use canal secundario.</small
+                    >
+                  </div>
+                  <div
+                    class="form-group"
+                    style="
+                      display: flex;
+                      flex-direction: column;
+                      justify-content: center;
+                      gap: 0.5rem;
+                      margin-top: 0.5rem;
+                    "
+                  >
+                    <label class="checkbox-label">
+                      <input type="checkbox" id="loraOkToMqtt" checked />
+                      <span>Permitir OK to MQTT en perfil custom</span>
+                    </label>
+                    <label class="checkbox-label">
+                      <input type="checkbox" id="loraIgnoreMqtt" />
+                      <span>Ignorar paquetes procedentes de MQTT en LoRa</span>
+                    </label>
+                  </div>
                 </div>
               </div>
 
@@ -669,11 +938,11 @@
             </div>
           </section>
 
-          <!-- Card 6: Posición Geográfica & Mapa Interactivo -->
+          <!-- Card 6: Posición Geográfica, Zona Horaria & Mapa Interactivo -->
           <section class="card">
             <div class="card-header">
               <span class="step-num">6</span>
-              <h2>Posición Geográfica & Mapa Interactivo</h2>
+              <h2>Posición Geográfica, Zona Horaria & Mapa</h2>
             </div>
             <div class="card-body">
               <div class="form-group">
@@ -758,6 +1027,53 @@
                 </div>
               </div>
 
+              <!-- Zona Horaria (Auto-detectada automáticamente) -->
+              <div class="subcard subcard-tz mt-3">
+                <div class="subcard-header flex-between">
+                  <strong>🕒 Zona Horaria (Fecha & Hora local del Nodo)</strong>
+                  <span id="tzBadge" class="badge-mini">🌍 Auto-detectada</span>
+                </div>
+                <div class="form-group mt-2">
+                  <div class="input-with-button">
+                    <input
+                      type="text"
+                      id="timezoneString"
+                      class="form-control font-mono"
+                      value="CET-1CEST,M3.5.0,M10.5.0/3"
+                    />
+                    <button
+                      type="button"
+                      id="btnTzPeninsula"
+                      class="btn btn-secondary btn-sm"
+                      title="Horario Peninsular y Balear (CET)"
+                    >
+                      📍 Península
+                    </button>
+                    <button
+                      type="button"
+                      id="btnTzCanarias"
+                      class="btn btn-secondary btn-sm"
+                      title="Horario Islas Canarias (WET)"
+                    >
+                      🌴 Canarias
+                    </button>
+                    <button
+                      type="button"
+                      id="btnTzUtc"
+                      class="btn btn-secondary btn-sm"
+                      title="Tiempo Universal Coordinado (UTC)"
+                    >
+                      🌐 UTC
+                    </button>
+                  </div>
+                  <small class="helper-text" id="tzHelper">
+                    Detectada automáticamente según tu navegador y coordenadas
+                    en el mapa. Configura el reloj interno RTC y la hora
+                    mostrada en pantalla.
+                  </small>
+                </div>
+              </div>
+
               <hr class="divider" />
 
               <div class="toggle-row">
@@ -805,7 +1121,21 @@
               <h2>Generar Firmware</h2>
             </div>
             <div class="card-body">
-              <div class="actions-grid">
+              <!-- Live userPrefs.jsonc preview (estilo lazynoda builder) -->
+              <details class="json-preview mb-3">
+                <summary>
+                  👁️ Previsualizar configuración userPrefs.jsonc generada en
+                  tiempo real
+                </summary>
+                <textarea
+                  id="prefsJsonPreview"
+                  readonly
+                  spellcheck="false"
+                  placeholder="Cargando configuración..."
+                ></textarea>
+              </details>
+
+              <div class="actions-grid mt-3">
                 <div class="action-box">
                   <h3>Opción Directa en GitHub Actions</h3>
                   <p>

@@ -276,6 +276,97 @@ input:checked + .slider:before {
   margin-bottom: 0.5rem;
 }
 
+.subcard-lora {
+  background-color: rgba(56, 139, 253, 0.04);
+  border: 1px solid rgba(56, 139, 253, 0.25);
+}
+
+.subcard-lora .subcard-header {
+  color: #58a6ff;
+}
+
+.subcard-tz {
+  background-color: rgba(63, 185, 80, 0.04);
+  border: 1px solid rgba(63, 185, 80, 0.25);
+}
+
+.subcard-tz .subcard-header {
+  color: #7ee787;
+}
+
+.flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.badge-mini {
+  background: var(--accent-light);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+}
+
+details.collapsible {
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.02);
+  padding: 0.75rem 1rem;
+}
+
+details.collapsible summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-main);
+  user-select: none;
+}
+
+details.collapsible[open] summary {
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.json-preview {
+  margin-top: 1rem;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background-color: rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.json-preview summary {
+  padding: 0.6rem 0.85rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.json-preview summary:hover {
+  color: var(--text-main);
+}
+
+.json-preview textarea {
+  width: 100%;
+  min-height: 220px;
+  background: #0d1117;
+  color: #7ee787;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  border: none;
+  border-top: 1px solid var(--card-border);
+  padding: 0.75rem;
+  resize: vertical;
+  outline: none;
+  line-height: 1.4;
+}
+
 .action-card {
   border-color: rgba(46, 160, 67, 0.4);
 }

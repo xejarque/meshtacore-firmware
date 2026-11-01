@@ -92,6 +92,34 @@ def main():
     parser.add_argument("--device-role", default="CLIENT")
     parser.add_argument("--lora-region", default="EU_868")
     parser.add_argument("--lora-preset-mode", default="custom_sfnarrow_default")
+    parser.add_argument("--lora-override-frequency", default="")
+    parser.add_argument("--lora-bandwidth", default="")
+    parser.add_argument("--lora-spread-factor", default="")
+    parser.add_argument("--lora-coding-rate", default="")
+    parser.add_argument("--lora-tx-power", default="")
+    parser.add_argument("--lora-hop-limit", default="")
+    parser.add_argument("--lora-channel-num", default="")
+    parser.add_argument(
+        "--lora-ok-to-mqtt",
+        type=lambda v: v.lower() in ("true", "1", "yes"),
+        default=True,
+    )
+    parser.add_argument(
+        "--lora-ignore-mqtt",
+        type=lambda v: v.lower() in ("true", "1", "yes"),
+        default=False,
+    )
+    parser.add_argument("--timezone-string", default="CET-1CEST,M3.5.0,M10.5.0/3")
+    parser.add_argument("--rebroadcast-mode", default="ALL")
+    parser.add_argument("--fixed-bluetooth", default="")
+    parser.add_argument("--node-info-broadcast-secs", default="")
+    parser.add_argument("--position-broadcast-interval", default="")
+    parser.add_argument("--device-telem-interval", default="")
+    parser.add_argument(
+        "--smart-position",
+        type=lambda v: v.lower() in ("true", "1", "yes"),
+        default=False,
+    )
     parser.add_argument("--channels-preset", default="repo_default_5_channels")
     parser.add_argument(
         "--channels-json", default="", help="JSON string with custom channels array"
@@ -228,7 +256,7 @@ def main():
     region_enum = f"meshtastic_Config_LoRaConfig_RegionCode_{args.lora_region.upper()}"
     prefs["USERPREFS_CONFIG_LORA_REGION"] = region_enum
 
-    # LoRa Preset / Custom SFNarrow
+    # LoRa Preset / Custom Profile
     if args.lora_preset_mode == "custom_sfnarrow_default":
         prefs["USERPREFS_LORACONFIG_USE_PRESET"] = "false"
         prefs["USERPREFS_LORACONFIG_BANDWIDTH"] = "62"
@@ -237,6 +265,28 @@ def main():
         prefs["USERPREFS_LORACONFIG_OVERRIDE_FREQUENCY"] = "869.618"
         prefs["USERPREFS_LORACONFIG_TX_POWER"] = "22"
         prefs["USERPREFS_CONFIG_LORA_HOP_LIMIT"] = "7"
+        prefs["USERPREFS_CONFIG_LORA_CONFIG_OK_TO_MQTT"] = "true"
+        prefs.pop("USERPREFS_LORACONFIG_MODEM_PRESET", None)
+    elif args.lora_preset_mode == "custom":
+        prefs["USERPREFS_LORACONFIG_USE_PRESET"] = "false"
+        prefs["USERPREFS_LORACONFIG_BANDWIDTH"] = str(args.lora_bandwidth or "62")
+        prefs["USERPREFS_LORACONFIG_SPREAD_FACTOR"] = str(
+            args.lora_spread_factor or "7"
+        )
+        prefs["USERPREFS_LORACONFIG_CODING_RATE"] = str(args.lora_coding_rate or "6")
+        prefs["USERPREFS_LORACONFIG_OVERRIDE_FREQUENCY"] = str(
+            args.lora_override_frequency or "869.618"
+        )
+        if args.lora_tx_power:
+            prefs["USERPREFS_LORACONFIG_TX_POWER"] = str(args.lora_tx_power)
+        if args.lora_hop_limit:
+            prefs["USERPREFS_CONFIG_LORA_HOP_LIMIT"] = str(args.lora_hop_limit)
+        if args.lora_channel_num:
+            prefs["USERPREFS_LORACONFIG_CHANNEL_NUM"] = str(args.lora_channel_num)
+        if args.lora_ok_to_mqtt:
+            prefs["USERPREFS_CONFIG_LORA_CONFIG_OK_TO_MQTT"] = "true"
+        if args.lora_ignore_mqtt:
+            prefs["USERPREFS_CONFIG_LORA_IGNORE_MQTT"] = "true"
         prefs.pop("USERPREFS_LORACONFIG_MODEM_PRESET", None)
     else:
         preset_clean = args.lora_preset_mode.replace("modem_preset_", "").upper()
@@ -248,6 +298,32 @@ def main():
         prefs.pop("USERPREFS_LORACONFIG_SPREAD_FACTOR", None)
         prefs.pop("USERPREFS_LORACONFIG_CODING_RATE", None)
         prefs.pop("USERPREFS_LORACONFIG_OVERRIDE_FREQUENCY", None)
+
+    # Timezone String
+    if args.timezone_string:
+        prefs["USERPREFS_TZ_STRING"] = args.timezone_string
+
+    # Advanced behavior settings
+    if args.rebroadcast_mode:
+        prefs["USERPREFS_CONFIG_DEVICE_REBROADCAST_MODE"] = (
+            f"meshtastic_Config_DeviceConfig_RebroadcastMode_{args.rebroadcast_mode.upper()}"
+        )
+    if args.fixed_bluetooth:
+        prefs["USERPREFS_FIXED_BLUETOOTH"] = str(args.fixed_bluetooth)
+    if args.node_info_broadcast_secs:
+        prefs["USERPREFS_CONFIG_DEVICE_NODE_INFO_BROADCAST_SECS"] = str(
+            args.node_info_broadcast_secs
+        )
+    if args.position_broadcast_interval:
+        prefs["USERPREFS_CONFIG_POSITION_BROADCAST_INTERVAL"] = str(
+            args.position_broadcast_interval
+        )
+    if args.device_telem_interval:
+        prefs["USERPREFS_CONFIG_DEVICE_TELEM_UPDATE_INTERVAL"] = str(
+            args.device_telem_interval
+        )
+    if args.smart_position:
+        prefs["USERPREFS_CONFIG_SMART_POSITION_ENABLED"] = "true"
 
     # Channels configuration
     custom_channels = None

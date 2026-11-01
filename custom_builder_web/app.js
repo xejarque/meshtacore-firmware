@@ -177,6 +177,158 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnDownloadJson = document.getElementById("btnDownloadJson");
   const dispatchStatus = document.getElementById("dispatchStatus");
 
+  // Timezone UI Elements
+  const timezoneString = document.getElementById("timezoneString");
+  const tzBadge = document.getElementById("tzBadge");
+  const tzHelper = document.getElementById("tzHelper");
+  const btnTzPeninsula = document.getElementById("btnTzPeninsula");
+  const btnTzCanarias = document.getElementById("btnTzCanarias");
+  const btnTzUtc = document.getElementById("btnTzUtc");
+
+  // Custom LoRa UI Elements
+  const loraPreset = document.getElementById("loraPreset");
+  const btnToggleCustomLora = document.getElementById("btnToggleCustomLora");
+  const customLoraContainer = document.getElementById("customLoraContainer");
+  const loraOverrideFreq = document.getElementById("loraOverrideFreq");
+  const loraBandwidth = document.getElementById("loraBandwidth");
+  const loraSpreadFactor = document.getElementById("loraSpreadFactor");
+  const loraCodingRate = document.getElementById("loraCodingRate");
+  const loraTxPower = document.getElementById("loraTxPower");
+  const loraHopLimit = document.getElementById("loraHopLimit");
+  const loraChannelNum = document.getElementById("loraChannelNum");
+  const loraOkToMqtt = document.getElementById("loraOkToMqtt");
+  const loraIgnoreMqtt = document.getElementById("loraIgnoreMqtt");
+
+  // Advanced Behavior UI Elements
+  const rebroadcastMode = document.getElementById("rebroadcastMode");
+  const fixedBlePin = document.getElementById("fixedBlePin");
+  const nodeInfoBroadcastSecs = document.getElementById(
+    "nodeInfoBroadcastSecs",
+  );
+  const positionBroadcastInterval = document.getElementById(
+    "positionBroadcastInterval",
+  );
+  const deviceTelemInterval = document.getElementById("deviceTelemInterval");
+  const smartPosition = document.getElementById("smartPosition");
+
+  // Live JSON preview textarea
+  const prefsJsonPreview = document.getElementById("prefsJsonPreview");
+
+  // Timezone Helpers & Auto-Detection
+  function setTimezone(val, label, isManual = false) {
+    if (timezoneString) timezoneString.value = val;
+    if (tzBadge) {
+      tzBadge.textContent = isManual ? `🔧 Manual: ${label}` : `🌍 ${label}`;
+    }
+    if (tzHelper) {
+      tzHelper.textContent = isManual
+        ? `Configuración manual seleccionada: ${label}.`
+        : `Detectada automáticamente: ${label}. Ajusta el reloj de hardware y pantalla del nodo.`;
+    }
+    if (typeof updateLivePreview === "function") updateLivePreview();
+  }
+
+  if (btnTzPeninsula) {
+    btnTzPeninsula.addEventListener("click", () => {
+      setTimezone("CET-1CEST,M3.5.0,M10.5.0/3", "Península (CET)", true);
+    });
+  }
+  if (btnTzCanarias) {
+    btnTzCanarias.addEventListener("click", () => {
+      setTimezone("WET0WEST,M3.5.0/1,M10.5.0", "Canarias (WET)", true);
+    });
+  }
+  if (btnTzUtc) {
+    btnTzUtc.addEventListener("click", () => {
+      setTimezone("UTC0", "UTC", true);
+    });
+  }
+
+  function detectInitialTimezone() {
+    try {
+      const iana = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+      const lower = iana.toLowerCase();
+      if (lower.includes("canary")) {
+        setTimezone(
+          "WET0WEST,M3.5.0/1,M10.5.0",
+          "Canarias (Detectada por navegador)",
+        );
+      } else if (
+        iana.includes("Madrid") ||
+        iana.includes("Paris") ||
+        iana.includes("Berlin") ||
+        iana.includes("Rome") ||
+        iana.includes("Brussels") ||
+        iana.includes("Amsterdam")
+      ) {
+        setTimezone(
+          "CET-1CEST,M3.5.0,M10.5.0/3",
+          "Península / Europa Central (CET)",
+        );
+      } else if (
+        iana.includes("London") ||
+        iana.includes("Lisbon") ||
+        iana.includes("Dublin")
+      ) {
+        setTimezone("GMT0BST,M3.5.0/1,M10.5.0", "Reino Unido / Portugal (GMT)");
+      } else if (iana.includes("America/Buenos_Aires")) {
+        setTimezone("ART3", "Argentina (ART)");
+      } else if (iana.includes("America/Mexico")) {
+        setTimezone("CST6", "México (CST)");
+      } else if (iana.includes("UTC") || iana.includes("GMT")) {
+        setTimezone("UTC0", "UTC");
+      } else {
+        setTimezone("CET-1CEST,M3.5.0,M10.5.0/3", `Navegador: ${iana}`);
+      }
+    } catch (e) {
+      setTimezone("CET-1CEST,M3.5.0,M10.5.0/3", "Península (CET)");
+    }
+  }
+  detectInitialTimezone();
+
+  function syncTimezoneWithCoords(lat, lon) {
+    if (lat >= 27.0 && lat <= 29.8 && lon >= -18.5 && lon <= -13.0) {
+      setTimezone(
+        "WET0WEST,M3.5.0/1,M10.5.0",
+        "Canarias (Detectada por ubicación)",
+      );
+    } else if (lat >= 35.0 && lat <= 44.5 && lon >= -9.5 && lon <= 4.5) {
+      setTimezone(
+        "CET-1CEST,M3.5.0,M10.5.0/3",
+        "Península (Detectada por ubicación)",
+      );
+    }
+  }
+
+  // Custom LoRa Container Toggle
+  function syncCustomLoraVisibility() {
+    if (loraPreset.value === "custom") {
+      customLoraContainer.classList.remove("hidden");
+    } else {
+      customLoraContainer.classList.add("hidden");
+    }
+    if (typeof updateLivePreview === "function") updateLivePreview();
+  }
+
+  if (loraPreset) {
+    loraPreset.addEventListener("change", syncCustomLoraVisibility);
+  }
+
+  if (btnToggleCustomLora) {
+    btnToggleCustomLora.addEventListener("click", () => {
+      if (customLoraContainer.classList.contains("hidden")) {
+        loraPreset.value = "custom";
+        customLoraContainer.classList.remove("hidden");
+      } else {
+        customLoraContainer.classList.add("hidden");
+        if (loraPreset.value === "custom") {
+          loraPreset.value = "custom_sfnarrow_default";
+        }
+      }
+      if (typeof updateLivePreview === "function") updateLivePreview();
+    });
+  }
+
   // Load saved token if present
   const savedToken = localStorage.getItem("meshtacore_gh_token");
   if (savedToken) {
@@ -372,6 +524,8 @@ document.addEventListener("DOMContentLoaded", () => {
     fixedLat.value = lat.toFixed(6);
     fixedLon.value = lon.toFixed(6);
     mapStatus.innerHTML = `📍 Coordenadas seleccionadas: <strong>${lat.toFixed(6)}, ${lon.toFixed(6)}</strong>`;
+    syncTimezoneWithCoords(lat, lon);
+    if (typeof updateLivePreview === "function") updateLivePreview();
   }
 
   function syncMapFromInputs() {
@@ -384,6 +538,8 @@ document.addEventListener("DOMContentLoaded", () => {
       marker.setLatLng([lat, lon]);
       map.setView([lat, lon], 14);
       mapStatus.innerHTML = `📍 Coordenadas seleccionadas: <strong>${lat.toFixed(6)}, ${lon.toFixed(6)}</strong>`;
+      syncTimezoneWithCoords(lat, lon);
+      if (typeof updateLivePreview === "function") updateLivePreview();
     }
   }
 
@@ -407,6 +563,18 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         const cityStr = [data.city, data.region].filter(Boolean).join(", ");
         mapStatus.innerHTML = `📍 Ubicación detectada por red (${cityStr || "Aproximada"}): <strong>${lat.toFixed(6)}, ${lon.toFixed(6)}</strong>.<br><small style="color: #79c0ff;">El navegador o el sistema denegó el GPS exacto. Puedes afinar la posición haciendo clic o arrastrando el marcador en el mapa.</small>`;
+        syncTimezoneWithCoords(lat, lon);
+        if (
+          data.timezone &&
+          data.timezone.id &&
+          data.timezone.id.toLowerCase().includes("canary")
+        ) {
+          setTimezone(
+            "WET0WEST,M3.5.0/1,M10.5.0",
+            "Canarias (Detectada por IP)",
+          );
+        }
+        if (typeof updateLivePreview === "function") updateLivePreview();
       } else {
         throw new Error(data.message || "Sin respuesta");
       }
@@ -442,6 +610,8 @@ document.addEventListener("DOMContentLoaded", () => {
           map.setView([lat, lon], 15);
         }
         mapStatus.innerHTML = `✅ Ubicación detectada vía GPS/WiFi: <strong>${lat.toFixed(6)}, ${lon.toFixed(6)}</strong>${alt ? ` (Alt: ${alt}m)` : ""}`;
+        syncTimezoneWithCoords(lat, lon);
+        if (typeof updateLivePreview === "function") updateLivePreview();
       },
       (err) => {
         console.warn("navigator.geolocation falló, recurriendo a IP:", err);
@@ -461,6 +631,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     mapStatus.textContent =
       "Haz clic o arrastra el marcador para fijar la posición exacta del nodo.";
+    if (typeof updateLivePreview === "function") updateLivePreview();
   });
 
   // Initialize map
@@ -494,11 +665,42 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const deviceRole = document.getElementById("deviceRole").value;
     const loraRegion = document.getElementById("loraRegion").value;
-    const loraPreset = document.getElementById("loraPreset").value;
+    const loraPresetVal = document.getElementById("loraPreset").value;
     const gpsMode = document.getElementById("gpsMode").value;
     const lat = fixedLat.value.trim();
     const lon = fixedLon.value.trim();
     const alt = fixedAlt.value.trim();
+
+    const tzStr = timezoneString
+      ? timezoneString.value.trim()
+      : "CET-1CEST,M3.5.0,M10.5.0/3";
+
+    // Custom LoRa fields
+    const freqVal = loraOverrideFreq
+      ? loraOverrideFreq.value.trim()
+      : "869.618";
+    const bwVal = loraBandwidth ? loraBandwidth.value : "62";
+    const sfVal = loraSpreadFactor ? loraSpreadFactor.value : "7";
+    const crVal = loraCodingRate ? loraCodingRate.value : "6";
+    const txVal = loraTxPower ? loraTxPower.value.trim() : "22";
+    const hopVal = loraHopLimit ? loraHopLimit.value.trim() : "7";
+    const chNumVal = loraChannelNum ? loraChannelNum.value.trim() : "0";
+    const okMqttVal = loraOkToMqtt ? loraOkToMqtt.checked : true;
+    const ignMqttVal = loraIgnoreMqtt ? loraIgnoreMqtt.checked : false;
+
+    // Advanced behavior
+    const rebroadcastVal = rebroadcastMode ? rebroadcastMode.value : "ALL";
+    const blePinVal = fixedBlePin ? fixedBlePin.value.trim() : "";
+    const nodeInfoSecsVal = nodeInfoBroadcastSecs
+      ? nodeInfoBroadcastSecs.value.trim()
+      : "10800";
+    const posSecsVal = positionBroadcastInterval
+      ? positionBroadcastInterval.value.trim()
+      : "1800";
+    const telemSecsVal = deviceTelemInterval
+      ? deviceTelemInterval.value.trim()
+      : "900";
+    const smartPosVal = smartPosition ? smartPosition.checked : false;
 
     const isMqttOn = mqttEnabled.checked;
     const mAddress = document.getElementById("mqttAddress").value.trim();
@@ -528,7 +730,23 @@ document.addEventListener("DOMContentLoaded", () => {
       nexus_master_key: masterKey,
       device_role: deviceRole,
       lora_region: loraRegion,
-      lora_preset_mode: loraPreset,
+      lora_preset_mode: loraPresetVal,
+      lora_override_freq: freqVal,
+      lora_bandwidth: bwVal,
+      lora_spread_factor: sfVal,
+      lora_coding_rate: crVal,
+      lora_tx_power: txVal,
+      lora_hop_limit: hopVal,
+      lora_channel_num: chNumVal,
+      lora_ok_to_mqtt: okMqttVal,
+      lora_ignore_mqtt: ignMqttVal,
+      timezone_string: tzStr,
+      rebroadcast_mode: rebroadcastVal,
+      fixed_ble_pin: blePinVal,
+      node_info_broadcast_secs: nodeInfoSecsVal,
+      position_broadcast_interval: posSecsVal,
+      device_telem_interval: telemSecsVal,
+      smart_position: smartPosVal,
       channels_preset: "repo_default_5_channels",
       channels_json: JSON.stringify(channelsData),
       mqtt_enabled: isMqttOn,
@@ -698,6 +916,30 @@ document.addEventListener("DOMContentLoaded", () => {
       prefs["USERPREFS_LORACONFIG_OVERRIDE_FREQUENCY"] = "869.618";
       prefs["USERPREFS_LORACONFIG_TX_POWER"] = "22";
       prefs["USERPREFS_CONFIG_LORA_HOP_LIMIT"] = "7";
+      prefs["USERPREFS_CONFIG_LORA_CONFIG_OK_TO_MQTT"] = "true";
+    } else if (data.lora_preset_mode === "custom") {
+      prefs["USERPREFS_LORACONFIG_USE_PRESET"] = "false";
+      prefs["USERPREFS_LORACONFIG_BANDWIDTH"] = data.lora_bandwidth || "62";
+      prefs["USERPREFS_LORACONFIG_SPREAD_FACTOR"] =
+        data.lora_spread_factor || "7";
+      prefs["USERPREFS_LORACONFIG_CODING_RATE"] = data.lora_coding_rate || "6";
+      prefs["USERPREFS_LORACONFIG_OVERRIDE_FREQUENCY"] =
+        data.lora_override_freq || "869.618";
+      if (data.lora_tx_power !== "") {
+        prefs["USERPREFS_LORACONFIG_TX_POWER"] = data.lora_tx_power;
+      }
+      if (data.lora_hop_limit !== "") {
+        prefs["USERPREFS_CONFIG_LORA_HOP_LIMIT"] = data.lora_hop_limit;
+      }
+      if (data.lora_channel_num !== "") {
+        prefs["USERPREFS_LORACONFIG_CHANNEL_NUM"] = data.lora_channel_num;
+      }
+      if (data.lora_ok_to_mqtt) {
+        prefs["USERPREFS_CONFIG_LORA_CONFIG_OK_TO_MQTT"] = "true";
+      }
+      if (data.lora_ignore_mqtt) {
+        prefs["USERPREFS_CONFIG_LORA_IGNORE_MQTT"] = "true";
+      }
     } else {
       const p = data.lora_preset_mode
         .replace("modem_preset_", "")
@@ -705,6 +947,35 @@ document.addEventListener("DOMContentLoaded", () => {
       prefs["USERPREFS_LORACONFIG_USE_PRESET"] = "true";
       prefs["USERPREFS_LORACONFIG_MODEM_PRESET"] =
         `meshtastic_Config_LoRaConfig_ModemPreset_${p}`;
+    }
+
+    // Timezone configuration (Auto-detected or custom POSIX)
+    if (data.timezone_string) {
+      prefs["USERPREFS_TZ_STRING"] = data.timezone_string;
+    }
+
+    // Advanced behavior options (Rebroadcast, intervals, BLE PIN)
+    if (data.rebroadcast_mode) {
+      prefs["USERPREFS_CONFIG_DEVICE_REBROADCAST_MODE"] =
+        `meshtastic_Config_DeviceConfig_RebroadcastMode_${data.rebroadcast_mode}`;
+    }
+    if (data.fixed_ble_pin) {
+      prefs["USERPREFS_FIXED_BLUETOOTH"] = data.fixed_ble_pin;
+    }
+    if (data.node_info_broadcast_secs) {
+      prefs["USERPREFS_CONFIG_DEVICE_NODE_INFO_BROADCAST_SECS"] =
+        data.node_info_broadcast_secs;
+    }
+    if (data.position_broadcast_interval) {
+      prefs["USERPREFS_CONFIG_POSITION_BROADCAST_INTERVAL"] =
+        data.position_broadcast_interval;
+    }
+    if (data.device_telem_interval) {
+      prefs["USERPREFS_CONFIG_DEVICE_TELEM_UPDATE_INTERVAL"] =
+        data.device_telem_interval;
+    }
+    if (data.smart_position) {
+      prefs["USERPREFS_CONFIG_SMART_POSITION_ENABLED"] = "true";
     }
 
     // Write channels
@@ -763,6 +1034,32 @@ document.addEventListener("DOMContentLoaded", () => {
     return prefs;
   }
 
+  // Live preview updater
+  function updateLivePreview() {
+    if (!prefsJsonPreview) return;
+    try {
+      const data = getFormData();
+      const prefs = buildUserPrefs(data);
+      prefsJsonPreview.value = JSON.stringify(prefs, null, 2);
+    } catch (err) {
+      console.warn("Error generando previsualización JSON:", err);
+    }
+  }
+
+  // Hook all inputs in form for live preview
+  const formEl = document.getElementById("builderForm");
+  if (formEl) {
+    formEl.addEventListener("input", updateLivePreview);
+    formEl.addEventListener("change", updateLivePreview);
+  }
+
+  // Hook channel table events to also update live preview
+  const originalRenderChannelsTable = renderChannelsTable;
+  renderChannelsTable = function () {
+    originalRenderChannelsTable();
+    updateLivePreview();
+  };
+
   // Generate & Download userPrefs.jsonc
   btnDownloadJson.addEventListener("click", () => {
     const data = getFormData();
@@ -778,4 +1075,7 @@ document.addEventListener("DOMContentLoaded", () => {
     a.click();
     URL.revokeObjectURL(url);
   });
+
+  // Initial preview render
+  updateLivePreview();
 });
