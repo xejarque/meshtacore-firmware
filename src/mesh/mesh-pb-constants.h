@@ -26,14 +26,10 @@
 // FIXME - max_count is actually 32 but we save/load this as one long string of preencoded MeshPacket bytes - not a big array in
 // RAM #define MAX_RX_TOPHONE (member_size(DeviceState, receive_queue) / member_size(DeviceState, receive_queue[0]))
 #ifndef MAX_RX_TOPHONE
-#if defined(ARCH_STM32WL) || (defined(ARCH_ESP32) && !(defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S3)))
+#if defined(ARCH_STM32WL) ||                                                                                                     \
+    (defined(ARCH_ESP32) && !(defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S3))) ||                      \
+    defined(NRF52840_XXAA) || MESHTASTIC_MEM_CLASS <= MEM_CLASS_SMALL
 #define MAX_RX_TOPHONE 8
-#elif defined(NRF52840_XXAA)
-// Each slot is a ~340 B MeshPacket in the static pool (Router.cpp MAX_PACKETS_STATIC), so 32 slots
-// cost ~11 KB of .bss on the RAM-tightest platform (2.8.0 field reports: 99% heap). 16 still doubles
-// the 8 classic ESP32 has shipped with for years; drops start when a stalled phone/serial client has
-// 16 packets queued.
-#define MAX_RX_TOPHONE 16
 #elif MESHTASTIC_MEM_CLASS >= MEM_CLASS_MEDIUM || defined(ARCH_RP2040) || defined(CONFIG_IDF_TARGET_ESP32C3)
 // RP2040/RP2350 and ESP32-C3 keep their historical 32.
 #define MAX_RX_TOPHONE 32
@@ -61,38 +57,38 @@
 /// awareness of MAX_NUM_NODES impact per platform.
 static_assert(sizeof(meshtastic_NodeInfoLite) <= 130, "NodeInfoLite size increased. Reconsider impact on MAX_NUM_NODES.");
 
-// Compile satellite NodeDBs out on STM32WL (and the status DB also follows
+// Compile satellite NodeDBs out on STM32WL and MEM_CLASS_SMALL (and the status DB also follows
 // MESHTASTIC_EXCLUDE_STATUS).
 #ifndef MESHTASTIC_EXCLUDE_POSITIONDB
-#if defined(ARCH_STM32WL)
+#if MESHTASTIC_MEM_CLASS <= MEM_CLASS_SMALL
 #define MESHTASTIC_EXCLUDE_POSITIONDB 1
 #else
 #define MESHTASTIC_EXCLUDE_POSITIONDB 0
-#endif // STM32WL
+#endif
 #endif // MESHTASTIC_EXCLUDE_POSITIONDB
 
 #ifndef MESHTASTIC_EXCLUDE_TELEMETRYDB
-#if defined(ARCH_STM32WL)
+#if MESHTASTIC_MEM_CLASS <= MEM_CLASS_SMALL
 #define MESHTASTIC_EXCLUDE_TELEMETRYDB 1
 #else
 #define MESHTASTIC_EXCLUDE_TELEMETRYDB 0
-#endif // STM32WL
+#endif
 #endif // MESHTASTIC_EXCLUDE_TELEMETRYDB
 
 #ifndef MESHTASTIC_EXCLUDE_ENVIRONMENTDB
-#if defined(ARCH_STM32WL)
+#if MESHTASTIC_MEM_CLASS <= MEM_CLASS_SMALL
 #define MESHTASTIC_EXCLUDE_ENVIRONMENTDB 1
 #else
 #define MESHTASTIC_EXCLUDE_ENVIRONMENTDB 0
-#endif // STM32WL
+#endif
 #endif // MESHTASTIC_EXCLUDE_ENVIRONMENTDB
 
 #ifndef MESHTASTIC_EXCLUDE_STATUSDB
-#if defined(ARCH_STM32WL) || defined(MESHTASTIC_EXCLUDE_STATUS)
+#if MESHTASTIC_MEM_CLASS <= MEM_CLASS_SMALL || defined(MESHTASTIC_EXCLUDE_STATUS)
 #define MESHTASTIC_EXCLUDE_STATUSDB 1
 #else
 #define MESHTASTIC_EXCLUDE_STATUSDB 0
-#endif // STM32WL
+#endif
 #endif // MESHTASTIC_EXCLUDE_STATUSDB
 
 /// Max nodes in the hot store (full NodeInfoLite). Evicted nodes' identities
