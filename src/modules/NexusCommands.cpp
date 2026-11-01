@@ -5742,7 +5742,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     }
     else if (strcasecmp(cmd, "VERSION") == 0 || strcasecmp(cmd, "V") == 0) {
         auto metadata = getDeviceMetadata();
-        snprintf(replyMsg, sizeof(replyMsg), "JT VERSION: %s", metadata.firmware_version);
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE VERSION: %s", metadata.firmware_version);
     }
     else if (strcasecmp(cmd, "LORA-STATUS") == 0 || strcasecmp(cmd, "LRS") == 0) {
         // Nexus-28002 (2026-08-21): /nexus LRS sources ALL chip-side values from

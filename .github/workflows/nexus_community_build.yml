@@ -138,7 +138,7 @@ jobs:
           name: nexus-community-${{ matrix.target.board }}-${{ github.sha }}
           overwrite: true
           retention-days: 14
-          path: outbuilds/community-jt-firmware/*
+          path: outbuilds/community-meshtacore-firmware/*
 
   draft-release:
     name: Refresh draft release
