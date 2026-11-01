@@ -61,7 +61,7 @@ const DEFAULT_CHANNELS = [
     slot: 0,
     enabled: true,
     name: "SFNarrow",
-    psk: "1",
+    psk: "AQ==",
     uplink: true,
     downlink: false,
     precision: 16,
@@ -72,7 +72,7 @@ const DEFAULT_CHANNELS = [
     slot: 1,
     enabled: true,
     name: "Test",
-    psk: "2",
+    psk: "Ag==",
     uplink: true,
     downlink: false,
     precision: 0,
@@ -83,7 +83,7 @@ const DEFAULT_CHANNELS = [
     slot: 2,
     enabled: true,
     name: "Bots",
-    psk: "2",
+    psk: "Ag==",
     uplink: true,
     downlink: false,
     precision: 0,
@@ -94,7 +94,7 @@ const DEFAULT_CHANNELS = [
     slot: 3,
     enabled: true,
     name: "Catalunya",
-    psk: "1",
+    psk: "AQ==",
     uplink: true,
     downlink: false,
     precision: 0,
@@ -105,7 +105,7 @@ const DEFAULT_CHANNELS = [
     slot: 4,
     enabled: true,
     name: "Barcelona",
-    psk: "1",
+    psk: "AQ==",
     uplink: true,
     downlink: false,
     precision: 0,
@@ -251,7 +251,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <input type="text" class="ch-input ch-field-name" data-idx="${idx}" value="${ch.name}" maxlength="11" placeholder="Nombre" />
         </td>
         <td>
-          <input type="text" class="ch-input font-mono ch-field-psk" data-idx="${idx}" value="${ch.psk}" placeholder="1 / AQ== / Key" title="Índice (1 o 2) o Base64/Hex" />
+          <input type="text" class="ch-input font-mono ch-field-psk" data-idx="${idx}" value="${ch.psk}" placeholder="AQ== / Ag== / Clave" title="Clave en Base64 o Hexadecimal" />
         </td>
         <td style="text-align: center;">
           <input type="checkbox" class="ch-checkbox ch-field-uplink" data-idx="${idx}" ${ch.uplink ? "checked" : ""} />
