@@ -7,17 +7,17 @@ name: Nexus Community Build
 # and ships.
 
 on:
-  push:
-    branches: [meshtacore]
-    paths:
-      - "src/**"
-      - "variants/**"
-      - "platformio.ini"
-      - "build-nexus.sh"
-      - "nexus-keys-lib.sh"
-      - "nexus-targets.txt"
-      - "bin/**"
-      - ".github/workflows/nexus_community_build.yml"
+  # push:
+  #   branches: [meshtacore]
+  #   paths:
+  #     - "src/**"
+  #     - "variants/**"
+  #     - "platformio.ini"
+  #     - "build-nexus.sh"
+  #     - "nexus-keys-lib.sh"
+  #     - "nexus-targets.txt"
+  #     - "bin/**"
+  #     - ".github/workflows/nexus_community_build.yml"
   # inputs are empty on push, which means the shared target list and a rolling
   # draft; both become overridable only from here.
   workflow_dispatch:

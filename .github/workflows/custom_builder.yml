@@ -1,0 +1,315 @@
+name: Build Custom Firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        type: choice
+        description: "Placa objetivo (o 'custom' para especificarla abajo)"
+        options:
+          - heltec-v3
+          - rak4631
+          - heltec-mesh-node-t114
+          - t-echo
+          - t-beam
+          - t-deck-tft
+          - station-g2
+          - tracker-t1000-e
+          - seeed_wio_tracker_L1
+          - picow
+          - custom
+        default: heltec-v3
+      custom_target:
+        type: string
+        required: false
+        default: ""
+        description: "Nombre de placa custom (si seleccionaste 'custom')"
+      owner_long_name:
+        type: string
+        required: true
+        default: "Meshtacore Node"
+        description: "Nombre largo del nodo (máx 24 bytes)"
+      owner_short_name:
+        type: string
+        required: true
+        default: "MTC"
+        description: "Nombre corto del nodo (máx 4 bytes)"
+      has_screen:
+        type: boolean
+        required: false
+        default: true
+        description: "Pantalla activa (desmarca para ahorrar recursos si es headless/sin pantalla)"
+      device_role:
+        type: choice
+        description: "Rol del dispositivo"
+        options:
+          - CLIENT
+          - CLIENT_MUTE
+          - ROUTER
+          - REPEATER
+          - TRACKER
+          - SENSOR
+        default: CLIENT
+      lora_region:
+        type: choice
+        description: "Región LoRa"
+        options:
+          - EU_868
+          - US
+          - EU_433
+          - ANZ
+          - IN
+          - LORA_24
+        default: EU_868
+      lora_preset_mode:
+        type: choice
+        description: "Preset LoRa (custom_sfnarrow_default = 869.618MHz, BW 62.5, SF 7, CR 4/6, TX 22dBm, Hop 7)"
+        options:
+          - custom_sfnarrow_default
+          - modem_preset_long_fast
+          - modem_preset_medium_fast
+          - modem_preset_short_fast
+        default: custom_sfnarrow_default
+      channels_preset:
+        type: choice
+        description: "Canales de fábrica (repo_default = SFNarrow, Test, Bots, Catalunya, Barcelona)"
+        options:
+          - repo_default_5_channels
+          - single_channel_default
+        default: repo_default_5_channels
+      enable_bluetooth:
+        type: boolean
+        required: false
+        default: true
+        description: "Bluetooth activado (desmarca para nodos solares/repetidores fijos)"
+      wifi_enabled:
+        type: boolean
+        required: false
+        default: false
+        description: "Habilitar WiFi (solo ESP32)"
+      wifi_ssid:
+        type: string
+        required: false
+        default: ""
+        description: "SSID WiFi"
+      wifi_password:
+        type: string
+        required: false
+        default: ""
+        description: "Contraseña WiFi"
+      gps_mode:
+        type: choice
+        description: "Modo GPS"
+        options:
+          - ENABLED
+          - DISABLED
+          - NOT_PRESENT
+        default: ENABLED
+      fixed_latitude:
+        type: string
+        required: false
+        default: ""
+        description: "Latitud fija (opcional, ej. 41.3879)"
+      fixed_longitude:
+        type: string
+        required: false
+        default: ""
+        description: "Longitud fija (opcional, ej. 2.16992)"
+      fixed_altitude:
+        type: string
+        required: false
+        default: ""
+        description: "Altitud fija (opcional en metros, ej. 50)"
+      admin_key:
+        type: string
+        required: false
+        default: ""
+        description: "Admin key (Base64 de 32 bytes para administración remota)"
+      extra_build_flags:
+        type: string
+        required: false
+        default: ""
+        description: "Flags de compilación adicionales (ej. -DMESHTASTIC_EXCLUDE_I2C=1)"
+
+permissions:
+  contents: read
+
+jobs:
+  build-custom-firmware:
+    name: Build Custom Firmware
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Resolve target board
+        id: target-step
+        run: |
+          SELECTED="${{ inputs.target }}"
+          CUSTOM="${{ inputs.custom_target }}"
+          if [ "$SELECTED" = "custom" ]; then
+            if [ -z "$CUSTOM" ]; then
+              echo "::error::Has seleccionado 'custom' pero no has especificado custom_target."
+              exit 1
+            fi
+            TARGET="$CUSTOM"
+          else
+            TARGET="$SELECTED"
+          fi
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+
+      - name: Install PlatformIO and Dependencies
+        run: |
+          pip install -U "platformio==6.1.19" jq
+          mkdir -p "$HOME/.platformio/packages"
+          echo '{"last_version": "6.1.19", "last_check": {"platformio_upgrade": 2147483647, "prune_system": 2147483647}}' > "$HOME/.platformio/appstate.json"
+          if [ ! -f "$HOME/.platformio/penv/bin/python" ] || ! "$HOME/.platformio/penv/bin/python" -c "import pioarduino; assert pioarduino.__version__ == '6.1.19'" 2>/dev/null; then
+            rm -rf "$HOME/.platformio/penv"
+            python -m venv "$HOME/.platformio/penv"
+            "$HOME/.platformio/penv/bin/pip" install --upgrade "uv>=0.1.0"
+            "$HOME/.platformio/penv/bin/pip" install "pioarduino==6.1.19" "platformio==6.1.19"
+          fi
+
+      - name: Resolve Architecture
+        id: arch-step
+        run: |
+          TARGET="${{ steps.target-step.outputs.target }}"
+          ALL_TARGETS=$(~/.platformio/penv/bin/python ./bin/generate_ci_matrix.py all --level extra)
+          ARCH=$(echo "$ALL_TARGETS" | jq --arg T "$TARGET" -r '.[] | select(.board==$T) | .platform')
+          if [ -z "$ARCH" ] || [ "$ARCH" = "null" ]; then
+            echo "::error::No se pudo determinar la arquitectura para la placa '$TARGET'. Revisa platformio.ini."
+            exit 1
+          fi
+          echo "arch=$ARCH" >> "$GITHUB_OUTPUT"
+          echo "Target '$TARGET' pertenece a la arquitectura: $ARCH"
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio6119-py312-${{ runner.os }}-${{ steps.arch-step.outputs.arch }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            pio6119-py312-${{ runner.os }}-${{ steps.arch-step.outputs.arch }}-
+
+      - name: Generate tailored userPrefs.jsonc
+        run: |
+          python3 .github/scripts/generate_custom_userprefs.py \
+            --file userPrefs.jsonc \
+            --output userPrefs.jsonc \
+            --owner-long-name "${{ inputs.owner_long_name }}" \
+            --owner-short-name "${{ inputs.owner_short_name }}" \
+            --has-screen "${{ inputs.has_screen }}" \
+            --enable-bluetooth "${{ inputs.enable_bluetooth }}" \
+            --device-role "${{ inputs.device_role }}" \
+            --lora-region "${{ inputs.lora_region }}" \
+            --lora-preset-mode "${{ inputs.lora_preset_mode }}" \
+            --channels-preset "${{ inputs.channels_preset }}" \
+            --wifi-enabled "${{ inputs.wifi_enabled }}" \
+            --wifi-ssid "${{ inputs.wifi_ssid }}" \
+            --wifi-password "${{ inputs.wifi_password }}" \
+            --gps-mode "${{ inputs.gps_mode }}" \
+            --fixed-latitude "${{ inputs.fixed_latitude }}" \
+            --fixed-longitude "${{ inputs.fixed_longitude }}" \
+            --fixed-altitude "${{ inputs.fixed_altitude }}" \
+            --admin-key "${{ inputs.admin_key }}"
+
+      - name: Compile Custom Firmware
+        env:
+          PLATFORMIO_BUILD_FLAGS: ${{ inputs.extra_build_flags }}
+          PIP_BREAK_SYSTEM_PACKAGES: "1"
+        run: |
+          TARGET="${{ steps.target-step.outputs.target }}"
+          ARCH="${{ steps.arch-step.outputs.arch }}"
+          case "$ARCH" in
+            esp32|esp32s3|esp32c3|esp32c6) SCRIPT=bin/build-esp32.sh ;;
+            nrf52840)                      SCRIPT=bin/build-nrf52.sh ;;
+            nrf54l15)                      SCRIPT=bin/build-nrf54l15.sh ;;
+            rp2040|rp2350)                 SCRIPT=bin/build-rp2xx0.sh ;;
+            stm32)                         SCRIPT=bin/build-stm32wl.sh ;;
+            *)
+              echo "::error::Arquitectura '$ARCH' no soportada directamente por los scripts de empaquetado."
+              exit 1
+              ;;
+          esac
+          echo "Compilando $TARGET con $SCRIPT..."
+          bash "$SCRIPT" "$TARGET"
+
+      - name: Prepare Release Bundle
+        run: |
+          TARGET="${{ steps.target-step.outputs.target }}"
+          mkdir -p release
+          cp userPrefs.jsonc release/config_used.jsonc
+
+          cat << 'EOF' > release/FLASHING_INSTRUCTIONS.txt
+          ===================================================================
+          MESHTASTIC CUSTOM FIRMWARE BUNDLE
+          ===================================================================
+
+          Este archivo contiene el firmware compilado con tus ajustes integrados.
+          Estos ajustes se cargan automáticamente en el primer arranque y TRAS CUALQUIER
+          FACTORY RESET (los valores residen directamente en la compilación).
+
+          CÓMO FLASHEAR:
+          --------------
+          1. Dispositivos nRF52 (RAK4631, Heltec T114, T-Echo, T1000-E...):
+             - Conecta el dispositivo por USB.
+             - Haz doble clic rápido en el botón RESET para entrar en modo bootloader.
+             - Aparecerá una unidad de almacenamiento USB en tu ordenador.
+             - Copia el archivo .uf2 a esa unidad. El nodo se reiniciará automáticamente.
+
+          2. Dispositivos ESP32 (Heltec V3, T-Beam, Station G2...):
+             - Opción Web: Abre https://flasher.meshtastic.org en Chrome o Edge.
+               Elige tu placa, selecciona "Custom firmware" y carga el archivo .bin de factory.
+             - Opción Script / Terminal:
+               En Linux/macOS: ./device-install.sh -f firmware-*.factory.bin
+               En Windows:     device-install.bat -f firmware-*.factory.bin
+             - O mediante esptool directamente:
+               esptool.py write_flash 0x0 firmware-*.factory.bin
+
+          ===================================================================
+          EOF
+
+          TIMESTAMP=$(date +'%Y%m%d_%H%M%S')
+          ZIP_NAME="meshtastic-custom-${TARGET}-${TIMESTAMP}.zip"
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+          cd release
+          zip -9 -r "../$ZIP_NAME" ./*
+          cd ..
+
+      - name: Upload Firmware Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_NAME }}
+          retention-days: 30
+
+      - name: Generate Job Summary
+        run: |
+          TARGET="${{ steps.target-step.outputs.target }}"
+          ARCH="${{ steps.arch-step.outputs.arch }}"
+          cat << EOF >> "$GITHUB_STEP_SUMMARY"
+          ## 🚀 Firmware Personalizado Generado con Éxito
+
+          | Parámetro | Valor |
+          | :--- | :--- |
+          | **Placa** | \`$TARGET\` (\`$ARCH\`) |
+          | **Nombre Nodo** | \`${{ inputs.owner_long_name }}\` (\`${{ inputs.owner_short_name }}\`) |
+          | **Pantalla activa** | \`${{ inputs.has_screen }}\` |
+          | **Bluetooth** | \`${{ inputs.enable_bluetooth }}\` |
+          | **Rol** | \`${{ inputs.device_role }}\` |
+          | **Región LoRa** | \`${{ inputs.lora_region }}\` |
+          | **Preset Módem** | \`${{ inputs.lora_preset_mode }}\` |
+          | **Canales** | \`${{ inputs.channels_preset }}\` |
+          | **GPS** | \`${{ inputs.gps_mode }}\` |
+          | **Archivo** | \`${{ env.ZIP_NAME }}\` |
+
+          Descarga el ZIP desde la sección **Artifacts** de esta ejecución.
+          EOF
