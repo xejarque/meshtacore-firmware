@@ -179,6 +179,11 @@ void test_nexus_prefix_roots_mtc_and_nexus()
     TEST_ASSERT_EQUAL_STRING("INFO", cmd);
     TEST_ASSERT_EQUAL_size_t(TestNexusModule::TARGET_NAME, kind);
 
+    cmd = module.matchTargetedCmd("/mcore-node TEST INFO", &kind);
+    TEST_ASSERT_NOT_NULL(cmd);
+    TEST_ASSERT_EQUAL_STRING("INFO", cmd);
+    TEST_ASSERT_EQUAL_size_t(TestNexusModule::TARGET_NAME, kind);
+
     cmd = module.matchTargetedCmd("/jt-node TEST INFO", &kind);
     TEST_ASSERT_NULL(cmd);
 

@@ -1950,7 +1950,7 @@ void NexusModule::applyBS(meshtastic_Telemetry *m) {
 //   - handleLocal() isLocalOnly/isBroadcast/isTargetedPrefix checks
 //   - matchTargetedCmd() targeted dispatch helper
 // Adding a new root here propagates to all three call sites. No other duplicates.
-static const char* const NEXUS_PREFIX_ROOTS[] = {"/nexus", "/mtc"};
+static const char* const NEXUS_PREFIX_ROOTS[] = {"/nexus", "/mtc", "/mcore"};
 static const size_t NEXUS_PREFIX_ROOTS_COUNT = sizeof(NEXUS_PREFIX_ROOTS) / sizeof(NEXUS_PREFIX_ROOTS[0]);
 
 // Nexus: auto Zero-Hop masks - traffic-driven (2026-10-07 code review):
@@ -2329,6 +2329,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
         // to all three call sites automatically.
         int type = -1; // 0:local, 1:broadcast, 2:device, 3:node, 4:mac, 5:group
         size_t prefLen = 0;
+        size_t rootIdx = 0;
         const char* suffixes[] = {"-local", "", "-device", "-node", "-mac", "-group"};
 
         for (size_t p=0; p < NEXUS_PREFIX_ROOTS_COUNT; p++) {
@@ -2340,6 +2341,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                     if (cmdBuf[flen] == ' ' || cmdBuf[flen] == '\0') {
                         prefLen = flen;
                         type = s;
+                        rootIdx = p;
                         break;
                     }
                 }
@@ -2484,15 +2486,35 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                         if (cmdStart) {
                             // ID/Name/MAC are DMs (isBroadcast=false), group is broadcast.
                             bool isGroup = (kind == TARGET_GROUP);
-                            LOG_INFO("Nexus: Targeted command for us (kind=%u): %s", (unsigned)kind, cmdStart);
-                            handleNexusCommand(mp, cmdStart, isGroup, mp.id, false);
+                            char mcoreCmd[160];
+                            const char *finalCmd = cmdStart;
+                            if (strcasecmp(NEXUS_PREFIX_ROOTS[rootIdx], "/mcore") == 0) {
+                                if (cmdStart[0] == '\0') {
+                                    finalCmd = "MCORE";
+                                } else {
+                                    snprintf(mcoreCmd, sizeof(mcoreCmd), "MCORE %s", cmdStart);
+                                    finalCmd = mcoreCmd;
+                                }
+                            }
+                            LOG_INFO("Nexus: Targeted command for us (kind=%u): %s", (unsigned)kind, finalCmd);
+                            handleNexusCommand(mp, finalCmd, isGroup, mp.id, false);
                         }
                         return ProcessMessage::CONTINUE;
                     }
                     else if (isBroadcast) {
                         const char *cmdStart = cmdBuf + prefLen;
                         while(*cmdStart == ' ') cmdStart++;
-                        handleNexusCommand(mp, cmdStart, true, mp.id, false);
+                        char mcoreCmd[160];
+                        const char *finalCmd = cmdStart;
+                        if (strcasecmp(NEXUS_PREFIX_ROOTS[rootIdx], "/mcore") == 0) {
+                            if (cmdStart[0] == '\0') {
+                                finalCmd = "MCORE";
+                            } else {
+                                snprintf(mcoreCmd, sizeof(mcoreCmd), "MCORE %s", cmdStart);
+                                finalCmd = mcoreCmd;
+                            }
+                        }
+                        handleNexusCommand(mp, finalCmd, true, mp.id, false);
                         return ProcessMessage::CONTINUE;
                     }
                 } else {
@@ -2606,7 +2628,17 @@ ProcessMessage NexusModule::handleLocal(const meshtastic_MeshPacket &mp) {
         // broadcast NAME/OWNER safety gate ("prevent mass-wiping a network") and the 5s
         // broadcast rate limit must not fire on local commands. Routing/paging read mp.to
         // directly, so nothing is lost by not passing the broadcast flag here.
-        handleNexusCommand(local, tail, false, mp.id, true);
+        char mcoreLocal[160];
+        const char *finalTail = tail;
+        if (strcasecmp(NEXUS_PREFIX_ROOTS[r], "/mcore") == 0) {
+            if (tail[0] == '\0') {
+                finalTail = "MCORE";
+            } else {
+                snprintf(mcoreLocal, sizeof(mcoreLocal), "MCORE %s", tail);
+                finalTail = mcoreLocal;
+            }
+        }
+        handleNexusCommand(local, finalTail, false, mp.id, true);
         return ProcessMessage::STOP;
     }
     return ProcessMessage::CONTINUE;
