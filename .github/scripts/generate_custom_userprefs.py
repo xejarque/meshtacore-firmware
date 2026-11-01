@@ -40,6 +40,11 @@ def main():
         type=lambda v: v.lower() in ("true", "1", "yes"),
         default=True,
     )
+    parser.add_argument(
+        "--enable-meshcore",
+        type=lambda v: v.lower() in ("true", "1", "yes"),
+        default=True,
+    )
     parser.add_argument("--device-role", default="CLIENT")
     parser.add_argument("--lora-region", default="EU_868")
     parser.add_argument("--lora-preset-mode", default="custom_sfnarrow_default")
@@ -83,6 +88,18 @@ def main():
     else:
         prefs.pop("MESHTASTIC_EXCLUDE_BLUETOOTH", None)
         prefs.pop("HAS_BLUETOOTH", None)
+
+    # MeshCore subsystem (Sniffer, Relay, Companion, Hybrid Sync)
+    if not args.enable_meshcore:
+        prefs["MESHTASTIC_ENABLE_MESHCORE_SNIFFER"] = "0"
+        prefs["MESHTASTIC_ENABLE_MESHCORE_RELAY"] = "0"
+        prefs["MESHTASTIC_ENABLE_MESHCORE_COMPANION"] = "0"
+        prefs["MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC"] = "0"
+    else:
+        prefs.pop("MESHTASTIC_ENABLE_MESHCORE_SNIFFER", None)
+        prefs.pop("MESHTASTIC_ENABLE_MESHCORE_RELAY", None)
+        prefs.pop("MESHTASTIC_ENABLE_MESHCORE_COMPANION", None)
+        prefs.pop("MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC", None)
 
     # Device role
     role_enum = f"meshtastic_Config_DeviceConfig_Role_{args.device_role.upper()}"

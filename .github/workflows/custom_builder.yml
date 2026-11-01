@@ -82,6 +82,11 @@ on:
         required: false
         default: true
         description: "Bluetooth activado (desmarca para nodos solares/repetidores fijos)"
+      enable_meshcore:
+        type: boolean
+        required: false
+        default: true
+        description: "Habilitar subsistema MeshCore (Sniffer, Relay transparente, Companion y SyncWord híbrido 0x14B4)"
       wifi_enabled:
         type: boolean
         required: false
@@ -208,6 +213,7 @@ jobs:
             --owner-short-name "${{ inputs.owner_short_name }}" \
             --has-screen "${{ inputs.has_screen }}" \
             --enable-bluetooth "${{ inputs.enable_bluetooth }}" \
+            --enable-meshcore "${{ inputs.enable_meshcore }}" \
             --device-role "${{ inputs.device_role }}" \
             --lora-region "${{ inputs.lora_region }}" \
             --lora-preset-mode "${{ inputs.lora_preset_mode }}" \
@@ -223,7 +229,7 @@ jobs:
 
       - name: Compile Custom Firmware
         env:
-          PLATFORMIO_BUILD_FLAGS: ${{ inputs.extra_build_flags }}
+          PLATFORMIO_BUILD_FLAGS: "-DHAS_NEXUS=1 -DAPP_REPO=\\\"meshtacore-firmware\\\" ${{ inputs.extra_build_flags }}"
           PIP_BREAK_SYSTEM_PACKAGES: "1"
         run: |
           TARGET="${{ steps.target-step.outputs.target }}"

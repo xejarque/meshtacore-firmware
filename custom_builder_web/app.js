@@ -61,6 +61,9 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("ownerShortName").value.trim() || "MTC";
     const hasScreen = document.getElementById("hasScreen").checked;
     const enableBluetooth = document.getElementById("enableBluetooth").checked;
+    const enableMeshcore = document.getElementById("enableMeshcore")
+      ? document.getElementById("enableMeshcore").checked
+      : true;
     const deviceRole = document.getElementById("deviceRole").value;
     const loraRegion = document.getElementById("loraRegion").value;
     const loraPreset = document.getElementById("loraPreset").value;
@@ -80,6 +83,7 @@ document.addEventListener("DOMContentLoaded", () => {
       owner_short_name: ownerShortName.substring(0, 4),
       has_screen: hasScreen,
       enable_bluetooth: enableBluetooth,
+      enable_meshcore: enableMeshcore,
       device_role: deviceRole,
       lora_region: loraRegion,
       lora_preset_mode: loraPreset,
@@ -123,6 +127,7 @@ document.addEventListener("DOMContentLoaded", () => {
         owner_short_name: data.owner_short_name,
         has_screen: data.has_screen ? "true" : "false",
         enable_bluetooth: data.enable_bluetooth ? "true" : "false",
+        enable_meshcore: data.enable_meshcore ? "true" : "false",
         device_role: data.device_role,
         lora_region: data.lora_region,
         lora_preset_mode: data.lora_preset_mode,
