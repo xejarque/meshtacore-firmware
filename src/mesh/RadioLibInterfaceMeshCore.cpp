@@ -439,7 +439,9 @@ uint32_t RadioLibInterface::meshCoreAdvertTick()
     }
 
     // MeshCore clients order adverts by timestamp, so it must be a real time - but any source will do.
-    const uint32_t now = getValidTime(RTCQualityDevice);
+    uint32_t now = getValidTime(RTCQualityDevice);
+    if (now == 0)
+        now = getTime(false);
     if (now == 0) {
         LOG_INFO("MeshCore ADVERT postponed: no valid time yet");
         return MESHCORE_ADVERT_RETRY_MS;

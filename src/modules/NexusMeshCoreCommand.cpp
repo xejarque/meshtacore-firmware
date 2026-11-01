@@ -94,51 +94,6 @@ static void formatAgo(uint32_t secs, char *out, size_t len)
         snprintf(out, len, "%ud", (unsigned)(secs / 86400));
 }
 
-// A neighbour list that fits one reply: entries go in while they fit, and the first one that does not closes it with
-// "...".
-class NeighborList
-{
-  public:
-    NeighborList(char *reply, size_t cap, const char *header) : reply(reply), cap(cap), now(getTime(false))
-    {
-        const int n = snprintf(reply, cap, "%s", header);
-        len = n > 0 && (size_t)n < cap ? (size_t)n : 0;
-    }
-
-    void add(const char *name, float snr, uint32_t lastHeard)
-    {
-        if (full)
-            return;
-        char ago[8];
-        formatAgo(now > lastHeard ? now - lastHeard : 0, ago, sizeof(ago));
-        char item[32];
-        const int n = snprintf(item, sizeof(item), "%.4s(%.1fdB,%s) ", name[0] ? name : "???", snr, ago);
-        if (n > 0 && len + (size_t)n < cap) {
-            memcpy(reply + len, item, (size_t)n + 1);
-            len += (size_t)n;
-            return;
-        }
-        full = true;
-        if (len + 3 < cap) {
-            memcpy(reply + len, "...", 4);
-            len += 3;
-        }
-    }
-
-    void finish()
-    {
-        if (len > 0 && reply[len - 1] == ' ')
-            reply[--len] = '\0';
-    }
-
-  private:
-    char *reply;
-    size_t cap;
-    size_t len = 0;
-    const uint32_t now;
-    bool full = false;
-};
-
 static bool isDirectNeighbor(const meshtastic_NodeInfoLite *n, uint32_t myNum)
 {
     return n && n->num != 0 && n->num != myNum && !nodeInfoLiteIsMeshCore(n) && (n->num & 0xFF000000) != 0x4D000000 &&
@@ -148,32 +103,88 @@ static bool isDirectNeighbor(const meshtastic_NodeInfoLite *n, uint32_t myNum)
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 static bool isDirectNeighbor(const MeshCoreNode &n)
 {
-    return n.lastMod != 0 && n.hops == 0 && n.lastHeard != 0;
+    return n.lastMod != 0 && n.hops == 0 && (n.lastHeard != 0 || n.lastAdvert != 0);
 }
 #endif
+
+void NexusModule::renderNeighbors(const DirectNeighborEntry *entries, size_t count, const char *header, const char *title,
+                                  char *reply, size_t replyLen)
+{
+    const uint32_t now = getTime(false);
+    size_t totalLen = strlen(header);
+    char items[32][64];
+
+    for (size_t i = 0; i < count; i++) {
+        char ago[8];
+        formatAgo(now > entries[i].lastHeard ? now - entries[i].lastHeard : 0, ago, sizeof(ago));
+        int n = snprintf(items[i], sizeof(items[i]), "%s (%.1fdB, %s)\n", entries[i].name, entries[i].snr, ago);
+        if (n > 0)
+            totalLen += (size_t)n;
+    }
+
+    if (totalLen + 6 < replyLen && totalLen < NEXUS_MAX_REPLY_BODY - 10) {
+        size_t len = snprintf(reply, replyLen, "%s", header);
+        for (size_t i = 0; i < count && len < replyLen; i++) {
+            size_t iLen = strlen(items[i]);
+            if (len + iLen < replyLen) {
+                memcpy(reply + len, items[i], iLen + 1);
+                len += iLen;
+            }
+        }
+        if (len > 0 && reply[len - 1] == '\n')
+            reply[--len] = '\0';
+        return;
+    }
+
+    uint32_t to = activeRequest ? (activeRequest->to == myNodeInfo.my_node_num ? activeRequest->from : 0xFFFFFFFF) : 0xFFFFFFFF;
+    uint32_t ch = activeRequest ? activeRequest->channel : 0;
+    uint32_t rId = activeRequest ? activeRequest->id : 0;
+    startPaging(to, ch, rId, title);
+    for (size_t i = 0; i < count; i++)
+        appendPaging(items[i]);
+
+    if (activeRequest) {
+        snprintf(reply, replyLen, "JT: Paging %s (%u)...", title, (unsigned)count);
+    } else {
+        size_t len = snprintf(reply, replyLen, "%s", header);
+        for (size_t i = 0; i < count && len < replyLen; i++) {
+            size_t iLen = strlen(items[i]);
+            if (len + iLen < replyLen) {
+                memcpy(reply + len, items[i], iLen + 1);
+                len += iLen;
+            }
+        }
+        if (len > 0 && reply[len - 1] == '\n')
+            reply[--len] = '\0';
+    }
+}
 
 void NexusModule::formatNeighbors(char *reply, size_t replyLen)
 {
     const uint32_t myNum = myNodeInfo.my_node_num != 0 ? myNodeInfo.my_node_num : (nodeDB ? nodeDB->getNodeNum() : 0);
     const size_t nodeCount = nodeDB ? nodeDB->getNumMeshNodes() : 0;
+    DirectNeighborEntry entries[32];
     size_t count = 0;
-    for (size_t i = 0; i < nodeCount; i++)
-        if (isDirectNeighbor(nodeDB->getMeshNodeByIndex(i), myNum))
+    for (size_t i = 0; i < nodeCount; i++) {
+        const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
+        if (isDirectNeighbor(n, myNum) && count < 32) {
+            const char *srcName = n->long_name[0] ? n->long_name : (n->short_name[0] ? n->short_name : "???");
+            strncpy(entries[count].name, srcName, sizeof(entries[count].name) - 1);
+            entries[count].name[sizeof(entries[count].name) - 1] = '\0';
+            entries[count].snr = n->snr;
+            entries[count].lastHeard = n->last_heard;
+            entries[count].nodeNum = n->num;
             count++;
+        }
+    }
     if (count == 0) {
         snprintf(reply, replyLen, "JT VECINOS: 0 directos");
         return;
     }
 
-    char header[24];
-    snprintf(header, sizeof(header), "JT VECINOS (%u): ", (unsigned)count);
-    NeighborList list(reply, replyLen, header);
-    for (size_t i = 0; i < nodeCount; i++) {
-        const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
-        if (isDirectNeighbor(n, myNum))
-            list.add(n->short_name[0] ? n->short_name : n->long_name, n->snr, n->last_heard);
-    }
-    list.finish();
+    char header[32];
+    snprintf(header, sizeof(header), "JT VECINOS (%u):\n", (unsigned)count);
+    renderNeighbors(entries, count, header, "Vecinos", reply, replyLen);
 }
 
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
@@ -302,26 +313,57 @@ static void setAdvert(RadioLibInterface &radio, const char *arg, bool signatureR
     warnIfUnsigned(signatureRequired, reply, replyLen);
 }
 
-static void formatMeshCoreNeighbors(char *reply, size_t replyLen)
+void NexusModule::formatMeshCoreNeighbors(char *reply, size_t replyLen)
 {
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    const uint32_t myNum = myNodeInfo.my_node_num != 0 ? myNodeInfo.my_node_num : (nodeDB ? nodeDB->getNodeNum() : 0);
+    DirectNeighborEntry entries[32];
     size_t count = 0;
-    meshCoreCompanion.nodes.forEach([&count](const MeshCoreNode &n) {
-        if (isDirectNeighbor(n))
+    meshCoreCompanion.nodes.forEach([&](const MeshCoreNode &n) {
+        if (isDirectNeighbor(n) && count < 32) {
+            strncpy(entries[count].name, n.name[0] ? n.name : "???", sizeof(entries[count].name) - 1);
+            entries[count].name[sizeof(entries[count].name) - 1] = '\0';
+            entries[count].snr = n.snr;
+            entries[count].lastHeard = n.lastHeard ? n.lastHeard : n.lastAdvert;
+            entries[count].nodeNum = n.nodeNum;
             count++;
+        }
     });
+
+    if (nodeDB) {
+        for (size_t i = 0; i < nodeDB->getNumMeshNodes(); i++) {
+            const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
+            if (n && n->num != 0 && n->num != myNum && (nodeInfoLiteIsMeshCore(n) || (n->num & 0xFF000000) == 0x4D000000) &&
+                n->has_hops_away && n->hops_away == 0 && n->last_heard != 0) {
+                bool duplicate = false;
+                for (size_t j = 0; j < count; j++) {
+                    if (entries[j].nodeNum == n->num ||
+                        (n->long_name[0] && strncmp(entries[j].name, n->long_name, sizeof(entries[j].name) - 1) == 0)) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                if (!duplicate && count < 32) {
+                    const char *srcName = n->long_name[0] ? n->long_name : (n->short_name[0] ? n->short_name : "???");
+                    strncpy(entries[count].name, srcName, sizeof(entries[count].name) - 1);
+                    entries[count].name[sizeof(entries[count].name) - 1] = '\0';
+                    entries[count].snr = n->snr;
+                    entries[count].lastHeard = n->last_heard;
+                    entries[count].nodeNum = n->num;
+                    count++;
+                }
+            }
+        }
+    }
+
     if (count == 0) {
         snprintf(reply, replyLen, "JT MESHCORE: 0 vecinos directos");
         return;
     }
+
     char header[32];
-    snprintf(header, sizeof(header), "JT MESHCORE (%u vecinos): ", (unsigned)count);
-    NeighborList list(reply, replyLen, header);
-    meshCoreCompanion.nodes.forEach([&list](const MeshCoreNode &n) {
-        if (isDirectNeighbor(n))
-            list.add(n.name, n.snr, n.lastHeard);
-    });
-    list.finish();
+    snprintf(header, sizeof(header), "JT MESHCORE (%u vecinos):\n", (unsigned)count);
+    renderNeighbors(entries, count, header, "MeshCore Vecinos", reply, replyLen);
 #else
     snprintf(reply, replyLen, "JT MESHCORE: companion off");
 #endif

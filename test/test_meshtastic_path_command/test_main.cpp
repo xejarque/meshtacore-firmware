@@ -426,6 +426,40 @@ void test_report_fits_one_payload(void)
     TEST_ASSERT_FALSE(sanitizeUtf8(sanitized, sizeof(sanitized))); // already valid: nothing to replace
 }
 
+// An own sent text that no node has rebroadcasted answers with the "Sin ecos" hint.
+void test_path_command_own_text_without_rebroadcast_is_no_echo(void)
+{
+    meshtastic_MeshPacket sent = heardText(nodeDB->getNodeNum(), 0, 0x00ABC800, 0, 0, 0, 0);
+    meshtasticPathCommand.noteSent(sent);
+
+    meshtastic_MeshPacket cmd = command_(0, NODENUM_BROADCAST, 0x00ABC800, ".path");
+    TEST_ASSERT_TRUE(meshtasticPathCommand.handleCommand(&cmd));
+
+    char body[256];
+    bodyOf(capture->received.back(), body, sizeof(body));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Sin ecos"));
+}
+
+// An own sent text overheard being rebroadcast is answered with that relay as its route.
+void test_path_command_answers_our_text_with_overheard_rebroadcast(void)
+{
+    addRelay(0x00002222, "Repeater");
+    meshtastic_MeshPacket sent = heardText(nodeDB->getNodeNum(), 0, 0x00ABC801, 0, 0, 0, 0);
+    meshtasticPathCommand.noteSent(sent);
+
+    meshtastic_MeshPacket rebroadcast = heardText(nodeDB->getNodeNum(), 0, 0x00ABC801, 1, 0x22, -4.5f, -88);
+    meshtasticPathCommand.noteOverheardRebroadcast(rebroadcast);
+
+    meshtastic_MeshPacket cmd = command_(0, NODENUM_BROADCAST, 0x00ABC801, ".path");
+    TEST_ASSERT_TRUE(meshtasticPathCommand.handleCommand(&cmd));
+
+    char body[256];
+    bodyOf(capture->received.back(), body, sizeof(body));
+    TEST_ASSERT_NOT_NULL(strstr(body, "probablemente Repeater"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "SNR -4.5 dB"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "retransmitido por"));
+}
+
 void setUp(void)
 {
     Time::setTestMillis(1000);
@@ -478,6 +512,8 @@ void setup()
     RUN_TEST(test_report_keeps_whole_names);
     RUN_TEST(test_report_sanitizes_names);
     RUN_TEST(test_report_fits_one_payload);
+    RUN_TEST(test_path_command_own_text_without_rebroadcast_is_no_echo);
+    RUN_TEST(test_path_command_answers_our_text_with_overheard_rebroadcast);
     exit(UNITY_END());
 }
 

@@ -139,6 +139,16 @@ private:
     void loadMeshCoreSettings();
     // /nexus VECINOS (NexusMeshCoreCommand.cpp): the direct Meshtastic neighbours in one reply.
     void formatNeighbors(char *reply, size_t replyLen);
+    // /nexus MESHCORE VECINOS: direct MeshCore neighbours.
+    void formatMeshCoreNeighbors(char *reply, size_t replyLen);
+    struct DirectNeighborEntry {
+        char name[36];
+        float snr;
+        uint32_t lastHeard;
+        uint32_t nodeNum;
+    };
+    void renderNeighbors(const DirectNeighborEntry *entries, size_t count, const char *header, const char *title,
+                         char *reply, size_t replyLen);
 public:
     // ---- end of the Meshtacore extensions -----------------------------------------------------------------------------
 

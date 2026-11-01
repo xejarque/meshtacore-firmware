@@ -132,6 +132,40 @@ void MeshtasticPathCommand::noteHeard(const meshtastic_MeshPacket &p)
     fillHeard(h, p);
 }
 
+void MeshtasticPathCommand::noteSent(const meshtastic_MeshPacket &p)
+{
+    Heard &h = heard[heardNext];
+    heardNext = (heardNext + 1) % MEMORY;
+    h = Heard();
+    h.packetId = p.id;
+    h.from = nodeDB ? nodeDB->getNodeNum() : p.from;
+    h.heardMs = Time::getMillis();
+    h.channel = p.channel;
+    h.hops = 0;
+    h.relay = NO_RELAY_NODE;
+    h.hasRssi = false;
+    h.direct = !isBroadcast(p.to);
+    h.own = true;
+    h.rebroadcasted = false;
+}
+
+void MeshtasticPathCommand::noteOverheardRebroadcast(const meshtastic_MeshPacket &p)
+{
+    for (Heard &h : heard) {
+        if (h.packetId && h.packetId == p.id && h.own) {
+            h.rebroadcasted = true;
+            h.relay = (uint8_t)(p.relay_node & 0xFF);
+            h.snr = p.rx_snr;
+            h.rssi = p.rx_rssi;
+            h.hasRssi = p.has_rx_rssi;
+            h.hops = getHopsAway(p);
+            if (h.hops < 1)
+                h.hops = 1;
+            return;
+        }
+    }
+}
+
 const MeshtasticPathCommand::Heard *MeshtasticPathCommand::find(uint32_t packetId) const
 {
     if (!packetId)
@@ -170,6 +204,8 @@ size_t MeshtasticPathCommand::formatReport(const Heard &e, char *out, size_t cap
                 t.addf("%s ", glyph);
             else
                 t.addf("%u saltos ", (unsigned)e.hops);
+            if (e.own)
+                t.addf("retransmitido por ");
             // One name claims the byte only among the nodes we know: the relay may be another one, so it is a guess.
             if (relayName(e.relay, label, sizeof(label)))
                 t.addf("probablemente %s", label);
@@ -344,10 +380,14 @@ bool MeshtasticPathCommand::handleCommand(const meshtastic_MeshPacket *p)
         ensureReportNode();
 
     // The command text is no longer needed, so the report reuses its buffer instead of a second stack copy.
-    if (entry)
-        formatReport(*entry, text, sizeof(text));
-    else
+    if (entry) {
+        if (entry->own && !entry->rebroadcasted)
+            snprintf(text, sizeof(text), "🛰️ *Sin ecos*: tu mensaje fue enviado, pero ningún repetidor lo ha reemitido aún.");
+        else
+            formatReport(*entry, text, sizeof(text));
+    } else {
         snprintf(text, sizeof(text), "🛰️ *Sin datos*: no he visto la ruta de ese mensaje.");
+    }
     sanitizeUtf8(text, sizeof(text));
 
     injectReport(direct ? p->to : REPORT_NODE_NUM, direct ? nodeDB->getNodeNum() : NODENUM_BROADCAST, direct ? 0 : p->channel,

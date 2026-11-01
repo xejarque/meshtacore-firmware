@@ -139,7 +139,7 @@ class MeshCoreCompanion
         uint8_t path[64] = {}; // MeshCore MAX_PATH_SIZE, so every hop of the route is kept and reported
     };
     /// One route per copy of a text: a flood reaches us over several, and ".path" lists them all.
-    static constexpr size_t PATH_MEMORY = 16;
+    static constexpr size_t PATH_MEMORY = 32;
 
     /**
      * Record one route by which a bridged text was heard, so ".path" can report it. The same route heard again only

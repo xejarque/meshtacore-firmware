@@ -1421,7 +1421,7 @@ void test_path_command_own_text_without_echo_is_no_data(void)
     TEST_ASSERT_TRUE(s.c.handlePathCommand(&command, false));
     char body[256];
     reportText(s.capture.received.back(), body, sizeof(body));
-    TEST_ASSERT_NOT_NULL(strstr(body, "Sin datos"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Sin ecos"));
 }
 
 // A direct message we sent, re-flooded by a repeater, is answered with that route, as for any text we heard.

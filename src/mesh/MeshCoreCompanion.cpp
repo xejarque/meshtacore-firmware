@@ -982,7 +982,10 @@ bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool d
         formatPathReport(routes, routeCount, pathSenderName(entry->fromNum), injectReportChunk, &inject);
     } else {
         char report[sizeof(p->decoded.payload.bytes) + 1];
-        snprintf(report, sizeof(report), "🛰️ *Sin datos*: no he visto la ruta de ese mensaje.");
+        if (entry && entry->own)
+            snprintf(report, sizeof(report), "🛰️ *Sin ecos*: tu mensaje fue enviado, pero ningún repetidor lo ha reemitido aún.");
+        else
+            snprintf(report, sizeof(report), "🛰️ *Sin datos*: no he visto la ruta de ese mensaje.");
         sanitizeUtf8(report, sizeof(report));
         injectText(fromNum, to, channel, report, replyId, direct, c, hops, snr, rssi);
     }
@@ -1710,7 +1713,9 @@ void MeshCoreCompanion::noteAdvert(MeshCoreNode *n, uint32_t advertTime, int32_t
     n->snr = snr;
     n->rssi = rssi;
     n->hops = hops;
-    n->lastHeard = getTime(false);
+    uint32_t now = getTime(false);
+    n->lastHeard = now ? now : 1;
+    nodes.touch(n);
     if (latMicro != 0 || lonMicro != 0) { // 0,0 is "no position", not the Gulf of Guinea
         n->latitudeMicro = latMicro;
         n->longitudeMicro = lonMicro;
@@ -1723,17 +1728,17 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
     // ADVERT payload: public key (32), timestamp (4), signature (64), then app data: a flags byte (node type in the
     // low nibble, 0x10 position, 0x20/0x40 reserved features, 0x80 name) followed by those fields in that order.
     constexpr size_t appDataAt = 32 + 4 + 64;
-    if (!identityReady || info.header_len >= len || info.payload_len <= appDataAt)
+    if (info.header_len >= len || info.payload_len <= appDataAt)
         return;
 
     const uint8_t *payload = &raw[info.header_len];
-    if (memcmp(payload, identityPub, 32) == 0 || (aliasReady && memcmp(payload, aliasPub, 32) == 0))
+    if ((identityReady && memcmp(payload, identityPub, 32) == 0) || (aliasReady && memcmp(payload, aliasPub, 32) == 0))
         return; // our own advert coming back, either identity
 
     const uint8_t flags = payload[appDataAt];
     const uint8_t type = flags & 0x0F;
     const bool repeater = type == MeshCoreRepeater::ADV_TYPE_REPEATER;
-    if ((type != MeshCoreRepeater::ADV_TYPE_CHAT && !repeater) || !(flags & 0x80))
+    if (type != MeshCoreRepeater::ADV_TYPE_CHAT && !repeater)
         return; // only named chat nodes (to message) and repeaters (to list): rooms and sensors are not shown
 
     size_t at = appDataAt + 1;
@@ -1749,18 +1754,25 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
         at += 2;
     if (flags & 0x40)
         at += 2;
-    if (at >= info.payload_len)
-        return;
 
-    char name[MeshCoreNode::NAME_LEN];
-    size_t nameLen = info.payload_len - at;
-    if (nameLen > sizeof(name) - 1)
-        nameLen = sizeof(name) - 1;
-    memcpy(name, &payload[at], nameLen);
-    name[nameLen] = 0;
-    sanitizeUtf8(name, sizeof(name));
-    if (name[0] == 0)
-        return;
+    char name[MeshCoreNode::NAME_LEN] = {0};
+    if (flags & 0x80) {
+        if (at < info.payload_len) {
+            size_t nameLen = info.payload_len - at;
+            if (nameLen > sizeof(name) - 1)
+                nameLen = sizeof(name) - 1;
+            memcpy(name, &payload[at], nameLen);
+            name[nameLen] = 0;
+            sanitizeUtf8(name, sizeof(name));
+        }
+    }
+    if (name[0] == 0) {
+        if (repeater) {
+            snprintf(name, sizeof(name), "RPT-%02X%02X", payload[0], payload[1]);
+        } else {
+            return;
+        }
+    }
 
     const MeshCoreRx rx(info.path_hash_count, snr, rssi);
     const uint32_t advertTime = readLe32(&payload[32]);

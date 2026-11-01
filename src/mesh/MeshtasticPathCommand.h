@@ -19,7 +19,7 @@ class MeshtasticPathCommand
 {
   public:
     /// Texts remembered: one entry per text, the first copy heard.
-    static constexpr size_t MEMORY = 8;
+    static constexpr size_t MEMORY = 16;
 
     /// A text as heard, kept so ".path" can describe the route it came by.
     struct Heard {
@@ -34,6 +34,8 @@ class MeshtasticPathCommand
         bool hasRssi = false;
         bool viaMqtt = false;
         bool direct = false;
+        bool own = false;
+        bool rebroadcasted = false;
     };
 
     /// Node number a channel report is signed with, so it does not look like a text the user sent: the system bot.
@@ -43,6 +45,12 @@ class MeshtasticPathCommand
 
     /// Record a heard text. Remote Meshtastic texts only; MeshCore channels keep their own routes.
     void noteHeard(const meshtastic_MeshPacket &p);
+
+    /// Record our own sent text message, so .path can track if it was rebroadcasted.
+    void noteSent(const meshtastic_MeshPacket &p);
+
+    /// Record an overheard rebroadcast of our own packet.
+    void noteOverheardRebroadcast(const meshtastic_MeshPacket &p);
 
     /// Answer a local ".path"/".ruta" the client sent: true when it was answered here and must not be transmitted.
     bool handleCommand(const meshtastic_MeshPacket *p);

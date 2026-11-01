@@ -9,6 +9,9 @@
 #include "mesh-pb-constants.h"
 #include "modules/NodeInfoModule.h"
 #include "modules/RoutingModule.h"
+#if MESHTASTIC_PATH_COMMAND
+#include "mesh/MeshtasticPathCommand.h"
+#endif
 
 // ReliableRouter::ReliableRouter() {}
 
@@ -62,6 +65,9 @@ void ReliableRouter::perhapsGenerateImplicitAckForOwnOverheard(const meshtastic_
         return;
 
     printPacket("Rx someone rebroadcasting for us", p);
+#if MESHTASTIC_PATH_COMMAND
+    meshtasticPathCommand.noteOverheardRebroadcast(*p);
+#endif
 
     // We are seeing someone rebroadcast one of our transmissions. If this is the first time we saw
     // this, cancel any retransmissions we have queued up and generate an internal ack for the
