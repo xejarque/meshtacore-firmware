@@ -553,6 +553,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const data = getFormData();
+    const prefs = buildUserPrefs(data);
+
     const payload = {
       ref: DEFAULT_BRANCH,
       inputs: {
@@ -561,36 +563,21 @@ document.addEventListener("DOMContentLoaded", () => {
         owner_long_name: data.owner_long_name,
         owner_short_name: data.owner_short_name,
         has_screen: data.has_screen ? "true" : "false",
-        enable_bluetooth: data.enable_bluetooth ? "true" : "false",
-        enable_meshcore: data.enable_meshcore ? "true" : "false",
-        meshcore_advert_hours: data.meshcore_advert_hours,
-        meshcore_relay_mode: data.meshcore_relay_mode,
-        meshcore_regions_def: data.meshcore_regions_def,
-        meshcore_home_region: data.meshcore_home_region,
-        meshcore_default_region: data.meshcore_default_region,
-        nexus_master_key: data.nexus_master_key,
         device_role: data.device_role,
         lora_region: data.lora_region,
         lora_preset_mode: data.lora_preset_mode,
         channels_preset: data.channels_preset,
-        channels_json: data.channels_json,
-        mqtt_enabled: data.mqtt_enabled ? "true" : "false",
+        enable_bluetooth: data.enable_bluetooth ? "true" : "false",
+        enable_meshcore: data.enable_meshcore ? "true" : "false",
+        nexus_master_key: data.nexus_master_key,
         mqtt_address: data.mqtt_address,
-        mqtt_username: data.mqtt_username,
-        mqtt_password: data.mqtt_password,
-        mqtt_root: data.mqtt_root,
-        mqtt_encryption_enabled: data.mqtt_encryption_enabled
-          ? "true"
-          : "false",
-        mqtt_tls_enabled: data.mqtt_tls_enabled ? "true" : "false",
         gps_mode: data.gps_mode,
         fixed_latitude: data.fixed_latitude,
         fixed_longitude: data.fixed_longitude,
         fixed_altitude: data.fixed_altitude,
-        wifi_enabled: data.wifi_enabled ? "true" : "false",
         wifi_ssid: data.wifi_ssid,
         wifi_password: data.wifi_password,
-        admin_key: data.admin_key,
+        custom_userprefs_json: JSON.stringify(prefs),
         extra_build_flags: data.extra_build_flags,
       },
     };
@@ -632,9 +619,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Generate & Download userPrefs.jsonc
-  btnDownloadJson.addEventListener("click", () => {
-    const data = getFormData();
+  function buildUserPrefs(data) {
     const prefs = {
       USERPREFS_CONFIG_DEVICE_ROLE: `meshtastic_Config_DeviceConfig_Role_${data.device_role}`,
       USERPREFS_CONFIG_LORA_REGION: `meshtastic_Config_LoRaConfig_RegionCode_${data.lora_region}`,
@@ -761,6 +746,14 @@ document.addEventListener("DOMContentLoaded", () => {
       prefs["USERPREFS_NETWORK_WIFI_SSID"] = data.wifi_ssid;
       prefs["USERPREFS_NETWORK_WIFI_PSK"] = data.wifi_password;
     }
+
+    return prefs;
+  }
+
+  // Generate & Download userPrefs.jsonc
+  btnDownloadJson.addEventListener("click", () => {
+    const data = getFormData();
+    const prefs = buildUserPrefs(data);
 
     const blob = new Blob([JSON.stringify(prefs, null, 2)], {
       type: "application/json",

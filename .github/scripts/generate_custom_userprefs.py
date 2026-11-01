@@ -115,6 +115,11 @@ def main():
     parser.add_argument("--fixed-longitude", default="")
     parser.add_argument("--fixed-altitude", default="")
     parser.add_argument("--admin-key", default="")
+    parser.add_argument(
+        "--custom-userprefs-json",
+        default="",
+        help="Complete custom userPrefs JSON string to merge/override",
+    )
     parser.add_argument("--output", default="userPrefs.jsonc")
 
     args = parser.parse_args()
@@ -363,6 +368,21 @@ def main():
             prefs["USERPREFS_CONFIG_SECURITY_IS_MANAGED"] = "true"
         except Exception as e:
             print(f"Warning: could not parse admin_key as Base64: {e}", file=sys.stderr)
+
+    # Direct custom_userprefs_json merge
+    if args.custom_userprefs_json:
+        try:
+            extra_prefs = json.loads(args.custom_userprefs_json)
+            if isinstance(extra_prefs, dict):
+                for k, v in extra_prefs.items():
+                    if v is None:
+                        prefs.pop(k, None)
+                    else:
+                        prefs[k] = str(v)
+        except Exception as e:
+            print(
+                f"Warning: could not merge custom_userprefs_json: {e}", file=sys.stderr
+            )
 
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(prefs, f, indent=2)

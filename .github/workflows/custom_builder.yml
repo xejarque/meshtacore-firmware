@@ -7,7 +7,6 @@ on:
         type: choice
         description: "Placa objetivo (o 'custom' para especificarla abajo)"
         options:
-          # --- nRF52840 ---
           - heltec-mesh-node-t114
           - rak4631
           - rak3401-1watt
@@ -30,7 +29,6 @@ on:
           - gat562_mesh_trial_tracker
           - nrf52_promicro_diy_tcxo
           - nrf52_promicro_diy_sx1262
-          # --- ESP32-S3 ---
           - heltec-v3
           - heltec-v4
           - heltec-v4-tft
@@ -84,18 +82,15 @@ on:
           - meshnology_w12
           - t-connect-pro
           - unphone
-          # --- ESP32 Clásico ---
           - tbeam
           - t-beam-1w
           - t-beam-bpf
           - tlora-v2-1-1_6
-          # --- ESP32-C3 / C6 ---
           - heltec-ht62-esp32c3-sx1262
           - heltec-rc32
           - heltec-rcc6
           - m5stack-unitc6l
           - tlora-c6
-          # --- RP2040 ---
           - picow
           - custom
         default: heltec-v3
@@ -107,18 +102,18 @@ on:
       owner_long_name:
         type: string
         required: false
-        default: "Meshtacore *RANDOM*"
-        description: "Nombre largo (deja *RANDOM* para auto-generar 'Meshtacore XXXX' con la MAC del nodo)"
+        default: ""
+        description: "Nombre largo (deja vacío para auto-generar con la MAC del nodo)"
       owner_short_name:
         type: string
         required: false
-        default: "*RANDOM*"
-        description: "Nombre corto (deja *RANDOM* para auto-generar 'XXXX' con la MAC del nodo)"
+        default: ""
+        description: "Nombre corto (deja vacío para auto-generar con la MAC del nodo)"
       has_screen:
         type: boolean
         required: false
         default: true
-        description: "Pantalla activa (desmarca para ahorrar recursos si es headless/sin pantalla)"
+        description: "Pantalla activa (desmarca para nodos headless)"
       device_role:
         type: choice
         description: "Rol del dispositivo"
@@ -151,109 +146,31 @@ on:
         default: custom_sfnarrow_default
       channels_preset:
         type: choice
-        description: "Canales de fábrica (repo_default = SFNarrow, Test, Bots, Catalunya, Barcelona)"
+        description: "Preset de canales (repo_default = 5 Canales comunitarios + MeshCore)"
         options:
           - repo_default_5_channels
           - single_channel_default
         default: repo_default_5_channels
-      channels_json:
-        type: string
-        required: false
-        default: ""
-        description: "Configuración JSON de canales (generado desde Web Builder)"
-      mqtt_enabled:
-        type: boolean
-        required: false
-        default: true
-        description: "Habilitar cliente MQTT"
-      mqtt_address:
-        type: string
-        required: false
-        default: "mqtt.meshtastic.es"
-        description: "Servidor MQTT"
-      mqtt_username:
-        type: string
-        required: false
-        default: "meshdev"
-        description: "Usuario MQTT"
-      mqtt_password:
-        type: string
-        required: false
-        default: "large4cats"
-        description: "Contraseña MQTT"
-      mqtt_root:
-        type: string
-        required: false
-        default: "msh"
-        description: "Tópico raíz MQTT"
-      mqtt_encryption_enabled:
-        type: boolean
-        required: false
-        default: true
-        description: "Cifrado de paquetes en MQTT"
-      mqtt_tls_enabled:
-        type: boolean
-        required: false
-        default: false
-        description: "Conexión segura TLS para MQTT"
       enable_bluetooth:
         type: boolean
         required: false
         default: true
-        description: "Bluetooth activado (desmarca para nodos solares/repetidores fijos)"
+        description: "Bluetooth activado"
       enable_meshcore:
         type: boolean
         required: false
         default: true
-        description: "Habilitar subsistema MeshCore (Sniffer, Relay transparente, Companion y SyncWord híbrido 0x14B4)"
-      meshcore_advert_hours:
-        type: string
-        required: false
-        default: "12"
-        description: "Intervalo de flood ADVERT MeshCore en horas (1-168, por defecto 12h)"
-      meshcore_relay_mode:
-        type: choice
-        options:
-          - AUTO
-          - ON
-          - OFF
-        default: AUTO
-        description: "Modo de retransmisión MeshCore Relay (AUTO, ON, OFF)"
-      meshcore_regions_def:
-        type: string
-        required: false
-        default: "es, es/cat, es/cat/bcn"
-        description: "Definición del árbol de regiones MeshCore"
-      meshcore_home_region:
-        type: string
-        required: false
-        default: "cat"
-        description: "Región HOME para este nodo"
-      meshcore_default_region:
-        type: string
-        required: false
-        default: "es"
-        description: "Región DEFAULT para flood adverts salientes"
+        description: "Habilitar subsistema MeshCore (Sniffer, Relay y SyncWord 0x14B4)"
       nexus_master_key:
         type: string
         required: false
         default: ""
-        description: "Master Key Nexus (eevee, bloom, mew, fennekin o clave pública Base64/Hex)"
-      wifi_enabled:
-        type: boolean
-        required: false
-        default: false
-        description: "Habilitar WiFi (solo ESP32)"
-      wifi_ssid:
+        description: "Master Key Nexus (eevee, bloom, mew, fennekin o clave pública)"
+      mqtt_address:
         type: string
         required: false
-        default: ""
-        description: "SSID WiFi"
-      wifi_password:
-        type: string
-        required: false
-        default: ""
-        description: "Contraseña WiFi"
+        default: "mqtt.meshtastic.es"
+        description: "Servidor MQTT comunitario"
       gps_mode:
         type: choice
         description: "Modo GPS"
@@ -271,22 +188,32 @@ on:
         type: string
         required: false
         default: ""
-        description: "Longitud fija (opcional, ej. 2.16992)"
+        description: "Longitud fija (opcional, ej. 2.1699)"
       fixed_altitude:
         type: string
         required: false
         default: ""
-        description: "Altitud fija (opcional en metros, ej. 50)"
-      admin_key:
+        description: "Altitud fija (metros, ej. 55)"
+      wifi_ssid:
         type: string
         required: false
         default: ""
-        description: "Admin key (Base64 de 32 bytes para administración remota)"
+        description: "SSID WiFi (solo ESP32)"
+      wifi_password:
+        type: string
+        required: false
+        default: ""
+        description: "Contraseña WiFi"
+      custom_userprefs_json:
+        type: string
+        required: false
+        default: ""
+        description: "Configuración completa en JSON (generada desde Web Builder)"
       extra_build_flags:
         type: string
         required: false
         default: ""
-        description: "Flags de compilación adicionales (ej. -DMESHTASTIC_EXCLUDE_I2C=1)"
+        description: "Flags adicionales para compilador"
 
 permissions:
   contents: read
@@ -366,32 +293,19 @@ jobs:
             --has-screen "${{ inputs.has_screen }}" \
             --enable-bluetooth "${{ inputs.enable_bluetooth }}" \
             --enable-meshcore "${{ inputs.enable_meshcore }}" \
-            --meshcore-advert-hours "${{ inputs.meshcore_advert_hours }}" \
-            --meshcore-relay-mode "${{ inputs.meshcore_relay_mode }}" \
-            --meshcore-regions-def "${{ inputs.meshcore_regions_def }}" \
-            --meshcore-home-region "${{ inputs.meshcore_home_region }}" \
-            --meshcore-default-region "${{ inputs.meshcore_default_region }}" \
             --nexus-master-key "${{ inputs.nexus_master_key }}" \
             --device-role "${{ inputs.device_role }}" \
             --lora-region "${{ inputs.lora_region }}" \
             --lora-preset-mode "${{ inputs.lora_preset_mode }}" \
             --channels-preset "${{ inputs.channels_preset }}" \
-            --channels-json '${{ inputs.channels_json }}' \
-            --mqtt-enabled "${{ inputs.mqtt_enabled }}" \
             --mqtt-address "${{ inputs.mqtt_address }}" \
-            --mqtt-username "${{ inputs.mqtt_username }}" \
-            --mqtt-password "${{ inputs.mqtt_password }}" \
-            --mqtt-root "${{ inputs.mqtt_root }}" \
-            --mqtt-encryption-enabled "${{ inputs.mqtt_encryption_enabled }}" \
-            --mqtt-tls-enabled "${{ inputs.mqtt_tls_enabled }}" \
-            --wifi-enabled "${{ inputs.wifi_enabled }}" \
             --wifi-ssid "${{ inputs.wifi_ssid }}" \
             --wifi-password "${{ inputs.wifi_password }}" \
             --gps-mode "${{ inputs.gps_mode }}" \
             --fixed-latitude "${{ inputs.fixed_latitude }}" \
             --fixed-longitude "${{ inputs.fixed_longitude }}" \
             --fixed-altitude "${{ inputs.fixed_altitude }}" \
-            --admin-key "${{ inputs.admin_key }}"
+            --custom-userprefs-json '${{ inputs.custom_userprefs_json }}'
 
       - name: Compile Custom Firmware
         env:
