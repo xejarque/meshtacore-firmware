@@ -390,12 +390,38 @@ document.addEventListener("DOMContentLoaded", () => {
   fixedLat.addEventListener("input", syncMapFromInputs);
   fixedLon.addEventListener("input", syncMapFromInputs);
 
+  async function fetchIpLocation() {
+    mapStatus.innerHTML = "🌐 Consultando ubicación aproximada por red/IP...";
+    try {
+      const res = await fetch("https://ipwho.is/");
+      const data = await res.json();
+      if (data && data.success && data.latitude && data.longitude) {
+        const lat = data.latitude;
+        const lon = data.longitude;
+        fixedLat.value = lat.toFixed(6);
+        fixedLon.value = lon.toFixed(6);
+        if (map && marker) {
+          if (!map.hasLayer(marker)) marker.addTo(map);
+          marker.setLatLng([lat, lon]);
+          map.setView([lat, lon], 13);
+        }
+        const cityStr = [data.city, data.region].filter(Boolean).join(", ");
+        mapStatus.innerHTML = `📍 Ubicación detectada por red (${cityStr || "Aproximada"}): <strong>${lat.toFixed(6)}, ${lon.toFixed(6)}</strong>.<br><small style="color: #79c0ff;">El navegador o el sistema denegó el GPS exacto. Puedes afinar la posición haciendo clic o arrastrando el marcador en el mapa.</small>`;
+      } else {
+        throw new Error(data.message || "Sin respuesta");
+      }
+    } catch (err) {
+      mapStatus.innerHTML = `⚠️ No se pudo obtener la ubicación automática (${err.message}). Puedes hacer clic directamente en cualquier punto del mapa para fijar tu posición.`;
+    }
+  }
+
   btnGeolocate.addEventListener("click", () => {
+    mapStatus.textContent = "Obteniendo ubicación del dispositivo...";
     if (!navigator.geolocation) {
-      alert("Tu navegador no soporta la API de geolocalización.");
+      fetchIpLocation();
       return;
     }
-    mapStatus.textContent = "Obteniendo ubicación actual vía GPS/WiFi...";
+
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const lat = pos.coords.latitude;
@@ -415,12 +441,13 @@ document.addEventListener("DOMContentLoaded", () => {
           marker.setLatLng([lat, lon]);
           map.setView([lat, lon], 15);
         }
-        mapStatus.innerHTML = `✅ Ubicación detectada: <strong>${lat.toFixed(6)}, ${lon.toFixed(6)}</strong>${alt ? ` (Alt: ${alt}m)` : ""}`;
+        mapStatus.innerHTML = `✅ Ubicación detectada vía GPS/WiFi: <strong>${lat.toFixed(6)}, ${lon.toFixed(6)}</strong>${alt ? ` (Alt: ${alt}m)` : ""}`;
       },
       (err) => {
-        mapStatus.innerHTML = `⚠️ Error al obtener ubicación: ${err.message}`;
+        console.warn("navigator.geolocation falló, recurriendo a IP:", err);
+        fetchIpLocation();
       },
-      { enableHighAccuracy: true, timeout: 10000 },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
     );
   });
 

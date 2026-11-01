@@ -242,6 +242,60 @@
                   placeholder="ej. heltec-v2, tlora-c6..."
                 />
               </div>
+
+              <div class="form-group mt-3">
+                <label for="deviceRole">Rol del Dispositivo</label>
+                <select id="deviceRole" class="form-control">
+                  <option value="CLIENT" selected>
+                    CLIENT (Cliente normal de usuario)
+                  </option>
+                  <option value="CLIENT_BASE">
+                    CLIENT_BASE (Estación base de usuario en tejado/ático con
+                    prioridad)
+                  </option>
+                  <option value="CLIENT_MUTE">
+                    CLIENT_MUTE (Escucha sin retransmitir paquetes de terceros)
+                  </option>
+                  <option value="REPEATER">
+                    REPEATER (Repetidor de infraestructura - sin
+                    Bluetooth/pantalla)
+                  </option>
+                  <option value="ROUTER">
+                    ROUTER (Enrutador de alta prioridad)
+                  </option>
+                </select>
+              </div>
+
+              <hr class="divider mt-3" />
+
+              <div class="toggle-row mt-3">
+                <div class="toggle-info">
+                  <strong>Pantalla Activa</strong>
+                  <p>
+                    Desmarca si la placa se instala en tejados, cajas o sin
+                    pantalla (Headless). Ahorra memoria RAM de búferes gráficos
+                    y ciclos de CPU.
+                  </p>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="hasScreen" checked />
+                  <span class="slider"></span>
+                </label>
+              </div>
+
+              <div class="toggle-row">
+                <div class="toggle-info">
+                  <strong>Bluetooth Activado</strong>
+                  <p>
+                    Desactiva en repetidores fijos o solares aislados para
+                    reducir drásticamente el consumo de batería.
+                  </p>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="enableBluetooth" checked />
+                  <span class="slider"></span>
+                </label>
+              </div>
             </div>
           </section>
 
@@ -297,91 +351,93 @@
             </div>
           </section>
 
-          <!-- Card 3: Optimización de Recursos & MeshCore -->
+          <!-- Card 3: MeshCore & Nexus (Motor Híbrido) -->
           <section class="card">
             <div class="card-header">
               <span class="step-num">3</span>
-              <h2>Optimización de Recursos & MeshCore</h2>
+              <h2>MeshCore & Nexus (Motor Híbrido)</h2>
             </div>
             <div class="card-body">
-              <div class="toggle-row">
-                <div class="toggle-info">
-                  <strong>Pantalla Activa</strong>
-                  <p>
-                    Desmarca si la placa se instala en tejados, cajas o sin
-                    pantalla (Headless). Ahorra memoria RAM de búferes gráficos
-                    y ciclos de CPU.
-                  </p>
-                </div>
-                <label class="switch">
-                  <input type="checkbox" id="hasScreen" checked />
-                  <span class="slider"></span>
-                </label>
-              </div>
-
-              <div class="toggle-row">
-                <div class="toggle-info">
-                  <strong>Bluetooth Activado</strong>
-                  <p>
-                    Desactiva en repetidores fijos o solares aislados para
-                    reducir drásticamente el consumo de batería.
-                  </p>
-                </div>
-                <label class="switch">
-                  <input type="checkbox" id="enableBluetooth" checked />
-                  <span class="slider"></span>
-                </label>
-              </div>
-
-              <div class="info-alert mt-3">
+              <div class="info-alert">
                 ⚡ <strong>Motor MeshCore & Nexus: Siempre Activo</strong><br />
                 El sniffer de tramas MeshCore, el repetidor transparente
                 híbrido, los comandos <code>/mcore</code> y el SyncWord híbrido
-                (<code>0x14B4</code>) forman parte integral de Meshtacore.
+                (<code>0x14B4</code>) forman parte integral del firmware
+                Meshtacore.
               </div>
 
-              <!-- Configuración Detallada de MeshCore -->
-              <div id="meshcoreSettings" class="subcard mt-3">
-                <div class="subcard-header">
-                  <strong>Ajustes de Retransmisión & Regiones MeshCore</strong>
+              <div class="grid-2 mt-3">
+                <div class="form-group">
+                  <label for="meshcoreRelayMode">Modo MeshCore Relay</label>
+                  <select id="meshcoreRelayMode" class="form-control">
+                    <option value="AUTO" selected>
+                      AUTO (Sigue el rol del nodo)
+                    </option>
+                    <option value="ON">
+                      ON (Retransmisión forzada siempre)
+                    </option>
+                    <option value="OFF">
+                      OFF (Solo escuchar, no retransmitir)
+                    </option>
+                  </select>
                 </div>
-                <div class="grid-2 mt-2">
-                  <div class="form-group">
-                    <label for="meshcoreRelayMode">Modo MeshCore Relay</label>
-                    <select id="meshcoreRelayMode" class="form-control">
-                      <option value="AUTO" selected>
-                        AUTO (Sigue el rol del nodo)
-                      </option>
-                      <option value="ON">
-                        ON (Retransmisión forzada siempre)
-                      </option>
-                      <option value="OFF">
-                        OFF (Solo escuchar, no retransmitir)
-                      </option>
-                    </select>
-                  </div>
-                  <div class="form-group">
-                    <label for="meshcoreAdvertHours"
-                      >Intervalo Flood ADVERT (horas)</label
-                    >
-                    <input
-                      type="number"
-                      id="meshcoreAdvertHours"
-                      class="form-control"
-                      value="12"
-                      min="1"
-                      max="168"
-                    />
-                    <small class="helper-text"
-                      >Periodo del anuncio de identidad firmado (1 a 168
-                      horas).</small
-                    >
-                  </div>
+                <div class="form-group">
+                  <label for="meshcoreAdvertHours"
+                    >Intervalo Flood ADVERT (horas)</label
+                  >
+                  <input
+                    type="number"
+                    id="meshcoreAdvertHours"
+                    class="form-control"
+                    value="12"
+                    min="1"
+                    max="168"
+                  />
+                  <small class="helper-text"
+                    >Periodo del anuncio de identidad firmado (1 a 168
+                    horas).</small
+                  >
                 </div>
+              </div>
 
+              <div class="form-group mt-3">
+                <label for="nexusMasterKey"
+                  >Clave de Administración Remota (Nexus Master Key)</label
+                >
+                <select id="nexusMasterKey" class="form-control">
+                  <option value="" selected>
+                    (Ninguna - Solo administración local)
+                  </option>
+                  <option value="eevee">eevee (Nexus Master Key 1)</option>
+                  <option value="bloom">bloom (Nexus Master Key 2)</option>
+                  <option value="mew">mew (Nexus Master Key 3)</option>
+                  <option value="fennekin">
+                    fennekin (Nexus Master Key 4)
+                  </option>
+                  <option value="custom">
+                    Clave personalizada (Base64 o Hex)
+                  </option>
+                </select>
+              </div>
+              <div class="form-group hidden mt-2" id="customMasterKeyGroup">
+                <label for="customMasterKey"
+                  >Clave Pública Ed25519 personalizada</label
+                >
+                <input
+                  type="text"
+                  id="customMasterKey"
+                  class="form-control"
+                  placeholder="32 bytes en formato Hex o Base64"
+                />
+              </div>
+
+              <div class="subcard mt-3">
+                <div class="subcard-header">
+                  <strong>Filtros Geográficos de Regiones (Opcional)</strong>
+                </div>
                 <div class="form-group mt-2">
                   <label for="meshcoreRegionsDef"
-                    >Filtro de Regiones MeshCore (RegionMap)</label
+                    >Árbol de Regiones MeshCore (RegionMap)</label
                   >
                   <input
                     type="text"
@@ -428,60 +484,6 @@
                     >
                   </div>
                 </div>
-
-                <div class="form-group mt-2">
-                  <label for="nexusMasterKey"
-                    >Clave de Administración Remota (Nexus Master Key)</label
-                  >
-                  <select id="nexusMasterKey" class="form-control">
-                    <option value="" selected>
-                      (Ninguna - Solo administración local)
-                    </option>
-                    <option value="eevee">eevee (Nexus Master Key 1)</option>
-                    <option value="bloom">bloom (Nexus Master Key 2)</option>
-                    <option value="mew">mew (Nexus Master Key 3)</option>
-                    <option value="fennekin">
-                      fennekin (Nexus Master Key 4)
-                    </option>
-                    <option value="custom">
-                      Clave personalizada (Base64 o Hex)
-                    </option>
-                  </select>
-                </div>
-                <div class="form-group hidden mt-2" id="customMasterKeyGroup">
-                  <label for="customMasterKey"
-                    >Clave Pública Ed25519 personalizada</label
-                  >
-                  <input
-                    type="text"
-                    id="customMasterKey"
-                    class="form-control"
-                    placeholder="32 bytes en formato Hex o Base64"
-                  />
-                </div>
-              </div>
-
-              <div class="form-group mt-3">
-                <label for="deviceRole">Rol del Dispositivo</label>
-                <select id="deviceRole" class="form-control">
-                  <option value="CLIENT" selected>
-                    CLIENT (Cliente normal de usuario)
-                  </option>
-                  <option value="CLIENT_BASE">
-                    CLIENT_BASE (Estación base de usuario en tejado/ático con
-                    prioridad)
-                  </option>
-                  <option value="CLIENT_MUTE">
-                    CLIENT_MUTE (Escucha sin retransmitir paquetes de terceros)
-                  </option>
-                  <option value="REPEATER">
-                    REPEATER (Repetidor de infraestructura - sin
-                    Bluetooth/pantalla)
-                  </option>
-                  <option value="ROUTER">
-                    ROUTER (Enrutador de alta prioridad)
-                  </option>
-                </select>
               </div>
             </div>
           </section>
