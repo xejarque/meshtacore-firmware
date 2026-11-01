@@ -147,6 +147,7 @@ public:
     ProcessMessage handleLocal(const meshtastic_MeshPacket &mp);
     virtual void setup() override;
     virtual int32_t runOnce() override;
+    virtual ~NexusModule() override;
 
     // Firewall/Drop Logic
     bool shouldDropPacket(const meshtastic_MeshPacket &mp);

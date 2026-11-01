@@ -45,7 +45,7 @@ class TestNexusModule : public meshtastic::NexusModule
 void test_noteLoadedVault_records_version_and_applies_v68()
 {
     TestNexusModule module;
-    meshtastic::NexusVault v = {};
+    meshtastic::NexusModule::NexusVault v = {};
     v.version = 68;
     v.lpcomp_wake_ref = 8;
     v.battery_chemistry = 2;
@@ -61,7 +61,7 @@ void test_noteLoadedVault_records_version_and_applies_v68()
 void test_noteLoadedVault_records_version_without_applying_v68_fields_for_older_vault()
 {
     TestNexusModule module;
-    meshtastic::NexusVault v = {};
+    meshtastic::NexusModule::NexusVault v = {};
     v.version = 67;
     v.lpcomp_wake_ref = 8;
     v.battery_chemistry = 2;
@@ -78,7 +78,7 @@ void test_migrates_v67_vault_on_router_role()
     TestNexusModule module;
     config.device.role = meshtastic_Config_DeviceConfig_Role_ROUTER;
 
-    meshtastic::NexusVault v = {};
+    meshtastic::NexusModule::NexusVault v = {};
     v.version = 67;
     module.noteLoadedVault(v);
 
@@ -97,7 +97,7 @@ void test_v68_vault_on_router_preserves_operator_choice()
     TestNexusModule module;
     config.device.role = meshtastic_Config_DeviceConfig_Role_ROUTER;
 
-    meshtastic::NexusVault v = {};
+    meshtastic::NexusModule::NexusVault v = {};
     v.version = 68;
     module.noteLoadedVault(v);
 
@@ -115,7 +115,7 @@ void test_v67_vault_on_client_role_does_not_migrate()
     TestNexusModule module;
     config.device.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
 
-    meshtastic::NexusVault v = {};
+    meshtastic::NexusModule::NexusVault v = {};
     v.version = 67;
     module.noteLoadedVault(v);
 
@@ -145,6 +145,50 @@ void test_no_vault_applies_defaults_in_ram_without_saving()
     TEST_ASSERT_EQUAL_UINT32(0, module.vaultVersionLoaded);
 }
 
+// Unit test for matchTargetedCmd() prefix dispatch.
+//
+// What is under test:
+//   - matchTargetedCmd() recognizes `/nexus` and `/mtc` as valid prefix roots (case-insensitively).
+//   - matchTargetedCmd() rejects legacy `/jt`, `/jent`, and `/jentastic` prefix roots.
+//
+// Why that behavior is required:
+//   - Nexus command CLI now standardizes on `/nexus` and `/mtc`, and all legacy Jentastic prefixes
+//     must be ignored to prevent unintended execution or ambiguous alias routing.
+//
+// The regression guarded:
+//   - If `/mtc` is missing or case-sensitivity breaks, nodes ignore targeted /mtc commands.
+//   - If `/jt` roots remain active, obsolete prefix callers continue executing against deprecated roots.
+void test_nexus_prefix_roots_mtc_and_nexus()
+{
+    TestNexusModule module;
+    strncpy(owner.short_name, "TEST", sizeof(owner.short_name));
+
+    size_t kind = 0;
+    const char *cmd = module.matchTargetedCmd("/nexus-node TEST INFO", &kind);
+    TEST_ASSERT_NOT_NULL(cmd);
+    TEST_ASSERT_EQUAL_STRING("INFO", cmd);
+    TEST_ASSERT_EQUAL_size_t(TestNexusModule::TARGET_NAME, kind);
+
+    cmd = module.matchTargetedCmd("/mtc-node TEST INFO", &kind);
+    TEST_ASSERT_NOT_NULL(cmd);
+    TEST_ASSERT_EQUAL_STRING("INFO", cmd);
+    TEST_ASSERT_EQUAL_size_t(TestNexusModule::TARGET_NAME, kind);
+
+    cmd = module.matchTargetedCmd("/MTC-NODE TEST INFO", &kind);
+    TEST_ASSERT_NOT_NULL(cmd);
+    TEST_ASSERT_EQUAL_STRING("INFO", cmd);
+    TEST_ASSERT_EQUAL_size_t(TestNexusModule::TARGET_NAME, kind);
+
+    cmd = module.matchTargetedCmd("/jt-node TEST INFO", &kind);
+    TEST_ASSERT_NULL(cmd);
+
+    cmd = module.matchTargetedCmd("/jent-node TEST INFO", &kind);
+    TEST_ASSERT_NULL(cmd);
+
+    cmd = module.matchTargetedCmd("/jentastic-node TEST INFO", &kind);
+    TEST_ASSERT_NULL(cmd);
+}
+
 } // namespace
 
 void setup()
@@ -157,6 +201,7 @@ void setup()
     RUN_TEST(test_v68_vault_on_router_preserves_operator_choice);
     RUN_TEST(test_v67_vault_on_client_role_does_not_migrate);
     RUN_TEST(test_no_vault_applies_defaults_in_ram_without_saving);
+    RUN_TEST(test_nexus_prefix_roots_mtc_and_nexus);
     exit(UNITY_END());
 }
 

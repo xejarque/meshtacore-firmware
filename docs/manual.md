@@ -19,7 +19,7 @@ Nexus commands travel over a normal mesh channel. It must be one of the trusted 
 | `/nexus-node <short4> <cmd>`  | Targeted         | Sent to one node by its 4-char short name. Bypasses the rate limit.                                                                                             |
 | `/nexus-mac <hex2> <cmd>`     | Targeted         | Sent by the last 2 bytes of the MAC address.                                                                                                                    |
 | `/nexus-group <grp> <cmd>`    | Group            | Sent to all nodes in group `<grp>`.                                                                                                                             |
-| `/jt`, `/jent`, `/jentastic`  | /nexus-* Aliases | Equivalent to `/nexus`.                                                                                                                                         |
+| `/mtc`                        | /nexus-* Aliases | Equivalent to `/nexus`.                                                                                                                                         |
 
 Replies are queued back over the same channel the command arrived on.
 Broadcast commands are routed on the node's **trusted channel** (see §3)
