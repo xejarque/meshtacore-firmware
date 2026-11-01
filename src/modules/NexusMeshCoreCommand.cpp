@@ -4,11 +4,11 @@
 // live in RadioLibInterface (MeshCoreConfig); this file parses the operator's words and formats one reply. Like the other
 // tactical settings, a change is volatile until /nexus SAVE.
 
-#include "configuration.h"
 #include "NodeDB.h"
+#include "configuration.h"
 #include "gps/RTC.h"
-#include "modules/NexusModule.h"
 #include "mesh/RadioLibInterface.h"
+#include "modules/NexusModule.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -141,19 +141,14 @@ class NeighborList
 
 static bool isDirectNeighbor(const meshtastic_NodeInfoLite *n, uint32_t myNum)
 {
-    return n && n->num != 0 && n->num != myNum && n->has_hops_away && n->hops_away == 0 && n->last_heard != 0;
+    return n && n->num != 0 && n->num != myNum && !nodeInfoLiteIsMeshCore(n) && (n->num & 0xFF000000) != 0x4D000000 &&
+           n->has_hops_away && n->hops_away == 0 && n->last_heard != 0;
 }
 
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 static bool isDirectNeighbor(const MeshCoreNode &n)
 {
     return n.lastMod != 0 && n.hops == 0 && n.lastHeard != 0;
-}
-
-// A MeshCore neighbour the node DB does not list, so the merged list names it once.
-static bool isMeshCoreOnlyNeighbor(const MeshCoreNode &n)
-{
-    return isDirectNeighbor(n) && !(nodeDB && nodeDB->getMeshNode(n.nodeNum));
 }
 #endif
 
@@ -165,12 +160,6 @@ void NexusModule::formatNeighbors(char *reply, size_t replyLen)
     for (size_t i = 0; i < nodeCount; i++)
         if (isDirectNeighbor(nodeDB->getMeshNodeByIndex(i), myNum))
             count++;
-#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
-    meshCoreCompanion.nodes.forEach([&count](const MeshCoreNode &n) {
-        if (isMeshCoreOnlyNeighbor(n))
-            count++;
-    });
-#endif
     if (count == 0) {
         snprintf(reply, replyLen, "JT VECINOS: 0 directos");
         return;
@@ -184,12 +173,6 @@ void NexusModule::formatNeighbors(char *reply, size_t replyLen)
         if (isDirectNeighbor(n, myNum))
             list.add(n->short_name[0] ? n->short_name : n->long_name, n->snr, n->last_heard);
     }
-#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
-    meshCoreCompanion.nodes.forEach([&list](const MeshCoreNode &n) {
-        if (isMeshCoreOnlyNeighbor(n))
-            list.add(n.name, n.snr, n.lastHeard);
-    });
-#endif
     list.finish();
 }
 
@@ -297,8 +280,7 @@ static void setAdvert(RadioLibInterface &radio, const char *arg, bool signatureR
     takeWord(arg, word, sizeof(word));
     if (word[0] == '\0') {
         snprintf(reply, replyLen, "JT MESHCORE: advert every %uh, next in %um",
-                 (unsigned)radio.getMeshCoreConfig().effectiveAdvertHours(),
-                 (unsigned)(radio.meshCoreAdvertDueInMs() / 60000UL));
+                 (unsigned)radio.getMeshCoreConfig().effectiveAdvertHours(), (unsigned)(radio.meshCoreAdvertDueInMs() / 60000UL));
         return;
     }
     if (strcasecmp(word, "NOW") == 0) {

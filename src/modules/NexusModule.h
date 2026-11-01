@@ -137,7 +137,7 @@ private:
     // The MeshCore settings follow SAVE and LOAD, in their own flash file.
     void saveMeshCoreSettings();
     void loadMeshCoreSettings();
-    // /nexus VECINOS (NexusMeshCoreCommand.cpp): the direct neighbours, Meshtastic and MeshCore, in one reply.
+    // /nexus VECINOS (NexusMeshCoreCommand.cpp): the direct Meshtastic neighbours in one reply.
     void formatNeighbors(char *reply, size_t replyLen);
 public:
     // ---- end of the Meshtacore extensions -----------------------------------------------------------------------------

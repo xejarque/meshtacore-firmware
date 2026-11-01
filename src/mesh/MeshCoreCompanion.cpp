@@ -607,7 +607,7 @@ void MeshCoreCompanion::ensureSenderNode(uint32_t nodeNum, const char *name, boo
         return;
     // A keyed peer lives in the node store too: its node DB copy may go first when the DB is full. The node is born from the
     // announce below, so a new one gets the mark on its next frame, or on the next save sweep.
-    if (lite && publicKey)
+    if (lite)
         nodeInfoLiteSetBit(lite, NODEINFO_BITFIELD_IS_MESHCORE_MASK, true);
 
     announceIfNeeded(nodeNum, senderUser(name, messagable, publicKey, role), rx);
@@ -1559,6 +1559,11 @@ void MeshCoreCompanion::handleGroupText(const uint8_t *raw, size_t len, const Me
             MeshCoreNode *contact = nodes.findUniqueByName(sender, MeshCoreNode::CHAT);
             if (contact) {
                 fromNum = contact->nodeNum;
+                contact->hops = info.path_hash_count;
+                contact->snr = snr;
+                contact->rssi = rssi;
+                contact->lastHeard = getTime(false);
+                nodes.touch(contact);
                 ensureSenderNode(fromNum, contact->name, true, contact->pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
             } else {
                 fromNum = senderNodeNum(sender);
@@ -1934,6 +1939,10 @@ void MeshCoreCompanion::handleDirectText(const uint8_t *raw, size_t len, const M
             continue;
 
         rememberFrame(hash);
+        c->hops = info.path_hash_count;
+        c->snr = snr;
+        c->rssi = rssi;
+        c->lastHeard = getTime(false);
         nodes.touch(c);
         nodes.noteDirectMessage(c);
         dmRx++;
