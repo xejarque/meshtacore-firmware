@@ -60,7 +60,8 @@ bool RadioLibInterface::sendRawFrame(const uint8_t *bytes, size_t len)
         startReceive();
         return false;
     }
-    lastTxStart = millis();
+    // unset-sentinel-ok: busyTx/rawSending is the armed flag, so 0 is a legal stamp
+    lastTxStart = Time::getMillis();
     return true;
 }
 
@@ -431,9 +432,10 @@ uint32_t RadioLibInterface::meshCoreAdvertTick()
 
     // The alias flood is queued on the tick after the main one, once that frame is on air.
     const bool aliasAdvert = meshCoreRepeater.usesAlias() && meshCoreAliasFloodPending;
-    if (!aliasAdvert && !Throttle::deadlinePassed(nextMeshCoreFloodAdvertMs)) {
-        const uint32_t nowMs = millis();
-        return nextMeshCoreFloodAdvertMs - nowMs;
+    if (!aliasAdvert) {
+        const uint32_t nowMs = Time::getMillis();
+        if (!Throttle::deadlinePassedAt(nowMs, nextMeshCoreFloodAdvertMs))
+            return nextMeshCoreFloodAdvertMs - nowMs;
     }
 
     // MeshCore clients order adverts by timestamp, so it must be a real time - but any source will do.

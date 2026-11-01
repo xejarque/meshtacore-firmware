@@ -8,6 +8,7 @@
 #include "MeshService.h"
 #include "NodeDB.h"
 #include "Power.h"
+#include "UptimeClock.h"
 #include "configuration.h"
 #include "main.h"
 #include "mesh/generated/meshtastic/apponly.pb.h"
@@ -211,7 +212,7 @@ void NexusModule::handleSetUrlCommand(const char *url)
         if (pc.payload_variant.lora.region == meshtastic_Config_LoRaConfig_RegionCode_UNSET)
             pc.payload_variant.lora.region = config.lora.region; // an unset region would mute the radio
         pendingConfig = pc;
-        pendingLoRaApplyAt = millis() + 5000;
+        pendingLoRaApplyAt = Time::getMillis() + 5000;
         pendingLoRaConfig = true;
         setIntervalFromNow(50);
         loraChanged = true;

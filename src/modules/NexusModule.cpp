@@ -363,7 +363,7 @@ NexusModule::NexusModule()
     // Before initLoRa(), so the radio starts on the restored settings; otherwise make sure a copy exists.
     if (!NexusRescue::restoreIfConfigWasMissing())
         NexusRescue::snapshot();
-    applyZeroHopRoleDefaults(vaultV68Loaded);
+    applyZeroHopRoleDefaults(vaultVersionLoaded >= 68);
     readyAnnouncePending = wokeFromBatteryWake();
 }
 

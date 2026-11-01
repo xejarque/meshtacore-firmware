@@ -593,7 +593,7 @@ template <typename T> void SX126xInterface<T>::configHardwareForSend()
     // MeshCore listens for a longer preamble at low SF (RadioLibWrapper::preambleLengthForSF: 32 at SF<=8, else 16).
     // Ours is restored in startReceive().
     const uint16_t meshCorePreamble = sf <= 8 ? 32 : 16;
-    if (isRawSending() && meshCorePreamble != preambleLength) {
+    if (!altModemActive() && isRawSending() && meshCorePreamble != preambleLength) {
         if (lora.setPreambleLength(meshCorePreamble) == RADIOLIB_ERR_NONE)
             meshCorePreambleSet = true;
     }

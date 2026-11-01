@@ -128,7 +128,6 @@ public:
     // wins. An older vault (v65-v67) predates the defaults: they are applied once and saved as v68. With no vault they
     // apply in RAM until the first SAVE.
     void applyZeroHopRoleDefaults(bool vaultHasV68);
-    bool vaultV68Loaded = false;
     uint32_t vaultVersionLoaded = 0; // 0 = no vault was loaded
 private:
     // Meshtacore commands (NexusMeshtacoreCommands.cpp): false when `cmd` is not one of them.
@@ -618,7 +617,7 @@ public:
         uint32_t crc32;
     };
 
-    bool saveVault();
+    virtual bool saveVault();
     void fillVaultV68(NexusVault &v) const;
     void applyVaultV68(const NexusVault &v);
     void noteLoadedVault(const NexusVault &v);

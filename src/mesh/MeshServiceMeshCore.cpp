@@ -72,10 +72,12 @@ bool MeshService::sendMeshCoreGroupText(const meshtastic_MeshPacket *p)
     }
 
     // encodeGroupText cuts the text on a UTF-8 boundary once the "sender: " prefix is accounted for.
-    char plain[sizeof(p->decoded.payload.bytes) + 1];
-    memcpy(plain, p->decoded.payload.bytes, p->decoded.payload.size);
-    plain[p->decoded.payload.size] = 0;
-    char text[sizeof(plain) + 64]; // room for the "@[name] " of a reply and the brackets of mentions
+    constexpr size_t PLAIN_MAX = 256;
+    char plain[PLAIN_MAX];
+    const size_t copyLen = std::min((size_t)p->decoded.payload.size, PLAIN_MAX - 1);
+    memcpy(plain, p->decoded.payload.bytes, copyLen);
+    plain[copyLen] = 0;
+    char text[PLAIN_MAX + 64]; // room for the "@[name] " of a reply and the brackets of mentions
     meshCoreCompanion.prepareGroupText(plain, p->decoded.reply_id, text, sizeof(text));
 
     const char *sender = owner.long_name[0] ? owner.long_name : (owner.short_name[0] ? owner.short_name : "Meshtastic");
@@ -102,9 +104,11 @@ bool MeshService::sendMeshCoreDirectText(const meshtastic_MeshPacket *p)
 
     // MeshCore timestamps are wall-clock: without a valid time the peer would reject or misorder the message.
     const uint32_t now = getValidTime(RTCQualityFromNet);
-    char text[sizeof(p->decoded.payload.bytes) + 1];
-    memcpy(text, p->decoded.payload.bytes, p->decoded.payload.size);
-    text[p->decoded.payload.size] = 0;
+    constexpr size_t DIRECT_MAX = 256;
+    char text[DIRECT_MAX];
+    const size_t copyLen = std::min((size_t)p->decoded.payload.size, DIRECT_MAX - 1);
+    memcpy(text, p->decoded.payload.bytes, copyLen);
+    text[copyLen] = 0;
 
     RadioInterface *iface = router ? router->getRadioIface() : nullptr;
     if (!meshCoreCompanion.sendDirectText(p->to, p->id, text, now, iface)) {

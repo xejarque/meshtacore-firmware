@@ -6,6 +6,7 @@
 
 #include "Channels.h"
 #include "NodeDB.h"
+#include "Power.h"
 #include "PowerFSM.h"
 #include "PowerStatus.h"
 #include "Router.h"
@@ -94,7 +95,7 @@ void NexusModule::serviceStormSleep()
 void NexusModule::serviceReadyAnnounce()
 {
     constexpr uint32_t READY_ANNOUNCE_UPTIME_MS = 60 * 1000;
-    if (!readyAnnouncePending || millis() < READY_ANNOUNCE_UPTIME_MS)
+    if (!readyAnnouncePending || Throttle::isWithinTimespanMs(0, READY_ANNOUNCE_UPTIME_MS))
         return;
     readyAnnouncePending = false;
     if (!hasRealNexusChannel())
@@ -183,7 +184,6 @@ void NexusModule::noteLoadedVault(const NexusVault &v)
 
 void NexusModule::applyVaultV68(const NexusVault &v)
 {
-    vaultV68Loaded = true;
     lpcomp_wake_ref = (v.lpcomp_wake_ref < 16) ? v.lpcomp_wake_ref : 0;
     applyLpcompWakeLevel();
     battery_chemistry = setBatteryChemistry((BatteryChemistry)v.battery_chemistry) ? v.battery_chemistry : 0;
@@ -217,8 +217,12 @@ void NexusModule::applyZeroHopRoleDefaults(bool vaultHasV68)
         return;
     zero_hop_config |= ZERO_HOP_EN | ZERO_HOP_AUTO_ROUTER | ZERO_HOP_AUTO_CLIENT;
     // An older vault is migrated here, once: saved as v68 so the operator can turn these off and have it stick.
-    if (vaultVersionLoaded != 0 && !saveVault())
-        LOG_WARN("Nexus: could not save the migrated vault, Zero-Hop defaults apply again next boot");
+    if (vaultVersionLoaded != 0) {
+        if (saveVault())
+            vaultVersionLoaded = 68;
+        else
+            LOG_WARN("Nexus: could not save the migrated vault, Zero-Hop defaults apply again next boot");
+    }
 }
 
 bool NexusModule::isSilencedPublicReply(const meshtastic_MeshPacket &mp)
