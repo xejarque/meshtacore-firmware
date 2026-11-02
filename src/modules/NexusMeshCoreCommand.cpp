@@ -639,7 +639,7 @@ static void handleMeshCorePathCommand(const char *arg, char *reply, size_t reply
         snprintf(reply, replyLen, "JT MESHCORE: no route heard for %s", contact->name);
         return;
     }
-    char line[128];
+    char line[256];
     if (meshCoreCompanion.formatRouteLine(*route, line, sizeof(line))) {
         snprintf(reply, replyLen, "JT MESHCORE: %s › %s", contact->name, line);
     } else {
@@ -654,8 +654,15 @@ static void handleMeshCorePathCommand(const char *arg, char *reply, size_t reply
 static void handleMeshCoreTraceCommand(const char *args, char *reply, size_t replyLen)
 {
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
-    meshCoreCompanion.startTrace(args, MeshCoreCompanion::PSEUDO_NODE_NUM, NODENUM_BROADCAST, 0, 0, false, nullptr, reply,
-                                 replyLen);
+    uint8_t targetChannel = 0;
+    for (ChannelIndex i = 0; i < MAX_NUM_CHANNELS; i++) {
+        if (channels.isMeshCoreChannel(i)) {
+            targetChannel = (uint8_t)i;
+            break;
+        }
+    }
+    meshCoreCompanion.startTrace(args, MeshCoreCompanion::PSEUDO_NODE_NUM, NODENUM_BROADCAST, targetChannel, 0, false, nullptr,
+                                 reply, replyLen);
 #else
     (void)args;
     snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
@@ -710,14 +717,27 @@ static void handleMeshCoreSendCommand(const char *args, char *reply, size_t repl
             snprintf(reply, replyLen, "JT MESHCORE: DM failed to %s", contact->name);
         return;
     }
-    for (size_t i = 0; i < MAX_NUM_CHANNELS; i++) {
-        auto &ch = channels.getByIndex((ChannelIndex)i);
-        if (ch.role != meshtastic_Channel_Role_DISABLED && strcasecmp(ch.settings.name, target) == 0) {
+    int targetCh = -1;
+    if (isdigit((unsigned char)*target) && *(target + 1) == '\0') {
+        targetCh = *target - '0';
+    } else {
+        for (ChannelIndex i = 0; i < MAX_NUM_CHANNELS; i++) {
+            auto &ch = channels.getByIndex(i);
+            if (ch.role != meshtastic_Channel_Role_DISABLED && strcasecmp(ch.settings.name, target) == 0) {
+                targetCh = (int)i;
+                break;
+            }
+        }
+    }
+
+    if (targetCh >= 0 && (size_t)targetCh < MAX_NUM_CHANNELS) {
+        auto &ch = channels.getByIndex((ChannelIndex)targetCh);
+        if (ch.role != meshtastic_Channel_Role_DISABLED) {
             meshtastic_MeshPacket *tp = router ? router->allocForSending() : nullptr;
             if (tp) {
                 tp->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
                 tp->to = NODENUM_BROADCAST;
-                tp->channel = i;
+                tp->channel = targetCh;
                 size_t tlen = strlen(text);
                 if (tlen > sizeof(tp->decoded.payload.bytes))
                     tlen = sizeof(tp->decoded.payload.bytes);
@@ -725,7 +745,11 @@ static void handleMeshCoreSendCommand(const char *args, char *reply, size_t repl
                 tp->decoded.payload.size = tlen;
                 if (service)
                     service->sendToMesh(tp);
-                snprintf(reply, replyLen, "JT MESHCORE: sent on %s", target);
+                const char *name = channels.getName(targetCh);
+                if (name && name[0])
+                    snprintf(reply, replyLen, "JT MESHCORE: sent on Ch %d (%s)", targetCh, name);
+                else
+                    snprintf(reply, replyLen, "JT MESHCORE: sent on Ch %d", targetCh);
             } else {
                 snprintf(reply, replyLen, "JT MESHCORE: alloc failed");
             }
@@ -743,7 +767,14 @@ static bool parseHexBytes(const char *str, uint8_t *out, uint8_t *lenOut, uint8_
 {
     while (*str == ' ' || *str == '!')
         str++;
-    size_t slen = strlen(str);
+    size_t slen = 0;
+    while (isxdigit((unsigned char)str[slen]))
+        slen++;
+    const char *after = str + slen;
+    while (*after == ' ')
+        after++;
+    if (*after != '\0')
+        return false;
     if (slen == 0 || slen > (size_t)maxLen * 2 || (slen % 2) != 0)
         return false;
     uint8_t count = (uint8_t)(slen / 2);
@@ -915,7 +946,7 @@ bool NexusModule::formatMeshCorePingReply(const meshtastic_MeshPacket &mp, char 
     }
 
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
-    char routeLine[128] = {0};
+    char routeLine[256] = {0};
     const float fErr = ping_freqerr ? mp.rx_frequency_error : 0.0f;
     if (meshCoreCompanion.formatRouteForPacket(mp.id, routeLine, sizeof(routeLine), fErr)) {
         l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "%s", routeLine);
@@ -949,8 +980,7 @@ void NexusModule::handleMeshCorePpingCommand(const char *args, char *reply, size
 
     int botCh = -1;
     for (ChannelIndex i = 0; i < MAX_NUM_CHANNELS; i++) {
-        const char *name = channels.getName(i);
-        if (name && strcasecmp(name, "MC:#bot") == 0) {
+        if (isMeshCoreBotChannel(i)) {
             botCh = (int)i;
             break;
         }

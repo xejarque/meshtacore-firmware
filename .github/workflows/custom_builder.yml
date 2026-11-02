@@ -161,6 +161,11 @@ on:
         required: false
         default: true
         description: "Habilitar subsistema MeshCore (Sniffer, Relay y SyncWord 0x14B4)"
+      nexus_base_texts:
+        type: boolean
+        required: false
+        default: true
+        description: "Rebroadcast forzado de textos (Base Texts) activado por defecto"
       nexus_master_key:
         type: string
         required: false
@@ -293,6 +298,7 @@ jobs:
             --has-screen "${{ inputs.has_screen }}" \
             --enable-bluetooth "${{ inputs.enable_bluetooth }}" \
             --enable-meshcore "${{ inputs.enable_meshcore }}" \
+            --nexus-base-texts "${{ inputs.nexus_base_texts }}" \
             --nexus-master-key "${{ inputs.nexus_master_key }}" \
             --device-role "${{ inputs.device_role }}" \
             --lora-region "${{ inputs.lora_region }}" \

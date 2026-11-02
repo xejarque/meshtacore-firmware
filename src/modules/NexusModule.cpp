@@ -494,6 +494,18 @@ void NexusModule::setup() {
         }
     }
 #endif // STATION_G3
+
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    // Enable PPING by default on MC:#bot channel on fresh installs
+    if (vaultVersionLoaded == 0) {
+        for (ChannelIndex i = 0; i < MAX_NUM_CHANNELS; i++) {
+            if (isMeshCoreBotChannel(i)) {
+                ping_channels[i] = true;
+                break;
+            }
+        }
+    }
+#endif
 }
 
 void NexusModule::updateStats(const meshtastic_MeshPacket &mp) {
@@ -2185,11 +2197,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                     //    DMs (isPingDM) bypass this gate — a direct-to-me packet is not a
                     //    channel broadcast, and the operator who enabled ALLOWDM clearly wants
                     //    DMs regardless of the per-channel flag.
-                    bool mcBotChannel = false;
-#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
-                    mcBotChannel = isMeshCoreBotChannel(mp.channel);
-#endif
-                    if ((isPingDM || mcBotChannel || (mp.channel < MAX_NUM_CHANNELS && ping_channels[mp.channel]))) {
+                    if (isPingDM || (mp.channel < MAX_NUM_CHANNELS && ping_channels[mp.channel])) {
                         LOG_INFO("Nexus: Public Ping triggered by !%08x on Ch %d (DM=%d)", mp.from, mp.channel, isPingDM ? 1 : 0);
 
                         // Emoji mode: 0=text, 1=emoji if indirect, 2=always emoji

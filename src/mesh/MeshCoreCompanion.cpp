@@ -870,16 +870,25 @@ bool MeshCoreCompanion::formatRouteLine(const HeardPath &route, char *out, size_
 
     size_t len = 0;
     if (route.hopCount == 0) {
-        len = snprintf(out, cap, "⚡ directo");
+        int n = snprintf(out, cap, "⚡ directo");
+        if (n > 0)
+            len = (size_t)n < cap ? (size_t)n : cap - 1;
     } else {
-        if (const char *glyph = hopGlyph(route.hopCount))
-            len = snprintf(out, cap, "%s", glyph);
-        else
-            len = snprintf(out, cap, "%u saltos", (unsigned)route.hopCount);
+        if (const char *glyph = hopGlyph(route.hopCount)) {
+            int n = snprintf(out, cap, "%s", glyph);
+            if (n > 0)
+                len = (size_t)n < cap ? (size_t)n : cap - 1;
+        } else {
+            int n = snprintf(out, cap, "%u saltos", (unsigned)route.hopCount);
+            if (n > 0)
+                len = (size_t)n < cap ? (size_t)n : cap - 1;
+        }
 
         const size_t stored = route.hashSize ? sizeof(route.path) / route.hashSize : 0;
         const size_t total = route.hopCount < stored ? route.hopCount : stored;
         for (size_t hop = 0; hop < total; hop++) {
+            if (len >= cap - 1)
+                break;
             const uint8_t *hash = &route.path[hop * route.hashSize];
             const char *names[PATH_HOP_NAMES_MAX];
             const size_t nameCount = pathHopNames(hash, route.hashSize, names, PATH_HOP_NAMES_MAX);
@@ -887,22 +896,38 @@ bool MeshCoreCompanion::formatRouteLine(const HeardPath &route, char *out, size_
             formatHopLabel(names, nameCount, one, sizeof(one));
             if (!one[0])
                 formatHopHex(hash, route.hashSize, one, sizeof(one));
-            int n = snprintf(out + len, cap > len ? cap - len : 0, hop ? " › %s" : " %s", one);
-            if (n > 0)
-                len += (size_t)n;
+            int n = snprintf(out + len, cap - len, hop ? " › %s" : " %s", one);
+            if (n > 0) {
+                if ((size_t)n < cap - len)
+                    len += (size_t)n;
+                else {
+                    len = cap - 1;
+                    break;
+                }
+            }
         }
     }
 
-    char sig[64];
-    formatSignal(sig, sizeof(sig), route.snr, true, route.rssi);
-    int n = snprintf(out + len, cap > len ? cap - len : 0, "%s", sig);
-    if (n > 0)
-        len += (size_t)n;
+    if (len < cap - 1) {
+        char sig[64];
+        formatSignal(sig, sizeof(sig), route.snr, true, route.rssi);
+        int n = snprintf(out + len, cap - len, "%s", sig);
+        if (n > 0) {
+            if ((size_t)n < cap - len)
+                len += (size_t)n;
+            else
+                len = cap - 1;
+        }
+    }
 
-    if (freqErr != 0.0f) {
-        n = snprintf(out + len, cap > len ? cap - len : 0, " · Δf %.0fHz", (double)freqErr);
-        if (n > 0)
-            len += (size_t)n;
+    if (freqErr != 0.0f && len < cap - 1) {
+        int n = snprintf(out + len, cap - len, " · Δf %.0fHz", (double)freqErr);
+        if (n > 0) {
+            if ((size_t)n < cap - len)
+                len += (size_t)n;
+            else
+                len = cap - 1;
+        }
     }
 
     return len > 0 && len < cap;
@@ -1446,13 +1471,14 @@ bool MeshCoreCompanion::startTrace(const char *args, uint32_t fromNum, uint32_t 
     if (statusReply && statusCap) {
         snprintf(statusReply, statusCap, "JT MESHCORE: trace started (%u hops%s)", (unsigned)totalHops,
                  symmetric ? ", symmetric" : "");
+    } else {
+        char startMsg[128];
+        if (symmetric)
+            snprintf(startMsg, sizeof(startMsg), "🛰️ *Iniciando trace* (%u saltos con vuelta)...", (unsigned)totalHops);
+        else
+            snprintf(startMsg, sizeof(startMsg), "🛰️ *Iniciando trace* (%u saltos, solo ida)...", (unsigned)totalHops);
+        injectText(fromNum, to, channel, startMsg, replyId, direct, c, 0, 0, 0);
     }
-    char startMsg[128];
-    if (symmetric)
-        snprintf(startMsg, sizeof(startMsg), "🛰️ *Iniciando trace* (%u saltos con vuelta)...", (unsigned)totalHops);
-    else
-        snprintf(startMsg, sizeof(startMsg), "🛰️ *Iniciando trace* (%u saltos, solo ida)...", (unsigned)totalHops);
-    injectText(fromNum, to, channel, startMsg, replyId, direct, c, 0, 0, 0);
     return true;
 }
 
@@ -1726,11 +1752,17 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
     if (info.path_hash_count > 0 && info.path_hash_size > 0) {
         const size_t pathStart = info.header_len - (size_t)info.path_hash_count * info.path_hash_size;
-        if (isDropped(&raw[pathStart], info.path_hash_size))
-            return;
+        for (size_t h = 0; h < info.path_hash_count; h++) {
+            if (isDropped(&raw[pathStart + h * info.path_hash_size], info.path_hash_size))
+                return;
+        }
     }
     if (info.payload_type == 0x04 && len >= info.header_len + 4) {
         if (isDropped(&raw[info.header_len], 4))
+            return;
+    }
+    if (info.payload_type == 0x02 && len >= info.header_len + 2) {
+        if (isDropped(&raw[info.header_len + 1], 1))
             return;
     }
 #endif

@@ -1919,6 +1919,26 @@ void test_meshcore_heard_find_by_from(void)
     TEST_ASSERT_NULL(s.c.heardFindByFrom(0x99999999));
 }
 
+void test_meshcore_format_route_line_bounds(void)
+{
+    GroupSetup s;
+    MeshCoreCompanion::HeardPath route;
+    route.hopCount = 8;
+    route.hashSize = 1;
+    for (size_t i = 0; i < 8; i++)
+        route.path[i] = (uint8_t)(0x10 + i);
+    route.snr = 9.5f;
+    route.rssi = -75;
+
+    char tiny[32];
+    s.c.formatRouteLine(route, tiny, sizeof(tiny), 125.0f);
+    TEST_ASSERT_EQUAL('\0', tiny[sizeof(tiny) - 1]);
+
+    char full[256];
+    TEST_ASSERT_TRUE(s.c.formatRouteLine(route, full, sizeof(full), 125.0f));
+    TEST_ASSERT_NOT_NULL(strstr(full, "Δf 125Hz"));
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -2001,6 +2021,7 @@ void setup()
     RUN_TEST(test_meshcore_drops_filter);
     RUN_TEST(test_meshcore_node_listing);
     RUN_TEST(test_meshcore_heard_find_by_from);
+    RUN_TEST(test_meshcore_format_route_line_bounds);
 #endif
     exit(UNITY_END());
 }
