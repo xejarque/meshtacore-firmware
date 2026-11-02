@@ -1,10 +1,12 @@
 <!doctype html>
-<html lang="es">
+<html lang="es" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Meshtacore - Firmware Builder</title>
+    <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <link rel="stylesheet" href="styles.css" />
+    <script src="theme.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -24,20 +26,23 @@
     <header class="site-nav">
       <div class="nav-content">
         <a href="index.html" class="brand-logo">
-          <div class="brand-icon">⚡</div>
+          <img
+            src="logo.svg"
+            alt="Meshtacore Logo"
+            class="brand-logo-img"
+            width="28"
+            height="28"
+          />
           <span>Meshtacore</span>
           <span class="brand-badge">Dual-Mesh</span>
         </a>
         <nav>
           <ul class="nav-links">
-            <li><a href="index.html">← Inicio (Landing)</a></li>
+            <li><a href="index.html">← Inicio</a></li>
             <li><a href="index.html#comparativa">Comparativa</a></li>
-            <li><a href="docs/index.html">📚 Documentación</a></li>
+            <li><a href="docs/index.html">📚 Docs</a></li>
             <li>
-              <a
-                href="builder.html"
-                class="active"
-                style="color: var(--accent); font-weight: 600"
+              <a href="builder.html" class="active nav-cta-btn"
                 >🚀 Web Builder</a
               >
             </li>
@@ -49,6 +54,15 @@
                 >GitHub</a
               >
             </li>
+            <li>
+              <button
+                class="theme-toggle-btn"
+                type="button"
+                aria-label="Cambiar tema de color"
+              >
+                🌙 Oscuro
+              </button>
+            </li>
           </ul>
         </nav>
       </div>
@@ -57,6 +71,7 @@
     <div class="app-container">
       <header class="app-header">
         <div class="logo-area">
+          <img src="logo.svg" alt="Meshtacore Logo" width="38" height="38" />
           <h1>Meshtacore</h1>
           <div class="badge">Builder</div>
         </div>

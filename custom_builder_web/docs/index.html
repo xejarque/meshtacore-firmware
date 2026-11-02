@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es">
+<html lang="es" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -10,6 +10,7 @@
       name="description"
       content="Documentación exhaustiva y referencia completa de comandos Nexus / MTC (+100 comandos), configuración de MeshCore híbrido, firewall, Zero-Hop, perfiles de batería y utilidades para Meshtacore."
     />
+    <link rel="icon" type="image/svg+xml" href="../logo.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -17,13 +18,20 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="docs.css" />
+    <script src="../theme.js"></script>
   </head>
   <body>
     <!-- Top Navigation Bar -->
-    <header class="docs-nav">
-      <div class="docs-nav-content">
+    <header class="site-nav docs-nav">
+      <div class="nav-content docs-nav-content">
         <a href="../index.html" class="brand-logo">
-          <div class="brand-icon">⚡</div>
+          <img
+            src="../logo.svg"
+            alt="Meshtacore Logo"
+            class="brand-logo-img"
+            width="28"
+            height="28"
+          />
           <span>Meshtacore</span>
           <span class="brand-badge">Docs Hub</span>
         </a>
@@ -45,9 +53,7 @@
             <li><a href="../index.html">← Inicio</a></li>
             <li><a href="../index.html#comparativa">Comparativa</a></li>
             <li>
-              <a href="../builder.html" class="btn-builder-sm"
-                >🚀 Web Builder</a
-              >
+              <a href="../builder.html" class="nav-cta-btn">🚀 Web Builder</a>
             </li>
             <li>
               <a
@@ -56,6 +62,15 @@
                 rel="noopener"
                 >GitHub</a
               >
+            </li>
+            <li>
+              <button
+                class="theme-toggle-btn"
+                type="button"
+                aria-label="Cambiar tema de color"
+              >
+                🌙 Oscuro
+              </button>
             </li>
           </ul>
         </nav>
