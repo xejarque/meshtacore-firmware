@@ -77,7 +77,6 @@ t-watch-ultra
 t5s3-epaper-v1
 t5s3-epaper-v2
 t5s3_epaper_inkhud
-tbeam
 tbeam-s3-core
 thinknode_m2
 thinknode_m5
@@ -87,7 +86,6 @@ tlora-c6
 tlora-pager
 tlora-t3s3-epaper
 tlora-t3s3-v1
-tlora-v2-1-1_6
 tracksenger
 tracksenger-lcd
 tracksenger-oled

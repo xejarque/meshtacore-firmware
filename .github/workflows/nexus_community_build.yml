@@ -162,6 +162,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Read version
         id: version
@@ -191,7 +192,7 @@ jobs:
           SNAPSHOT: ${{ inputs.tag }}
           VERSION: ${{ steps.version.outputs.long }}
         run: |
-          TAG="${SNAPSHOT:-meshtacore-community-latest}"
+          TAG="${SNAPSHOT:-meshtacore-beta-${VERSION}}"
           # A published release belongs to a shipped build: never overwrite its
           # assets (this repo is public). Retag the rolling draft, and refuse
           # outright when the published tag was requested explicitly.
@@ -264,20 +265,23 @@ jobs:
           gh release view "$TAG" --json assets --jq '.assets[].name' |
             while read -r name; do gh release delete-asset "$TAG" "$name" --yes; done
           gh release upload "$TAG" ./artifacts/firmware-* --clobber
-          if [ "${{ inputs.draft }}" = "false" ]; then
-            gh release edit "$TAG" --draft=false
-          fi
+          DRAFT_FLAG="--draft=false"
+          if [ "${{ inputs.draft }}" = "true" ]; then DRAFT_FLAG="--draft=true"; fi
+          gh release edit "$TAG" --title "Meshtacore Community - ${{ steps.version.outputs.long }}" --notes-file ./notes.md $DRAFT_FLAG
           echo "### Assets" >> "$GITHUB_STEP_SUMMARY"
           gh release view "$TAG" --json assets --jq '.assets[].name' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create release
         if: steps.tag.outputs.exists != 'true'
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          target_commitish: ${{ github.sha }}
-          name: Meshtacore Community - ${{ steps.version.outputs.long }}
-          draft: ${{ inputs.draft }}
-          prerelease: ${{ inputs.prerelease }}
-          body_path: ./notes.md
-          files: ./artifacts/firmware-*
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          FLAGS=()
+          if [ "${{ inputs.draft }}" = "true" ]; then FLAGS+=("--draft"); fi
+          if [ "${{ inputs.prerelease }}" = "true" ]; then FLAGS+=("--prerelease"); fi
+          gh release create "$TAG" ./artifacts/firmware-* \
+            --target "${{ github.sha }}" \
+            --title "Meshtacore Community - ${{ steps.version.outputs.long }}" \
+            --notes-file ./notes.md \
+            "${FLAGS[@]}"
