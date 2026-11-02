@@ -930,6 +930,22 @@ bool MeshCoreCompanion::formatRouteLine(const HeardPath &route, char *out, size_
         }
     }
 
+    // A byte-wise truncation may have cut a multi-byte character in half: drop the orphan lead/continuation bytes.
+    if (len >= cap - 1) {
+        size_t cut = len;
+        while (cut > 0 && ((uint8_t)out[cut - 1] & 0xC0) == 0x80)
+            cut--;
+        if (cut > 0 && ((uint8_t)out[cut - 1] & 0x80) != 0) {
+            const uint8_t lead = (uint8_t)out[cut - 1];
+            const size_t need = lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : 2;
+            cut = (len - (cut - 1) >= need) ? len : cut - 1;
+        } else {
+            cut = len;
+        }
+        len = cut;
+        out[len] = '\0';
+    }
+
     return len > 0 && len < cap;
 }
 
@@ -1750,8 +1766,9 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
         return;
 
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
-    if (info.path_hash_count > 0 && info.path_hash_size > 0) {
-        const size_t pathStart = info.header_len - (size_t)info.path_hash_count * info.path_hash_size;
+    const size_t pathBytes = (size_t)info.path_hash_count * info.path_hash_size;
+    if (pathBytes > 0 && pathBytes <= info.header_len && info.header_len <= len) {
+        const size_t pathStart = info.header_len - pathBytes;
         for (size_t h = 0; h < info.path_hash_count; h++) {
             if (isDropped(&raw[pathStart + h * info.path_hash_size], info.path_hash_size))
                 return;

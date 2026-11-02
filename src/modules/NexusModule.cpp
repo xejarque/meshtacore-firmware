@@ -499,10 +499,8 @@ void NexusModule::setup() {
     // Enable PPING by default on MC:#bot channel on fresh installs
     if (vaultVersionLoaded == 0) {
         for (ChannelIndex i = 0; i < MAX_NUM_CHANNELS; i++) {
-            if (isMeshCoreBotChannel(i)) {
+            if (isMeshCoreBotChannel(i))
                 ping_channels[i] = true;
-                break;
-            }
         }
     }
 #endif

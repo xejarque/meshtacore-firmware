@@ -112,14 +112,34 @@ static bool isDirectNeighbor(const MeshCoreNode &n)
 }
 #endif
 
-// Static scratch buffer to avoid allocating 1.5 KB on the nRF52 FreeRTOS stack.
-static NexusModule::DirectNeighborEntry neighborEntries[32];
+NexusModule::DirectNeighborEntry NexusModule::neighborEntries[32];
 
-static void formatNeighborLine(const NexusModule::DirectNeighborEntry &entry, uint32_t now, char *out, size_t outLen)
+size_t NexusModule::formatNeighborLine(const DirectNeighborEntry &entry, uint32_t now, char *out, size_t outLen)
 {
     char ago[8];
     formatAgo(now > entry.lastHeard ? now - entry.lastHeard : 0, ago, sizeof(ago));
-    snprintf(out, outLen, "%s (%.1fdB, %s)\n", entry.name, entry.snr, ago);
+    const int n = snprintf(out, outLen, "%s (%.1fdB, %s)\n", entry.name, entry.snr, ago);
+    if (n < 0)
+        return 0;
+    return (size_t)n < outLen ? (size_t)n : outLen - 1;
+}
+
+void NexusModule::appendNeighborLines(const DirectNeighborEntry *entries, size_t count, uint32_t now, const char *header,
+                                      char *reply, size_t replyLen)
+{
+    size_t len = snprintf(reply, replyLen, "%s", header);
+    if (len >= replyLen)
+        len = replyLen - 1;
+    for (size_t i = 0; i < count; i++) {
+        char item[64];
+        const size_t iLen = formatNeighborLine(entries[i], now, item, sizeof(item));
+        if (len + iLen >= replyLen)
+            break;
+        memcpy(reply + len, item, iLen + 1);
+        len += iLen;
+    }
+    if (len > 0 && reply[len - 1] == '\n')
+        reply[--len] = '\0';
 }
 
 void NexusModule::renderNeighbors(const DirectNeighborEntry *entries, size_t count, const char *header, const char *title,
@@ -130,52 +150,23 @@ void NexusModule::renderNeighbors(const DirectNeighborEntry *entries, size_t cou
 
     for (size_t i = 0; i < count; i++) {
         char item[64];
-        formatNeighborLine(entries[i], now, item, sizeof(item));
-        totalLen += strlen(item);
+        totalLen += formatNeighborLine(entries[i], now, item, sizeof(item));
     }
 
-    if (totalLen + 6 < replyLen && totalLen < NEXUS_MAX_REPLY_BODY - 10) {
-        size_t len = snprintf(reply, replyLen, "%s", header);
-        for (size_t i = 0; i < count && len < replyLen; i++) {
-            char item[64];
-            formatNeighborLine(entries[i], now, item, sizeof(item));
-            size_t iLen = strlen(item);
-            if (len + iLen < replyLen) {
-                memcpy(reply + len, item, iLen + 1);
-                len += iLen;
-            }
-        }
-        if (len > 0 && reply[len - 1] == '\n')
-            reply[--len] = '\0';
+    const bool fitsInOneReply = totalLen + 6 < replyLen && totalLen < NEXUS_MAX_REPLY_BODY - 10;
+    if (fitsInOneReply || !activeRequest) {
+        appendNeighborLines(entries, count, now, header, reply, replyLen);
         return;
     }
 
-    uint32_t to = activeRequest ? (activeRequest->to == myNodeInfo.my_node_num ? activeRequest->from : 0xFFFFFFFF) : 0xFFFFFFFF;
-    uint32_t ch = activeRequest ? activeRequest->channel : 0;
-    uint32_t rId = activeRequest ? activeRequest->id : 0;
-    startPaging(to, ch, rId, title);
+    uint32_t to = activeRequest->to == myNodeInfo.my_node_num ? activeRequest->from : 0xFFFFFFFF;
+    startPaging(to, activeRequest->channel, activeRequest->id, title);
     for (size_t i = 0; i < count; i++) {
         char item[64];
         formatNeighborLine(entries[i], now, item, sizeof(item));
         appendPaging(item);
     }
-
-    if (activeRequest) {
-        snprintf(reply, replyLen, "JT: Paging %s (%u)...", title, (unsigned)count);
-    } else {
-        size_t len = snprintf(reply, replyLen, "%s", header);
-        for (size_t i = 0; i < count && len < replyLen; i++) {
-            char item[64];
-            formatNeighborLine(entries[i], now, item, sizeof(item));
-            size_t iLen = strlen(item);
-            if (len + iLen < replyLen) {
-                memcpy(reply + len, item, iLen + 1);
-                len += iLen;
-            }
-        }
-        if (len > 0 && reply[len - 1] == '\n')
-            reply[--len] = '\0';
-    }
+    snprintf(reply, replyLen, "JT: Paging %s (%u)...", title, (unsigned)count);
 }
 
 void NexusModule::formatNeighbors(char *reply, size_t replyLen)
@@ -731,18 +722,17 @@ static void handleMeshCoreSendCommand(const char *args, char *reply, size_t repl
             snprintf(reply, replyLen, "JT MESHCORE: DM failed to %s", contact->name);
         return;
     }
+    // A channel name wins over a bare digit, so a channel literally named "1" stays addressable by name.
     int targetCh = -1;
-    if (isdigit((unsigned char)*target) && *(target + 1) == '\0') {
-        targetCh = *target - '0';
-    } else {
-        for (ChannelIndex i = 0; i < MAX_NUM_CHANNELS; i++) {
-            auto &ch = channels.getByIndex(i);
-            if (ch.role != meshtastic_Channel_Role_DISABLED && strcasecmp(ch.settings.name, target) == 0) {
-                targetCh = (int)i;
-                break;
-            }
+    for (ChannelIndex i = 0; i < MAX_NUM_CHANNELS; i++) {
+        auto &ch = channels.getByIndex(i);
+        if (ch.role != meshtastic_Channel_Role_DISABLED && strcasecmp(ch.settings.name, target) == 0) {
+            targetCh = (int)i;
+            break;
         }
     }
+    if (targetCh < 0 && isdigit((unsigned char)*target) && *(target + 1) == '\0')
+        targetCh = *target - '0';
 
     if (targetCh >= 0 && (size_t)targetCh < MAX_NUM_CHANNELS) {
         auto &ch = channels.getByIndex((ChannelIndex)targetCh);
@@ -777,28 +767,27 @@ static void handleMeshCoreSendCommand(const char *args, char *reply, size_t repl
 #endif
 }
 
+// Accepts "4d", "!a1b2", "0xA1B2", "a1:b2" or "a1 b2": optional "!"/"0x" prefix, bytes optionally split by ':' or ' '.
 static bool parseHexBytes(const char *str, uint8_t *out, uint8_t *lenOut, uint8_t maxLen)
 {
     while (*str == ' ' || *str == '!')
         str++;
-    size_t slen = 0;
-    while (isxdigit((unsigned char)str[slen]))
-        slen++;
-    const char *after = str + slen;
-    while (*after == ' ')
-        after++;
-    if (*after != '\0')
-        return false;
-    if (slen == 0 || slen > (size_t)maxLen * 2 || (slen % 2) != 0)
-        return false;
-    uint8_t count = (uint8_t)(slen / 2);
-    for (size_t i = 0; i < count; i++) {
-        char byteBuf[3] = {str[i * 2], str[i * 2 + 1], 0};
-        char *end = nullptr;
-        out[i] = (uint8_t)strtoul(byteBuf, &end, 16);
-        if (!end || *end != '\0')
+    if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X'))
+        str += 2;
+    uint8_t count = 0;
+    while (*str) {
+        if ((*str == ':' || *str == ' ') && count > 0) {
+            str++;
+            continue;
+        }
+        if (!isxdigit((unsigned char)str[0]) || !isxdigit((unsigned char)str[1]) || count >= maxLen)
             return false;
+        char byteBuf[3] = {str[0], str[1], 0};
+        out[count++] = (uint8_t)strtoul(byteBuf, nullptr, 16);
+        str += 2;
     }
+    if (count == 0)
+        return false;
     *lenOut = count;
     return true;
 }
@@ -820,7 +809,7 @@ static void handleMeshCoreDropCommand(const char *arg, char *reply, size_t reply
     uint8_t prefix[4] = {};
     uint8_t plen = 0;
     if (!parseHexBytes(arg, prefix, &plen, 4)) {
-        snprintf(reply, replyLen, "JT MESHCORE: DROP expects 1-4 hex bytes (e.g. 4d, a1b2)");
+        snprintf(reply, replyLen, "JT MESHCORE: DROP expects 1-4 hex bytes (e.g. 4d, a1b2, 0xA1, a1:b2)");
         return;
     }
     if (meshCoreCompanion.addDrop(prefix, plen))

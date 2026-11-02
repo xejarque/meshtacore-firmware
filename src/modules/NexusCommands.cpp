@@ -1350,7 +1350,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 // Trigger radio re-init
                 pendingLoRaApplyAt = Time::getMillis() + 5000;
                 pendingLoRaConfig = true;
-                meshtastic_Config pc = meshtastic_Config_init_default;
+                static meshtastic_Config pc; pc = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
                 pc.which_payload_variant = meshtastic_Config_lora_tag;
                 pc.payload_variant.lora = config.lora;
                 pendingConfig = pc;
@@ -1375,7 +1375,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
                 pendingLoRaApplyAt = Time::getMillis() + 5000;
                 pendingLoRaConfig = true;
-                meshtastic_Config pc = meshtastic_Config_init_default;
+                static meshtastic_Config pc; pc = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
                 pc.which_payload_variant = meshtastic_Config_lora_tag;
                 pc.payload_variant.lora = config.lora;
                 pendingConfig = pc;
@@ -1403,7 +1403,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
                     pendingLoRaApplyAt = Time::getMillis() + 5000;
                     pendingLoRaConfig = true;
-                    meshtastic_Config pc = meshtastic_Config_init_default;
+                    static meshtastic_Config pc; pc = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
                     pc.which_payload_variant = meshtastic_Config_lora_tag;
                     pc.payload_variant.lora = config.lora;
                     pendingConfig = pc;
@@ -2776,7 +2776,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         static unsigned char buffer[512];
         memset(buffer, 0, sizeof(buffer));
         if (nexus_base64_decode(buffer, sizeof(buffer), &dlen, url) == 0) {
-            meshtastic_SharedContact sc = meshtastic_SharedContact_init_default;
+            static meshtastic_SharedContact sc; sc = meshtastic_SharedContact meshtastic_SharedContact_init_default; // static: keeps the recursive frame small
             if (pb_decode_from_bytes(buffer, dlen, &meshtastic_SharedContact_msg, &sc)) {
                 if (addNode) {
                     nodeDB->addFromContact(sc);
@@ -2895,8 +2895,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         bool setBase = false;
         bool setModule = false;
 
-        meshtastic_Config pc = meshtastic_Config_init_default;
-        meshtastic_ModuleConfig mc = meshtastic_ModuleConfig_init_default;
+        static meshtastic_Config pc; pc = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
+        static meshtastic_ModuleConfig mc; mc = meshtastic_ModuleConfig meshtastic_ModuleConfig_init_default; // static: keeps the recursive frame small
 
         if (strncasecmp(p, "NI", 2) == 0) {
             pc.which_payload_variant = meshtastic_Config_device_tag;
@@ -2952,13 +2952,13 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 float lat = atof(valStr);
                 float lon = atof(comma + 1);
                 if (adminModule) {
-                    meshtastic_AdminMessage am = meshtastic_AdminMessage_init_default;
+                    static meshtastic_AdminMessage am; am = meshtastic_AdminMessage meshtastic_AdminMessage_init_default; // static: keeps the recursive frame small
                     am.which_payload_variant = meshtastic_AdminMessage_set_fixed_position_tag;
                     am.set_fixed_position.latitude_i = (int32_t)(lat * 1e7);
                     am.set_fixed_position.longitude_i = (int32_t)(lon * 1e7);
                     am.set_fixed_position.time = getTime();
 
-                    meshtastic_MeshPacket dummyPacket = meshtastic_MeshPacket_init_default;
+                    static meshtastic_MeshPacket dummyPacket; dummyPacket = meshtastic_MeshPacket meshtastic_MeshPacket_init_default; // static: keeps the recursive frame small
                     adminModule->handleReceivedProtobuf(dummyPacket, &am);
 
                     snprintf(replyMsg, sizeof(replyMsg), "MTC: Manual location set to %.5f,%.5f", lat, lon);
@@ -2991,7 +2991,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             auto node = nodeDB->getMeshNode(nodeID);
             if (node) {
                 // Construct SharedContact for serialization (Minimal)
-                meshtastic_SharedContact sc = meshtastic_SharedContact_init_default;
+                static meshtastic_SharedContact sc; sc = meshtastic_SharedContact meshtastic_SharedContact_init_default; // static: keeps the recursive frame small
                 sc.node_num = node->num;
                 sc.has_user = true;
 
@@ -3204,7 +3204,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         snprintf(replyMsg, sizeof(replyMsg), "MTC TELEMETRY:\n%s", metricsBuf);
     }
     else if (strcasecmp(cmd, "ENV") == 0) {
-        meshtastic_Telemetry em = meshtastic_Telemetry_init_zero;
+        static meshtastic_Telemetry em; em = meshtastic_Telemetry meshtastic_Telemetry_init_zero; // static: keeps the recursive frame small
         if (meshtastic::getNexusEnvironmentTelemetry(&em) && em.which_variant == meshtastic_Telemetry_environment_metrics_tag) {
             auto &e = em.variant.environment_metrics;
             memset(cmdBuf.envBuf, 0, sizeof(cmdBuf.envBuf));
@@ -3222,7 +3222,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     }
     else if (strcasecmp(cmd, "POWER") == 0) {
-        meshtastic_Telemetry m = meshtastic_Telemetry_init_zero;
+        static meshtastic_Telemetry m; m = meshtastic_Telemetry meshtastic_Telemetry_init_zero; // static: keeps the recursive frame small
         bool hasLive = meshtastic::getNexusPowerTelemetry(&m);
 
         float v1 = 0, i1 = 0, v2 = 0, i2 = 0, v3 = 0, i3 = 0;
@@ -3273,7 +3273,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                      (unsigned int)c.wait_bluetooth_secs, (unsigned int)c.sds_secs,
                      (unsigned int)c.ls_secs, (unsigned int)c.min_wake_secs);
         } else {
-            meshtastic_Config pc = meshtastic_Config_init_default;
+            static meshtastic_Config pc; pc = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
             pc.which_payload_variant = meshtastic_Config_power_tag;
             pc.payload_variant.power = config.power;
             bool valid = true;
@@ -3313,7 +3313,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             snprintf(replyMsg, sizeof(replyMsg), "MTC WIFI: N/A (Hardware)");
 #endif
         } else {
-            meshtastic_Config nc = meshtastic_Config_init_default;
+            static meshtastic_Config nc; nc = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
             nc.which_payload_variant = meshtastic_Config_network_tag;
             nc.payload_variant.network = config.network;
             bool valid = true;
@@ -3359,7 +3359,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         } else if (!p || *p == '\0') {
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Missing new channel name");
         } else {
-            meshtastic_Channel ch = channels.getByIndex(idx);
+            static meshtastic_Channel ch; ch = channels.getByIndex(idx); // static: keeps the recursive frame small
 
             // Protection Logic: Identify Trusted Channels (Nexus/Nexus2)
             const char *trusted1 =
@@ -3404,7 +3404,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         } else if (!next || *next == '\0') {
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Missing PSK");
         } else {
-            meshtastic_Channel ch = channels.getByIndex(idx);
+            static meshtastic_Channel ch; ch = channels.getByIndex(idx); // static: keeps the recursive frame small
 
             // Protection Logic
             const char *trusted1 =
@@ -3465,7 +3465,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             if (freeIdx < 0) {
                 snprintf(replyMsg, sizeof(replyMsg), "MTC: No free channel slots");
             } else {
-                meshtastic_Channel ch = channels.getByIndex(freeIdx);
+                static meshtastic_Channel ch; ch = channels.getByIndex(freeIdx); // static: keeps the recursive frame small
                 ch.index = freeIdx;
                 ch.role = meshtastic_Channel_Role_SECONDARY;
                 ch.has_settings = true;
@@ -3503,7 +3503,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         } else if (idx == 0) {
              snprintf(replyMsg, sizeof(replyMsg), "MTC: Error - Cannot delete Primary (Index 0)");
         } else {
-            meshtastic_Channel ch = channels.getByIndex(idx);
+            static meshtastic_Channel ch; ch = channels.getByIndex(idx); // static: keeps the recursive frame small
 
             // Protection Logic
             const char *trusted1 =
@@ -3902,7 +3902,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         else if (isdigit(roleStr[0])) role = atoi(roleStr);
 
         if (role >= 0 && role <= 13) {
-            meshtastic_Config c = meshtastic_Config_init_default;
+            static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
             c.which_payload_variant = meshtastic_Config_device_tag;
             c.payload_variant.device = config.device;
             c.payload_variant.device.role = (meshtastic_Config_DeviceConfig_Role)role;
@@ -3940,7 +3940,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
 
             if (valid) {
-                meshtastic_Config c = meshtastic_Config_init_default;
+                static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
                 c.which_payload_variant = meshtastic_Config_lora_tag;
                 c.payload_variant.lora = config.lora;
                 c.payload_variant.lora.fem_lna_mode = enable ? meshtastic_Config_LoRaConfig_FEM_LNA_Mode_ENABLED : meshtastic_Config_LoRaConfig_FEM_LNA_Mode_DISABLED;
@@ -3966,7 +3966,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                         (strncasecmp(cmd, "SETTXPOWER ", 11) == 0) ? cmd + 11 : cmd + 7;
         int8_t pwr = atoi(p);
         if (pwr >= -9 && pwr <= 31) {
-            meshtastic_Config c = meshtastic_Config_init_default;
+            static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
             c.which_payload_variant = meshtastic_Config_lora_tag;
             c.payload_variant.lora = config.lora;
             c.payload_variant.lora.tx_power = pwr;
@@ -4949,7 +4949,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             snprintf(replyMsg, sizeof(replyMsg), "MTC: LoRa Ignore MQTT is %s", config.lora.ignore_mqtt ? "ON" : "OFF");
         } else {
             bool enable = (strcasecmp(p, "ON") == 0 || strcasecmp(p, "1") == 0);
-            meshtastic_Config c = meshtastic_Config_init_default;
+            static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
             c.which_payload_variant = meshtastic_Config_lora_tag;
             c.payload_variant.lora = config.lora;
             c.payload_variant.lora.ignore_mqtt = enable;
@@ -4976,7 +4976,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             else if (isdigit(p[0])) mode = atoi(p);
 
             if (mode >= 0 && mode <= 5) {
-                meshtastic_Config c = meshtastic_Config_init_default;
+                static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
                 c.which_payload_variant = meshtastic_Config_device_tag;
                 c.payload_variant.device = config.device;
                 c.payload_variant.device.rebroadcast_mode = (meshtastic_Config_DeviceConfig_RebroadcastMode)mode;
@@ -5339,7 +5339,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 altModem = NexusAltModem{0, 0.0f, 0.0f, 0.0f, 0};
                 pendingLoRaConfig = true;
                 pendingLoRaApplyAt = Time::getMillis() + 5000;
-                meshtastic_Config pc = meshtastic_Config_init_default;
+                static meshtastic_Config pc; pc = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
                 pc.which_payload_variant = meshtastic_Config_lora_tag;
                 pc.payload_variant.lora = config.lora;
                 pendingConfig = pc;
@@ -5381,7 +5381,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     altModem.rxBwKHz = 0.0f;
                     pendingLoRaConfig = true;
                     pendingLoRaApplyAt = Time::getMillis() + 5000;
-                    meshtastic_Config pc = meshtastic_Config_init_default;
+                    static meshtastic_Config pc; pc = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
                     pc.which_payload_variant = meshtastic_Config_lora_tag;
                     pc.payload_variant.lora = config.lora;
                     pendingConfig = pc;
@@ -5432,7 +5432,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     altModem.preambleBits = (uint16_t)pre;
                     pendingLoRaConfig = true;
                     pendingLoRaApplyAt = Time::getMillis() + 5000;
-                    meshtastic_Config pc = meshtastic_Config_init_default;
+                    static meshtastic_Config pc; pc = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
                     pc.which_payload_variant = meshtastic_Config_lora_tag;
                     pc.payload_variant.lora = config.lora;
                     pendingConfig = pc;
@@ -7380,7 +7380,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     np->decoded.bitfield |= BITFIELD_OK_TO_MQTT_MASK;
                 }
 
-                meshtastic_User user = meshtastic_User_init_default;
+                static meshtastic_User user; user = meshtastic_User meshtastic_User_init_default; // static: keeps the recursive frame small
                 user.hw_model = node->hw_model;
                 user.is_licensed = nexus_is_licensed(node);
                 user.role = node->role;
@@ -8639,7 +8639,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                      (unsigned int)c.unknown_packet_threshold);
         } else {
             // Configuration Setters
-            meshtastic_ModuleConfig mc = meshtastic_ModuleConfig_init_default;
+            static meshtastic_ModuleConfig mc; mc = meshtastic_ModuleConfig meshtastic_ModuleConfig_init_default; // static: keeps the recursive frame small
             mc.which_payload_variant = meshtastic_ModuleConfig_traffic_management_tag;
             mc.payload_variant.traffic_management = moduleConfig.traffic_management;
             bool valid = true;
