@@ -1,14 +1,14 @@
 name: Nexus Community Build
 
 # Builds the `community` firmware set (the shared nexus-targets.txt list) on
-# every push to meshtacore, and refreshes a rolling DRAFT release with the
+# every push to main, and refreshes a rolling DRAFT release with the
 # result. Publishing stays manual. All flag and target logic lives in
 # build-nexus.sh and bin/nexus_community_targets.py - this file only schedules
 # and ships.
 
 on:
   # push:
-  #   branches: [meshtacore]
+  #   branches: [main]
   #   paths:
   #     - "src/**"
   #     - "variants/**"

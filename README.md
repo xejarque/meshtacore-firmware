@@ -76,7 +76,7 @@ Good fits: clubs and events that run both ecosystems, Meshtastic solar or repeat
 ### Build and flash
 
 ```bash
-git clone --branch meshtacore https://github.com/xejarque/meshtacore-firmware.git
+git clone https://github.com/xejarque/meshtacore-firmware.git
 cd meshtacore-firmware
 pio run -e thinknode_m1_meshcore
 pio run -e thinknode_m1_meshcore -t upload --upload-port <port>
@@ -154,7 +154,7 @@ The suite reports GREEN (0), RED (1), AMBER (2) or FILTERED (3). Run the full su
 
 ## Contributing
 
-Work happens on the `meshtacore` branch. Open issues and pull requests on this fork. Before proposing a change, run `./bin/run-tests.sh` and `trunk fmt`; the repository rejects unformatted code.
+Work happens on the `main` branch. Open issues and pull requests on this fork. Before proposing a change, run `./bin/run-tests.sh` and `trunk fmt`; the repository rejects unformatted code.
 
 ## Credits
 

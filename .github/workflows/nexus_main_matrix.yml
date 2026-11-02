@@ -1,4 +1,4 @@
-# Nexus fork of main_matrix.yml — identical matrix/release logic, but the two
+# Nexus fork of main_matrix.yml - identical matrix/release logic, but the two
 # meshtastic/gh-action-firmware container calls are replaced with direct
 # pip-installed PlatformIO (same recipe as nexus_build_firmware.yml). The
 # develop-* container images regressed on 2026-10-12 (image rev c48ef2c) and
@@ -23,11 +23,13 @@ on:
     branches:
       - master
       - develop
+      - main
 
   push:
     branches:
       - master
       - develop
+      - main
       - event/*
       - feature/*
     paths-ignore:
@@ -40,6 +42,7 @@ on:
     branches:
       - master
       - develop
+      - main
       - event/*
       - feature/*
 
@@ -164,7 +167,7 @@ jobs:
         run: |
           TS="$HOME/.platformio/packages/tool-scons"
           if [ -d "$TS" ] && ! find "$TS" -name FortranCommon.py -print -quit | grep -q .; then
-            echo "tool-scons present but gutted — removing for clean reinstall"
+            echo "tool-scons present but gutted - removing for clean reinstall"
             rm -rf "$TS"
           else
             echo "tool-scons OK or absent (PIO installs on demand)"

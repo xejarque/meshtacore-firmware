@@ -2,7 +2,7 @@
 
 This document describes the MeshCore implementation in Meshtacore: how a single SX126x listens to two protocols, how an incoming frame is classified, and what the repeater and the Meshtastic client bridge do with it.
 
-The work lives in the `meshtacore` branch and is experimental. See [Status](../README.md#status) in the README for what has and has not been verified.
+The work lives in the `main` branch and is experimental. See [Status](../README.md#status) in the README for what has and has not been verified.
 
 ## Contents
 

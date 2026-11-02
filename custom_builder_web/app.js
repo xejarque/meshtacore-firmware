@@ -2,7 +2,7 @@
 
 const REPO_OWNER = "xejarque";
 const REPO_NAME = "meshtacore-firmware";
-const DEFAULT_BRANCH = "meshtacore";
+const DEFAULT_BRANCH = "main";
 const WORKFLOW_FILE = "custom_builder.yml";
 
 const NEXUS_PREDEFINED_KEYS = {
