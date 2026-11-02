@@ -404,7 +404,8 @@ void MeshCoreRepeater::handleTrace(const uint8_t *raw, size_t len, const FrameIn
     // Mesh::onRecvPacket, TRACE: payload = tag(4) auth(4) flags(1) then the hashes to visit; the path field holds
     // one SNR byte (x4) per hop already taken, so path_len indexes the hash list. flags&3 is the hash size exponent.
     constexpr size_t traceHeadLen = 4 + 4 + 1;
-    if (!hasIdentityKey || info.path_hash_size != 1 || info.path_hash_count >= MAX_PATH_SIZE || info.payload_len < traceHeadLen)
+    if (!hasIdentityKey || info.path_hash_size != 1 || info.path_hash_count >= MC_PATH_COUNT_MASK ||
+        info.payload_len < traceHeadLen)
         return;
 
     const uint8_t *payload = &raw[info.header_len];
@@ -431,7 +432,7 @@ void MeshCoreRepeater::handleTrace(const uint8_t *raw, size_t len, const FrameIn
     const size_t snrAt = info.header_len;
     uint8_t forwarded[MAX_FRAME_LEN];
     memcpy(forwarded, raw, snrAt);
-    forwarded[pathLenAt] = raw[pathLenAt] + 1;
+    forwarded[pathLenAt] = (raw[pathLenAt] & ~MC_PATH_COUNT_MASK) | ((raw[pathLenAt] + 1) & MC_PATH_COUNT_MASK);
     float snrX4 = snr * 4;
     snrX4 = snrX4 > 127.0f ? 127.0f : (snrX4 < -128.0f ? -128.0f : snrX4);
     forwarded[snrAt] = (uint8_t)(int8_t)snrX4;

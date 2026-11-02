@@ -112,7 +112,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
 
   protected:
     /// Used as our notification from the ISR
-    enum PendingISR { ISR_NONE = 0, ISR_RX, ISR_TX, TRANSMIT_DELAY_COMPLETED, ISR_POLL_TICK };
+    enum PendingISR { ISR_NONE = 0, ISR_RX, ISR_TX, TRANSMIT_DELAY_COMPLETED, ISR_POLL_TICK, NEXT_FRAME };
 
     /**
      * Raw ISR handler that just calls our polymorphic method
@@ -415,6 +415,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
 
     virtual void onNotify(uint32_t notification) override;
 
+  public:
     /**
      * Provide a raw LoRa frame for transmission without the Meshtastic PacketHeader, for the
      * experimental MeshCore relay. The frame is copied; TX is tracked by rawSending and
@@ -424,6 +425,10 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
 
     /** Queue a raw MeshCore frame for the next idle radio slot (see RadioInterface::queueMeshCoreFrame). */
     bool queueMeshCoreFrame(const uint8_t *bytes, size_t len) override;
+
+#if NEXUS_ENABLE_RNODE
+    bool queueRNodeFrame(const uint8_t *bytes, size_t len) override;
+#endif
 
     size_t formatContentionStats(char *buf, size_t len) override;
 
@@ -539,9 +544,37 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     /** True if a raw (non-MeshPacket) frame is currently being transmitted. */
     bool isRawSending() const { return rawSending; }
 
+    enum RawSendingType : uint8_t {
+        RAW_SEND_NONE = 0,
+        RAW_SEND_MESHCORE = 1,
+        RAW_SEND_RNODE = 2
+    };
+    RawSendingType rawSendingType = RAW_SEND_NONE;
+    RawSendingType getRawSendingType() const { return rawSendingType; }
+
     uint8_t rawTxBuf[MAX_LORA_PAYLOAD_LEN];
     size_t rawTxLen = 0;
     bool rawSending = false;
+    uint8_t rawTxSf = 0;
+    uint8_t rawTxSync = 0;
+    uint8_t getRawTxSf() const { return rawTxSf; }
+    uint8_t getRawTxSync() const { return rawTxSync; }
+
+#if NEXUS_ENABLE_RNODE
+    void maybeSendRNodeFrame();
+
+    static constexpr size_t RNODE_TX_QUEUE_SIZE = 4;
+    struct RNodeTxEntry {
+        uint8_t buf[MAX_LORA_PAYLOAD_LEN];
+        size_t len = 0;
+    };
+    RNodeTxEntry rnodeTxQueue[RNODE_TX_QUEUE_SIZE];
+    uint8_t rnodeTxHead = 0;
+    uint8_t rnodeTxTail = 0;
+    uint8_t rnodeTxCount = 0;
+    bool rnodeRadioDirty = false;
+    bool rnodeWasStandalone = false;
+#endif
 
     /**
      * Start an immediate transmit
@@ -575,6 +608,16 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
 
     /** If a raw (non-MeshPacket) frame was being transmitted, mark it finished and log its airtime. */
     void completeRawSend();
+
+    // Frame hooks for modems whose frames are shorter than a Meshtastic packet (SX128x FLRC: 127 bytes).
+    // The default sends and reads the whole radioBuffer as one frame.
+    static const int RX_FRAME_PARTIAL = 1;
+    virtual int16_t startTransmitFrame(size_t numbytes);
+    /** >0 while more frames of the current packet remain: wait this long, then sendNextFrame() */
+    virtual uint32_t nextFrameDelayMsec() { return 0; }
+    virtual bool sendNextFrame() { return false; }
+    /** Read one received frame; RX_FRAME_PARTIAL means a fragment was stored and no packet is complete yet */
+    virtual int readFrame(size_t &length) { return iface->readData((uint8_t *)&radioBuffer, length); }
 
     /**
      * Add SNR data to received messages

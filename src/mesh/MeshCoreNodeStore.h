@@ -157,12 +157,19 @@ template <size_t N> class MeshCoreNodeStore
         return collectByPrefix(entries, prefix, size, out, max);
     }
 
-    void touch(MeshCoreNode *n) { n->lastMod = ++clock; }
+    uint32_t nextClock()
+    {
+        if (++clock == 0)
+            clock = 1;
+        return clock;
+    }
+
+    void touch(MeshCoreNode *n) { n->lastMod = nextClock(); }
 
     void noteDirectMessage(MeshCoreNode *n)
     {
         n->flags |= MeshCoreNode::HAD_DM;
-        n->lastDm = ++clock;
+        n->lastDm = nextClock();
     }
 
     void setFavorite(MeshCoreNode *n, bool on)

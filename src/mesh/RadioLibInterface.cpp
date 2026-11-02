@@ -1,6 +1,14 @@
 #include "RadioLibInterface.h"
 #include "ContentionStats.h"
+#include "PacketProfiler.h"
 #include "modules/NexusModule.h"
+#if NEXUS_ENABLE_RNODE
+#include "RNodeEngine.h"
+#include "Router.h"
+#if NEXUS_ENABLE_RNODE_TCP && HAS_WIFI
+#include "RNodeTcpServer.h"
+#endif
+#endif
 #include "MeshTypes.h"
 #include "NodeDB.h"
 #include "PowerMon.h"
@@ -969,6 +977,42 @@ void RadioLibInterface::applyNexusSyncwordOverride()
     }
 }
 
+int16_t RadioLibInterface::startTransmitFrame(size_t numbytes)
+{
+    enableInterrupt(isrTxLevel0);
+
+    rawTxSf = 0;
+    rawTxSync = 0;
+#if HAS_NEXUS
+    if (meshtastic::nexusModule && meshtastic::nexusModule->multiSFConfig.enabled) {
+        const meshtastic::nexus::MultiSFConfig &cfg = meshtastic::nexusModule->multiSFConfig;
+        uint8_t wanted = meshtastic::nexus::TIER_NONE;
+        if (rawSendingType == RAW_SEND_RNODE)
+            wanted = meshtastic::nexus::TIER_RNODE;
+        else if (rawSendingType == RAW_SEND_MESHCORE)
+            wanted = meshtastic::nexus::TIER_MESHCORE;
+        if (wanted != meshtastic::nexus::TIER_NONE) {
+            if (meshtastic::nexus::tierCarriesProtocol(cfg.main_protocol, wanted)) {
+                rawTxSf = sf;
+                rawTxSync = cfg.main_syncword;
+            } else {
+                for (uint8_t i = 0; i < cfg.side_count; ++i) {
+                    if (cfg.side[i].enabled && meshtastic::nexus::tierCarriesProtocol(cfg.side[i].protocol, wanted)) {
+                        rawTxSf = cfg.side[i].sf;
+                        rawTxSync = cfg.side[i].syncword;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+#endif
+    configHardwareForSend();
+    if (rawSending)
+        return iface->startTransmit(rawTxBuf, numbytes);
+    return iface->startTransmit((uint8_t *)&radioBuffer, numbytes);
+}
+
 /** start an immediate transmit */
 bool RadioLibInterface::startSend(meshtastic_MeshPacket *txp)
 {
@@ -981,11 +1025,11 @@ bool RadioLibInterface::startSend(meshtastic_MeshPacket *txp)
         packetPool.release(txp);
         return false;
     } else {
-        configHardwareForSend(); // must be after setStandby
-
         size_t numbytes = beginSending(txp);
 
-        int res = iface->startTransmit((uint8_t *)&radioBuffer, numbytes);
+        PROF_DO(prof::markEnd(txp->id, prof::SLOT_TXQ, prof::TX_QUEUE));
+        PROF_DO(prof::txStartAt = micros());
+        int res = startTransmitFrame(numbytes);
         if (res != RADIOLIB_ERR_NONE) {
             LOG_ERROR("startTransmit failed, error=%d", res);
             RECORD_CRITICALERROR(meshtastic_CriticalErrorCode_RADIO_SPI_BUG);

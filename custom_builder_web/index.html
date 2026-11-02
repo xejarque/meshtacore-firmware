@@ -83,13 +83,16 @@
         <p class="hero-sub">
           Meshtacore es un firmware C++17 para dispositivos LoRa (ESP32 / nRF52
           / RP2040) que implementa
-          <strong>recepción simultánea de Meshtastic y MeshCore</strong> en un
-          mismo chip Semtech SX126x mediante el registro híbrido
-          <code>0x14B4</code>. Diseñado para la resiliencia en repetidores
-          solares y nodos de montaña, incorpora
-          <strong>inmunidad a Factory Reset</strong> y más de 100 comandos de
-          administración remota por radiofrecuencia (Nexus) sin depender de
-          Bluetooth.
+          <strong
+            >recepción simultánea de Meshtastic, MeshCore y Reticulum
+            RNode</strong
+          >
+          en un mismo transceptor de radio (SX1262, SX1280 o LR2021 multi-SF).
+          Diseñado para la resiliencia en repetidores solares y nodos de
+          montaña, incorpora <strong>inmunidad a Factory Reset</strong>, presets
+          uplink/downlink separados, reglas automáticas por voltaje y más de 100
+          comandos de administración remota por radiofrecuencia (Nexus) sin
+          depender de Bluetooth.
         </p>
 
         <div class="hero-cta-group">
@@ -120,8 +123,8 @@
               <div class="spec-label">Registro Sync Word</div>
               <div class="spec-value accent">0x14B4 (Híbrido)</div>
               <div class="spec-desc">
-                Escucha tramas Meshtastic (0x2B) y MeshCore (0x12) a nivel
-                hardware sin conmutación.
+                Escucha tramas Meshtastic (0x2B), MeshCore (0x12) y Reticulum
+                RNode a nivel hardware sin conmutación.
               </div>
             </div>
             <div class="spec-cell">

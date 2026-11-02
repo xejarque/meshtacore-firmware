@@ -16,7 +16,7 @@ template <size_t N> class MeshCoreSecretCache
     {
         for (auto &e : entries)
             if (e.lastUsed && memcmp(e.pub, pub, 32) == 0) {
-                e.lastUsed = ++clock;
+                e.lastUsed = nextClock();
                 return e.secret;
             }
         return nullptr;
@@ -27,7 +27,7 @@ template <size_t N> class MeshCoreSecretCache
         Entry &e = entries[victim()];
         memcpy(e.pub, pub, 32);
         memcpy(e.secret, secret, 32);
-        e.lastUsed = ++clock;
+        e.lastUsed = nextClock();
         return e.secret;
     }
 
@@ -36,6 +36,14 @@ template <size_t N> class MeshCoreSecretCache
     {
         for (auto &e : entries)
             e = Entry();
+    }
+
+  private:
+    uint32_t nextClock()
+    {
+        if (++clock == 0)
+            clock = 1;
+        return clock;
     }
 
   private:

@@ -21,6 +21,23 @@
 
 #include "PowerStatus.h"
 
+#if NEXUS_ENABLE_RNODE_BLE
+#include "mesh/RNodeEngine.h"
+static BLECharacteristic *rnodeNimbleTxChar = nullptr;
+static void rnode_esp32_ble_write(const uint8_t *data, size_t len)
+{
+    if (rnodeNimbleTxChar && len > 0) {
+        size_t offset = 0;
+        while (offset < len) {
+            size_t chunkSize = (len - offset > 128) ? 128 : (len - offset);
+            rnodeNimbleTxChar->setValue((uint8_t *)(data + offset), chunkSize);
+            rnodeNimbleTxChar->notify();
+            offset += chunkSize;
+        }
+    }
+}
+#endif
+
 #include "host/ble_gap.h"
 #include "host/ble_hs.h"
 #include "host/ble_store.h"
@@ -768,6 +785,9 @@ class NimbleBluetoothServerCallback : public BLEServerCallbacks
 
         LOG_INFO("BLE conn %u peer MTU %u (target %u)", connHandle, pServer->getPeerMTU(connHandle), kPreferredBleMtu);
         pServer->updateConnParams(connHandle, 6, 12, 0, 200);
+#if NEXUS_ENABLE_RNODE_BLE
+        rnodeEngine.setBleConnected(true);
+#endif
     }
 
     void onDisconnect(BLEServer *pServer, struct ble_gap_conn_desc *desc)
@@ -775,6 +795,10 @@ class NimbleBluetoothServerCallback : public BLEServerCallbacks
         LOG_INFO("BLE disconnected");
         if (ble->isDeInit)
             return;
+
+#if NEXUS_ENABLE_RNODE_BLE
+        rnodeEngine.setBleConnected(false);
+#endif
 
         meshtastic::BluetoothStatus newStatus(meshtastic::BluetoothStatus::ConnectionState::DISCONNECTED);
         bluetoothStatus->updateStatus(&newStatus);
@@ -862,6 +886,10 @@ void NimbleBluetooth::deinit()
     BatteryCharacteristic = nullptr; // freed by deinit; clear so updateBatteryLevel() won't touch it
     fromNumCharacteristic = nullptr; // freed by deinit; a late onNowHasData() must not notify freed memory
     logRadioCharacteristic = nullptr;
+#if NEXUS_ENABLE_RNODE_BLE
+    rnodeNimbleTxChar = nullptr;
+    rnodeEngine.registerBleWriteCallback(nullptr);
+#endif
     lastBatteryLevel = -1;
 
     // The bounded disconnect wait above can expire before onDisconnect runs, leaving the PhoneAPI
@@ -1042,6 +1070,33 @@ void NimbleBluetooth::setupService()
     BatteryCharacteristic->setValue(&initialLevel, 1);
     lastBatteryLevel = initialLevel;
     batteryService->start();
+
+#if NEXUS_ENABLE_RNODE_BLE
+    if (rnodeEngine.isBleEnabled()) {
+        BLEService *rnodeService = bleServer->createService(BLEUUID("6e400001-b5a3-f393-e0a9-e50e24dcca9e"));
+        BLECharacteristic *rnodeRxChar =
+            rnodeService->createCharacteristic(BLEUUID("6e400002-b5a3-f393-e0a9-e50e24dcca9e"),
+                                               BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
+        rnodeNimbleTxChar = rnodeService->createCharacteristic(BLEUUID("6e400003-b5a3-f393-e0a9-e50e24dcca9e"),
+                                                               BLECharacteristic::PROPERTY_NOTIFY);
+
+        class NimbleRNodeRxCallback : public BLECharacteristicCallbacks
+        {
+            void onWrite(BLECharacteristic *pCharacteristic) override
+            {
+                auto val = pCharacteristic->getValue();
+                if (val.length() > 0) {
+                    rnodeEngine.feedBytes((const uint8_t *)val.c_str(), val.length(), RNODE_CLIENT_BLE);
+                }
+            }
+        };
+        static NimbleRNodeRxCallback rnodeRxCb;
+        rnodeRxChar->setCallbacks(&rnodeRxCb);
+
+        rnodeService->start();
+        rnodeEngine.registerBleWriteCallback(rnode_esp32_ble_write);
+    }
+#endif
 }
 
 /// Given a level between 0-100, update the BLE attribute

@@ -27,6 +27,11 @@ SX128xInterface<T>::SX128xInterface(LockingArduinoHal *hal, RADIOLIB_PIN_TYPE cs
     LOG_DEBUG("SX128xInterface(cs=%d, irq=%d, rst=%d, busy=%d)", cs, irq, rst, busy);
 }
 
+template <typename T> bool SX128xInterface<T>::usesFragments()
+{
+    return meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode == 2;
+}
+
 /// Initialise the Driver transport hardware and software.
 /// Make sure the Driver is properly configured before calling init().
 /// \return true if initialisation succeeded.

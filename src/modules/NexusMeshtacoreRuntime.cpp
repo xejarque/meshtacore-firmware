@@ -15,13 +15,19 @@
 #include "main.h"
 #include "modules/NexusModule.h"
 #include "sleep.h"
+#if NEXUS_ENABLE_RNODE
+#include "mesh/RNodeEngine.h"
+#endif
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+#include "mesh/MeshCoreRepeater.h"
+#endif
 #ifdef ARCH_ESP32
 #include "esp_system.h"
 #endif
 
 using namespace meshtastic;
 
-// Copies the v68 fields into a vault image about to be written; applyVaultV68() is the reverse.
+// Copies the v68..v74 fields into a vault image about to be written; applyVaultV68() is the reverse.
 void NexusModule::fillVaultV68(NexusVault &v) const
 {
     v.lpcomp_wake_ref = lpcomp_wake_ref;
@@ -31,6 +37,35 @@ void NexusModule::fillVaultV68(NexusVault &v) const
     memcpy(v.zero_hop_auto_client_mask, zero_hop_auto_client_mask, sizeof(zero_hop_auto_client_mask));
     strncpy(v.ping_trigger, ping_trigger, sizeof(v.ping_trigger) - 1);
     v.ping_trigger[sizeof(v.ping_trigger) - 1] = '\0';
+
+    // v70: volt_rules
+    for (int i = 0; i < 4; i++) {
+        v.volt_rules[i] = volt_rules[i];
+    }
+    // v71: split_config
+    v.split_config = splitConfig;
+    // v72: multi_sf
+    v.multi_sf = multiSFConfig;
+    // v73: rnode_config
+#if NEXUS_ENABLE_RNODE
+    v.rnode_config.rnode_mode = (uint8_t)rnodeEngine.getMode();
+    v.rnode_config.rnode_tcp = rnodeEngine.isTcpEnabled() ? 1 : 0;
+    v.rnode_config.rnode_ble = rnodeEngine.isBleEnabled() ? 1 : 0;
+    v.rnode_config.rnode_sf = rnodeEngine.getSf();
+#else
+    memset(&v.rnode_config, 0, sizeof(v.rnode_config));
+#endif
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+    v.rnode_config.meshcore_enabled = MeshCoreRepeater::isMeshCoreEnabled() ? 1 : 0;
+    v.rnode_config.meshcore_relay = MeshCoreRepeater::isRelayEnabled() ? 1 : 0;
+    v.rnode_config.meshcore_path_hash = MeshCoreRepeater::getPathHashSize();
+#endif
+    // v74: tier_channels
+    v.tier_channels.count = tierChannelOverrideCount;
+    for (uint8_t i = 0; i < tierChannelOverrideCount && i < 8; i++) {
+        v.tier_channels.entries[i].channel = tierChannelOverrides[i].channel;
+        v.tier_channels.entries[i].sf = tierChannelOverrides[i].sf;
+    }
 }
 
 bool NexusModule::hasRealNexusChannel()
@@ -164,6 +199,25 @@ int NexusModule::diffVaultV68(const NexusVault &v)
         appendPaging(line);
         diffs++;
     }
+    if (v.version >= 70) {
+        for (int i = 0; i < 4; i++) {
+            if (volt_rules[i].action != v.volt_rules[i].action || volt_rules[i].mv != v.volt_rules[i].mv ||
+                volt_rules[i].direction != v.volt_rules[i].direction || volt_rules[i].channel != v.volt_rules[i].channel ||
+                strncmp(volt_rules[i].command, v.volt_rules[i].command, 32) != 0) {
+                snprintf(line, sizeof(line), "volt_rules[%d]: diff", i + 1);
+                appendPaging(line);
+                diffs++;
+            }
+        }
+    }
+    if (v.version >= 71) {
+        if (splitConfig.mode != v.split_config.mode || splitConfig.alt_sf != v.split_config.alt_sf) {
+            snprintf(line, sizeof(line), "split_config: RAM=m%u/SF%u Vault=m%u/SF%u", (unsigned)splitConfig.mode,
+                     (unsigned)splitConfig.alt_sf, (unsigned)v.split_config.mode, (unsigned)v.split_config.alt_sf);
+            appendPaging(line);
+            diffs++;
+        }
+    }
     return diffs;
 }
 
@@ -212,6 +266,47 @@ void NexusModule::applyVaultV68(const NexusVault &v)
         strncpy(ping_trigger, "/ping", sizeof(ping_trigger) - 1);
         ping_trigger[sizeof(ping_trigger) - 1] = '\0';
     }
+    if (v.version >= 70) {
+        for (int i = 0; i < 4; i++) {
+            volt_rules[i] = v.volt_rules[i];
+            volt_rules[i].command[sizeof(volt_rules[i].command) - 1] = '\0';
+            if (volt_rules[i].action > NEXUS_VOLT_ACT_WAKE || volt_rules[i].direction > NEXUS_VOLT_DIR_LOW ||
+                volt_rules[i].channel > 2) {
+                volt_rules[i].action = NEXUS_VOLT_ACT_NONE;
+                volt_rules[i].mv = 0;
+            }
+        }
+    }
+    if (v.version >= 71) {
+        splitConfig = v.split_config;
+        if (splitConfig.mode > NEXUS_SPLIT_ROOF_MSF)
+            splitConfig.mode = NEXUS_SPLIT_OFF;
+    }
+    if (v.version >= 72) {
+        multiSFConfig = v.multi_sf;
+    }
+    if (v.version >= 73) {
+#if NEXUS_ENABLE_RNODE
+        const uint8_t rmode = v.rnode_config.rnode_mode;
+        rnodeEngine.setMode(rmode <= 2 ? (RNodeMode)rmode : RNODE_MODE_OFF);
+        rnodeEngine.setTcpEnabled(v.rnode_config.rnode_tcp != 0);
+        rnodeEngine.setBleEnabled(v.rnode_config.rnode_ble != 0);
+        if (v.rnode_config.rnode_sf >= 5 && v.rnode_config.rnode_sf <= 12)
+            rnodeEngine.setSf(v.rnode_config.rnode_sf);
+#endif
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+        MeshCoreRepeater::setMeshCoreEnabled(v.rnode_config.meshcore_enabled != 0);
+        MeshCoreRepeater::setRelayEnabled(v.rnode_config.meshcore_relay != 0);
+        MeshCoreRepeater::setPathHashSize(v.rnode_config.meshcore_path_hash ? v.rnode_config.meshcore_path_hash : 3);
+#endif
+    }
+    if (v.version >= 74) {
+        tierChannelOverrideCount = (v.tier_channels.count <= 8) ? v.tier_channels.count : 0;
+        for (uint8_t i = 0; i < tierChannelOverrideCount; i++) {
+            tierChannelOverrides[i].channel = v.tier_channels.entries[i].channel;
+            tierChannelOverrides[i].sf = v.tier_channels.entries[i].sf;
+        }
+    }
 }
 
 bool NexusModule::isLiveAutoZeroHopRelay(uint8_t relay_id, bool clientBase)
@@ -238,10 +333,10 @@ void NexusModule::applyZeroHopRoleDefaults(bool vaultHasV68)
         config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_BASE)
         return;
     zero_hop_config |= ZERO_HOP_EN | ZERO_HOP_AUTO_ROUTER | ZERO_HOP_AUTO_CLIENT;
-    // An older vault is migrated here, once: saved as v68 so the operator can turn these off and have it stick.
+    // An older vault is migrated here, once: saved as v74 so the operator can turn these off and have it stick.
     if (vaultVersionLoaded != 0) {
         if (saveVault())
-            vaultVersionLoaded = 69;
+            vaultVersionLoaded = 74;
         else
             LOG_WARN("Nexus: could not save the migrated vault, Zero-Hop defaults apply again next boot");
     }

@@ -100,6 +100,35 @@ void test_noteLoadedVault_defaults_ping_trigger_for_v68()
     TEST_ASSERT_EQUAL_STRING("/ping", module.ping_trigger);
 }
 
+void test_noteLoadedVault_records_version_and_applies_v70_to_v74()
+{
+    TestNexusModule module;
+    meshtastic::NexusModule::NexusVault v = {};
+    v.version = 74;
+    v.volt_rules[0].mv = 3600;
+    v.volt_rules[0].action = meshtastic::NexusModule::NEXUS_VOLT_ACT_HIBERNATE;
+    v.split_config.mode = meshtastic::NexusModule::NEXUS_SPLIT_ROOF_SPLIT;
+    v.split_config.alt_sf = 7;
+    v.multi_sf.enabled = 1;
+    v.multi_sf.main_protocol = 1;
+    v.rnode_config.rnode_mode = 1;
+    v.tier_channels.count = 1;
+    v.tier_channels.entries[0].channel = 0;
+    v.tier_channels.entries[0].sf = 8;
+
+    module.noteLoadedVault(v);
+
+    TEST_ASSERT_EQUAL_UINT32(74, module.vaultVersionLoaded);
+    TEST_ASSERT_EQUAL_UINT16(3600, module.volt_rules[0].mv);
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::NexusModule::NEXUS_VOLT_ACT_HIBERNATE, module.volt_rules[0].action);
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::NexusModule::NEXUS_SPLIT_ROOF_SPLIT, module.splitConfig.mode);
+    TEST_ASSERT_EQUAL_UINT8(7, module.splitConfig.alt_sf);
+    TEST_ASSERT_EQUAL_UINT8(1, module.multiSFConfig.enabled);
+    TEST_ASSERT_EQUAL_UINT8(1, module.multiSFConfig.main_protocol);
+    TEST_ASSERT_EQUAL_UINT8(1, module.tierChannelOverrideCount);
+    TEST_ASSERT_EQUAL_UINT8(8, module.tierChannelOverrides[0].sf);
+}
+
 void test_migrates_v67_vault_on_router_role()
 {
     TestNexusModule module;
@@ -115,8 +144,8 @@ void test_migrates_v67_vault_on_router_role()
     constexpr uint8_t EXPECTED_ZH = 0x01 | 0x08 | 0x10;
     TEST_ASSERT_EQUAL_UINT8(EXPECTED_ZH, module.zero_hop_config & EXPECTED_ZH);
     TEST_ASSERT_EQUAL_INT(1, module.saveVaultCallCount);
-    // Vault version in RAM must be updated to 69 once migration succeeds
-    TEST_ASSERT_EQUAL_UINT32(69, module.vaultVersionLoaded);
+    // Vault version in RAM must be updated to 74 once migration succeeds
+    TEST_ASSERT_EQUAL_UINT32(74, module.vaultVersionLoaded);
 }
 
 void test_v68_vault_on_router_preserves_operator_choice()
@@ -231,6 +260,7 @@ void setup()
     RUN_TEST(test_noteLoadedVault_records_version_without_applying_v68_fields_for_older_vault);
     RUN_TEST(test_noteLoadedVault_records_version_and_applies_v69);
     RUN_TEST(test_noteLoadedVault_defaults_ping_trigger_for_v68);
+    RUN_TEST(test_noteLoadedVault_records_version_and_applies_v70_to_v74);
     RUN_TEST(test_migrates_v67_vault_on_router_role);
     RUN_TEST(test_v68_vault_on_router_preserves_operator_choice);
     RUN_TEST(test_v67_vault_on_client_role_does_not_migrate);

@@ -8,6 +8,7 @@
 //
 
 #include "modules/NexusModule.h"
+#include "modules/NexusTxHook.h"
 #include "SafeFile.h"
 #include "modules/NexusRescue.h"
 
@@ -22,7 +23,11 @@
 #endif
 #include "Channels.h"
 #include "MeshService.h"
+#if NEXUS_ENABLE_RNODE
+#include "mesh/RNodeEngine.h"
+#endif
 #include "NodeDB.h"
+#include "Power.h"
 #include "PowerFSM.h"
 #include "sleep.h"
 #include "mesh/Throttle.h"
@@ -65,6 +70,12 @@
 #include "MeshRadio.h"
 #include "TypeConversions.h"
 #include "freertosinc.h"  // For uxTaskGetStackHighWaterMark / uxTaskGetSystemState (RAM command)
+
+#if defined(ARCH_ESP32)
+RTC_DATA_ATTR static bool rtc_nexus_hibernating = false;
+#else
+static bool rtc_nexus_hibernating = false;
+#endif
 
 #if !MESHTASTIC_EXCLUDE_MQTT
 #include "mqtt/MQTT.h"
@@ -376,6 +387,7 @@ NexusModule::~NexusModule() {
 
 void NexusModule::setup() {
     MeshModule::setup();
+    is_hibernating = rtc_nexus_hibernating;
 
 #ifdef ARCH_ESP32
     Preferences preferences;
@@ -3223,12 +3235,184 @@ int32_t NexusModule::runOnce() {
         setIntervalFromNow(100);
     }
 
+    // 9. Voltage Threshold Automation Engine (v70)
+    if (Throttle::hasElapsed(last_volt_check_ms, 15000)) {
+        last_volt_check_ms = now;
+        runVoltageAutomations();
+    }
+
     if (noise_sampling_active || freqscan_active)
         return 50;
     if (netscan_active || clientscan_active || pendingReply.active || pendingLoRaConfig || macro_running_cmd[0] || paging_ptr ||
         pagingWindow.hasMore())
         return 100;
     return 1000; // Default idle sleep
+}
+
+void NexusModule::setHibernating(bool hib)
+{
+    is_hibernating = hib;
+#if defined(ARCH_ESP32)
+    rtc_nexus_hibernating = hib;
+#endif
+}
+
+uint16_t NexusModule::getVoltageReadingMv(uint8_t channel)
+{
+    if (channel == 0) {
+        uint16_t v = powerStatus ? powerStatus->getBatteryVoltageMv() : 0;
+#if HAS_TELEMETRY && !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR && __has_include(<INA3221.h>)
+        if (v == 0 && ina3221Sensor.hasSensor()) {
+            int16_t raw = ina3221Sensor.getRawBusVoltage(0);
+            if (raw > 0) v = (uint16_t)(raw * 8);
+        }
+#endif
+        return v;
+    }
+#if HAS_TELEMETRY && !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR && __has_include(<INA3221.h>)
+    if (ina3221Sensor.hasSensor() && channel <= 2) {
+        int16_t raw = ina3221Sensor.getRawBusVoltage(channel);
+        if (raw > 0) return (uint16_t)(raw * 8);
+    }
+#endif
+    return 0;
+}
+
+void NexusModule::runVoltageAutomations()
+{
+    bool any_active = false;
+    for (int i = 0; i < 4; i++) {
+        if (volt_rules[i].action != NEXUS_VOLT_ACT_NONE && volt_rules[i].mv > 0) {
+            any_active = true;
+            break;
+        }
+    }
+    if (!any_active && !is_hibernating) return;
+
+    for (int i = 0; i < 4; i++) {
+        NexusVoltRule &rule = volt_rules[i];
+        if (rule.action == NEXUS_VOLT_ACT_NONE || rule.mv == 0) continue;
+
+        uint16_t cur_mv = getVoltageReadingMv(rule.channel);
+        if (cur_mv == 0) continue;
+
+        bool match = false;
+        if (rule.direction == NEXUS_VOLT_DIR_HIGH) {
+            match = (cur_mv >= rule.mv);
+        } else {
+            match = (cur_mv <= rule.mv);
+        }
+
+        if (match) {
+            if (volt_debounce_count[i] < 3) {
+                volt_debounce_count[i]++;
+            }
+            if (volt_debounce_count[i] >= 3 && !volt_triggered[i]) {
+                volt_triggered[i] = true;
+                LOG_INFO("Nexus: Volt slot %d triggered (%u mV, dir %u, act %u, ch %u)",
+                         i + 1, (unsigned)cur_mv, (unsigned)rule.direction, (unsigned)rule.action, (unsigned)rule.channel);
+
+                if (rule.action == NEXUS_VOLT_ACT_CMD) {
+                    if (rule.command[0] != '\0') {
+                        meshtastic_MeshPacket dummy = meshtastic_MeshPacket_init_default;
+                        dummy.from = myNodeInfo.my_node_num;
+                        dummy.to = myNodeInfo.my_node_num;
+                        handleNexusCommand(dummy, rule.command, false, 0, true);
+                    }
+                } else if (rule.action == NEXUS_VOLT_ACT_HIBERNATE) {
+                    setHibernating(true);
+                    if (rule.command[0] != '\0') {
+                        meshtastic_MeshPacket dummy = meshtastic_MeshPacket_init_default;
+                        dummy.from = myNodeInfo.my_node_num;
+                        dummy.to = myNodeInfo.my_node_num;
+                        handleNexusCommand(dummy, rule.command, false, 0, true);
+                    }
+                    LOG_INFO("Nexus: Entering voltage-induced hibernation (sniff interval 60s)...");
+                    doDeepSleep(60000, true, true);
+                } else if (rule.action == NEXUS_VOLT_ACT_WAKE) {
+                    setHibernating(false);
+                    if (rule.command[0] != '\0') {
+                        meshtastic_MeshPacket dummy = meshtastic_MeshPacket_init_default;
+                        dummy.from = myNodeInfo.my_node_num;
+                        dummy.to = myNodeInfo.my_node_num;
+                        handleNexusCommand(dummy, rule.command, false, 0, true);
+                    }
+                    LOG_INFO("Nexus: Woke from hibernation by voltage rule!");
+                }
+            }
+        } else {
+            volt_debounce_count[i] = 0;
+            // 50mV hysteresis to re-arm
+            if (rule.direction == NEXUS_VOLT_DIR_HIGH) {
+                if (cur_mv + 50 <= rule.mv) {
+                    volt_triggered[i] = false;
+                }
+            } else {
+                if (cur_mv >= rule.mv + 50) {
+                    volt_triggered[i] = false;
+                }
+            }
+        }
+    }
+
+    if (is_hibernating) {
+        bool has_wake_rule = false;
+        for (int i = 0; i < 4; i++) {
+            if (volt_rules[i].action == NEXUS_VOLT_ACT_WAKE && volt_rules[i].mv > 0) {
+                has_wake_rule = true;
+                break;
+            }
+        }
+        if (!has_wake_rule) {
+            uint16_t hib_mv = 0;
+            uint8_t hib_ch = 0;
+            for (int i = 0; i < 4; i++) {
+                if (volt_rules[i].action == NEXUS_VOLT_ACT_HIBERNATE && volt_rules[i].mv > hib_mv) {
+                    hib_mv = volt_rules[i].mv;
+                    hib_ch = volt_rules[i].channel;
+                }
+            }
+            uint16_t cur = getVoltageReadingMv(hib_ch);
+            if (cur >= hib_mv + 100) {
+                setHibernating(false);
+                LOG_INFO("Nexus: Auto-woke from hibernation (ch %u cur %u mV >= %u mV)", (unsigned)hib_ch, (unsigned)cur, (unsigned)(hib_mv + 100));
+                return;
+            }
+        }
+        LOG_INFO("Nexus: Hibernating sniff complete, returning to deep sleep (60s)...");
+        doDeepSleep(60000, true, true);
+    }
+}
+
+bool NexusModule::setTierChannelOverride(uint8_t channel, uint8_t sf)
+{
+    if (channel >= MAX_NUM_CHANNELS)
+        return false;
+    for (uint8_t i = 0; i < tierChannelOverrideCount; i++) {
+        if (tierChannelOverrides[i].channel == channel) {
+            tierChannelOverrides[i].sf = sf;
+            return true;
+        }
+    }
+    if (tierChannelOverrideCount >= MAX_TIER_CHANNEL_OVERRIDES)
+        return false;
+    tierChannelOverrides[tierChannelOverrideCount].channel = channel;
+    tierChannelOverrides[tierChannelOverrideCount].sf = sf;
+    tierChannelOverrideCount++;
+    return true;
+}
+
+bool NexusModule::clearTierChannelOverride(uint8_t channel)
+{
+    for (uint8_t i = 0; i < tierChannelOverrideCount; i++) {
+        if (tierChannelOverrides[i].channel != channel)
+            continue;
+        for (uint8_t j = i; j + 1 < tierChannelOverrideCount; j++)
+            tierChannelOverrides[j] = tierChannelOverrides[j + 1];
+        tierChannelOverrideCount--;
+        return true;
+    }
+    return false;
 }
 
 int8_t NexusModule::getChipPower(int8_t power) {
@@ -4860,7 +5044,7 @@ bool NexusModule::saveVault()
     }
     memset(v, 0, sizeof(NexusVault));
     memcpy(v->magic, "JenT", 4);
-    v->version = 69; // v69: custom PPING command (ping_trigger)
+    v->version = 74; // v74: tier_channels, v73: rnode, v72: multi_sf, v71: split, v70: volt
     // v67: nexusVariantBits (generic variant-bitmask pool — station-g3 PA/LNA today, future variants tomorrow)
     // - v66 was: features_mask + secondary_keys[4] (4 slots)
     v->drop_mask = getNexusDropHex();

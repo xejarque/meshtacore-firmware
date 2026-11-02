@@ -364,6 +364,32 @@ print("Using flags:")
 for flag in flags:
     print(flag)
 
+def _nexus_gate_state(name: str) -> str:
+    for src in (projenv, env):
+        for f in src.get("BUILD_FLAGS", []) or []:
+            m = re.search(rf"-D\s*{name}=(\S+)", str(f))
+            if m:
+                return m.group(1)
+        for d in src.get("CPPDEFINES", []) or []:
+            if isinstance(d, (list, tuple)) and len(d) == 2 and d[0] == name:
+                return str(d[1]).strip('"')
+            if isinstance(d, str) and d.startswith(name + "="):
+                return d.split("=", 1)[1]
+    return "0"
+
+mc_active = _nexus_gate_state("MESHTASTIC_ENABLE_MESHCORE") == "1" or _nexus_gate_state("NEXUS_ENABLE_JENCORE") == "1"
+print("-DNEXUS_ENABLE_JENCORE=" + ("1" if mc_active else "0"))
+print("-DNEXUS_ENABLE_RNODE=" + _nexus_gate_state("NEXUS_ENABLE_RNODE"))
+print("-DNEXUS_ENABLE_STATSBOT=" + _nexus_gate_state("NEXUS_ENABLE_STATSBOT"))
+print("-DNEXUS_ENABLE_REPLYBOT=" + _nexus_gate_state("NEXUS_ENABLE_REPLYBOT"))
+
+if mc_active:
+    flags.append("-UCRYPTO_AES_NO_DECRYPT")
+    for lb in env.GetLibBuilders():
+        if lb.name == "Crypto":
+            lb.env.Append(CCFLAGS=["-UCRYPTO_AES_NO_DECRYPT"])
+            break
+
 projenv.Append(
     CCFLAGS=flags,
 )
