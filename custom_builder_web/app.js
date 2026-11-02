@@ -202,7 +202,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const loraIgnoreMqtt = document.getElementById("loraIgnoreMqtt");
 
   // Advanced Behavior UI Elements
+  const deviceRole = document.getElementById("deviceRole");
+  const nexusBaseTexts = document.getElementById("nexusBaseTexts");
+  const meshcoreRelayMode = document.getElementById("meshcoreRelayMode");
   const rebroadcastMode = document.getElementById("rebroadcastMode");
+  const muteNoticeBaseTexts = document.getElementById("muteNoticeBaseTexts");
+  const muteNoticeRebroadcast = document.getElementById(
+    "muteNoticeRebroadcast",
+  );
+  const muteNoticeMeshcoreRelay = document.getElementById(
+    "muteNoticeMeshcoreRelay",
+  );
   const fixedBlePin = document.getElementById("fixedBlePin");
   const nodeInfoBroadcastSecs = document.getElementById(
     "nodeInfoBroadcastSecs",
@@ -329,6 +339,79 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (typeof updateLivePreview === "function") updateLivePreview();
     });
+  }
+
+  // Role Restrictions (e.g. CLIENT_MUTE must not repeat or force base texts)
+  let prevBaseTexts = nexusBaseTexts ? nexusBaseTexts.checked : true;
+  let prevRebroadcast = rebroadcastMode ? rebroadcastMode.value : "ALL";
+  let prevMeshcoreRelay = meshcoreRelayMode ? meshcoreRelayMode.value : "AUTO";
+
+  function syncRoleRestrictions() {
+    if (!deviceRole) return;
+    const isMute = deviceRole.value === "CLIENT_MUTE";
+
+    if (isMute) {
+      if (nexusBaseTexts) {
+        if (!nexusBaseTexts.disabled) {
+          prevBaseTexts = nexusBaseTexts.checked;
+        }
+        nexusBaseTexts.checked = false;
+        nexusBaseTexts.disabled = true;
+      }
+      if (muteNoticeBaseTexts) muteNoticeBaseTexts.style.display = "block";
+
+      if (rebroadcastMode) {
+        if (!rebroadcastMode.disabled) {
+          prevRebroadcast = rebroadcastMode.value;
+        }
+        rebroadcastMode.value = "NONE";
+        rebroadcastMode.disabled = true;
+      }
+      if (muteNoticeRebroadcast) muteNoticeRebroadcast.style.display = "block";
+
+      if (meshcoreRelayMode) {
+        if (!meshcoreRelayMode.disabled) {
+          prevMeshcoreRelay = meshcoreRelayMode.value;
+        }
+        meshcoreRelayMode.value = "OFF";
+        meshcoreRelayMode.disabled = true;
+      }
+      if (muteNoticeMeshcoreRelay)
+        muteNoticeMeshcoreRelay.style.display = "block";
+    } else {
+      if (nexusBaseTexts) {
+        nexusBaseTexts.disabled = false;
+        nexusBaseTexts.checked =
+          prevBaseTexts !== undefined ? prevBaseTexts : true;
+      }
+      if (muteNoticeBaseTexts) muteNoticeBaseTexts.style.display = "none";
+
+      if (rebroadcastMode) {
+        rebroadcastMode.disabled = false;
+        rebroadcastMode.value =
+          prevRebroadcast && prevRebroadcast !== "NONE"
+            ? prevRebroadcast
+            : "ALL";
+      }
+      if (muteNoticeRebroadcast) muteNoticeRebroadcast.style.display = "none";
+
+      if (meshcoreRelayMode) {
+        meshcoreRelayMode.disabled = false;
+        meshcoreRelayMode.value =
+          prevMeshcoreRelay && prevMeshcoreRelay !== "OFF"
+            ? prevMeshcoreRelay
+            : "AUTO";
+      }
+      if (muteNoticeMeshcoreRelay)
+        muteNoticeMeshcoreRelay.style.display = "none";
+    }
+
+    if (typeof updateLivePreview === "function") updateLivePreview();
+  }
+
+  if (deviceRole) {
+    deviceRole.addEventListener("change", syncRoleRestrictions);
+    syncRoleRestrictions();
   }
 
   // Load saved token if present
@@ -653,7 +736,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const shortName = ownerShortName.value.trim();
     const hasScreen = document.getElementById("hasScreen").checked;
     const enableBluetooth = document.getElementById("enableBluetooth").checked;
-    const mcRelay = document.getElementById("meshcoreRelayMode").value;
+    const deviceRole = document.getElementById("deviceRole").value;
+    const isMute = deviceRole === "CLIENT_MUTE";
+    const mcRelay = isMute
+      ? "OFF"
+      : document.getElementById("meshcoreRelayMode").value;
     const mcAdvert =
       document.getElementById("meshcoreAdvertHours").value.trim() || "12";
     const mcRegions = document
@@ -661,14 +748,15 @@ document.addEventListener("DOMContentLoaded", () => {
       .value.trim();
     const mcHome = document.getElementById("meshcoreHomeRegion").value.trim();
     const mcDef = document.getElementById("meshcoreDefaultRegion").value.trim();
-    const baseTexts = document.getElementById("nexusBaseTexts")
-      ? document.getElementById("nexusBaseTexts").checked
-      : true;
+    const baseTexts = isMute
+      ? false
+      : document.getElementById("nexusBaseTexts")
+        ? document.getElementById("nexusBaseTexts").checked
+        : true;
     const keyChoice = nexusMasterKey.value;
     const masterKey =
       keyChoice === "custom" ? customMasterKey.value.trim() : keyChoice;
 
-    const deviceRole = document.getElementById("deviceRole").value;
     const loraRegion = document.getElementById("loraRegion").value;
     const loraPresetVal = document.getElementById("loraPreset").value;
     const gpsMode = document.getElementById("gpsMode").value;
@@ -694,7 +782,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const ignMqttVal = loraIgnoreMqtt ? loraIgnoreMqtt.checked : false;
 
     // Advanced behavior
-    const rebroadcastVal = rebroadcastMode ? rebroadcastMode.value : "ALL";
+    const rebroadcastVal = isMute
+      ? "NONE"
+      : rebroadcastMode
+        ? rebroadcastMode.value
+        : "ALL";
     const blePinVal = fixedBlePin ? fixedBlePin.value.trim() : "";
     const nodeInfoSecsVal = nodeInfoBroadcastSecs
       ? nodeInfoBroadcastSecs.value.trim()

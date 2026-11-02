@@ -342,6 +342,19 @@
                     <label for="rebroadcastMode"
                       >Modo de Retransmisión (Rebroadcast Mode)</label
                     >
+                    <div
+                      id="muteNoticeRebroadcast"
+                      style="
+                        display: none;
+                        color: #f59e0b;
+                        font-size: 0.78rem;
+                        margin-bottom: 0.35rem;
+                        font-weight: 500;
+                      "
+                    >
+                      ⚠️ Forzado a NONE: el rol CLIENT_MUTE no retransmite
+                      ningún paquete.
+                    </div>
                     <select id="rebroadcastMode" class="form-control">
                       <option value="ALL" selected>
                         ALL (Retransmite todos los paquetes de la malla)
@@ -512,6 +525,19 @@
               <div class="grid-2 mt-3">
                 <div class="form-group">
                   <label for="meshcoreRelayMode">Modo MeshCore Relay</label>
+                  <div
+                    id="muteNoticeMeshcoreRelay"
+                    style="
+                      display: none;
+                      color: #f59e0b;
+                      font-size: 0.78rem;
+                      margin-bottom: 0.35rem;
+                      font-weight: 500;
+                    "
+                  >
+                    ⚠️ Forzado a OFF: el rol CLIENT_MUTE no retransmite tráfico
+                    de terceros.
+                  </div>
                   <select id="meshcoreRelayMode" class="form-control">
                     <option value="AUTO" selected>
                       AUTO (Sigue el rol del nodo)
@@ -546,6 +572,19 @@
               <div class="toggle-row mt-3">
                 <div class="toggle-label">
                   <strong>Rebroadcast Forzado de Textos (Base Texts)</strong>
+                  <div
+                    id="muteNoticeBaseTexts"
+                    style="
+                      display: none;
+                      color: #f59e0b;
+                      font-size: 0.78rem;
+                      margin: 0.25rem 0;
+                      font-weight: 500;
+                    "
+                  >
+                    ⚠️ Desactivado: no disponible con rol CLIENT_MUTE (el nodo
+                    silencia retransmisiones).
+                  </div>
                   <p>
                     Actúa como router para mensajes de texto
                     (<code>TEXT_MESSAGE_APP</code>), asegurando que el nodo

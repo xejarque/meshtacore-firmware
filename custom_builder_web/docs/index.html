@@ -3,10 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Documentación Oficial | Meshtacore Firmware</title>
+    <title>
+      Manual Completo de Comandos y Referencia | Meshtacore Firmware
+    </title>
     <meta
       name="description"
-      content="Guía completa, manual de comandos Nexus / MTC, configuración de MeshCore dual y optimizaciones para repetidores solares en el firmware Meshtacore."
+      content="Documentación exhaustiva y referencia completa de comandos Nexus / MTC (+100 comandos), configuración de MeshCore híbrido, firewall, Zero-Hop, perfiles de batería y utilidades para Meshtacore."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -23,7 +25,7 @@
         <a href="../index.html" class="brand-logo">
           <div class="brand-icon">⚡</div>
           <span>Meshtacore</span>
-          <span class="brand-badge">Docs</span>
+          <span class="brand-badge">Docs Hub</span>
         </a>
 
         <!-- Live Instant Search -->
@@ -33,7 +35,7 @@
             type="text"
             id="docsSearchInput"
             class="docs-search-input"
-            placeholder="Buscar comando, parámetro o tema (ej. VECINOS, 0x14B4, LiFePO4)..."
+            placeholder="Buscar comando, parámetro o tag (ej. VECINOS, DROP, ZH, SKEY, LiFePO4)..."
             autocomplete="off"
           />
         </div>
@@ -65,45 +67,37 @@
       <!-- Sidebar Navigation -->
       <aside class="docs-sidebar">
         <div class="sidebar-category">
-          <div class="sidebar-cat-title">Primeros Pasos</div>
+          <div class="sidebar-cat-title">Introducción & MeshCore</div>
           <ul class="sidebar-menu">
             <li>
-              <a href="#introduccion" class="active">¿Qué es Meshtacore?</a>
+              <a href="#introduccion" class="active">Visión & Arquitectura</a>
             </li>
+            <li><a href="#meshcore-dual">Coexistencia MeshCore (0x14B4)</a></li>
             <li><a href="#flasheo">Instalación & Flasheo</a></li>
-            <li><a href="#builder-guide">Uso del Web Builder</a></li>
           </ul>
         </div>
 
         <div class="sidebar-category">
-          <div class="sidebar-cat-title">Coexistencia MeshCore</div>
+          <div class="sidebar-cat-title">Comandos Nexus & MTC</div>
           <ul class="sidebar-menu">
-            <li><a href="#meshcore-syncword">Sync Word Híbrido (0x14B4)</a></li>
-            <li><a href="#meshcore-canales">Canales MC: y Grupos</a></li>
-            <li><a href="#meshcore-repetidor">Repetidor Inteligente</a></li>
-            <li>
-              <a href="#meshcore-stats">Métricas de Contención (/stats)</a>
-            </li>
-          </ul>
-        </div>
-
-        <div class="sidebar-category">
-          <div class="sidebar-cat-title">Motor Nexus & MTC</div>
-          <ul class="sidebar-menu">
-            <li><a href="#nexus-prefijos">Prefijos e Invocaciones</a></li>
-            <li><a href="#nexus-red">Red, Vecinos & Rutas (.path)</a></li>
-            <li><a href="#nexus-radio">Frecuencia & Parámetros RF</a></li>
-            <li><a href="#nexus-seguridad">Modelo de 3 Claves & Bóveda</a></li>
-            <li><a href="#nexus-sistema">Comandos de Sistema</a></li>
-          </ul>
-        </div>
-
-        <div class="sidebar-category">
-          <div class="sidebar-cat-title">Energía & Repetidores</div>
-          <ul class="sidebar-menu">
-            <li><a href="#energia-bateria">Perfiles Químicos (LiFePO4)</a></li>
-            <li><a href="#energia-zero-hop">Zero-Hop & Modo Router</a></li>
-            <li><a href="#energia-storm">Modo STORM & Ahorro</a></li>
+            <li><a href="#sec-1">§1 Canales & Invocaciones</a></li>
+            <li><a href="#sec-2">§2 Información & Ayuda</a></li>
+            <li><a href="#sec-3">§3 Firewall & Filtrado (DROP)</a></li>
+            <li><a href="#sec-4">§4 Zero-Hop Routing (ZH)</a></li>
+            <li><a href="#sec-5">§5 Seguridad & Features</a></li>
+            <li><a href="#sec-6">§6 Control de Saltos & Máscaras</a></li>
+            <li><a href="#sec-7">§7 Radio & Control RF</a></li>
+            <li><a href="#sec-8">§8 Identidad & NodeDB</a></li>
+            <li><a href="#sec-9">§9 Observación & SIGINT (Vecinos)</a></li>
+            <li><a href="#sec-10">§10 Monitorización (Watchlist)</a></li>
+            <li><a href="#sec-11">§11 Bóveda (Vault) & Persistencia</a></li>
+            <li><a href="#sec-12">§12 Canales & Configuración</a></li>
+            <li><a href="#sec-13">§13 Hardware, Sensores & Batería</a></li>
+            <li><a href="#sec-14">§14 Mensajería & Alertas</a></li>
+            <li><a href="#sec-15">§15 Macros, Alias & Cron</a></li>
+            <li><a href="#sec-16">§16 Sistema de Archivos & OS</a></li>
+            <li><a href="#sec-17">§17 Comandos Específicos MeshCore</a></li>
+            <li><a href="#sec-index">§18 Índice Alfabético (+100)</a></li>
           </ul>
         </div>
 
@@ -119,314 +113,154 @@
       <main class="docs-main">
         <!-- Section: Introducción -->
         <section class="docs-section" id="introduccion">
-          <h1>Documentación Oficial de Meshtacore</h1>
+          <h1>Manual Oficial y Referencia de Comandos</h1>
           <p class="docs-lead">
-            Meshtacore es una bifurcación avanzada y optimizada del firmware
-            Meshtastic (basado en la versión 2.8.1 y la rama Jentastic/Nexus)
-            diseñada para maximizar la resiliencia en instalaciones reales de
-            montaña, incorporar coexistencia transparente con la red
-            <strong>MeshCore</strong> en una sola radio, y brindar
-            administración remota total por RF.
+            Meshtacore es una bifurcación optimizada de Meshtastic 2.8.1 y
+            Jentastic/Nexus diseñada para la resiliencia en nodos de montaña,
+            repetidores solares y redes de emergencia. Incorpora la tecnología
+            <strong>Dual-Mesh</strong> para escuchar simultáneamente Meshtastic
+            y MeshCore en el mismo chip SX126x y el motor de consola remota
+            <strong>Nexus / MTC</strong>
+            con más de 100 comandos ejecutables por radio.
           </p>
 
           <div class="callout callout-info">
-            <strong
-              >💡 Filosofía del proyecto: "Un radio, dos redes mesh"</strong
-            >
-            Meshtacore no abandona el protocolo Meshtastic ni su ecosistema de
-            aplicaciones móviles. Al contrario: mantiene el 100% de
-            compatibilidad con la app oficial de Meshtastic, pero añade la
-            capacidad de escuchar, repetir y chatear con usuarios de MeshCore
-            sin necesidad de comprar ni alimentar una segunda placa.
-          </div>
-
-          <h2>Pilares Fundamentales</h2>
-          <div class="docs-table-wrapper">
-            <table class="docs-table">
-              <thead>
-                <tr>
-                  <th>Pilar</th>
-                  <th>Tecnología</th>
-                  <th>Beneficio para el Operador</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><strong>Dual-Mesh SX126x</strong></td>
-                  <td>Registro Sync Word <code>0x14B4</code></td>
-                  <td>
-                    Escucha simultánea de tramas Meshtastic (0x2B) y MeshCore
-                    (0x12).
-                  </td>
-                </tr>
-                <tr>
-                  <td><strong>Factory Reset Shield</strong></td>
-                  <td>SafeFile + Baked UserPrefs</td>
-                  <td>
-                    Canales locales y claves integradas en ROM inmunes a
-                    reinicios accidentales.
-                  </td>
-                </tr>
-                <tr>
-                  <td><strong>Nexus Admin Engine</strong></td>
-                  <td>Comandos <code>/nexus</code> y <code>/mtc</code></td>
-                  <td>
-                    Más de 100 comandos de control y diagnóstico por radio sin
-                    Bluetooth.
-                  </td>
-                </tr>
-                <tr>
-                  <td><strong>Repetidor Inteligente</strong></td>
-                  <td>Dedupe de 160 paquetes y backoff adaptativo</td>
-                  <td>
-                    Retransmisión eficiente que no satura el espectro ni bloquea
-                    tramas prioritarias.
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <strong>💡 Buscador Rápido</strong>
+            Utiliza la barra de búsqueda en la parte superior para localizar
+            cualquier comando por su nombre (ej. <code>VECINOS</code>,
+            <code>DROP</code>, <code>ZERO-HOP</code>, <code>BATTERY</code>,
+            <code>SKEY</code>, <code>FREQSCAN</code>) o por su función.
           </div>
         </section>
 
-        <!-- Section: Instalación & Flasheo -->
-        <section class="docs-section" id="flasheo">
-          <h2>Instalación & Flasheo</h2>
+        <!-- Section: MeshCore Dual -->
+        <section class="docs-section" id="meshcore-dual">
+          <h2>Coexistencia MeshCore (Dual-Mesh en SX126x)</h2>
           <p class="docs-paragraph">
-            Existen varias formas de instalar Meshtacore en tu dispositivo según
-            el grado de personalización que requieras.
+            Normalmente, Meshtastic y MeshCore no pueden escucharse mutuamente
+            porque utilizan palabras de sincronismo (Sync Word) distintas en la
+            modulación LoRa: <code>0x2B</code> en Meshtastic y
+            <code>0x12</code> en MeshCore.
           </p>
+          <div class="callout callout-success">
+            <strong>Palabra de Sincronismo Híbrida 0x14B4</strong>
+            Meshtacore programa el registro del transceptor SX126x con
+            <code>0x14B4</code>. El chip detecta tanto tramas de Meshtastic como
+            de MeshCore. Cuando llega una trama, primero se prueba el descifrado
+            con los canales de Meshtastic; si no coincide, pasa al procesador de
+            MeshCore, el cual retransmite tramas de inundación (flood), procesa
+            anuncios (ADVERT) y entrega chats grupales (<code>MC:Public</code>)
+            y mensajes directos directamente a la aplicación móvil.
+          </div>
+        </section>
 
-          <h3>Método Recomendado: Generador Web Online (1-Clic)</h3>
+        <!-- Section: Flasheo -->
+        <section class="docs-section" id="flasheo">
+          <h2>Instalación y Flasheo</h2>
           <p class="docs-paragraph">
-            La forma más cómoda y recomendada para la mayoría de usuarios es
-            utilizar nuestro
+            Recomendamos generar tu binario personalizado en nuestro
             <a
               href="../builder.html"
               style="color: var(--accent-cyan); font-weight: 600"
-              >Meshtacore Web Builder</a
-            >:
-          </p>
-          <ol
-            style="
-              margin-left: 1.5rem;
-              color: var(--text-secondary);
-              margin-bottom: 1.25rem;
-            "
-          >
-            <li style="margin-bottom: 0.5rem">
-              Selecciona tu modelo de hardware (disponibles más de 70 modelos:
-              Heltec T114, RAK4631, T-Echo, LilyGO T-Beam, Seeed Tracker, etc.).
-            </li>
-            <li style="margin-bottom: 0.5rem">
-              Personaliza tus canales comunitarios, frecuencia (por defecto
-              SFNarrow 868.175 MHz en España) y posición aproximada en el mapa.
-            </li>
-            <li style="margin-bottom: 0.5rem">
-              Pulsa en <strong>Generar Firmware</strong>. Un bot de GitHub
-              Actions creará tu binario personalizado y te ofrecerá el enlace de
-              descarga directa en unos minutos.
-            </li>
-          </ol>
-
-          <h3>Flasheo en Dispositivos nRF52 (RAK4631, Heltec T114, T-Echo)</h3>
-          <p class="docs-paragraph">
-            Para la mayoría de placas nRF52840, el proceso es tan sencillo como
-            arrastrar un archivo UF2:
-          </p>
-          <div class="code-block">
-            1. Conecta el dispositivo por USB al ordenador.<br />
-            2. Haz doble pulsación rápida en el botón RESET para entrar en modo
-            Bootloader.<br />
-            3. Aparecerá una unidad USB en tu sistema (ej. "RAK4631" o
-            "NRF52BOOT").<br />
-            4. Copia o arrastra el archivo firmware-xxxx.uf2 a esa unidad.<br />
-            5. La placa se reiniciará automáticamente con Meshtacore instalado.
-          </div>
-
-          <h3>
-            Flasheo en Dispositivos ESP32 / ESP32-S3 (Heltec V3, T-Beam, etc.)
-          </h3>
-          <p class="docs-paragraph">
-            Puedes utilizar cualquier flasheador web compatible con ESP32 (como
-            el Web Flasher oficial de Meshtastic o Adafruit WebSerial ESPTool) o
-            la herramienta de línea de comandos <code>esptool.py</code>:
-          </p>
-          <div class="code-block">
-            esptool.py --port /dev/ttyUSB0 write_flash 0x00000
-            firmware-heltec-v3.bin
-          </div>
-        </section>
-
-        <!-- Section: Coexistencia MeshCore -->
-        <section class="docs-section" id="meshcore-syncword">
-          <h2>Coexistencia con MeshCore (Dual-Mesh)</h2>
-          <p class="docs-lead">
-            ¿Cómo es posible que un solo transceptor LoRa SX126x reciba tramas
-            de dos protocolos diferentes?
-          </p>
-          <p class="docs-paragraph">
-            Tanto Meshtastic como MeshCore transmiten mediante modulación LoRa
-            estándar. En configuraciones donde ambos comparten la misma
-            frecuencia (por ejemplo 868.175 MHz), el mismo ancho de banda
-            (Bandwidth) y el mismo Spreading Factor, el único elemento a nivel
-            físico que separa ambas redes es la palabra de sincronismo (<strong
-              >Sync Word</strong
-            >):
+              >Web Builder Online</a
+            >
+            para tener tus canales, coordenadas y claves sellados en la
+            partición de fábrica.
           </p>
           <ul
             style="
               margin-left: 1.5rem;
               color: var(--text-secondary);
-              margin-bottom: 1.25rem;
+              margin-bottom: 1rem;
             "
           >
             <li>
-              Meshtastic utiliza la palabra de sincronismo <code>0x2B</code> (o
-              <code>0x2B24</code>).
+              <strong>nRF52 (RAK4631, T114, T-Echo):</strong> Doble clic en
+              reset y arrastrar el archivo <code>.uf2</code> a la unidad USB.
             </li>
             <li>
-              MeshCore utiliza la palabra de sincronismo <code>0x12</code> (o
-              <code>0x1424</code>).
+              <strong>ESP32 / ESP32-S3 (Heltec V3, T-Beam):</strong> Flashear
+              mediante Web Flasher o
+              <code
+                >esptool.py --port /dev/ttyUSB0 write_flash 0x0
+                firmware.bin</code
+              >.
             </li>
           </ul>
-
-          <div class="callout callout-success">
-            <strong>El valor híbrido 0x14B4</strong>
-            Meshtacore configura el registro de recepción del chip SX126x con el
-            valor híbrido
-            <code>0x14B4</code>. Este valor comparte nibbles de sincronismo con
-            ambos estándares, permitiendo que el motor de radio detecte el
-            preámbulo y la cabecera tanto de tramas Meshtastic como de tramas
-            MeshCore sin pérdida de sensibilidad detectable.
-          </div>
-
-          <h3 id="meshcore-canales">Canales MC: y Grupos Compartidos</h3>
-          <p class="docs-paragraph">
-            Meshtacore mapea canales de MeshCore directamente a canales de la
-            app Meshtastic usando el prefijo <code>MC:</code>. Por ejemplo:
-          </p>
-          <div class="docs-table-wrapper">
-            <table class="docs-table">
-              <thead>
-                <tr>
-                  <th>Nombre del Canal</th>
-                  <th>Clave PSK</th>
-                  <th>Función</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><code>MC:Public</code></td>
-                  <td><code>AQ==</code></td>
-                  <td>
-                    Canal público general de MeshCore. Todo texto enviado sale
-                    como GRP_TXT MeshCore.
-                  </td>
-                </tr>
-                <tr>
-                  <td><code>MC:#test</code></td>
-                  <td>Derivada / Específica</td>
-                  <td>
-                    Canal de pruebas y comprobación de cobertura MeshCore.
-                  </td>
-                </tr>
-                <tr>
-                  <td><code>MC:#bot</code></td>
-                  <td>Derivada</td>
-                  <td>Canal de comandos y telemetría automatizada.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <h3 id="meshcore-repetidor">Repetidor Inteligente MeshCore</h3>
-          <p class="docs-paragraph">
-            Meshtacore no es solo un puente pasivo: actúa como un repetidor de
-            MeshCore de alto rendimiento:
-          </p>
-          <ul
-            style="
-              margin-left: 1.5rem;
-              color: var(--text-secondary);
-              margin-bottom: 1.25rem;
-            "
-          >
-            <li>
-              <strong>Deduplicación de 160 paquetes sin expiración:</strong>
-              Evita que tramas que llegan con retraso por factores de dispersión
-              altos re-inunden la malla.
-            </li>
-            <li>
-              <strong>Retraso Adaptativo por Contención:</strong> Basado en la
-              arquitectura ZephCore, el nodo escucha antes de transmitir (LBT) y
-              aumenta el backoff si detecta que otros repetidores ya han
-              retransmitido la misma trama.
-            </li>
-            <li>
-              <strong>Prioridad Meshtastic:</strong> Una trama recibida siempre
-              se comprueba primero con los canales Meshtastic locales. Solo si
-              no corresponde a la red Meshtastic se procesa a través del
-              pipeline de MeshCore.
-            </li>
-          </ul>
-
-          <h3 id="meshcore-stats">Comando de Métricas (/stats)</h3>
-          <p class="docs-paragraph">
-            Si envías un mensaje directo al nodo con el texto
-            <code>/stats</code>, responderá con las métricas de contención del
-            espectro en tiempo real: detecciones de actividad de canal (CAD),
-            tiempo en el aire acumulado y tramas retransmitidas para cada una de
-            las dos redes.
-          </p>
         </section>
 
-        <!-- Section: Motor Nexus & MTC -->
-        <section class="docs-section" id="nexus-prefijos">
-          <h2>Motor de Administración Remota Nexus & MTC</h2>
-          <p class="docs-lead">
-            Nexus proporciona una interfaz de consola completa que funciona a
-            través de los propios mensajes de la red LoRa. No requiere conexión
-            Bluetooth ni scripts especiales.
+        <!-- =================================================================== -->
+        <!-- §1 THE NEXUS CHANNEL & INVOCATIONS -->
+        <!-- =================================================================== -->
+        <section class="docs-section" id="sec-1">
+          <h2>§1. Canales de Control e Invocación (/nexus y /mtc)</h2>
+          <p class="docs-paragraph">
+            Los comandos Nexus se transmiten como mensajes de texto normales a
+            través de la malla LoRa o mediante la interfaz Bluetooth/Serial con
+            un prefijo de destino:
           </p>
 
-          <h3>Prefijos de Invocación</h3>
           <div class="docs-table-wrapper">
             <table class="docs-table">
               <thead>
                 <tr>
                   <th>Prefijo</th>
                   <th>Destino / Ámbito</th>
-                  <th>Ejemplo</th>
+                  <th>Descripción & Enrutamiento</th>
                 </tr>
               </thead>
               <tbody>
-                <tr>
+                <tr class="cmd-row">
                   <td>
-                    <code>/nexus &lt;cmd&gt;</code> o
+                    <code>/nexus &lt;cmd&gt;</code> /
                     <code>/mtc &lt;cmd&gt;</code>
                   </td>
-                  <td>Broadcast (Canal principal, rate limit 5s)</td>
-                  <td><code>/nexus INFO</code></td>
+                  <td>Broadcast (Canal primario)</td>
+                  <td>
+                    Difusión general en el canal primario. Aplica límite de tasa
+                    de 5 segundos por nodo.
+                  </td>
                 </tr>
-                <tr>
+                <tr class="cmd-row">
                   <td><code>/nexus-local &lt;cmd&gt;</code></td>
-                  <td>Solo nodo local (no se transmite por RF)</td>
-                  <td><code>/nexus-local NODES</code></td>
+                  <td>Local (Sin emisión RF)</td>
+                  <td>
+                    Se ejecuta exclusivamente en el nodo conectado (por app
+                    móvil o serie) sin retransmitir por RF.
+                  </td>
                 </tr>
-                <tr>
+                <tr class="cmd-row">
                   <td><code>/nexus-device !&lt;hex8&gt; &lt;cmd&gt;</code></td>
-                  <td>Nodo específico por su Hex ID</td>
-                  <td><code>/nexus-device !3f2a89c1 REBOOT</code></td>
+                  <td>Nodo por Hex ID</td>
+                  <td>
+                    Dirigido directamente a un nodo específico (ej:
+                    <code>/nexus-device !3f2a89c1 INFO</code>). Omite el
+                    cooldown.
+                  </td>
                 </tr>
-                <tr>
+                <tr class="cmd-row">
                   <td><code>/nexus-node &lt;short4&gt; &lt;cmd&gt;</code></td>
-                  <td>Nodo específico por nombre corto</td>
-                  <td><code>/nexus-node MTC1 BATTERY</code></td>
+                  <td>Nodo por Nombre Corto</td>
+                  <td>
+                    Dirigido al nodo con nombre corto de 4 caracteres (ej:
+                    <code>/nexus-node MTC1 RSSI</code>).
+                  </td>
                 </tr>
-                <tr>
-                  <td><code>/nexus-mac &lt;mac2&gt; &lt;cmd&gt;</code></td>
-                  <td>Nodo específico por los 2 últimos bytes MAC</td>
-                  <td><code>/nexus-mac 3f2a SYS</code></td>
+                <tr class="cmd-row">
+                  <td><code>/nexus-mac &lt;hex2&gt; &lt;cmd&gt;</code></td>
+                  <td>Nodo por Sufijo MAC</td>
+                  <td>
+                    Dirigido a los dos últimos bytes de la dirección MAC física
+                    (ej: <code>/nexus-mac 3f2a SYS</code>).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>/nexus-group &lt;grp&gt; &lt;cmd&gt;</code></td>
+                  <td>Grupo Asignado</td>
+                  <td>
+                    Ejecuta en todos los nodos que pertenezcan al grupo
+                    <code>&lt;grp&gt;</code> (ver comando GROUP).
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -434,137 +268,352 @@
 
           <h3>Redirección de Respuestas (/nexus R)</h3>
           <p class="docs-paragraph">
-            Para evitar saturar el canal general cuando ejecutas un comando de
-            diagnóstico extenso, puedes redirigir la salida a un mensaje privado
-            (DM) o a un canal secundario:
+            Cualquier comando puede redirigir su respuesta hacia un canal
+            específico o mensaje directo (DM):
           </p>
           <div class="code-block">
-            /nexus R DM !3f2a89c1 NODES # Ejecuta NODES y envía la respuesta
-            como DM al operador /nexus R CH 2 VECINOS # Ejecuta VECINOS y envía
-            la respuesta al canal secundario (índice 2)
+            /nexus R CH 1 NODES # Ejecuta NODES y envía la respuesta al canal
+            secundario (índice 1) /nexus R DM !3f2a89c1 SYS # Ejecuta SYS y
+            envía el informe como mensaje privado al operador
           </div>
+        </section>
 
-          <!-- Comandos Destacados -->
-          <h2 id="nexus-red">Comandos de Red, Vecinos y Diagnóstico</h2>
-
-          <div class="cmd-card">
-            <div class="cmd-header">
-              <span class="cmd-name">VECINOS</span>
-              <span class="cmd-scope">Consulta RF Directa</span>
-            </div>
-            <div class="cmd-desc">
-              Lista todos los nodos que se escuchan de forma directa por
-              radiofrecuencia (0 saltos), indicando su SNR, RSSI y tiempo desde
-              la última trama recibida.
-            </div>
-            <div class="cmd-example">
-              /nexus VECINOS | /nexus MESHCORE VECINOS
-            </div>
-          </div>
-
-          <div class="cmd-card">
-            <div class="cmd-header">
-              <span class="cmd-name">..trace [mensaje]</span>
-              <span class="cmd-scope">MeshCore & Meshtastic</span>
-            </div>
-            <div class="cmd-desc">
-              Inicia un traceroute interactivo por saltos a través de la malla,
-              registrando el SNR y el identificador de cada repetidor intermedio
-              que interviene en la ruta.
-            </div>
-            <div class="cmd-example">..trace Comprobando repetidor norte</div>
-          </div>
-
-          <div class="cmd-card">
-            <div class="cmd-header">
-              <span class="cmd-name">.path (en respuesta)</span>
-              <span class="cmd-scope">Diagnóstico Pasivo</span>
-            </div>
-            <div class="cmd-desc">
-              Si respondes citando un mensaje con <code>.path</code>, el nodo te
-              devolverá la lista completa de nodos y repetidores por los que
-              pasó ese texto específico antes de llegar a ti.
-            </div>
-            <div class="cmd-example">.path</div>
-          </div>
-
-          <div class="cmd-card">
-            <div class="cmd-header">
-              <span class="cmd-name">ZERO-HOP &lt;ON|OFF&gt;</span>
-              <span class="cmd-scope">Control de Tráfico</span>
-            </div>
-            <div class="cmd-desc">
-              Fuerza al nodo a no retransmitir paquetes de más de 0 saltos,
-              evitando que un repetidor congestionado degrade el resto de la
-              red. En Meshtacore se activa por defecto en roles de Router.
-            </div>
-            <div class="cmd-example">/nexus ZERO-HOP ON</div>
-          </div>
-
-          <h2 id="nexus-radio">Comandos de Radio & Frecuencia</h2>
-
-          <div class="cmd-card">
-            <div class="cmd-header">
-              <span class="cmd-name">FREQ &lt;MHz&gt;</span>
-              <span class="cmd-scope">Radiofrecuencia</span>
-            </div>
-            <div class="cmd-desc">
-              Cambia la frecuencia operativa del módem LoRa en tiempo real sin
-              necesidad de reiniciar.
-            </div>
-            <div class="cmd-example">/nexus FREQ 868.175</div>
-          </div>
-
-          <div class="cmd-card">
-            <div class="cmd-header">
-              <span class="cmd-name">POWER &lt;dBm&gt;</span>
-              <span class="cmd-scope">Potencia TX</span>
-            </div>
-            <div class="cmd-desc">
-              Ajusta la potencia de salida de transmisión en dBm (sujeto a los
-              límites legales y del hardware).
-            </div>
-            <div class="cmd-example">/nexus POWER 22</div>
-          </div>
-
-          <h2 id="nexus-seguridad">Modelo de Confianza (3 Capas de Claves)</h2>
-          <p class="docs-paragraph">
-            Nexus resuelve el dilema entre seguridad y facilidad de
-            mantenimiento con un esquema de tres capas de llaves criptográficas:
-          </p>
+        <!-- =================================================================== -->
+        <!-- §2 HELP & BUILD INFO -->
+        <!-- =================================================================== -->
+        <section class="docs-section" id="sec-2">
+          <h2>§2. Información y Ayuda</h2>
           <div class="docs-table-wrapper">
             <table class="docs-table">
               <thead>
                 <tr>
-                  <th>Nivel</th>
-                  <th>Tipo de Clave</th>
-                  <th>Almacenamiento</th>
-                  <th>Modificable por RF</th>
+                  <th>Comando</th>
+                  <th>Sintaxis</th>
+                  <th>Descripción</th>
+                  <th>Respuesta Típica</th>
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td><strong>1. Admin Keys</strong></td>
-                  <td>Claves estándar Meshtastic</td>
-                  <td>Configuración en flash</td>
-                  <td>Sí, mediante la app o comandos admin estándar.</td>
-                </tr>
-                <tr>
-                  <td><strong>2. Secondary Keys (SKEY)</strong></td>
-                  <td>Claves de club / operadores</td>
-                  <td>Bóveda Nexus (Vault)</td>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">HELP</span></td>
+                  <td><code>HELP [tema]</code></td>
                   <td>
-                    Sí: <code>/nexus SKEY 1 &lt;clave|OFF&gt;</code> para añadir
-                    o revocar.
+                    Muestra el índice paginado de ayuda general o ayuda
+                    específica del tema (ej. <code>HELP DROPS</code>,
+                    <code>HELP FW</code>, <code>HELP SKEY</code>).
+                  </td>
+                  <td><code>MTC: Paging help categories...</code></td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">INFO</span></td>
+                  <td><code>INFO</code></td>
+                  <td>
+                    Muestra ID hexadecimal, nombre corto, versión de firmware,
+                    rol activo y dirección MAC.
+                  </td>
+                  <td>
+                    <code
+                      >MTC INFO: !3f2a89c1 [MTC1] Ver:2.8.104 Role:ROUTER
+                      MAC:aa:bb:cc:dd:ee:ff</code
+                    >
                   </td>
                 </tr>
-                <tr>
-                  <td><strong>3. Master Keys (MKEY)</strong></td>
-                  <td>Clave irrevocable del propietario</td>
-                  <td>Grabada en el binario ROM</td>
+                <tr class="cmd-row">
                   <td>
-                    <strong>No</strong>: Sobrevive a cualquier borrado o factory
-                    reset.
+                    <span class="cmd-badge">COMPILATION</span> /
+                    <code>COMP</code>
+                  </td>
+                  <td><code>COMPILATION</code></td>
+                  <td>
+                    Muestra la plataforma de destino, arquitectura, repositorio
+                    fuente y flags de compilación.
+                  </td>
+                  <td>
+                    <code
+                      >MTC COMPILATION: Tgt:heltec_v3 Built:Nov 02
+                      Flags:MESHCORE,NEXUS</code
+                    >
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">VERSION</span> / <code>V</code>
+                  </td>
+                  <td><code>VERSION</code></td>
+                  <td>
+                    Devuelve la cadena textual completa de versión del firmware.
+                  </td>
+                  <td><code>MTC VERSION: meshtacore-beta-2.8.104</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- §3 FIREWALL & TRAFFIC FILTERING -->
+        <!-- =================================================================== -->
+        <section class="docs-section" id="sec-3">
+          <h2>§3. Firewall & Filtrado de Tráfico (DROP / FW)</h2>
+          <p class="docs-paragraph">
+            El cortafuegos granular de Nexus permite filtrar paquetes entrantes
+            y salientes según el tipo de aplicación, puerto, saltos de origen o
+            procedencia para evitar saturación de la malla.
+          </p>
+
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Comando</th>
+                  <th>Sintaxis</th>
+                  <th>Descripción</th>
+                  <th>Ejemplo</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">DROP</span></td>
+                  <td><code>DROP &lt;TAG&gt;</code></td>
+                  <td>
+                    Activa el descarte de paquetes entrantes que coincidan con
+                    <code>&lt;TAG&gt;</code>.
+                  </td>
+                  <td><code>DROP TR</code> (Descarta traceroutes entrantes)</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">UNDROP</span></td>
+                  <td><code>UNDROP &lt;TAG&gt;</code></td>
+                  <td>Desactiva el descarte del tag especificado.</td>
+                  <td><code>UNDROP TR</code></td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">OUTDROP</span></td>
+                  <td><code>OUTDROP &lt;TAG&gt;</code></td>
+                  <td>
+                    Descarta paquetes salientes (TX) generados en el nodo
+                    (<code>NI</code>, <code>PO</code>, <code>TL</code>,
+                    <code>TR</code>, <code>AD</code>, <code>RO</code>).
+                  </td>
+                  <td>
+                    <code>OUTDROP PO</code> (No emite posición propia por radio)
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">UNOUTDROP</span></td>
+                  <td><code>UNOUTDROP &lt;TAG&gt;</code></td>
+                  <td>Desactiva el descarte saliente del tag indicado.</td>
+                  <td><code>UNOUTDROP PO</code></td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">DROPS</span></td>
+                  <td><code>DROPS</code></td>
+                  <td>
+                    Muestra la lista de todos los filtros entrantes actualmente
+                    activos.
+                  </td>
+                  <td><code>MTC ACTIVE DROPS: TR PO TL BRNI</code></td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">OUTDROPS</span></td>
+                  <td><code>OUTDROPS</code></td>
+                  <td>Muestra los filtros salientes activos.</td>
+                  <td><code>MTC ACTIVE OUTDROPS: PO</code></td>
+                </tr>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">HEXDROPS</span> /
+                    <code>SETHEX</code>
+                  </td>
+                  <td><code>SETHEX &lt;hex64&gt;</code></td>
+                  <td>
+                    Lee o programa toda la máscara de 64 bits de drops en una
+                    sola operación.
+                  </td>
+                  <td><code>SETHEX 0x0000000000000001</code></td>
+                </tr>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">FIREWALL</span> / <code>FW</code>
+                  </td>
+                  <td><code>FIREWALL [sección]</code></td>
+                  <td>
+                    Informe paginado consolidado del estado de todos los filtros
+                    del cortafuegos.
+                  </td>
+                  <td><code>/nexus FW</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Tags Principales del Firewall</h3>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Tag</th>
+                  <th>Alias</th>
+                  <th>Aplicación / Puerto</th>
+                  <th>Efecto de Descarte</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="cmd-row">
+                  <td><code>NODEINFO</code></td>
+                  <td><code>NI</code></td>
+                  <td>NodeInfo</td>
+                  <td>
+                    Bloquea anuncios periódicos de nombre e información de
+                    nodos.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>POSITION</code></td>
+                  <td><code>PO</code></td>
+                  <td>Posición GPS</td>
+                  <td>
+                    Descarta paquetes de coordenadas para no saturar
+                    repetidores.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>TELEMETRY</code></td>
+                  <td><code>TL</code></td>
+                  <td>Telemetría</td>
+                  <td>Descarta paquetes de sensores y batería de la malla.</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>TRACEROUTE</code></td>
+                  <td><code>TR</code></td>
+                  <td>Traceroute</td>
+                  <td>
+                    Descarta todas las solicitudes y respuestas de traceroute.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>BR_NODEINFO</code></td>
+                  <td><code>BRNI</code></td>
+                  <td>Broadcast Requests</td>
+                  <td>
+                    <strong>Crítico en España:</strong> Bloquea peticiones de
+                    NodeInfo en broadcast.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>PRIVATE</code></td>
+                  <td><code>PR</code></td>
+                  <td>Cifrado opaco</td>
+                  <td>
+                    Descarta paquetes cifrados de canales privados desconocidos.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>HOP6 / HOP7</code></td>
+                  <td><code>H6 / H7</code></td>
+                  <td>Límite de saltos</td>
+                  <td>
+                    Descarta paquetes con hop_start configurado a 6 o 7 para
+                    evitar bucles.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>FAV_BYPASS</code></td>
+                  <td><code>FB</code></td>
+                  <td>Bypass favoritos</td>
+                  <td>
+                    Si está activo, los nodos marcados como favoritos se saltan
+                    el firewall.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>NO_MQTT</code></td>
+                  <td><code>NM</code></td>
+                  <td>Flag MQTT</td>
+                  <td>
+                    Descarta paquetes que no tengan activado el bit OK_TO_MQTT.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Reglas INVALID (Validación de Paquetes Ilícitos)</h3>
+          <p class="docs-paragraph">
+            Comando <code>INVALID &lt;REGLA&gt;</code> para activar y
+            <code>UNINVALID &lt;REGLA&gt;</code> para desactivar:
+          </p>
+          <ul
+            style="
+              margin-left: 1.5rem;
+              color: var(--text-secondary);
+              margin-bottom: 1.25rem;
+            "
+          >
+            <li>
+              <code>NULL</code> (o <code>NULL_ISLAND</code>): Descarta
+              posiciones exactamente en (0,0) producidas por fallos de GPS.
+            </li>
+            <li>
+              <code>SPAIN</code>: Descarta posiciones que caigan fuera del área
+              geográfica de España (Península 35-44°N, 10°O-5°E y Canarias
+              27-30°N, 19-13°O).
+            </li>
+            <li>
+              <code>GERMANY</code>: Descarta posiciones fuera del área alemana
+              (47-55.5°N, 5.5-15.5°E).
+            </li>
+            <li>
+              <code>HW_UNSET</code> / <code>HW</code>: Descarta NodeInfo con
+              modelo de hardware no declarado o corrupto.
+            </li>
+            <li>
+              <code>ID_MISMATCH</code> / <code>ID</code>: Descarta NodeInfo
+              falsificados donde el ID interno difiere del emisor de la trama.
+            </li>
+          </ul>
+
+          <h3>Filtrado por Repetidor (RDROP e IDR)</h3>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Comando</th>
+                  <th>Sintaxis</th>
+                  <th>Descripción</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">RDROP</span></td>
+                  <td><code>RDROP &lt;hex&gt;</code> / <code>CLEAR</code></td>
+                  <td>
+                    Descarta todos los paquetes retransmitidos por un repetidor
+                    concreto (ej: <code>RDROP A4</code>).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">IDR</span></td>
+                  <td><code>IDR &lt;hex&gt;</code> / <code>CLEAR</code></td>
+                  <td>
+                    Ignora duplicados procedentes de un repetidor específico que
+                    cause inundación descontrolada.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">NIGN</span></td>
+                  <td><code>NIGN ADD &lt;!id&gt;</code> / <code>REM</code></td>
+                  <td>
+                    Lista de exclusión Nexus independiente de NodeDB (hasta 64
+                    nodos).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">FSIG</span></td>
+                  <td><code>FSIG SET &lt;1-8&gt; &lt;patrón&gt;</code></td>
+                  <td>
+                    Firewall de firma binaria (8 ranuras) que busca patrones en
+                    bytes y descarta coincidencias.
                   </td>
                 </tr>
               </tbody>
@@ -572,74 +621,1763 @@
           </div>
         </section>
 
-        <!-- Section: Energía & Repetidores -->
-        <section class="docs-section" id="energia-bateria">
-          <h2>Energía & Repetidores Solares</h2>
+        <!-- =================================================================== -->
+        <!-- §4 ZERO-HOP ROUTING -->
+        <!-- =================================================================== -->
+        <section class="docs-section" id="sec-4">
+          <h2>§4. Enrutamiento Zero-Hop (ZH)</h2>
           <p class="docs-lead">
-            Los repetidores solares instalados en ubicaciones remotas requieren
-            una gestión de energía estricta para evitar dañar las baterías en
-            días de baja radiación.
+            El enrutamiento Zero-Hop previene la saturación de la malla
+            obligando a los routers a retransmitir solamente paquetes que
+            provengan de clientes directos (0 saltos).
           </p>
 
-          <h3>Perfiles Químicos de Batería</h3>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Comando</th>
+                  <th>Sintaxis</th>
+                  <th>Descripción</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">ZH ON / OFF</span></td>
+                  <td><code>ZH &lt;ON|OFF&gt;</code></td>
+                  <td>
+                    Activa o desactiva globalmente el cortafuegos Zero-Hop de
+                    Nexus.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">ZH POS</span></td>
+                  <td><code>ZH POS &lt;ON|OFF&gt;</code></td>
+                  <td>
+                    Permite que los paquetes de posición sigan retransmitiéndose
+                    incluso con Zero-Hop activo.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">ZH TELE</span></td>
+                  <td><code>ZH TELE &lt;ON|OFF&gt;</code></td>
+                  <td>
+                    Permite la preservación de paquetes de telemetría con
+                    Zero-Hop.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">ZH ROUTER</span></td>
+                  <td><code>ZH ROUTER &lt;ON|OFF&gt;</code></td>
+                  <td>
+                    Consulta la máscara automática de routers detectados en
+                    directo para Zero-Hop.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">ZH CLIENT</span></td>
+                  <td><code>ZH CLIENT &lt;ON|OFF&gt;</code></td>
+                  <td>
+                    Consulta la máscara automática de estaciones base
+                    (CLIENT_BASE).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">ZH ADD / DEL</span></td>
+                  <td><code>ZH ADD &lt;hex&gt;</code> / <code>DEL</code></td>
+                  <td>
+                    Añade o retira manualmente un byte de nodo de la máscara
+                    Zero-Hop (ej: <code>ZH ADD C3</code>).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">ZH SYNC</span></td>
+                  <td><code>ZH SYNC</code></td>
+                  <td>
+                    Puebla automáticamente la máscara con los routers y
+                    favoritos de la base de datos NodeDB.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">ZH EXPORT / IMPORT</span></td>
+                  <td>
+                    <code>ZH EXPORT</code> / <code>IMPORT &lt;b64&gt;</code>
+                  </td>
+                  <td>
+                    Exporta o importa la máscara de 256 nodos en formato Base64
+                    de 44 caracteres.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">ZH LIST / PAGED</span></td>
+                  <td><code>ZH LIST [target]</code></td>
+                  <td>
+                    Lista los nodos que componen la máscara Zero-Hop (opciones:
+                    <code>MANUAL</code>, <code>ROUTER</code>,
+                    <code>CLIENT</code>, <code>ALL</code>).
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- §5 SECURITY & FEATURES -->
+        <!-- =================================================================== -->
+        <section class="docs-section" id="sec-5">
+          <h2>§5. Seguridad y Características (SECURITY & FEATURES)</h2>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Comando</th>
+                  <th>Sintaxis</th>
+                  <th>Descripción</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">SECURITY</span></td>
+                  <td><code>SECURITY</code></td>
+                  <td>
+                    Muestra el resumen de reglas criptográficas: firmas
+                    exigidas, DMs permitidos, logging silencioso.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">SEC REQ_SIG</span></td>
+                  <td><code>SECURITY REQ_SIG &lt;ON|OFF&gt;</code></td>
+                  <td>
+                    Exige firma XEdDSA válida de clave confiable para aceptar
+                    comandos <code>/nexus</code>.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">SEC ALLOW_DM</span></td>
+                  <td><code>SECURITY ALLOW_DM &lt;ON|OFF&gt;</code></td>
+                  <td>
+                    Permite recibir comandos de administración por mensaje
+                    privado (DM) autenticados por clave pública.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">SEC SILENT_LOG</span></td>
+                  <td><code>SECURITY SILENT_LOG &lt;ON|OFF&gt;</code></td>
+                  <td>
+                    Si se rechaza un comando no autorizado, no emite respuesta
+                    para no delatar la presencia del nodo.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">SEC AUTO_FAV</span></td>
+                  <td><code>SECURITY AUTO_FAV_NEXUS ON</code></td>
+                  <td>
+                    Marca como favorito automáticamente en NodeDB a cualquier
+                    nodo que hable en un canal confiable.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">FEATURES</span></td>
+                  <td>
+                    <code>FEATURES</code> /
+                    <code>FEATURES &lt;NAME&gt; ON|OFF</code>
+                  </td>
+                  <td>
+                    Controla flags de bajo nivel:
+                    <code>FORWARD_OPAQUE_TO_PHONE</code>,
+                    <code>DISABLE_AGC_RESET</code>, <code>LATEBASE</code>.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- §6 HOP-AWARE ROUTING -->
+        <!-- =================================================================== -->
+        <section class="docs-section" id="sec-6">
+          <h2>§6. Control de Saltos y Máscaras (HOPMASK)</h2>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Comando</th>
+                  <th>Sintaxis</th>
+                  <th>Descripción</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">HOPMASK</span></td>
+                  <td>
+                    <code>HOPMASK &lt;start&gt; &lt;limit&gt;</code> /
+                    <code>OFF</code>
+                  </td>
+                  <td>
+                    Fuerza límites de saltos fijos en todos los paquetes
+                    retransmitidos (ej: <code>HOPMASK 3 3</code>).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">CH-HOPMASK</span></td>
+                  <td>
+                    <code>CH-HOPMASK &lt;ch&gt; &lt;s&gt; &lt;l&gt;</code>
+                  </td>
+                  <td>
+                    Aplica límite de saltos exclusivo a un canal determinado
+                    (ej: <code>CH-HOPMASK 0 2 2</code>).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">PORT-HOPMASK</span></td>
+                  <td>
+                    <code>PORT-HOPMASK &lt;port&gt; &lt;s&gt; &lt;l&gt;</code>
+                  </td>
+                  <td>
+                    Aplica límite de saltos según el tipo de aplicación
+                    (<code>TEXT</code>, <code>POSITION</code>,
+                    <code>TELEMETRY</code>).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">HOPSTATS</span></td>
+                  <td><code>HOPSTATS</code></td>
+                  <td>
+                    Histograma de distribución de saltos observados en los
+                    paquetes recibidos (H0, H1, H2, H3...).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">HOPMATRIX</span></td>
+                  <td><code>HOPMATRIX</code></td>
+                  <td>
+                    Matriz bidimensional que cruza <code>hop_start</code> contra
+                    saltos reales para analizar densidad de red.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- §7 RADIO CONFIGURATION & RF CONTROL -->
+        <!-- =================================================================== -->
+        <section class="docs-section" id="sec-7">
+          <h2>§7. Radiofrecuencia y Control de Módem (LORA, PRESET, FSK)</h2>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Comando</th>
+                  <th>Sintaxis</th>
+                  <th>Descripción</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">LORA</span> / <code>LR</code></td>
+                  <td><code>LORA</code></td>
+                  <td>
+                    Resumen completo del módem: SF, BW, CR, preset, frecuencia
+                    en MHz, potencia y rebroadcast.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">LORA-STATUS</span> /
+                    <code>LRS</code>
+                  </td>
+                  <td><code>LORA-STATUS</code></td>
+                  <td>
+                    Estado en tiempo real del chip de radio: frecuencia,
+                    temporización de slots, CW, syncword y bitrate.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">SETLORA</span></td>
+                  <td>
+                    <code
+                      >SETLORA &lt;sf&gt; &lt;bw&gt; &lt;cr&gt;
+                      &lt;freq&gt;</code
+                    >
+                  </td>
+                  <td>
+                    Ajusta parámetros de modulación en caliente (se aplica tras
+                    5s). Ej: <code>SETLORA 7 62 5 869.618</code>.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">PRESET</span></td>
+                  <td><code>PRESET &lt;nombre&gt;</code></td>
+                  <td>
+                    Carga perfiles estándar o tácticos:
+                    <code>P1</code> (SFNarrow España), <code>LF868</code>,
+                    <code>P7</code>, <code>MINI-1</code>, <code>MADRID24</code>.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">SETPOWER</span></td>
+                  <td><code>SETPOWER &lt;dBm&gt;</code></td>
+                  <td>
+                    Ajusta la potencia de transmisión de salida (ej:
+                    <code>SETPOWER 22</code>).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">SETSYNCWORD</span></td>
+                  <td><code>SETSYNCWORD &lt;hex|RESET&gt;</code></td>
+                  <td>
+                    Sobrescribe la palabra de sincronismo (ej:
+                    <code>SETSW 0x14B4</code>).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">TX ON / OFF</span></td>
+                  <td><code>TX ON</code> / <code>TX OFF</code></td>
+                  <td>
+                    Interruptor de emergencia para apagar o encender las
+                    transmisiones de radiofrecuencia.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">SETREBROADCAST</span></td>
+                  <td><code>SETREBROADCAST &lt;modo&gt;</code></td>
+                  <td>
+                    Define la política de retransmisión: <code>ALL</code>,
+                    <code>LOCAL_ONLY</code>, <code>KNOWN_ONLY</code> o
+                    <code>NONE</code>.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">BASETEXTS</span></td>
+                  <td><code>BASETEXTS &lt;ON|OFF&gt;</code></td>
+                  <td>
+                    Fuerza la retransmisión incondicional de mensajes de texto
+                    (TEXT_MESSAGE_APP) en estaciones base.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">ROLE</span> / <code>SETROLE</code>
+                  </td>
+                  <td><code>SETROLE &lt;rol&gt;</code></td>
+                  <td>
+                    Consulta o cambia el rol del nodo: <code>CLIENT</code>,
+                    <code>CLIENT_MUTE</code>, <code>ROUTER</code>,
+                    <code>CLIENT_BASE</code>, <code>SENSOR</code>.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">SETFSK</span> / <code>SETFLRC</code>
+                  </td>
+                  <td><code>SETFSK &lt;br&gt; [dev] [bw]</code></td>
+                  <td>
+                    Cambia experimentalmente la modulación de LoRa a FSK/GFSK o
+                    FLRC para pruebas punto a punto.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- §8 IDENTITY, NAMING & NODEDB -->
+        <!-- =================================================================== -->
+        <section class="docs-section" id="sec-8">
+          <h2>§8. Identidad, Nombres y Base de Datos NodeDB</h2>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Comando</th>
+                  <th>Sintaxis</th>
+                  <th>Descripción</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">NAME</span></td>
+                  <td><code>NAME &lt;nombre_largo&gt;</code></td>
+                  <td>
+                    Cambia el nombre largo del nodo y regenera el número de
+                    nodo.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">OWNER</span></td>
+                  <td><code>OWNER &lt;corto4&gt; &lt;largo&gt;</code></td>
+                  <td>
+                    Actualiza nombre corto y largo simultáneamente (ej:
+                    <code>OWNER MTC1 Meshtacore Base</code>).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">HW</span></td>
+                  <td><code>HW</code></td>
+                  <td>
+                    Informa del modelo de placa, familia del microcontrolador y
+                    chip de radio (XTAL o TCXO).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">NODES</span></td>
+                  <td><code>NODES [filtro]</code></td>
+                  <td>
+                    Listado paginado de nodos registrados en la base de datos
+                    con saltos, SNR y última escucha.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">FNODE</span></td>
+                  <td><code>FNODE &lt;!id|filtro&gt;</code></td>
+                  <td>
+                    Ficha detallada de un nodo: hardware, roles, claves
+                    públicas, telemetría y métricas.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">DBINFO</span></td>
+                  <td><code>DBINFO</code></td>
+                  <td>
+                    Salud de NodeDB: nodos almacenados vs capacidad máxima,
+                    nodos directos y favoritos.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">TRUSTED</span></td>
+                  <td><code>TRUSTED [slot] [nombre|OFF]</code></td>
+                  <td>
+                    Configura las 2 ranuras de canales confiables que aceptan
+                    comandos de administración.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- §9 NETWORK OBSERVATION, SCANNING & SIGINT -->
+        <!-- =================================================================== -->
+        <section class="docs-section" id="sec-9">
+          <h2>§9. Observación de Red, Vecinos Directos y SIGINT</h2>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Comando</th>
+                  <th>Sintaxis</th>
+                  <th>Descripción</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">VECINOS</span></td>
+                  <td><code>VECINOS</code> / <code>MESHCORE VECINOS</code></td>
+                  <td>
+                    Lista todos los nodos escuchados directamente por RF (0
+                    saltos), indicando SNR y RSSI.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">NOISE</span></td>
+                  <td><code>NOISE</code></td>
+                  <td>
+                    Toma 25 muestras instantáneas de ruido RF para determinar el
+                    suelo de ruido real (Noise Floor).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">FREQSCAN</span></td>
+                  <td><code>FREQSCAN &lt;mhz&gt; &lt;bw&gt;</code></td>
+                  <td>
+                    Salta temporalmente a una frecuencia dada para medir
+                    ocupación y ruido antes de volver.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">NETSCAN</span></td>
+                  <td><code>NETSCAN</code></td>
+                  <td>
+                    Escaneo pasivo de 60 segundos registrando todos los
+                    transmisores cercanos por RF.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">RSSI</span> / <code>RS</code></td>
+                  <td><code>RSSI</code></td>
+                  <td>
+                    Muestra RSSI, SNR, error de frecuencia (Hz) y flags del
+                    último paquete recibido.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">RSSILOG</span> / <code>PL</code>
+                  </td>
+                  <td><code>RSSILOG [n]</code></td>
+                  <td>
+                    Historial de los últimos paquetes recibidos desde el búfer
+                    circular (máximo 32).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">SIGSTATS</span> / <code>SS</code>
+                  </td>
+                  <td><code>SIGSTATS</code></td>
+                  <td>
+                    Estadísticas de privacidad de tramas: paquetes totales,
+                    cifrados privados y descifrados.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">STATS</span></td>
+                  <td><code>STATS</code></td>
+                  <td>
+                    Rendimiento del router: paquetes TX, RX, duplicados,
+                    retransmitidos y cancelados.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">RELAYS</span> / <code>RY</code>
+                  </td>
+                  <td><code>RELAYS</code> / <code>SORTEDRELAYSTATS</code></td>
+                  <td>
+                    Identifica qué repetidores están interviniendo en la malla
+                    ordenados por volumen de tráfico.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">TRACE</span> / <code>TR</code>
+                  </td>
+                  <td><code>TRACE &lt;!id&gt;</code></td>
+                  <td>
+                    Inicia un traceroute interactivo hacia el nodo de destino.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- §10 TARGET WATCHLIST -->
+        <!-- =================================================================== -->
+        <section class="docs-section" id="sec-10">
+          <h2>§10. Lista de Seguimiento Continuo (Watchlist)</h2>
           <p class="docs-paragraph">
-            A diferencia del firmware oficial, que asume baterías estándar de
-            iones de litio de 4.2V, Meshtacore permite seleccionar la química
-            real conectada al circuito de carga:
+            Permite monitorizar hasta 8 nodos simultáneamente, calculando
+            desviaciones estándar de señal, varianza de SNR, histogramas de
+            saltos e intervalos entre transmisiones:
           </p>
           <div class="docs-table-wrapper">
             <table class="docs-table">
               <thead>
                 <tr>
-                  <th>Química</th>
-                  <th>Voltaje Máx</th>
-                  <th>Voltaje Nominal</th>
-                  <th>Corte de Protección</th>
+                  <th>Comando</th>
+                  <th>Sintaxis</th>
+                  <th>Descripción</th>
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td><strong>LiFePO4</strong> (Fosfato de hierro y litio)</td>
-                  <td>3.60 V</td>
-                  <td>3.20 V</td>
-                  <td>2.80 V (evita sobredescarga)</td>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">WATCH ADD</span></td>
+                  <td><code>WATCH ADD &lt;!id|short&gt;</code></td>
+                  <td>
+                    Añade un nodo a la lista de monitorización continua (máx. 8
+                    ranuras en RAM).
+                  </td>
                 </tr>
-                <tr>
-                  <td><strong>Li-Ion / 18650 / LiPo</strong></td>
-                  <td>4.20 V</td>
-                  <td>3.70 V</td>
-                  <td>3.10 V</td>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">WATCH DEL</span></td>
+                  <td><code>WATCH DEL &lt;!id|short&gt;</code></td>
+                  <td>Retira un nodo de la lista de seguimiento.</td>
                 </tr>
-                <tr>
-                  <td><strong>LTO</strong> (Titanato de litio)</td>
-                  <td>2.80 V</td>
-                  <td>2.40 V</td>
-                  <td>1.80 V (óptimo para frío extremo)</td>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">WATCH LIST</span></td>
+                  <td><code>WATCH LIST</code></td>
+                  <td>Muestra los nodos actualmente seguidos.</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">WATCH STATS</span></td>
+                  <td><code>WATCH STATS &lt;!id&gt;</code></td>
+                  <td>
+                    Genera el informe detallado de señal (Avg/SD/Min/Max),
+                    saltos, repetidor habitual y tiempos.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">WATCH ALL</span></td>
+                  <td><code>WATCH ALL</code></td>
+                  <td>
+                    Envía el informe consolidado de todos los nodos
+                    monitorizados.
+                  </td>
                 </tr>
               </tbody>
             </table>
           </div>
+        </section>
 
-          <h3 id="energia-storm">Modo STORM (Suspensión por Tormenta)</h3>
-          <p class="docs-paragraph">
-            Si se aproxima una racha de días nublados o la batería cae por
-            debajo del 15%, puedes ordenar al nodo que apague el módem LoRa
-            durante un número determinado de minutos para permitir que el panel
-            solar recupere carga:
-          </p>
-          <div class="code-block">
-            /nexus STORM 180 # Apaga la radio durante 3 horas para recarga solar
-            y se reactiva solo
+        <!-- =================================================================== -->
+        <!-- §11 VAULT & STORAGE PERSISTENCE -->
+        <!-- =================================================================== -->
+        <section class="docs-section" id="sec-11">
+          <h2>§11. Bóveda (Vault) y Persistencia en Memoria</h2>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Comando</th>
+                  <th>Sintaxis</th>
+                  <th>Descripción</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">SAVE</span></td>
+                  <td><code>SAVE</code></td>
+                  <td>
+                    Guarda todos los ajustes de RAM (filtros, presets, alias,
+                    macros) en la flash (/nexus.bin).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">LOAD</span></td>
+                  <td><code>LOAD</code></td>
+                  <td>
+                    Descarta la configuración de RAM y recarga la última versión
+                    guardada en la bóveda.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">VAULT</span> / <code>VST</code>
+                  </td>
+                  <td><code>VAULT</code></td>
+                  <td>
+                    Muestra el esquema de la bóveda, tamaño en bytes y ranuras
+                    utilizadas de alias y macros.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">VAULT DIFF</span> / <code>VDF</code>
+                  </td>
+                  <td><code>VAULT DIFF</code></td>
+                  <td>
+                    Compara los parámetros en RAM con la flash para detectar
+                    cambios sin guardar.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">FREEZE</span></td>
+                  <td><code>FREEZE &lt;ON|OFF&gt;</code></td>
+                  <td>
+                    Congela las escrituras en memoria flash para protegerla
+                    contra desgaste durante pruebas.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">DBFLUSH</span></td>
+                  <td><code>DBFLUSH</code></td>
+                  <td>
+                    Fuerza la escritura inmediata de NodeDB a disco ignorando el
+                    estado de freeze.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">BD</span></td>
+                  <td><code>BD SET &lt;1..300&gt;</code></td>
+                  <td>
+                    Ajusta el retardo aleatorio de respuestas paginadas para
+                    evitar colisiones en la malla.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
+        </section>
 
-          <h3 id="energia-zero-hop">Optimización Zero-Hop en Routers</h3>
+        <!-- =================================================================== -->
+        <!-- §12 CHANNELS & CONFIGURATION -->
+        <!-- =================================================================== -->
+        <section class="docs-section" id="sec-12">
+          <h2>§12. Gestión de Canales y Ajustes</h2>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Comando</th>
+                  <th>Sintaxis</th>
+                  <th>Descripción</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">CHANNELS</span> / <code>CH</code>
+                  </td>
+                  <td><code>CH</code> / <code>CHASH</code></td>
+                  <td>
+                    Lista los canales activos con su rol o con sus hashes PSK de
+                    8 bits.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">SETCHNAME</span></td>
+                  <td><code>SETCHNAME &lt;idx&gt; &lt;nombre&gt;</code></td>
+                  <td>Renombra un canal (protege los canales confiables).</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">SETCHPSK</span></td>
+                  <td><code>SETCHPSK &lt;idx&gt; &lt;clave_b64&gt;</code></td>
+                  <td>
+                    Actualiza la clave criptográfica de un canal mediante
+                    Base64.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">ADDCH</span> / <code>DELCH</code>
+                  </td>
+                  <td><code>ADDCH &lt;nombre&gt; [psk]</code></td>
+                  <td>
+                    Añade o elimina ranuras de canal (el canal primario 0 nunca
+                    se puede borrar).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">CONFIG</span></td>
+                  <td><code>CONFIG</code></td>
+                  <td>
+                    Muestra los intervalos de emisión (NodeInfo, Telemetría,
+                    Posición) y estado GPS.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">SETCONFIG</span></td>
+                  <td><code>SETCONFIG &lt;param&gt; &lt;val&gt;</code></td>
+                  <td>
+                    Modifica intervalos: <code>NI</code>, <code>TEL_D</code>,
+                    <code>TEL_E</code>, <code>POS</code>, <code>SMART</code>,
+                    <code>FIXED</code>, <code>LOC</code>.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">SKEY</span></td>
+                  <td><code>SKEY &lt;1..4&gt; &lt;clave|OFF&gt;</code></td>
+                  <td>
+                    Gestiona las 4 claves públicas secundarias de administración
+                    remota revocables por RF.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- §13 HARDWARE, SENSORS & TELEMETRY -->
+        <!-- =================================================================== -->
+        <section class="docs-section" id="sec-13">
+          <h2>§13. Sensores, Batería y Hardware</h2>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Comando</th>
+                  <th>Sintaxis</th>
+                  <th>Descripción</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">BATTERY</span> / <code>VOLTS</code>
+                  </td>
+                  <td><code>BATTERY</code></td>
+                  <td>
+                    Voltaje exacto de la batería, porcentaje de carga y salud
+                    del regulador.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">CHEMISTRY</span></td>
+                  <td><code>CHEMISTRY &lt;LIFEPO4|LIION|LTO&gt;</code></td>
+                  <td>
+                    Cambia el perfil químico de la batería ajustando las curvas
+                    de descarga y corte.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">STORM</span></td>
+                  <td><code>STORM &lt;minutos&gt;</code></td>
+                  <td>
+                    Apaga la radio LoRa durante los minutos especificados para
+                    recarga solar ante baja batería.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">SYS</span></td>
+                  <td><code>SYS</code></td>
+                  <td>
+                    Salud del sistema: temperatura del microcontrolador, motivo
+                    del último reinicio y heap libre.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">UPTIME</span> / <code>UP</code>
+                  </td>
+                  <td><code>UPTIME</code></td>
+                  <td>
+                    Tiempo ininterrumpido en funcionamiento desde el encendido
+                    (días, horas, minutos).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">ENV</span></td>
+                  <td><code>ENV</code></td>
+                  <td>
+                    Lectura de sensores ambientales conectados por I2C (BME280,
+                    SHT31, BMP280).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">POWER</span></td>
+                  <td><code>POWER</code></td>
+                  <td>
+                    Lectura de voltímetros y amperímetros de bus I2C (INA219,
+                    INA226, AXP2101).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">GPIO</span></td>
+                  <td><code>GPIO &lt;W|R|WATCH&gt; &lt;pin&gt; [val]</code></td>
+                  <td>
+                    Lectura, escritura y monitorización por interrupción de
+                    pines GPIO físicos.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">WIFI</span></td>
+                  <td><code>WIFI [ON|OFF|SSID|PSK]</code></td>
+                  <td>
+                    Consulta o configura los parámetros de conectividad Wi-Fi
+                    del dispositivo.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- §14 MESSAGING, ROUTING & ALERTS -->
+        <!-- =================================================================== -->
+        <section class="docs-section" id="sec-14">
+          <h2>§14. Mensajería, Alertas y Sonido</h2>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Comando</th>
+                  <th>Sintaxis</th>
+                  <th>Descripción</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">TEXT</span></td>
+                  <td><code>TEXT &lt;mensaje&gt;</code></td>
+                  <td>
+                    Emite un mensaje de texto en difusión en el canal primario
+                    0.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">TEXTC</span></td>
+                  <td><code>TEXTC &lt;canal&gt; &lt;msg&gt;</code></td>
+                  <td>
+                    Emite un mensaje en el canal secundario especificado (ej:
+                    <code>TEXTC 1 Hola Malla</code>).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">DM</span></td>
+                  <td><code>DM &lt;!id|short&gt; &lt;mensaje&gt;</code></td>
+                  <td>
+                    Envía un mensaje privado cifrado punto a punto a un nodo.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">..trace</span></td>
+                  <td><code>..trace [mensaje]</code></td>
+                  <td>
+                    Traza la ruta por saltos mostrando repetidores intermedios
+                    tanto en Meshtastic como en MeshCore.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">.path</span></td>
+                  <td><code>.path</code> (en respuesta citada)</td>
+                  <td>
+                    Responde a un mensaje citando para revelar los repetidores
+                    exactos que atravesó.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">PPING</span></td>
+                  <td><code>PPING [ON|OFF|EMOJI]</code></td>
+                  <td>
+                    Configura la respuesta automática a pings públicos con
+                    telemetría o emojis.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">STARWARS</span></td>
+                  <td><code>STARWARS</code> / <code>BELL</code></td>
+                  <td>
+                    Reproduce la Marcha Imperial o un tono de campana en el
+                    zumbador del hardware.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">BUENASPRACTICAS</span> /
+                    <code>GP</code>
+                  </td>
+                  <td><code>GOODPRACTICES</code></td>
+                  <td>
+                    Aplica automáticamente las buenas prácticas de la comunidad
+                    española (NI=72h, POS=72h).
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- §15 MACROS, ALIAS & CRON -->
+        <!-- =================================================================== -->
+        <section class="docs-section" id="sec-15">
+          <h2>§15. Automatización, Macros, Alias y Tareas Cron</h2>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Comando</th>
+                  <th>Sintaxis</th>
+                  <th>Descripción</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">ALIAS</span></td>
+                  <td><code>ALIAS SET &lt;!id&gt; &lt;alias&gt;</code></td>
+                  <td>
+                    Asigna un alias corto de 4 caracteres a un nodo (hasta 16
+                    alias en flash).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">MACRO</span></td>
+                  <td><code>MACRO SET &lt;nom&gt; &lt;cmds&gt;</code></td>
+                  <td>
+                    Guarda secuencias de comandos separadas por punto y coma
+                    (ej: <code>MACRO SET TEST RSSI; SYS</code>).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">GROUP</span></td>
+                  <td><code>GROUP ADD &lt;nombre&gt;</code></td>
+                  <td>
+                    Crea grupos de destino para invocar comandos con
+                    <code>/nexus-group &lt;grp&gt;</code>.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">CRON</span></td>
+                  <td><code>CRON ADD PER &lt;seg&gt; &lt;cmd&gt;</code></td>
+                  <td>
+                    Programa la ejecución periódica automática de un comando
+                    (mínimo 60s). Ej: <code>CRON ADD PER 1800 NOISE</code>.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- §16 FILESYSTEM & OS -->
+        <!-- =================================================================== -->
+        <section class="docs-section" id="sec-16">
+          <h2>§16. Sistema de Archivos y Utilidades del Sistema</h2>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Comando</th>
+                  <th>Sintaxis</th>
+                  <th>Descripción</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">TIME</span> / <code>SETTIME</code>
+                  </td>
+                  <td>
+                    <code>TIME</code> / <code>SETTIME &lt;epoch&gt;</code>
+                  </td>
+                  <td>
+                    Consulta o ajusta manualmente el reloj de tiempo real (RTC).
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">REBOOT</span></td>
+                  <td><code>REBOOT</code></td>
+                  <td>
+                    Reinicia de forma limpia el dispositivo con una cuenta atrás
+                    de seguridad de 20 segundos.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">LS</span> / <code>CAT</code> /
+                    <code>RM</code>
+                  </td>
+                  <td><code>LS</code> / <code>CAT &lt;archivo&gt;</code></td>
+                  <td>
+                    Explora, lee (en Base64) o elimina archivos del sistema de
+                    almacenamiento flash interno.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">FS</span></td>
+                  <td><code>FS</code></td>
+                  <td>
+                    Capacidad y espacio libre disponible en el sistema de
+                    archivos (LittleFS / SPIFFS).
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- §17 MESHCORE ESPECÍFICOS -->
+        <!-- =================================================================== -->
+        <section class="docs-section" id="sec-17">
+          <h2>§17. Comandos Específicos de MeshCore (/mcore)</h2>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Comando</th>
+                  <th>Sintaxis</th>
+                  <th>Descripción</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">/mcore VECINOS</span></td>
+                  <td><code>/mcore VECINOS</code></td>
+                  <td>
+                    Muestra los contactos directos escuchados en la red MeshCore
+                    con su SNR.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">/mcore ADVERT</span></td>
+                  <td><code>/mcore ADVERT [mins]</code></td>
+                  <td>
+                    Fuerza la emisión de un anuncio de identidad MeshCore
+                    firmado por el nodo.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">/mcore RELAY</span></td>
+                  <td><code>/mcore RELAY &lt;ON|OFF&gt;</code></td>
+                  <td>
+                    Activa o apaga la retransmisión de tramas MeshCore en
+                    caliente sin reiniciar.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">/stats</span></td>
+                  <td><code>/stats</code> (vía DM)</td>
+                  <td>
+                    Envía un informe de contención comparativo: actividad CAD y
+                    tiempo en el aire de Meshtastic vs MeshCore.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- §18 COMPLETE ALPHABETICAL INDEX -->
+        <!-- =================================================================== -->
+        <section class="docs-section" id="sec-index">
+          <h2>§18. Índice Alfabético Completo (+100 Comandos)</h2>
           <p class="docs-paragraph">
-            En redes de alta densidad, los repetidores mal posicionados generan
-            colisiones y "tormentas de paquetes". El modo
-            <strong>Zero-Hop</strong> garantiza que el nodo solo repita paquetes
-            que provengan directamente de clientes finales con 0 saltos, dejando
-            el enlace troncal despejado.
+            Relación de todos los comandos soportados por el firmware Meshtacore
+            ordenados alfabéticamente:
           </p>
+
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Comando / Alias</th>
+                  <th>Sección</th>
+                  <th>Función Principal</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="cmd-row">
+                  <td><code>..trace</code></td>
+                  <td>§14 / §17</td>
+                  <td>
+                    Traceroute interactivo por saltos para Meshtastic y MeshCore
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>.path</code></td>
+                  <td>§14 / §17</td>
+                  <td>
+                    Inspección de repetidores atravesados en respuestas citadas
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>ACC</code></td>
+                  <td>§8 Identidad</td>
+                  <td>
+                    Lectura de acelerómetro y detección de movimiento físico
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>ADDCH</code></td>
+                  <td>§12 Canales</td>
+                  <td>Añadir una nueva ranura de canal</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>ADMINS</code></td>
+                  <td>§8 Identidad</td>
+                  <td>
+                    Lista de claves públicas de administradores autorizados
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>ALIAS</code></td>
+                  <td>§15 Macros</td>
+                  <td>Gestión de alias cortos para nodos frecuentes</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>BASETEXTS</code></td>
+                  <td>§7 Radio</td>
+                  <td>
+                    Rebroadcast forzado de mensajes de texto en estaciones base
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>BATTERY</code></td>
+                  <td>§13 Sensores</td>
+                  <td>Voltaje exacto y porcentaje de batería</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>BD</code></td>
+                  <td>§11 Bóveda</td>
+                  <td>
+                    Configuración del retardo y jitter en respuestas paginadas
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>BELL</code></td>
+                  <td>§14 Mensajería</td>
+                  <td>Generación de tono sonoro de alerta en hardware</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>BUENASPRACTICAS / GP</code></td>
+                  <td>§14 Mensajería</td>
+                  <td>
+                    Ajuste automático de buenas prácticas de red españolas
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>CAT</code></td>
+                  <td>§16 Sistema</td>
+                  <td>Lectura de archivos flash en formato Base64</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>CHANNELSTATS / CHS</code></td>
+                  <td>§9 SIGINT</td>
+                  <td>Desglose de volumen de tráfico por índice de canal</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>CHANNELS / CH / CHASH</code></td>
+                  <td>§12 Canales</td>
+                  <td>Listado de canales configurados y hashes de cifrado</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>CHEMISTRY</code></td>
+                  <td>§13 Sensores</td>
+                  <td>
+                    Selección de química de batería (LiFePO4, Li-Ion, LTO)
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>CH-HOPMASK</code></td>
+                  <td>§6 Saltos</td>
+                  <td>Límite de saltos aplicado exclusivamente a un canal</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>CLIENTALWAYS</code></td>
+                  <td>§7 Radio</td>
+                  <td>
+                    Desactiva cancelación de retransmisión en clientes base
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>CLIENTSCAN</code></td>
+                  <td>§9 SIGINT</td>
+                  <td>
+                    Mapeo de repetidores y clientes que replican tramas de
+                    prueba
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>CLRSTATS / CS</code></td>
+                  <td>§9 SIGINT</td>
+                  <td>
+                    Puesta a cero de contadores estadísticos en tiempo de
+                    ejecución
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>COMPILATION / COMP</code></td>
+                  <td>§2 Ayuda</td>
+                  <td>
+                    Datos de la imagen binaria compilada y flags de compilación
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>CONFIG</code></td>
+                  <td>§12 Canales</td>
+                  <td>Resumen de configuración protobuf activa</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>CRON</code></td>
+                  <td>§15 Macros</td>
+                  <td>Programador de tareas periódicas y temporizadas</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>CRSTATS / CRS</code></td>
+                  <td>§9 SIGINT</td>
+                  <td>Distribución de tasas de codificación (Coding Rate)</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>DBFLUSH</code></td>
+                  <td>§11 Bóveda</td>
+                  <td>
+                    Sincronización forzada inmediata de NodeDB a memoria flash
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>DBINFO</code></td>
+                  <td>§8 Identidad</td>
+                  <td>
+                    Estado de salud y ocupación de la base de datos de nodos
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>DELCH</code></td>
+                  <td>§12 Canales</td>
+                  <td>Eliminación de canal no primario</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>DELNODE</code></td>
+                  <td>§3 Firewall</td>
+                  <td>Borrado de la ficha de un nodo en NodeDB</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>DM</code></td>
+                  <td>§14 Mensajería</td>
+                  <td>Envío de mensaje privado cifrado punto a punto</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>DM-FORWARD / DMF</code></td>
+                  <td>§14 Mensajería</td>
+                  <td>Reenvío automático de mensajes privados entrantes</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>DROP</code></td>
+                  <td>§3 Firewall</td>
+                  <td>
+                    Activación de reglas de descarte de paquetes por etiqueta
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>DROPS</code></td>
+                  <td>§3 Firewall</td>
+                  <td>Lista de todas las etiquetas de descarte activas</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>ENV</code></td>
+                  <td>§13 Sensores</td>
+                  <td>Lectura de sensores climáticos I2C (BME280/SHT31)</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>FAV / FAVS</code></td>
+                  <td>§3 Firewall</td>
+                  <td>Gestión de nodos favoritos con bypass de filtrado</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>FEATURES</code></td>
+                  <td>§5 Seguridad</td>
+                  <td>Control de flags avanzados de enrutamiento y AGC</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>FIREWALL / FW</code></td>
+                  <td>§3 Firewall</td>
+                  <td>Informe integral del cortafuegos de red</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>FNODE</code></td>
+                  <td>§8 Identidad</td>
+                  <td>Ficha detallada completa de un nodo por ID o nombre</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>FREEZE</code></td>
+                  <td>§11 Bóveda</td>
+                  <td>Congelación de escrituras en memoria flash</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>FREQSCAN</code></td>
+                  <td>§9 SIGINT</td>
+                  <td>
+                    Escaneo puntual de ruido y actividad en frecuencia ajena
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>FS</code></td>
+                  <td>§16 Sistema</td>
+                  <td>
+                    Espacio libre y utilizado en el sistema de archivos flash
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>FSIG</code></td>
+                  <td>§3 Firewall</td>
+                  <td>Cortafuegos de firma de bytes en el payload</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>GPIO</code></td>
+                  <td>§13 Sensores</td>
+                  <td>
+                    Lectura, escritura y vigilancia por evento de pines físicos
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>GROUP</code></td>
+                  <td>§15 Macros</td>
+                  <td>Gestión de grupos para comandos colectivos</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>HEAP</code></td>
+                  <td>§13 Sensores</td>
+                  <td>Memoria dinámica disponible y fragmentación de RAM</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>HELP</code></td>
+                  <td>§2 Ayuda</td>
+                  <td>Índice de ayuda y manual de comandos interactivo</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>HEXDROPS / SETHEX</code></td>
+                  <td>§3 Firewall</td>
+                  <td>
+                    Lectura y programación de máscaras de filtrado en
+                    hexadecimal
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>HOPMASK</code></td>
+                  <td>§6 Saltos</td>
+                  <td>Límite global de saltos para retransmisión</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>HOPMATRIX</code></td>
+                  <td>§6 Saltos</td>
+                  <td>Matriz bidimensional de propagación de saltos</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>HOPSTATS</code></td>
+                  <td>§6 Saltos</td>
+                  <td>Histograma de saltos observados en paquetes</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>HW</code></td>
+                  <td>§8 Identidad</td>
+                  <td>
+                    Modelo de placa, procesador y tipo de oscilador de radio
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>IDR</code></td>
+                  <td>§3 Firewall</td>
+                  <td>
+                    Supresión de paquetes duplicados por repetidor anómalo
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>IGNORE / IGNORED</code></td>
+                  <td>§3 Firewall</td>
+                  <td>Lista de nodos ignorados en la malla</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>INFO</code></td>
+                  <td>§2 Ayuda</td>
+                  <td>Resumen de identidad, versión, rol y MAC del nodo</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>INVALID / INVALIDS</code></td>
+                  <td>§3 Firewall</td>
+                  <td>Filtrado de coordenadas nulas o fuera de fronteras</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>LOAD</code></td>
+                  <td>§11 Bóveda</td>
+                  <td>
+                    Recarga de configuración guardada en la flash descartando
+                    RAM
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>LORA / LORA-STATUS</code></td>
+                  <td>§7 Radio</td>
+                  <td>Parámetros configurados y estado físico de la radio</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>LS</code></td>
+                  <td>§16 Sistema</td>
+                  <td>Listado de ficheros en el almacenamiento interno</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>MACRO</code></td>
+                  <td>§15 Macros</td>
+                  <td>Secuencias de comandos encadenadas</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>MCUINFO</code></td>
+                  <td>§13 Sensores</td>
+                  <td>
+                    Información técnica de silicio y registros del
+                    microcontrolador
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>MEM / RAM</code></td>
+                  <td>§13 Sensores</td>
+                  <td>
+                    Diagnóstico global de memoria heap, PSRAM y stack de tareas
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>NAME</code></td>
+                  <td>§8 Identidad</td>
+                  <td>Cambio de nombre largo asignando nuevo ID de nodo</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>NETSCAN</code></td>
+                  <td>§9 SIGINT</td>
+                  <td>
+                    Barrido pasivo de 60 segundos de transmisores cercanos
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>NIGN</code></td>
+                  <td>§3 Firewall</td>
+                  <td>Lista adicional de exclusión de nodos Nexus</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>NODEDB / DB</code></td>
+                  <td>§8 Identidad</td>
+                  <td>Consulta de registro de un nodo por nombre o ID</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>NODES</code></td>
+                  <td>§8 Identidad</td>
+                  <td>Relación paginada de nodos vistos en la red</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>NOISE</code></td>
+                  <td>§9 SIGINT</td>
+                  <td>Muestreo estadístico del suelo de ruido RF</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>OUTDROP / OUTDROPS</code></td>
+                  <td>§3 Firewall</td>
+                  <td>
+                    Filtrado de paquetes generados localmente hacia la antena
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>OWNER</code></td>
+                  <td>§8 Identidad</td>
+                  <td>Actualización simultánea de nombre corto y largo</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>PACKETSTATS / PS</code></td>
+                  <td>§9 SIGINT</td>
+                  <td>
+                    Distribución de tráfico según el puerto de la aplicación
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>PORT-HOPMASK</code></td>
+                  <td>§6 Saltos</td>
+                  <td>Límite de saltos específico por tipo de paquete</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>POWER</code></td>
+                  <td>§13 Sensores</td>
+                  <td>Lectura de sensores I2C de voltaje y corriente</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>PPING</code></td>
+                  <td>§14 Mensajería</td>
+                  <td>Ping público con respuesta automática y telemetría</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>PRESET</code></td>
+                  <td>§7 Radio</td>
+                  <td>
+                    Carga de perfiles RF normalizados (SFNarrow, Madrid24, etc.)
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>RATELIMIT / RL</code></td>
+                  <td>§12 Canales</td>
+                  <td>
+                    Límites de tasa de paquetes por hora para evitar congestión
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>RDROP</code></td>
+                  <td>§3 Firewall</td>
+                  <td>
+                    Descarte de paquetes emitidos por un repetidor concreto
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>REBOOT</code></td>
+                  <td>§16 Sistema</td>
+                  <td>
+                    Reinicio controlado del nodo con retardo de 20 segundos
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>RELAYS / RY</code></td>
+                  <td>§9 SIGINT</td>
+                  <td>Actividad acumulada por repetidor en la red</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>RM</code></td>
+                  <td>§16 Sistema</td>
+                  <td>Eliminación de archivos en almacenamiento local</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>ROLE / SETROLE</code></td>
+                  <td>§7 Radio</td>
+                  <td>Consulta o cambio de rol de funcionamiento del nodo</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>RSSI / RS / SR</code></td>
+                  <td>§9 SIGINT</td>
+                  <td>
+                    Métricas RF del último paquete (RSSI, SNR, frecuencia)
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>SAVE</code></td>
+                  <td>§11 Bóveda</td>
+                  <td>
+                    Grabación de ajustes de RAM en la memoria flash (/nexus.bin)
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>SECURITY / SEC</code></td>
+                  <td>§5 Seguridad</td>
+                  <td>
+                    Control de firmas criptográficas y acceso por mensaje
+                    privado
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>SETCHNAME / SETCHPSK</code></td>
+                  <td>§12 Canales</td>
+                  <td>Configuración de nombre y clave de cifrado de canales</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>SETCONFIG</code></td>
+                  <td>§12 Canales</td>
+                  <td>
+                    Ajuste de intervalos de transmisión de telemetría y posición
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>SETFSK / SETFLRC</code></td>
+                  <td>§7 Radio</td>
+                  <td>Activación experimental de modulaciones FSK o FLRC</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>SETLORA</code></td>
+                  <td>§7 Radio</td>
+                  <td>Ajuste de SF, ancho de banda y frecuencia en directo</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>SETPOWER</code></td>
+                  <td>§7 Radio</td>
+                  <td>Ajuste de potencia de salida de transmisión en dBm</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>SETSYNCWORD</code></td>
+                  <td>§7 Radio</td>
+                  <td>Sobrescribe la palabra de sincronismo del módem</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>SIGSTATS</code></td>
+                  <td>§9 SIGINT</td>
+                  <td>
+                    Desglose de paquetes según tipo de cifrado y privacidad
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>SKEY</code></td>
+                  <td>§12 Canales</td>
+                  <td>
+                    Gestión de claves públicas de administración revocables
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>STARWARS</code></td>
+                  <td>§14 Mensajería</td>
+                  <td>
+                    Reproducción sonora de la Marcha Imperial en el buzzer
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>STATS</code></td>
+                  <td>§9 SIGINT</td>
+                  <td>Métricas globales de tráfico y descarte del enrutador</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>STORM</code></td>
+                  <td>§13 Sensores</td>
+                  <td>
+                    Apagado temporal de radio para recuperación solar de batería
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>SYS</code></td>
+                  <td>§13 Sensores</td>
+                  <td>Informe del sistema operativo, temperatura y memoria</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>TEXT / TEXTC</code></td>
+                  <td>§14 Mensajería</td>
+                  <td>Emisión de texto en canal general o secundario</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>TIME / SETTIME</code></td>
+                  <td>§16 Sistema</td>
+                  <td>
+                    Fecha, hora UTC y sincronización de reloj en tiempo real
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>TRACE / TR</code></td>
+                  <td>§9 SIGINT</td>
+                  <td>Ejecución de traceroute directo hacia un nodo destino</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>TRUSTED</code></td>
+                  <td>§8 Identidad</td>
+                  <td>
+                    Ranuras de canales de confianza para ejecución de órdenes
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>TX ON / OFF</code></td>
+                  <td>§7 Radio</td>
+                  <td>Corte o activación de emisión por radiofrecuencia</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>UPTIME / UP</code></td>
+                  <td>§13 Sensores</td>
+                  <td>Tiempo transcurrido desde el último encendido</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>UTIL</code></td>
+                  <td>§13 Sensores</td>
+                  <td>
+                    Porcentaje de ocupación del canal y ciclo de trabajo TX
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>VAULT / VAULT DIFF</code></td>
+                  <td>§11 Bóveda</td>
+                  <td>
+                    Inspección de la bóveda flash y diferencias respecto a RAM
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>VECINOS</code></td>
+                  <td>§9 SIGINT</td>
+                  <td>Listado de nodos vecinos directos captados sin saltos</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>VERSION / V</code></td>
+                  <td>§2 Ayuda</td>
+                  <td>Cadena de compilación y versión del firmware</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>WATCH</code></td>
+                  <td>§10 Monitor</td>
+                  <td>
+                    Seguimiento estadístico continuo de hasta 8 nodos en RAM
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>WIFI</code></td>
+                  <td>§13 Sensores</td>
+                  <td>Estado y configuración de conectividad Wi-Fi</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>ZERO-HOP / ZH</code></td>
+                  <td>§4 Zero-Hop</td>
+                  <td>
+                    Sistema de protección de malla Zero-Hop contra saturación
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </section>
 
         <!-- Section: FAQ -->
@@ -647,74 +2385,58 @@
           <h2>Preguntas Frecuentes (FAQ)</h2>
 
           <div class="cmd-card">
-            <h3 style="margin-top: 0; color: var(--text-primary)">
-              ¿Puedo usar la aplicación móvil oficial de Meshtastic con
-              Meshtacore?
-            </h3>
-            <p class="docs-paragraph" style="margin-bottom: 0">
-              <strong>Sí, al 100%.</strong> Meshtacore se conecta exactamente
-              igual por Bluetooth, Wi-Fi o cable USB a las apps de Android, iOS
-              y Web. Verás tus mensajes de texto, canales, nodos y telemetría
-              con total normalidad.
-            </p>
+            <div class="cmd-header">
+              <span class="cmd-name"
+                >¿Por qué usar /nexus o /mtc en lugar de la app?</span
+              >
+            </div>
+            <div class="cmd-desc">
+              La app de Meshtastic requiere estar físicamente cerca del nodo por
+              Bluetooth o tener conexión Wi-Fi. Con los comandos Nexus puedes
+              gestionar repetidores remotos instalados en cumbres a decenas de
+              kilómetros a través de la propia red de radio LoRa.
+            </div>
           </div>
 
           <div class="cmd-card">
-            <h3 style="margin-top: 0; color: var(--text-primary)">
-              ¿Qué ocurre si hago un "Factory Reset" desde la aplicación móvil?
-            </h3>
-            <p class="docs-paragraph" style="margin-bottom: 0">
-              En el firmware oficial, perderías los canales españoles, las
-              claves de cifrado y el nombre. En Meshtacore, si generaste tu
-              firmware con el Web Builder,
-              <strong
-                >el nodo se reinicia restaurando automáticamente tus canales
-                comunitarios, frecuencia SFNarrow y configuración de
-                fábrica</strong
-              >. ¡Nunca te quedarás incomunicado!
-            </p>
+            <div class="cmd-header">
+              <span class="cmd-name"
+                >¿Cómo funcionan los canales MC: de MeshCore?</span
+              >
+            </div>
+            <div class="cmd-desc">
+              Cualquier canal con el prefijo <code>MC:</code> (como
+              <code>MC:Public</code> con PSK <code>AQ==</code>) es tratado por
+              Meshtacore como un canal de MeshCore. Al enviar un texto en él,
+              sale con la cabecera nativa de MeshCore y los textos entrantes de
+              usuarios de MeshCore se muestran en tu móvil.
+            </div>
           </div>
 
           <div class="cmd-card">
-            <h3 style="margin-top: 0; color: var(--text-primary)">
-              ¿Funciona la recepción híbrida de MeshCore en todas las placas?
-            </h3>
-            <p class="docs-paragraph" style="margin-bottom: 0">
-              La recepción simultánea mediante el registro híbrido
-              <code>0x14B4</code> requiere un transceptor de la familia
-              <strong>Semtech SX126x (SX1262, SX1268)</strong>. Está probado y
-              verificado en dispositivos como Heltec Mesh Node T114, RAK4631,
-              LilyGO T-Echo, ThinkNode M1 y similares. En chips antiguos (como
-              SX1276/SX1278), el nodo opera en modo Meshtastic estándar con
-              todas las ventajas de Nexus y Factory Reset Shield.
-            </p>
-          </div>
-
-          <div class="cmd-card">
-            <h3 style="margin-top: 0; color: var(--text-primary)">
-              ¿Dónde puedo solicitar nuevas funciones o reportar un error?
-            </h3>
-            <p class="docs-paragraph" style="margin-bottom: 0">
-              El desarrollo se gestiona en nuestro repositorio de GitHub en
-              <a
-                href="https://github.com/xejarque/meshtacore-firmware/issues"
-                target="_blank"
-                rel="noopener"
-                style="color: var(--accent-cyan)"
-                >xejarque/meshtacore-firmware</a
-              >. Las aportaciones de la comunidad y los pull requests son
-              bienvenidos.
-            </p>
+            <div class="cmd-header">
+              <span class="cmd-name"
+                >¿Qué precauciones debo tener con el rol CLIENT_MUTE?</span
+              >
+            </div>
+            <div class="cmd-desc">
+              El rol <code>CLIENT_MUTE</code> silencia totalmente las
+              retransmisiones para no actuar como repetidor. Por este motivo, el
+              Web Builder desactiva automáticamente el Rebroadcast Forzado de
+              Textos, fuerza el modo de retransmisión a <code>NONE</code> y
+              apaga el repetidor MeshCore.
+            </div>
           </div>
         </section>
       </main>
     </div>
 
-    <!-- Script: Live Instant Search & Active Nav Spy -->
+    <!-- Script: Instant Live Search & Active Nav Spy -->
     <script>
       document.addEventListener("DOMContentLoaded", () => {
         const searchInput = document.getElementById("docsSearchInput");
         const sections = document.querySelectorAll(".docs-section");
+        const cmdRows = document.querySelectorAll(".cmd-row");
         const cmdCards = document.querySelectorAll(".cmd-card");
         const sidebarLinks = document.querySelectorAll(".sidebar-menu a");
 
@@ -724,29 +2446,37 @@
             const query = e.target.value.toLowerCase().trim();
             if (!query) {
               sections.forEach((sec) => (sec.style.display = ""));
+              cmdRows.forEach((row) => (row.style.display = ""));
               cmdCards.forEach((card) => (card.style.display = ""));
               return;
             }
 
-            cmdCards.forEach((card) => {
-              const text = card.textContent.toLowerCase();
-              if (text.includes(query)) {
-                card.style.display = "";
-                // Make sure parent section is visible
-                const parentSec = card.closest(".docs-section");
-                if (parentSec) parentSec.style.display = "";
-              } else {
-                card.style.display = "none";
-              }
+            // Filter table rows
+            cmdRows.forEach((row) => {
+              const text = row.textContent.toLowerCase();
+              row.style.display = text.includes(query) ? "" : "none";
             });
 
-            // Also check full section paragraphs
+            // Filter command cards
+            cmdCards.forEach((card) => {
+              const text = card.textContent.toLowerCase();
+              card.style.display = text.includes(query) ? "" : "none";
+            });
+
+            // Adjust sections visibility
             sections.forEach((sec) => {
               const secText = sec.textContent.toLowerCase();
+              const hasVisibleRows =
+                sec.querySelectorAll('.cmd-row:not([style*="display: none"])')
+                  .length > 0;
               const hasVisibleCards =
                 sec.querySelectorAll('.cmd-card:not([style*="display: none"])')
                   .length > 0;
-              if (secText.includes(query) || hasVisibleCards) {
+              if (
+                hasVisibleRows ||
+                hasVisibleCards ||
+                secText.includes(query)
+              ) {
                 sec.style.display = "";
               } else {
                 sec.style.display = "none";
@@ -759,7 +2489,7 @@
         window.addEventListener("scroll", () => {
           let current = "";
           sections.forEach((sec) => {
-            const top = sec.offsetTop - 120;
+            const top = sec.offsetTop - 140;
             if (window.pageYOffset >= top) {
               current = sec.getAttribute("id");
             }
