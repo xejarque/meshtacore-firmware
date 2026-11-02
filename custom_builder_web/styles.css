@@ -26,12 +26,100 @@ body {
   color: var(--text-main);
   font-family: var(--font-family);
   line-height: 1.5;
-  padding: 2rem 1rem;
+  padding: 0 0 2rem 0;
+}
+
+/* Global Nav Bar */
+.site-nav {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  background: rgba(13, 17, 23, 0.9);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--card-border);
+  padding: 0.75rem 1.25rem;
+  margin-bottom: 2rem;
+}
+
+.site-nav .nav-content {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  text-decoration: none;
+  color: var(--text-main);
+  font-weight: 700;
+  font-size: 1.2rem;
+}
+
+.brand-icon {
+  width: 28px;
+  height: 28px;
+  background: linear-gradient(135deg, #06b6d4, var(--accent));
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #000;
+  font-weight: 900;
+  font-size: 0.95rem;
+}
+
+.brand-badge {
+  background: var(--accent-light);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 9999px;
+  text-transform: uppercase;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  list-style: none;
+}
+
+.nav-links a {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.88rem;
+  font-weight: 500;
+  transition: color 0.15s ease;
+}
+
+.nav-links a:hover,
+.nav-links a.active {
+  color: var(--text-main);
+}
+
+.nav-cta-btn {
+  background: var(--accent);
+  color: #fff !important;
+  padding: 0.35rem 0.85rem;
+  border-radius: 6px;
+  font-weight: 600 !important;
+  font-size: 0.82rem !important;
+}
+
+.nav-cta-btn:hover {
+  background: var(--accent-hover);
 }
 
 .app-container {
   max-width: 900px;
   margin: 0 auto;
+  padding: 0 1rem;
 }
 
 .app-header {

@@ -1,0 +1,780 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Documentación Oficial | Meshtacore Firmware</title>
+    <meta
+      name="description"
+      content="Guía completa, manual de comandos Nexus / MTC, configuración de MeshCore dual y optimizaciones para repetidores solares en el firmware Meshtacore."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="docs.css" />
+  </head>
+  <body>
+    <!-- Top Navigation Bar -->
+    <header class="docs-nav">
+      <div class="docs-nav-content">
+        <a href="../index.html" class="brand-logo">
+          <div class="brand-icon">⚡</div>
+          <span>Meshtacore</span>
+          <span class="brand-badge">Docs</span>
+        </a>
+
+        <!-- Live Instant Search -->
+        <div class="docs-search-bar">
+          <span class="search-icon-hint">🔍</span>
+          <input
+            type="text"
+            id="docsSearchInput"
+            class="docs-search-input"
+            placeholder="Buscar comando, parámetro o tema (ej. VECINOS, 0x14B4, LiFePO4)..."
+            autocomplete="off"
+          />
+        </div>
+
+        <nav>
+          <ul class="nav-links">
+            <li><a href="../index.html">← Inicio</a></li>
+            <li><a href="../index.html#comparativa">Comparativa</a></li>
+            <li>
+              <a href="../builder.html" class="btn-builder-sm"
+                >🚀 Web Builder</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://github.com/xejarque/meshtacore-firmware"
+                target="_blank"
+                rel="noopener"
+                >GitHub</a
+              >
+            </li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <!-- Docs Layout -->
+    <div class="docs-layout">
+      <!-- Sidebar Navigation -->
+      <aside class="docs-sidebar">
+        <div class="sidebar-category">
+          <div class="sidebar-cat-title">Primeros Pasos</div>
+          <ul class="sidebar-menu">
+            <li>
+              <a href="#introduccion" class="active">¿Qué es Meshtacore?</a>
+            </li>
+            <li><a href="#flasheo">Instalación & Flasheo</a></li>
+            <li><a href="#builder-guide">Uso del Web Builder</a></li>
+          </ul>
+        </div>
+
+        <div class="sidebar-category">
+          <div class="sidebar-cat-title">Coexistencia MeshCore</div>
+          <ul class="sidebar-menu">
+            <li><a href="#meshcore-syncword">Sync Word Híbrido (0x14B4)</a></li>
+            <li><a href="#meshcore-canales">Canales MC: y Grupos</a></li>
+            <li><a href="#meshcore-repetidor">Repetidor Inteligente</a></li>
+            <li>
+              <a href="#meshcore-stats">Métricas de Contención (/stats)</a>
+            </li>
+          </ul>
+        </div>
+
+        <div class="sidebar-category">
+          <div class="sidebar-cat-title">Motor Nexus & MTC</div>
+          <ul class="sidebar-menu">
+            <li><a href="#nexus-prefijos">Prefijos e Invocaciones</a></li>
+            <li><a href="#nexus-red">Red, Vecinos & Rutas (.path)</a></li>
+            <li><a href="#nexus-radio">Frecuencia & Parámetros RF</a></li>
+            <li><a href="#nexus-seguridad">Modelo de 3 Claves & Bóveda</a></li>
+            <li><a href="#nexus-sistema">Comandos de Sistema</a></li>
+          </ul>
+        </div>
+
+        <div class="sidebar-category">
+          <div class="sidebar-cat-title">Energía & Repetidores</div>
+          <ul class="sidebar-menu">
+            <li><a href="#energia-bateria">Perfiles Químicos (LiFePO4)</a></li>
+            <li><a href="#energia-zero-hop">Zero-Hop & Modo Router</a></li>
+            <li><a href="#energia-storm">Modo STORM & Ahorro</a></li>
+          </ul>
+        </div>
+
+        <div class="sidebar-category">
+          <div class="sidebar-cat-title">Ayuda & FAQ</div>
+          <ul class="sidebar-menu">
+            <li><a href="#faq">Preguntas Frecuentes</a></li>
+          </ul>
+        </div>
+      </aside>
+
+      <!-- Main Content Area -->
+      <main class="docs-main">
+        <!-- Section: Introducción -->
+        <section class="docs-section" id="introduccion">
+          <h1>Documentación Oficial de Meshtacore</h1>
+          <p class="docs-lead">
+            Meshtacore es una bifurcación avanzada y optimizada del firmware
+            Meshtastic (basado en la versión 2.8.1 y la rama Jentastic/Nexus)
+            diseñada para maximizar la resiliencia en instalaciones reales de
+            montaña, incorporar coexistencia transparente con la red
+            <strong>MeshCore</strong> en una sola radio, y brindar
+            administración remota total por RF.
+          </p>
+
+          <div class="callout callout-info">
+            <strong
+              >💡 Filosofía del proyecto: "Un radio, dos redes mesh"</strong
+            >
+            Meshtacore no abandona el protocolo Meshtastic ni su ecosistema de
+            aplicaciones móviles. Al contrario: mantiene el 100% de
+            compatibilidad con la app oficial de Meshtastic, pero añade la
+            capacidad de escuchar, repetir y chatear con usuarios de MeshCore
+            sin necesidad de comprar ni alimentar una segunda placa.
+          </div>
+
+          <h2>Pilares Fundamentales</h2>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Pilar</th>
+                  <th>Tecnología</th>
+                  <th>Beneficio para el Operador</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Dual-Mesh SX126x</strong></td>
+                  <td>Registro Sync Word <code>0x14B4</code></td>
+                  <td>
+                    Escucha simultánea de tramas Meshtastic (0x2B) y MeshCore
+                    (0x12).
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Factory Reset Shield</strong></td>
+                  <td>SafeFile + Baked UserPrefs</td>
+                  <td>
+                    Canales locales y claves integradas en ROM inmunes a
+                    reinicios accidentales.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Nexus Admin Engine</strong></td>
+                  <td>Comandos <code>/nexus</code> y <code>/mtc</code></td>
+                  <td>
+                    Más de 100 comandos de control y diagnóstico por radio sin
+                    Bluetooth.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Repetidor Inteligente</strong></td>
+                  <td>Dedupe de 160 paquetes y backoff adaptativo</td>
+                  <td>
+                    Retransmisión eficiente que no satura el espectro ni bloquea
+                    tramas prioritarias.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Section: Instalación & Flasheo -->
+        <section class="docs-section" id="flasheo">
+          <h2>Instalación & Flasheo</h2>
+          <p class="docs-paragraph">
+            Existen varias formas de instalar Meshtacore en tu dispositivo según
+            el grado de personalización que requieras.
+          </p>
+
+          <h3>Método Recomendado: Generador Web Online (1-Clic)</h3>
+          <p class="docs-paragraph">
+            La forma más cómoda y recomendada para la mayoría de usuarios es
+            utilizar nuestro
+            <a
+              href="../builder.html"
+              style="color: var(--accent-cyan); font-weight: 600"
+              >Meshtacore Web Builder</a
+            >:
+          </p>
+          <ol
+            style="
+              margin-left: 1.5rem;
+              color: var(--text-secondary);
+              margin-bottom: 1.25rem;
+            "
+          >
+            <li style="margin-bottom: 0.5rem">
+              Selecciona tu modelo de hardware (disponibles más de 70 modelos:
+              Heltec T114, RAK4631, T-Echo, LilyGO T-Beam, Seeed Tracker, etc.).
+            </li>
+            <li style="margin-bottom: 0.5rem">
+              Personaliza tus canales comunitarios, frecuencia (por defecto
+              SFNarrow 868.175 MHz en España) y posición aproximada en el mapa.
+            </li>
+            <li style="margin-bottom: 0.5rem">
+              Pulsa en <strong>Generar Firmware</strong>. Un bot de GitHub
+              Actions creará tu binario personalizado y te ofrecerá el enlace de
+              descarga directa en unos minutos.
+            </li>
+          </ol>
+
+          <h3>Flasheo en Dispositivos nRF52 (RAK4631, Heltec T114, T-Echo)</h3>
+          <p class="docs-paragraph">
+            Para la mayoría de placas nRF52840, el proceso es tan sencillo como
+            arrastrar un archivo UF2:
+          </p>
+          <div class="code-block">
+            1. Conecta el dispositivo por USB al ordenador.<br />
+            2. Haz doble pulsación rápida en el botón RESET para entrar en modo
+            Bootloader.<br />
+            3. Aparecerá una unidad USB en tu sistema (ej. "RAK4631" o
+            "NRF52BOOT").<br />
+            4. Copia o arrastra el archivo firmware-xxxx.uf2 a esa unidad.<br />
+            5. La placa se reiniciará automáticamente con Meshtacore instalado.
+          </div>
+
+          <h3>
+            Flasheo en Dispositivos ESP32 / ESP32-S3 (Heltec V3, T-Beam, etc.)
+          </h3>
+          <p class="docs-paragraph">
+            Puedes utilizar cualquier flasheador web compatible con ESP32 (como
+            el Web Flasher oficial de Meshtastic o Adafruit WebSerial ESPTool) o
+            la herramienta de línea de comandos <code>esptool.py</code>:
+          </p>
+          <div class="code-block">
+            esptool.py --port /dev/ttyUSB0 write_flash 0x00000
+            firmware-heltec-v3.bin
+          </div>
+        </section>
+
+        <!-- Section: Coexistencia MeshCore -->
+        <section class="docs-section" id="meshcore-syncword">
+          <h2>Coexistencia con MeshCore (Dual-Mesh)</h2>
+          <p class="docs-lead">
+            ¿Cómo es posible que un solo transceptor LoRa SX126x reciba tramas
+            de dos protocolos diferentes?
+          </p>
+          <p class="docs-paragraph">
+            Tanto Meshtastic como MeshCore transmiten mediante modulación LoRa
+            estándar. En configuraciones donde ambos comparten la misma
+            frecuencia (por ejemplo 868.175 MHz), el mismo ancho de banda
+            (Bandwidth) y el mismo Spreading Factor, el único elemento a nivel
+            físico que separa ambas redes es la palabra de sincronismo (<strong
+              >Sync Word</strong
+            >):
+          </p>
+          <ul
+            style="
+              margin-left: 1.5rem;
+              color: var(--text-secondary);
+              margin-bottom: 1.25rem;
+            "
+          >
+            <li>
+              Meshtastic utiliza la palabra de sincronismo <code>0x2B</code> (o
+              <code>0x2B24</code>).
+            </li>
+            <li>
+              MeshCore utiliza la palabra de sincronismo <code>0x12</code> (o
+              <code>0x1424</code>).
+            </li>
+          </ul>
+
+          <div class="callout callout-success">
+            <strong>El valor híbrido 0x14B4</strong>
+            Meshtacore configura el registro de recepción del chip SX126x con el
+            valor híbrido
+            <code>0x14B4</code>. Este valor comparte nibbles de sincronismo con
+            ambos estándares, permitiendo que el motor de radio detecte el
+            preámbulo y la cabecera tanto de tramas Meshtastic como de tramas
+            MeshCore sin pérdida de sensibilidad detectable.
+          </div>
+
+          <h3 id="meshcore-canales">Canales MC: y Grupos Compartidos</h3>
+          <p class="docs-paragraph">
+            Meshtacore mapea canales de MeshCore directamente a canales de la
+            app Meshtastic usando el prefijo <code>MC:</code>. Por ejemplo:
+          </p>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Nombre del Canal</th>
+                  <th>Clave PSK</th>
+                  <th>Función</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>MC:Public</code></td>
+                  <td><code>AQ==</code></td>
+                  <td>
+                    Canal público general de MeshCore. Todo texto enviado sale
+                    como GRP_TXT MeshCore.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>MC:#test</code></td>
+                  <td>Derivada / Específica</td>
+                  <td>
+                    Canal de pruebas y comprobación de cobertura MeshCore.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>MC:#bot</code></td>
+                  <td>Derivada</td>
+                  <td>Canal de comandos y telemetría automatizada.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 id="meshcore-repetidor">Repetidor Inteligente MeshCore</h3>
+          <p class="docs-paragraph">
+            Meshtacore no es solo un puente pasivo: actúa como un repetidor de
+            MeshCore de alto rendimiento:
+          </p>
+          <ul
+            style="
+              margin-left: 1.5rem;
+              color: var(--text-secondary);
+              margin-bottom: 1.25rem;
+            "
+          >
+            <li>
+              <strong>Deduplicación de 160 paquetes sin expiración:</strong>
+              Evita que tramas que llegan con retraso por factores de dispersión
+              altos re-inunden la malla.
+            </li>
+            <li>
+              <strong>Retraso Adaptativo por Contención:</strong> Basado en la
+              arquitectura ZephCore, el nodo escucha antes de transmitir (LBT) y
+              aumenta el backoff si detecta que otros repetidores ya han
+              retransmitido la misma trama.
+            </li>
+            <li>
+              <strong>Prioridad Meshtastic:</strong> Una trama recibida siempre
+              se comprueba primero con los canales Meshtastic locales. Solo si
+              no corresponde a la red Meshtastic se procesa a través del
+              pipeline de MeshCore.
+            </li>
+          </ul>
+
+          <h3 id="meshcore-stats">Comando de Métricas (/stats)</h3>
+          <p class="docs-paragraph">
+            Si envías un mensaje directo al nodo con el texto
+            <code>/stats</code>, responderá con las métricas de contención del
+            espectro en tiempo real: detecciones de actividad de canal (CAD),
+            tiempo en el aire acumulado y tramas retransmitidas para cada una de
+            las dos redes.
+          </p>
+        </section>
+
+        <!-- Section: Motor Nexus & MTC -->
+        <section class="docs-section" id="nexus-prefijos">
+          <h2>Motor de Administración Remota Nexus & MTC</h2>
+          <p class="docs-lead">
+            Nexus proporciona una interfaz de consola completa que funciona a
+            través de los propios mensajes de la red LoRa. No requiere conexión
+            Bluetooth ni scripts especiales.
+          </p>
+
+          <h3>Prefijos de Invocación</h3>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Prefijo</th>
+                  <th>Destino / Ámbito</th>
+                  <th>Ejemplo</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <code>/nexus &lt;cmd&gt;</code> o
+                    <code>/mtc &lt;cmd&gt;</code>
+                  </td>
+                  <td>Broadcast (Canal principal, rate limit 5s)</td>
+                  <td><code>/nexus INFO</code></td>
+                </tr>
+                <tr>
+                  <td><code>/nexus-local &lt;cmd&gt;</code></td>
+                  <td>Solo nodo local (no se transmite por RF)</td>
+                  <td><code>/nexus-local NODES</code></td>
+                </tr>
+                <tr>
+                  <td><code>/nexus-device !&lt;hex8&gt; &lt;cmd&gt;</code></td>
+                  <td>Nodo específico por su Hex ID</td>
+                  <td><code>/nexus-device !3f2a89c1 REBOOT</code></td>
+                </tr>
+                <tr>
+                  <td><code>/nexus-node &lt;short4&gt; &lt;cmd&gt;</code></td>
+                  <td>Nodo específico por nombre corto</td>
+                  <td><code>/nexus-node MTC1 BATTERY</code></td>
+                </tr>
+                <tr>
+                  <td><code>/nexus-mac &lt;mac2&gt; &lt;cmd&gt;</code></td>
+                  <td>Nodo específico por los 2 últimos bytes MAC</td>
+                  <td><code>/nexus-mac 3f2a SYS</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Redirección de Respuestas (/nexus R)</h3>
+          <p class="docs-paragraph">
+            Para evitar saturar el canal general cuando ejecutas un comando de
+            diagnóstico extenso, puedes redirigir la salida a un mensaje privado
+            (DM) o a un canal secundario:
+          </p>
+          <div class="code-block">
+            /nexus R DM !3f2a89c1 NODES # Ejecuta NODES y envía la respuesta
+            como DM al operador /nexus R CH 2 VECINOS # Ejecuta VECINOS y envía
+            la respuesta al canal secundario (índice 2)
+          </div>
+
+          <!-- Comandos Destacados -->
+          <h2 id="nexus-red">Comandos de Red, Vecinos y Diagnóstico</h2>
+
+          <div class="cmd-card">
+            <div class="cmd-header">
+              <span class="cmd-name">VECINOS</span>
+              <span class="cmd-scope">Consulta RF Directa</span>
+            </div>
+            <div class="cmd-desc">
+              Lista todos los nodos que se escuchan de forma directa por
+              radiofrecuencia (0 saltos), indicando su SNR, RSSI y tiempo desde
+              la última trama recibida.
+            </div>
+            <div class="cmd-example">
+              /nexus VECINOS | /nexus MESHCORE VECINOS
+            </div>
+          </div>
+
+          <div class="cmd-card">
+            <div class="cmd-header">
+              <span class="cmd-name">..trace [mensaje]</span>
+              <span class="cmd-scope">MeshCore & Meshtastic</span>
+            </div>
+            <div class="cmd-desc">
+              Inicia un traceroute interactivo por saltos a través de la malla,
+              registrando el SNR y el identificador de cada repetidor intermedio
+              que interviene en la ruta.
+            </div>
+            <div class="cmd-example">..trace Comprobando repetidor norte</div>
+          </div>
+
+          <div class="cmd-card">
+            <div class="cmd-header">
+              <span class="cmd-name">.path (en respuesta)</span>
+              <span class="cmd-scope">Diagnóstico Pasivo</span>
+            </div>
+            <div class="cmd-desc">
+              Si respondes citando un mensaje con <code>.path</code>, el nodo te
+              devolverá la lista completa de nodos y repetidores por los que
+              pasó ese texto específico antes de llegar a ti.
+            </div>
+            <div class="cmd-example">.path</div>
+          </div>
+
+          <div class="cmd-card">
+            <div class="cmd-header">
+              <span class="cmd-name">ZERO-HOP &lt;ON|OFF&gt;</span>
+              <span class="cmd-scope">Control de Tráfico</span>
+            </div>
+            <div class="cmd-desc">
+              Fuerza al nodo a no retransmitir paquetes de más de 0 saltos,
+              evitando que un repetidor congestionado degrade el resto de la
+              red. En Meshtacore se activa por defecto en roles de Router.
+            </div>
+            <div class="cmd-example">/nexus ZERO-HOP ON</div>
+          </div>
+
+          <h2 id="nexus-radio">Comandos de Radio & Frecuencia</h2>
+
+          <div class="cmd-card">
+            <div class="cmd-header">
+              <span class="cmd-name">FREQ &lt;MHz&gt;</span>
+              <span class="cmd-scope">Radiofrecuencia</span>
+            </div>
+            <div class="cmd-desc">
+              Cambia la frecuencia operativa del módem LoRa en tiempo real sin
+              necesidad de reiniciar.
+            </div>
+            <div class="cmd-example">/nexus FREQ 868.175</div>
+          </div>
+
+          <div class="cmd-card">
+            <div class="cmd-header">
+              <span class="cmd-name">POWER &lt;dBm&gt;</span>
+              <span class="cmd-scope">Potencia TX</span>
+            </div>
+            <div class="cmd-desc">
+              Ajusta la potencia de salida de transmisión en dBm (sujeto a los
+              límites legales y del hardware).
+            </div>
+            <div class="cmd-example">/nexus POWER 22</div>
+          </div>
+
+          <h2 id="nexus-seguridad">Modelo de Confianza (3 Capas de Claves)</h2>
+          <p class="docs-paragraph">
+            Nexus resuelve el dilema entre seguridad y facilidad de
+            mantenimiento con un esquema de tres capas de llaves criptográficas:
+          </p>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Nivel</th>
+                  <th>Tipo de Clave</th>
+                  <th>Almacenamiento</th>
+                  <th>Modificable por RF</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>1. Admin Keys</strong></td>
+                  <td>Claves estándar Meshtastic</td>
+                  <td>Configuración en flash</td>
+                  <td>Sí, mediante la app o comandos admin estándar.</td>
+                </tr>
+                <tr>
+                  <td><strong>2. Secondary Keys (SKEY)</strong></td>
+                  <td>Claves de club / operadores</td>
+                  <td>Bóveda Nexus (Vault)</td>
+                  <td>
+                    Sí: <code>/nexus SKEY 1 &lt;clave|OFF&gt;</code> para añadir
+                    o revocar.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>3. Master Keys (MKEY)</strong></td>
+                  <td>Clave irrevocable del propietario</td>
+                  <td>Grabada en el binario ROM</td>
+                  <td>
+                    <strong>No</strong>: Sobrevive a cualquier borrado o factory
+                    reset.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Section: Energía & Repetidores -->
+        <section class="docs-section" id="energia-bateria">
+          <h2>Energía & Repetidores Solares</h2>
+          <p class="docs-lead">
+            Los repetidores solares instalados en ubicaciones remotas requieren
+            una gestión de energía estricta para evitar dañar las baterías en
+            días de baja radiación.
+          </p>
+
+          <h3>Perfiles Químicos de Batería</h3>
+          <p class="docs-paragraph">
+            A diferencia del firmware oficial, que asume baterías estándar de
+            iones de litio de 4.2V, Meshtacore permite seleccionar la química
+            real conectada al circuito de carga:
+          </p>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Química</th>
+                  <th>Voltaje Máx</th>
+                  <th>Voltaje Nominal</th>
+                  <th>Corte de Protección</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>LiFePO4</strong> (Fosfato de hierro y litio)</td>
+                  <td>3.60 V</td>
+                  <td>3.20 V</td>
+                  <td>2.80 V (evita sobredescarga)</td>
+                </tr>
+                <tr>
+                  <td><strong>Li-Ion / 18650 / LiPo</strong></td>
+                  <td>4.20 V</td>
+                  <td>3.70 V</td>
+                  <td>3.10 V</td>
+                </tr>
+                <tr>
+                  <td><strong>LTO</strong> (Titanato de litio)</td>
+                  <td>2.80 V</td>
+                  <td>2.40 V</td>
+                  <td>1.80 V (óptimo para frío extremo)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 id="energia-storm">Modo STORM (Suspensión por Tormenta)</h3>
+          <p class="docs-paragraph">
+            Si se aproxima una racha de días nublados o la batería cae por
+            debajo del 15%, puedes ordenar al nodo que apague el módem LoRa
+            durante un número determinado de minutos para permitir que el panel
+            solar recupere carga:
+          </p>
+          <div class="code-block">
+            /nexus STORM 180 # Apaga la radio durante 3 horas para recarga solar
+            y se reactiva solo
+          </div>
+
+          <h3 id="energia-zero-hop">Optimización Zero-Hop en Routers</h3>
+          <p class="docs-paragraph">
+            En redes de alta densidad, los repetidores mal posicionados generan
+            colisiones y "tormentas de paquetes". El modo
+            <strong>Zero-Hop</strong> garantiza que el nodo solo repita paquetes
+            que provengan directamente de clientes finales con 0 saltos, dejando
+            el enlace troncal despejado.
+          </p>
+        </section>
+
+        <!-- Section: FAQ -->
+        <section class="docs-section" id="faq">
+          <h2>Preguntas Frecuentes (FAQ)</h2>
+
+          <div class="cmd-card">
+            <h3 style="margin-top: 0; color: var(--text-primary)">
+              ¿Puedo usar la aplicación móvil oficial de Meshtastic con
+              Meshtacore?
+            </h3>
+            <p class="docs-paragraph" style="margin-bottom: 0">
+              <strong>Sí, al 100%.</strong> Meshtacore se conecta exactamente
+              igual por Bluetooth, Wi-Fi o cable USB a las apps de Android, iOS
+              y Web. Verás tus mensajes de texto, canales, nodos y telemetría
+              con total normalidad.
+            </p>
+          </div>
+
+          <div class="cmd-card">
+            <h3 style="margin-top: 0; color: var(--text-primary)">
+              ¿Qué ocurre si hago un "Factory Reset" desde la aplicación móvil?
+            </h3>
+            <p class="docs-paragraph" style="margin-bottom: 0">
+              En el firmware oficial, perderías los canales españoles, las
+              claves de cifrado y el nombre. En Meshtacore, si generaste tu
+              firmware con el Web Builder,
+              <strong
+                >el nodo se reinicia restaurando automáticamente tus canales
+                comunitarios, frecuencia SFNarrow y configuración de
+                fábrica</strong
+              >. ¡Nunca te quedarás incomunicado!
+            </p>
+          </div>
+
+          <div class="cmd-card">
+            <h3 style="margin-top: 0; color: var(--text-primary)">
+              ¿Funciona la recepción híbrida de MeshCore en todas las placas?
+            </h3>
+            <p class="docs-paragraph" style="margin-bottom: 0">
+              La recepción simultánea mediante el registro híbrido
+              <code>0x14B4</code> requiere un transceptor de la familia
+              <strong>Semtech SX126x (SX1262, SX1268)</strong>. Está probado y
+              verificado en dispositivos como Heltec Mesh Node T114, RAK4631,
+              LilyGO T-Echo, ThinkNode M1 y similares. En chips antiguos (como
+              SX1276/SX1278), el nodo opera en modo Meshtastic estándar con
+              todas las ventajas de Nexus y Factory Reset Shield.
+            </p>
+          </div>
+
+          <div class="cmd-card">
+            <h3 style="margin-top: 0; color: var(--text-primary)">
+              ¿Dónde puedo solicitar nuevas funciones o reportar un error?
+            </h3>
+            <p class="docs-paragraph" style="margin-bottom: 0">
+              El desarrollo se gestiona en nuestro repositorio de GitHub en
+              <a
+                href="https://github.com/xejarque/meshtacore-firmware/issues"
+                target="_blank"
+                rel="noopener"
+                style="color: var(--accent-cyan)"
+                >xejarque/meshtacore-firmware</a
+              >. Las aportaciones de la comunidad y los pull requests son
+              bienvenidos.
+            </p>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Script: Live Instant Search & Active Nav Spy -->
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        const searchInput = document.getElementById("docsSearchInput");
+        const sections = document.querySelectorAll(".docs-section");
+        const cmdCards = document.querySelectorAll(".cmd-card");
+        const sidebarLinks = document.querySelectorAll(".sidebar-menu a");
+
+        // Instant Live Search
+        if (searchInput) {
+          searchInput.addEventListener("input", (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            if (!query) {
+              sections.forEach((sec) => (sec.style.display = ""));
+              cmdCards.forEach((card) => (card.style.display = ""));
+              return;
+            }
+
+            cmdCards.forEach((card) => {
+              const text = card.textContent.toLowerCase();
+              if (text.includes(query)) {
+                card.style.display = "";
+                // Make sure parent section is visible
+                const parentSec = card.closest(".docs-section");
+                if (parentSec) parentSec.style.display = "";
+              } else {
+                card.style.display = "none";
+              }
+            });
+
+            // Also check full section paragraphs
+            sections.forEach((sec) => {
+              const secText = sec.textContent.toLowerCase();
+              const hasVisibleCards =
+                sec.querySelectorAll('.cmd-card:not([style*="display: none"])')
+                  .length > 0;
+              if (secText.includes(query) || hasVisibleCards) {
+                sec.style.display = "";
+              } else {
+                sec.style.display = "none";
+              }
+            });
+          });
+        }
+
+        // Active link spy on scroll
+        window.addEventListener("scroll", () => {
+          let current = "";
+          sections.forEach((sec) => {
+            const top = sec.offsetTop - 120;
+            if (window.pageYOffset >= top) {
+              current = sec.getAttribute("id");
+            }
+          });
+
+          if (current) {
+            sidebarLinks.forEach((link) => {
+              link.classList.remove("active");
+              if (link.getAttribute("href") === `#${current}`) {
+                link.classList.add("active");
+              }
+            });
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

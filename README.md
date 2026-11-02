@@ -9,11 +9,13 @@ A Meshtastic firmware fork that hears [MeshCore](https://github.com/meshcore-dev
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![Base](https://img.shields.io/badge/based%20on-Meshtastic%20firmware%202.8.1-lightgrey)
-[![Custom Firmware Builder](https://img.shields.io/badge/Web%20Builder-Generar%20Firmware%20Online-2ea043?style=for-the-badge&logo=githubactions&logoColor=white)](https://xejarque.github.io/meshtacore-firmware/)
+[![Website](https://img.shields.io/badge/Web-Landing%20Page-38bdf8?style=for-the-badge&logo=googlechrome&logoColor=white)](https://xejarque.github.io/meshtacore-firmware/)
+[![Custom Firmware Builder](https://img.shields.io/badge/Web%20Builder-Generar%20Firmware-2ea043?style=for-the-badge&logo=githubactions&logoColor=white)](https://xejarque.github.io/meshtacore-firmware/builder.html)
+[![Documentation](https://img.shields.io/badge/Docs-Documentaci%C3%B3n%20Oficial-8b5cf6?style=for-the-badge&logo=gitbook&logoColor=white)](https://xejarque.github.io/meshtacore-firmware/docs/)
 
 </div>
 
-> 🚀 **[Generador de Firmware Web (Meshtacore Builder)](https://xejarque.github.io/meshtacore-firmware/)**:  
+> 🌐 **[Portal Oficial & Landing de Meshtacore](https://xejarque.github.io/meshtacore-firmware/)** | 🚀 **[Generador Web (Builder)](https://xejarque.github.io/meshtacore-firmware/builder.html)** | 📚 **[Documentación](https://xejarque.github.io/meshtacore-firmware/docs/)**:  
 > Compila firmwares personalizados para tu placa con tu configuración de fábrica integrada en el binario (canales SFNarrow de la comunidad española, MeshCore con PSK `AQ==`, nombres dinámicos por MAC y optimizaciones de bajo consumo sin pantalla/sin bluetooth). ¡Inmune a _Factory Reset_!
 
 ## Why Meshtacore

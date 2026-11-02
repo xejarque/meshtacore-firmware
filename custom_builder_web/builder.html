@@ -1,0 +1,1294 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Meshtacore - Firmware Builder</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <!-- Leaflet CSS for interactive map -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+  </head>
+  <body>
+    <!-- Top Navigation -->
+    <header class="site-nav">
+      <div class="nav-content">
+        <a href="index.html" class="brand-logo">
+          <div class="brand-icon">⚡</div>
+          <span>Meshtacore</span>
+          <span class="brand-badge">Dual-Mesh</span>
+        </a>
+        <nav>
+          <ul class="nav-links">
+            <li><a href="index.html">← Inicio (Landing)</a></li>
+            <li><a href="index.html#comparativa">Comparativa</a></li>
+            <li><a href="docs/index.html">📚 Documentación</a></li>
+            <li>
+              <a
+                href="builder.html"
+                class="active"
+                style="color: var(--accent); font-weight: 600"
+                >🚀 Web Builder</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://github.com/xejarque/meshtacore-firmware"
+                target="_blank"
+                rel="noopener"
+                >GitHub</a
+              >
+            </li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <div class="app-container">
+      <header class="app-header">
+        <div class="logo-area">
+          <h1>Meshtacore</h1>
+          <div class="badge">Builder</div>
+        </div>
+        <p class="subtitle">
+          Genera firmwares personalizados para tus nodos con configuración de
+          fábrica integrada en el binario. Inmune a <em>Factory Reset</em>: si
+          se reinicia, mantiene tus canales comunitarios, frecuencias y ajustes.
+        </p>
+      </header>
+
+      <main class="main-content">
+        <form id="builderForm" onsubmit="return false;">
+          <!-- Card 1: Placa / Dispositivo (Todas las placas de CI) -->
+          <section class="card">
+            <div class="card-header">
+              <span class="step-num">1</span>
+              <h2>Dispositivo & Placa Objetivo</h2>
+            </div>
+            <div class="card-body">
+              <div class="form-group">
+                <label for="boardTarget"
+                  >Selecciona tu Placa (70+ modelos soportados)</label
+                >
+                <select id="boardTarget" class="form-control">
+                  <optgroup label="nRF52840 (Nordic Semiconductor)">
+                    <option value="heltec-mesh-node-t114">
+                      Heltec Mesh Node T114 (nRF52840)
+                    </option>
+                    <option value="rak4631">
+                      RAK WisBlock RAK4631 (nRF52840)
+                    </option>
+                    <option value="rak3401-1watt">
+                      RAK WisBlock RAK3401 1-Watt
+                    </option>
+                    <option value="rak_wismesh_pocket">
+                      RAK WisMesh Pocket
+                    </option>
+                    <option value="rak_wismesh_pod">RAK WisMesh Pod</option>
+                    <option value="rak_wismeshtag">RAK WisMesh Tag</option>
+                    <option value="rak_wismesh_repeater_mini">
+                      RAK WisMesh Repeater Mini
+                    </option>
+                    <option value="rak_wismesh_repeater_mini_hp">
+                      RAK WisMesh Repeater Mini HP
+                    </option>
+                    <option value="t-echo">LilyGO T-Echo (E-Ink + GPS)</option>
+                    <option value="t-echo-plus">LilyGO T-Echo Plus</option>
+                    <option value="t-echo-lite">LilyGO T-Echo Lite</option>
+                    <option value="t-impulse-plus">
+                      LilyGO T-Impulse Plus
+                    </option>
+                    <option value="tracker-t1000-e">
+                      Seeed SenseCAP Tracker T1000-E
+                    </option>
+                    <option value="seeed_mesh_tracker_X1">
+                      Seeed Mesh Tracker X1
+                    </option>
+                    <option value="seeed_solar_node">Seeed Solar Node</option>
+                    <option value="seeed_wio_tracker_L1">
+                      Seeed Wio Tracker L1
+                    </option>
+                    <option value="seeed_xiao_nrf52840_kit">
+                      Seeed XIAO nRF52840 Kit
+                    </option>
+                    <option value="wio-tracker-wm1110">
+                      Wio Tracker WM1110
+                    </option>
+                    <option value="thinknode_m1">ThinkNode M1</option>
+                    <option value="gat562_mesh_trial_tracker">
+                      GAT562 Mesh Trial Tracker
+                    </option>
+                    <option value="nrf52_promicro_diy_tcxo">
+                      nRF52 ProMicro DIY TCXO
+                    </option>
+                    <option value="nrf52_promicro_diy_sx1262">
+                      nRF52 ProMicro DIY SX1262
+                    </option>
+                  </optgroup>
+                  <optgroup label="ESP32-S3 (Espressif)">
+                    <option value="heltec-v3" selected>
+                      Heltec WiFi LoRa 32 V3
+                    </option>
+                    <option value="heltec-v4">Heltec WiFi LoRa 32 V4</option>
+                    <option value="heltec-v4-tft">
+                      Heltec WiFi LoRa 32 V4 TFT
+                    </option>
+                    <option value="heltec-v4-r8-oled">
+                      Heltec WiFi LoRa 32 V4 R8 OLED
+                    </option>
+                    <option value="heltec-v4-r8-tft">
+                      Heltec WiFi LoRa 32 V4 R8 TFT
+                    </option>
+                    <option value="heltec-wireless-paper">
+                      Heltec Wireless Paper (E-Ink)
+                    </option>
+                    <option value="heltec-wireless-tracker">
+                      Heltec Wireless Tracker V1 (GPS + TFT)
+                    </option>
+                    <option value="heltec-wireless-tracker-v2">
+                      Heltec Wireless Tracker V2
+                    </option>
+                    <option value="heltec-wsl-v3">
+                      Heltec Wireless Stick Lite V3
+                    </option>
+                    <option value="heltec-vision-master-e213">
+                      Heltec Vision Master E213
+                    </option>
+                    <option value="heltec-vision-master-e290">
+                      Heltec Vision Master E290
+                    </option>
+                    <option value="heltec-vision-master-t190">
+                      Heltec Vision Master T190
+                    </option>
+                    <option value="t-deck">LilyGO T-Deck</option>
+                    <option value="t-deck-tft">LilyGO T-Deck TFT</option>
+                    <option value="t-deck-pro">LilyGO T-Deck Pro</option>
+                    <option value="t-deck-pro-v1_1">
+                      LilyGO T-Deck Pro V1.1
+                    </option>
+                    <option value="t-watch-s3">LilyGO T-Watch S3</option>
+                    <option value="t-watch-ultra">LilyGO T-Watch Ultra</option>
+                    <option value="tbeam-s3-core">LilyGO T-Beam S3 Core</option>
+                    <option value="tlora-t3s3-v1">LilyGO T-LoRa T3S3 V1</option>
+                    <option value="tlora-t3s3-epaper">
+                      LilyGO T3S3 E-Paper
+                    </option>
+                    <option value="t5s3-epaper-v1">
+                      LilyGO T5 S3 E-Paper V1
+                    </option>
+                    <option value="t5s3-epaper-v2">
+                      LilyGO T5 S3 E-Paper V2
+                    </option>
+                    <option value="t5s3_epaper_inkhud">
+                      LilyGO T5 S3 E-Paper InkHUD
+                    </option>
+                    <option value="station-g2">B&Q Station G2</option>
+                    <option value="station-g3">B&Q Station G3</option>
+                    <option value="rak3312">RAK WisMesh 3312</option>
+                    <option value="rak_wismesh_tap_v2">
+                      RAK WisMesh Tap V2
+                    </option>
+                    <option value="rak_wismesh_tap_v2-tft">
+                      RAK WisMesh Tap V2 TFT
+                    </option>
+                    <option value="seeed-xiao-s3">Seeed XIAO ESP32-S3</option>
+                    <option value="seeed_wio_tracker_L2-tft">
+                      Seeed Wio Tracker L2 TFT
+                    </option>
+                    <option value="seeed-sensecap-indicator">
+                      Seeed SenseCAP Indicator
+                    </option>
+                    <option value="seeed-sensecap-indicator-tft">
+                      Seeed SenseCAP Indicator TFT
+                    </option>
+                    <option value="elecrow-adv-24-28-tft">
+                      Elecrow Advanced 2.4/2.8 TFT
+                    </option>
+                    <option value="elecrow-adv-35-tft">
+                      Elecrow Advanced 3.5 TFT
+                    </option>
+                    <option value="elecrow-adv1-43-50-70-tft">
+                      Elecrow Advanced 4.3/5.0/7.0 TFT
+                    </option>
+                    <option value="mini-epaper-s3">Mini E-Paper S3</option>
+                    <option value="picomputer-s3">PiComputer S3</option>
+                    <option value="picomputer-s3-tft">PiComputer S3 TFT</option>
+                    <option value="thinknode_m2">ThinkNode M2</option>
+                    <option value="thinknode_m5">ThinkNode M5</option>
+                    <option value="thinknode_m9">ThinkNode M9</option>
+                    <option value="thinknode_m9-tft">ThinkNode M9 TFT</option>
+                    <option value="tlora-pager">LilyGO T-LoRa Pager</option>
+                    <option value="tracksenger">Tracksenger</option>
+                    <option value="tracksenger-lcd">Tracksenger LCD</option>
+                    <option value="tracksenger-oled">Tracksenger OLED</option>
+                    <option value="CDEBYTE_EoRa-S3">CDEBYTE EoRa-S3</option>
+                    <option value="axiometa-genesis-mini">
+                      AxioMeta Genesis Mini
+                    </option>
+                    <option value="meshnology_w10">Meshnology W10</option>
+                    <option value="meshnology_w12">Meshnology W12</option>
+                    <option value="t-connect-pro">LilyGO T-Connect Pro</option>
+                    <option value="unphone">Unphone</option>
+                  </optgroup>
+                  <optgroup label="ESP32 Clásico">
+                    <option value="tbeam">LilyGO T-Beam (ESP32 + GPS)</option>
+                    <option value="t-beam-1w">LilyGO T-Beam 1-Watt</option>
+                    <option value="t-beam-bpf">LilyGO T-Beam BPF</option>
+                    <option value="tlora-v2-1-1_6">TTGO T-LoRa V2.1-1.6</option>
+                  </optgroup>
+                  <optgroup label="ESP32-C3 / ESP32-C6">
+                    <option value="heltec-ht62-esp32c3-sx1262">
+                      Heltec HT62 (ESP32-C3 + SX1262)
+                    </option>
+                    <option value="heltec-rc32">Heltec RC32 (ESP32-C3)</option>
+                    <option value="heltec-rcc6">Heltec RCC6 (ESP32-C6)</option>
+                    <option value="m5stack-unitc6l">
+                      M5Stack UnitC6L (ESP32-C6)
+                    </option>
+                    <option value="tlora-c6">LilyGO T-LoRa C6</option>
+                  </optgroup>
+                  <optgroup label="Raspberry Pi Pico & Custom">
+                    <option value="picow">Raspberry Pi Pico W (RP2040)</option>
+                    <option value="custom">
+                      Otra placa (especificar entorno PlatformIO)
+                    </option>
+                  </optgroup>
+                </select>
+              </div>
+              <div class="form-group hidden mt-2" id="customTargetGroup">
+                <label for="customTarget"
+                  >Nombre de entorno en platformio.ini</label
+                >
+                <input
+                  type="text"
+                  id="customTarget"
+                  class="form-control"
+                  placeholder="ej. heltec-v2, tlora-c6..."
+                />
+              </div>
+
+              <div class="form-group mt-3">
+                <label for="deviceRole">Rol del Dispositivo</label>
+                <select id="deviceRole" class="form-control">
+                  <option value="CLIENT" selected>
+                    CLIENT (Cliente normal de usuario)
+                  </option>
+                  <option value="CLIENT_BASE">
+                    CLIENT_BASE (Estación base de usuario en tejado/ático con
+                    prioridad)
+                  </option>
+                  <option value="CLIENT_MUTE">
+                    CLIENT_MUTE (Escucha sin retransmitir paquetes de terceros)
+                  </option>
+                  <option value="REPEATER">
+                    REPEATER (Repetidor de infraestructura - sin
+                    Bluetooth/pantalla)
+                  </option>
+                  <option value="ROUTER">
+                    ROUTER (Enrutador de alta prioridad)
+                  </option>
+                </select>
+              </div>
+
+              <hr class="divider mt-3" />
+
+              <div class="toggle-row mt-3">
+                <div class="toggle-info">
+                  <strong>Pantalla Activa</strong>
+                  <p>
+                    Desmarca si la placa se instala en tejados, cajas o sin
+                    pantalla (Headless). Ahorra memoria RAM de búferes gráficos
+                    y ciclos de CPU.
+                  </p>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="hasScreen" checked />
+                  <span class="slider"></span>
+                </label>
+              </div>
+
+              <div class="toggle-row">
+                <div class="toggle-info">
+                  <strong>Bluetooth Activado</strong>
+                  <p>
+                    Desactiva en repetidores fijos o solares aislados para
+                    reducir drásticamente el consumo de batería.
+                  </p>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="enableBluetooth" checked />
+                  <span class="slider"></span>
+                </label>
+              </div>
+
+              <!-- Ajustes Avanzados de Comportamiento -->
+              <details class="collapsible mt-3">
+                <summary>
+                  ⚙️ Ajustes Avanzados de Comportamiento (Retransmisión,
+                  Intervalos, PIN BLE)
+                </summary>
+                <div class="grid-2 mt-2">
+                  <div class="form-group">
+                    <label for="rebroadcastMode"
+                      >Modo de Retransmisión (Rebroadcast Mode)</label
+                    >
+                    <select id="rebroadcastMode" class="form-control">
+                      <option value="ALL" selected>
+                        ALL (Retransmite todos los paquetes de la malla)
+                      </option>
+                      <option value="LOCAL_ONLY">
+                        LOCAL_ONLY (Solo paquetes locales propios)
+                      </option>
+                      <option value="KNOWN_ONLY">
+                        KNOWN_ONLY (Solo nodos conocidos en NodeDB)
+                      </option>
+                      <option value="NONE">
+                        NONE (Sin retransmisión de terceros)
+                      </option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="fixedBlePin"
+                      >PIN Bluetooth Fijo (6 dígitos)</label
+                    >
+                    <input
+                      type="text"
+                      id="fixedBlePin"
+                      class="form-control font-mono"
+                      maxlength="6"
+                      placeholder="ej. 123456 (vacío = aleatorio)"
+                    />
+                    <small class="helper-text"
+                      >Código numérico para vincular la app móvil sin
+                      pantalla.</small
+                    >
+                  </div>
+                </div>
+
+                <div class="grid-3 mt-2">
+                  <div class="form-group">
+                    <label for="nodeInfoBroadcastSecs"
+                      >Difusión NodeInfo (seg)</label
+                    >
+                    <input
+                      type="number"
+                      id="nodeInfoBroadcastSecs"
+                      class="form-control font-mono"
+                      value="10800"
+                      min="3600"
+                      step="3600"
+                    />
+                    <small class="helper-text"
+                      >10800s = 3 horas (mínimo 3600s).</small
+                    >
+                  </div>
+                  <div class="form-group">
+                    <label for="positionBroadcastInterval"
+                      >Difusión Posición (seg)</label
+                    >
+                    <input
+                      type="number"
+                      id="positionBroadcastInterval"
+                      class="form-control font-mono"
+                      value="1800"
+                      min="60"
+                      step="60"
+                    />
+                    <small class="helper-text">1800s = 30 minutos.</small>
+                  </div>
+                  <div class="form-group">
+                    <label for="deviceTelemInterval"
+                      >Telemetría Estado (seg)</label
+                    >
+                    <input
+                      type="number"
+                      id="deviceTelemInterval"
+                      class="form-control font-mono"
+                      value="900"
+                      min="60"
+                      step="60"
+                    />
+                    <small class="helper-text"
+                      >900s = 15 min (batería, voltaje).</small
+                    >
+                  </div>
+                </div>
+
+                <div class="toggle-row mt-2">
+                  <div class="toggle-info">
+                    <strong>Smart Position (Posición Inteligente)</strong>
+                    <p>
+                      Envía paquetes de ubicación solo si el nodo se ha
+                      desplazado una distancia significativa respecto al último
+                      punto.
+                    </p>
+                  </div>
+                  <label class="switch">
+                    <input type="checkbox" id="smartPosition" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </details>
+            </div>
+          </section>
+
+          <!-- Card 2: Identidad del Nodo -->
+          <section class="card">
+            <div class="card-header">
+              <span class="step-num">2</span>
+              <h2>Identidad del Nodo</h2>
+            </div>
+            <div class="card-body">
+              <div class="grid-2">
+                <div class="form-group">
+                  <label for="ownerLongName">Nombre Largo (Long Name)</label>
+                  <div class="input-with-button">
+                    <input
+                      type="text"
+                      id="ownerLongName"
+                      class="form-control"
+                      value="Meshtacore A3DC"
+                      maxlength="24"
+                    />
+                    <button
+                      type="button"
+                      id="btnRollRandomName"
+                      class="btn btn-secondary"
+                      title="Generar nuevo código aleatorio"
+                    >
+                      🎲 Aleatorio
+                    </button>
+                  </div>
+                  <small class="helper-text">Hasta 24 bytes UTF-8.</small>
+                </div>
+                <div class="form-group">
+                  <label for="ownerShortName">Nombre Corto (Short Name)</label>
+                  <input
+                    type="text"
+                    id="ownerShortName"
+                    class="form-control font-mono"
+                    value="A3DC"
+                    maxlength="4"
+                  />
+                  <small class="helper-text"
+                    >Hasta 4 bytes UTF-8 (iniciales en mapa/pantalla).</small
+                  >
+                </div>
+              </div>
+              <div class="info-alert mt-2">
+                💡 Si dejas ambos campos vacíos, el firmware generará el nombre
+                único automáticamente basado en los últimos dígitos de la MAC
+                física del nodo (ej. <code>Meshtacore 1B4F</code> /
+                <code>1B4F</code>).
+              </div>
+            </div>
+          </section>
+
+          <!-- Card 3: MeshCore & Nexus (Motor Híbrido) -->
+          <section class="card">
+            <div class="card-header">
+              <span class="step-num">3</span>
+              <h2>MeshCore & Nexus (Motor Híbrido)</h2>
+            </div>
+            <div class="card-body">
+              <div class="info-alert">
+                ⚡ <strong>Motor MeshCore & Nexus: Siempre Activo</strong><br />
+                El sniffer de tramas MeshCore, el repetidor transparente
+                híbrido, los comandos <code>/mcore</code> y el SyncWord híbrido
+                (<code>0x14B4</code>) forman parte integral del firmware
+                Meshtacore.
+              </div>
+
+              <div class="grid-2 mt-3">
+                <div class="form-group">
+                  <label for="meshcoreRelayMode">Modo MeshCore Relay</label>
+                  <select id="meshcoreRelayMode" class="form-control">
+                    <option value="AUTO" selected>
+                      AUTO (Sigue el rol del nodo)
+                    </option>
+                    <option value="ON">
+                      ON (Retransmisión forzada siempre)
+                    </option>
+                    <option value="OFF">
+                      OFF (Solo escuchar, no retransmitir)
+                    </option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="meshcoreAdvertHours"
+                    >Intervalo Flood ADVERT (horas)</label
+                  >
+                  <input
+                    type="number"
+                    id="meshcoreAdvertHours"
+                    class="form-control"
+                    value="12"
+                    min="1"
+                    max="168"
+                  />
+                  <small class="helper-text"
+                    >Periodo del anuncio de identidad firmado (1 a 168
+                    horas).</small
+                  >
+                </div>
+              </div>
+
+              <div class="toggle-row mt-3">
+                <div class="toggle-label">
+                  <strong>Rebroadcast Forzado de Textos (Base Texts)</strong>
+                  <p>
+                    Actúa como router para mensajes de texto
+                    (<code>TEXT_MESSAGE_APP</code>), asegurando que el nodo
+                    siempre los retransmita sin cancelarlos por duplicidad
+                    escuchada. Ideal para estaciones base en tejado o fijas.
+                  </p>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="nexusBaseTexts" checked />
+                  <span class="slider"></span>
+                </label>
+              </div>
+
+              <div class="form-group mt-3">
+                <label for="nexusMasterKey"
+                  >Clave de Administración Remota (Nexus Master Key)</label
+                >
+                <select id="nexusMasterKey" class="form-control">
+                  <option value="" selected>
+                    (Ninguna - Solo administración local)
+                  </option>
+                  <option value="eevee">eevee (Nexus Master Key 1)</option>
+                  <option value="bloom">bloom (Nexus Master Key 2)</option>
+                  <option value="mew">mew (Nexus Master Key 3)</option>
+                  <option value="fennekin">
+                    fennekin (Nexus Master Key 4)
+                  </option>
+                  <option value="custom">
+                    Clave personalizada (Base64 o Hex)
+                  </option>
+                </select>
+              </div>
+              <div class="form-group hidden mt-2" id="customMasterKeyGroup">
+                <label for="customMasterKey"
+                  >Clave Pública Ed25519 personalizada</label
+                >
+                <input
+                  type="text"
+                  id="customMasterKey"
+                  class="form-control"
+                  placeholder="32 bytes en formato Hex o Base64"
+                />
+              </div>
+
+              <div class="subcard mt-3">
+                <div class="subcard-header">
+                  <strong>Filtros Geográficos de Regiones (Opcional)</strong>
+                </div>
+                <div class="form-group mt-2">
+                  <label for="meshcoreRegionsDef"
+                    >Árbol de Regiones MeshCore (RegionMap)</label
+                  >
+                  <input
+                    type="text"
+                    id="meshcoreRegionsDef"
+                    class="form-control"
+                    value=""
+                    placeholder="Vacío por defecto = Todas las regiones permitidas"
+                  />
+                  <small class="helper-text"
+                    >Por defecto está vacío: todas las regiones están permitidas
+                    sin restricción. Si deseas acotar el tráfico, introduce
+                    rutas jerárquicas (ej.
+                    <code>es, es/cat, es/cat/bcn</code>).</small
+                  >
+                </div>
+
+                <div class="grid-2 mt-2">
+                  <div class="form-group">
+                    <label for="meshcoreHomeRegion">Región HOME</label>
+                    <input
+                      type="text"
+                      id="meshcoreHomeRegion"
+                      class="form-control"
+                      value=""
+                      placeholder="Opcional (ej. cat)"
+                    />
+                    <small class="helper-text"
+                      >Región de pertenencia de este nodo (deja vacío si no usas
+                      filtrado regional).</small
+                    >
+                  </div>
+                  <div class="form-group">
+                    <label for="meshcoreDefaultRegion">Región DEFAULT</label>
+                    <input
+                      type="text"
+                      id="meshcoreDefaultRegion"
+                      class="form-control"
+                      value=""
+                      placeholder="Opcional (ej. es)"
+                    />
+                    <small class="helper-text"
+                      >Región por defecto para flood adverts (deja vacío si no
+                      usas filtrado regional).</small
+                    >
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Card 4: LoRa & Canales de Fábrica (Totalmente Editables) -->
+          <section class="card">
+            <div class="card-header">
+              <span class="step-num">4</span>
+              <h2>Radio LoRa & Canales Editables</h2>
+            </div>
+            <div class="card-body">
+              <div class="grid-2">
+                <div class="form-group">
+                  <label for="loraRegion">Región LoRa</label>
+                  <select id="loraRegion" class="form-control">
+                    <option value="EU_868" selected>
+                      EU_868 (Europa / España 868 MHz)
+                    </option>
+                    <option value="US">US (América 915 MHz)</option>
+                    <option value="EU_433">EU_433 (Europa 433 MHz)</option>
+                    <option value="ANZ">ANZ (Australia / Nueva Zelanda)</option>
+                    <option value="LORA_24">
+                      LORA_24 (Banda 2.4 GHz global)
+                    </option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <div class="flex-between">
+                    <label for="loraPreset">Perfil LoRa</label>
+                    <button
+                      type="button"
+                      id="btnToggleCustomLora"
+                      class="btn btn-outline btn-sm"
+                      style="padding: 2px 8px; font-size: 0.75rem"
+                    >
+                      ⚙️ Modificar parámetros
+                    </button>
+                  </div>
+                  <select id="loraPreset" class="form-control">
+                    <option value="custom_sfnarrow_default" selected>
+                      SFNarrow (869.618 MHz, BW 62.5, SF 7, CR 4/6, 22 dBm) -
+                      Recomendado España
+                    </option>
+                    <option value="custom">
+                      ⚙️ Perfil LoRa Personalizado (Definir Frecuencia, BW, SF,
+                      CR, Potencia...)
+                    </option>
+                    <option value="modem_preset_long_fast">
+                      LongFast (Estándar Meshtastic)
+                    </option>
+                    <option value="modem_preset_medium_fast">
+                      MediumFast (Compromiso velocidad/alcance)
+                    </option>
+                    <option value="modem_preset_short_fast">
+                      ShortFast (Alta velocidad / corto alcance)
+                    </option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Parámetros Personalizados LoRa (estilo lazynoda builder) -->
+              <div
+                id="customLoraContainer"
+                class="subcard subcard-lora mt-3 hidden"
+              >
+                <div class="subcard-header flex-between">
+                  <strong>⚙️ Parámetros de Radio LoRa Personalizados</strong>
+                  <span class="badge-mini">Modo Personalizado</span>
+                </div>
+                <p class="helper-text mb-2">
+                  Ajusta al milímetro la modulación LoRa física. Si cambias
+                  estos valores, los demás nodos deben usar los mismos
+                  parámetros para poder comunicarse.
+                </p>
+
+                <div class="grid-3 mt-2">
+                  <div class="form-group">
+                    <label for="loraOverrideFreq">Frecuencia (MHz)</label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      id="loraOverrideFreq"
+                      class="form-control font-mono"
+                      value="869.618"
+                      min="0"
+                      max="1000"
+                    />
+                    <small class="helper-text"
+                      >ej. 869.618 (0 = default región).</small
+                    >
+                  </div>
+                  <div class="form-group">
+                    <label for="loraBandwidth">Ancho de Banda (BW)</label>
+                    <select id="loraBandwidth" class="form-control">
+                      <option value="31">31.25 kHz</option>
+                      <option value="62" selected>
+                        62.5 kHz (SFNarrow España)
+                      </option>
+                      <option value="125">125 kHz (Estándar Meshtastic)</option>
+                      <option value="250">250 kHz (Alta velocidad)</option>
+                      <option value="500">500 kHz</option>
+                    </select>
+                    <small class="helper-text">Menor BW = mayor alcance.</small>
+                  </div>
+                  <div class="form-group">
+                    <label for="loraSpreadFactor"
+                      >Factor de Dispersión (SF)</label
+                    >
+                    <select id="loraSpreadFactor" class="form-control">
+                      <option value="5">SF5</option>
+                      <option value="6">SF6</option>
+                      <option value="7" selected>SF7 (SFNarrow España)</option>
+                      <option value="8">SF8</option>
+                      <option value="9">SF9</option>
+                      <option value="10">SF10</option>
+                      <option value="11">SF11 (Largo alcance)</option>
+                      <option value="12">SF12 (Máximo alcance / lento)</option>
+                    </select>
+                    <small class="helper-text"
+                      >Mayor SF = más alcance y tiempo al aire.</small
+                    >
+                  </div>
+                </div>
+
+                <div class="grid-3 mt-2">
+                  <div class="form-group">
+                    <label for="loraCodingRate">Tasa Codificación (CR)</label>
+                    <select id="loraCodingRate" class="form-control">
+                      <option value="5">4/5</option>
+                      <option value="6" selected>
+                        4/6 (SFNarrow recomendado)
+                      </option>
+                      <option value="7">4/7</option>
+                      <option value="8">4/8 (Máxima corrección)</option>
+                    </select>
+                    <small class="helper-text">Corrección de errores.</small>
+                  </div>
+                  <div class="form-group">
+                    <label for="loraTxPower">Potencia TX (dBm)</label>
+                    <input
+                      type="number"
+                      id="loraTxPower"
+                      class="form-control font-mono"
+                      value="22"
+                      min="0"
+                      max="30"
+                    />
+                    <small class="helper-text"
+                      >22 dBm legal España (0 = default placa).</small
+                    >
+                  </div>
+                  <div class="form-group">
+                    <label for="loraHopLimit"
+                      >Límite de Saltos (Hop Limit)</label
+                    >
+                    <input
+                      type="number"
+                      id="loraHopLimit"
+                      class="form-control font-mono"
+                      value="7"
+                      min="1"
+                      max="7"
+                    />
+                    <small class="helper-text">1 a 7 saltos en la malla.</small>
+                  </div>
+                </div>
+
+                <div class="grid-2 mt-2">
+                  <div class="form-group">
+                    <label for="loraChannelNum"
+                      >Número de Canal LoRa (Frecuencia Offset)</label
+                    >
+                    <input
+                      type="number"
+                      id="loraChannelNum"
+                      class="form-control font-mono"
+                      value="0"
+                      min="0"
+                      max="255"
+                    />
+                    <small class="helper-text"
+                      >Normalmente 0 salvo que se use canal secundario.</small
+                    >
+                  </div>
+                  <div
+                    class="form-group"
+                    style="
+                      display: flex;
+                      flex-direction: column;
+                      justify-content: center;
+                      gap: 0.5rem;
+                      margin-top: 0.5rem;
+                    "
+                  >
+                    <label class="checkbox-label">
+                      <input type="checkbox" id="loraOkToMqtt" checked />
+                      <span>Permitir OK to MQTT en perfil custom</span>
+                    </label>
+                    <label class="checkbox-label">
+                      <input type="checkbox" id="loraIgnoreMqtt" />
+                      <span>Ignorar paquetes procedentes de MQTT en LoRa</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Lista Editable de Canales -->
+              <div class="channels-section mt-3">
+                <div class="channels-header-flex">
+                  <div>
+                    <strong
+                      >Configuración de Canales (8 ranuras disponibles)</strong
+                    >
+                    <p class="helper-text">
+                      Por defecto, los canales de Meshtastic tienen habilitado
+                      <strong>únicamente el Uplink</strong> (subida hacia MQTT
+                      sin bajada), y los canales MeshCore utilizan clave
+                      <code>AQ==</code>. Puedes editar los nombres, claves y
+                      opciones.
+                    </p>
+                  </div>
+                  <div class="channels-actions">
+                    <button
+                      type="button"
+                      id="btnResetChannels"
+                      class="btn btn-sm btn-secondary"
+                    >
+                      🔄 Valores Recomendados
+                    </button>
+                    <button
+                      type="button"
+                      id="btnSingleChannel"
+                      class="btn btn-sm btn-outline"
+                    >
+                      Dejar solo Ch 0
+                    </button>
+                  </div>
+                </div>
+
+                <div class="channels-table-responsive mt-2">
+                  <table class="channels-edit-table" id="channelsTable">
+                    <thead>
+                      <tr>
+                        <th style="width: 45px; text-align: center">On</th>
+                        <th style="width: 60px">Slot</th>
+                        <th>Nombre</th>
+                        <th style="width: 140px">Clave PSK</th>
+                        <th style="width: 70px; text-align: center">Uplink</th>
+                        <th style="width: 70px; text-align: center">
+                          Downlink
+                        </th>
+                        <th style="width: 110px">Precisión</th>
+                      </tr>
+                    </thead>
+                    <tbody id="channelsTableBody">
+                      <!-- Rendered dynamically by app.js -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Card 5: MQTT Comunitario (mqtt.meshtastic.es) -->
+          <section class="card">
+            <div class="card-header">
+              <span class="step-num">5</span>
+              <h2>Conexión MQTT Comunitaria</h2>
+            </div>
+            <div class="card-body">
+              <div class="toggle-row">
+                <div class="toggle-info">
+                  <strong>Habilitar Conexión MQTT de Fábrica</strong>
+                  <p>
+                    Conecta automáticamente con el broker comunitario de España
+                    (<code>mqtt.meshtastic.es</code>) cuando el nodo dispone de
+                    conexión a Internet (WiFi o pasarela).
+                  </p>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="mqttEnabled" checked />
+                  <span class="slider"></span>
+                </label>
+              </div>
+
+              <div id="mqttFields" class="mt-3">
+                <div class="grid-2">
+                  <div class="form-group">
+                    <label for="mqttAddress">Servidor / Broker MQTT</label>
+                    <input
+                      type="text"
+                      id="mqttAddress"
+                      class="form-control"
+                      value="mqtt.meshtastic.es"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label for="mqttRoot">Tópico Raíz (Root Topic)</label>
+                    <input
+                      type="text"
+                      id="mqttRoot"
+                      class="form-control"
+                      value="msh"
+                    />
+                  </div>
+                </div>
+
+                <div class="grid-2 mt-2">
+                  <div class="form-group">
+                    <label for="mqttUsername">Usuario MQTT</label>
+                    <input
+                      type="text"
+                      id="mqttUsername"
+                      class="form-control"
+                      value="meshdev"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label for="mqttPassword">Contraseña MQTT</label>
+                    <input
+                      type="text"
+                      id="mqttPassword"
+                      class="form-control"
+                      value="large4cats"
+                    />
+                  </div>
+                </div>
+
+                <div class="grid-2 mt-2">
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="mqttEncryption" checked />
+                    <span
+                      >Cifrado de paquetes en MQTT habilitado
+                      (Recomendado)</span
+                    >
+                  </label>
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="mqttTls" />
+                    <span>Conexión segura TLS / SSL</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Card 6: Posición Geográfica, Zona Horaria & Mapa Interactivo -->
+          <section class="card">
+            <div class="card-header">
+              <span class="step-num">6</span>
+              <h2>Posición Geográfica, Zona Horaria & Mapa</h2>
+            </div>
+            <div class="card-body">
+              <div class="form-group">
+                <label for="gpsMode">Modo del Receptor GPS</label>
+                <select id="gpsMode" class="form-control">
+                  <option value="ENABLED" selected>
+                    ENABLED (Detección automática de GPS si la placa dispone de
+                    módulo)
+                  </option>
+                  <option value="DISABLED">
+                    DISABLED (Desactivar GPS para ahorrar batería)
+                  </option>
+                  <option value="NOT_PRESENT">
+                    NOT_PRESENT (La placa no tiene receptor GPS)
+                  </option>
+                </select>
+              </div>
+
+              <div class="location-toolbar mt-3">
+                <div class="location-toolbar-info">
+                  <strong>Coordenadas Fijas de Fábrica (Opcional)</strong>
+                  <p class="helper-text">
+                    Ideal para repetidores fijos o placas sin GPS. Puedes pulsar
+                    en <strong>Detectar mi ubicación</strong>, arrastrar el
+                    marcador en el mapa o hacer clic en cualquier punto.
+                  </p>
+                </div>
+                <div class="location-toolbar-actions">
+                  <button
+                    type="button"
+                    id="btnGeolocate"
+                    class="btn btn-primary btn-sm"
+                  >
+                    📍 Detectar mi ubicación actual
+                  </button>
+                  <button
+                    type="button"
+                    id="btnClearLocation"
+                    class="btn btn-secondary btn-sm"
+                  >
+                    🗑 Limpiar
+                  </button>
+                </div>
+              </div>
+
+              <!-- Interactive Leaflet Map -->
+              <div id="locationMap" class="mt-2"></div>
+              <div id="mapStatus" class="helper-text mt-1">
+                Haz clic o arrastra el marcador para fijar la posición exacta
+                del nodo.
+              </div>
+
+              <div class="grid-3 mt-3">
+                <div class="form-group">
+                  <label for="fixedLat">Latitud</label>
+                  <input
+                    type="number"
+                    step="any"
+                    id="fixedLat"
+                    class="form-control font-mono"
+                    placeholder="ej. 41.3879"
+                  />
+                </div>
+                <div class="form-group">
+                  <label for="fixedLon">Longitud</label>
+                  <input
+                    type="number"
+                    step="any"
+                    id="fixedLon"
+                    class="form-control font-mono"
+                    placeholder="ej. 2.1699"
+                  />
+                </div>
+                <div class="form-group">
+                  <label for="fixedAlt">Altitud (metros)</label>
+                  <input
+                    type="number"
+                    id="fixedAlt"
+                    class="form-control font-mono"
+                    placeholder="ej. 55"
+                  />
+                </div>
+              </div>
+
+              <!-- Zona Horaria (Auto-detectada automáticamente) -->
+              <div class="subcard subcard-tz mt-3">
+                <div class="subcard-header flex-between">
+                  <strong>🕒 Zona Horaria (Fecha & Hora local del Nodo)</strong>
+                  <span id="tzBadge" class="badge-mini">🌍 Auto-detectada</span>
+                </div>
+                <div class="form-group mt-2">
+                  <div class="input-with-button">
+                    <input
+                      type="text"
+                      id="timezoneString"
+                      class="form-control font-mono"
+                      value="CET-1CEST,M3.5.0,M10.5.0/3"
+                    />
+                    <button
+                      type="button"
+                      id="btnTzPeninsula"
+                      class="btn btn-secondary btn-sm"
+                      title="Horario Peninsular y Balear (CET)"
+                    >
+                      📍 Península
+                    </button>
+                    <button
+                      type="button"
+                      id="btnTzCanarias"
+                      class="btn btn-secondary btn-sm"
+                      title="Horario Islas Canarias (WET)"
+                    >
+                      🌴 Canarias
+                    </button>
+                    <button
+                      type="button"
+                      id="btnTzUtc"
+                      class="btn btn-secondary btn-sm"
+                      title="Tiempo Universal Coordinado (UTC)"
+                    >
+                      🌐 UTC
+                    </button>
+                  </div>
+                  <small class="helper-text" id="tzHelper">
+                    Detectada automáticamente según tu navegador y coordenadas
+                    en el mapa. Configura el reloj interno RTC y la hora
+                    mostrada en pantalla.
+                  </small>
+                </div>
+              </div>
+
+              <hr class="divider" />
+
+              <div class="toggle-row">
+                <div class="toggle-info">
+                  <strong>Conectar a Red WiFi Local (Solo ESP32)</strong>
+                  <p>
+                    Permite enlazar directamente el nodo a tu router doméstico
+                    para enviar telemetría a MQTT o utilizar la interfaz Web
+                    integrada.
+                  </p>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="wifiEnabled" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+
+              <div class="grid-2 mt-3 hidden" id="wifiFields">
+                <div class="form-group">
+                  <label for="wifiSsid">SSID WiFi</label>
+                  <input
+                    type="text"
+                    id="wifiSsid"
+                    class="form-control"
+                    placeholder="Nombre de red"
+                  />
+                </div>
+                <div class="form-group">
+                  <label for="wifiPassword">Contraseña WiFi</label>
+                  <input
+                    type="password"
+                    id="wifiPassword"
+                    class="form-control"
+                    placeholder="Contraseña"
+                  />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Card 7: Lanzar Compilación -->
+          <section class="card action-card">
+            <div class="card-header">
+              <span class="step-num">🚀</span>
+              <h2>Generar Firmware</h2>
+            </div>
+            <div class="card-body">
+              <!-- Live userPrefs.jsonc preview (estilo lazynoda builder) -->
+              <details class="json-preview mb-3">
+                <summary>
+                  👁️ Previsualizar configuración userPrefs.jsonc generada en
+                  tiempo real
+                </summary>
+                <textarea
+                  id="prefsJsonPreview"
+                  readonly
+                  spellcheck="false"
+                  placeholder="Cargando configuración..."
+                ></textarea>
+              </details>
+
+              <div class="actions-grid mt-3">
+                <div class="action-box">
+                  <h3>🚀 Compilar con tu cuenta de GitHub</h3>
+                  <div class="badge-mini mb-2" style="display: inline-block">
+                    Recomendado • Sin necesidad de tokens
+                  </div>
+                  <p>
+                    Cualquier usuario de GitHub puede solicitar su compilación a
+                    medida. Al pulsar el botón, se generará una solicitud
+                    oficial en GitHub con tu configuración.
+                  </p>
+                  <p class="helper-text mt-2">
+                    Un bot de GitHub Actions compilará tu placa en ~2 minutos,
+                    aplicará un límite de protección (<strong
+                      >3 compilaciones al día por usuario</strong
+                    >) y te responderá en el hilo con el enlace de descarga
+                    directa del archivo ZIP listo para flashear.
+                  </p>
+                  <button
+                    type="button"
+                    id="btnBuildViaIssue"
+                    class="btn btn-primary mt-3"
+                    style="
+                      width: 100%;
+                      padding: 0.75rem 1rem;
+                      font-size: 1rem;
+                      font-weight: 700;
+                    "
+                  >
+                    🚀 Enviar Solicitud de Compilación (1 Clic)
+                  </button>
+                  <div id="issueStatus" class="status-msg hidden mt-2"></div>
+                </div>
+
+                <div class="action-box">
+                  <h3>Opciones alternativas</h3>
+                  <p>
+                    También puedes descargar el archivo de configuración para
+                    compilar tú mismo en local con PlatformIO, o disparar
+                    directamente vía API si dispones de un token personal.
+                  </p>
+                  <div class="btn-group-vertical mt-3">
+                    <button
+                      type="button"
+                      id="btnDownloadJson"
+                      class="btn btn-secondary"
+                    >
+                      💾 Descargar userPrefs.jsonc
+                    </button>
+                    <button
+                      type="button"
+                      id="btnOpenActions"
+                      class="btn btn-outline mt-2"
+                    >
+                      ↗ Ver ejecuciones en GitHub Actions
+                    </button>
+                  </div>
+
+                  <details class="collapsible mt-3">
+                    <summary>
+                      🔑 Disparo directo vía GitHub Token (Colaboradores)
+                    </summary>
+                    <div class="form-group mt-2">
+                      <input
+                        type="password"
+                        id="githubToken"
+                        class="form-control"
+                        placeholder="GitHub Personal Access Token"
+                      />
+                      <small class="helper-text"
+                        >Solo para usuarios con permisos de escritura en el
+                        repositorio.</small
+                      >
+                    </div>
+                    <button
+                      type="button"
+                      id="btnDispatch"
+                      class="btn btn-sm btn-outline mt-2"
+                    >
+                      ⚡ Disparar vía API REST
+                    </button>
+                    <div
+                      id="dispatchStatus"
+                      class="status-msg hidden mt-2"
+                    ></div>
+                  </details>
+                </div>
+              </div>
+            </div>
+          </section>
+        </form>
+      </main>
+
+      <footer class="app-footer">
+        <p>Meshtacore • Firmware comunitario para Meshtastic & MeshCore.</p>
+      </footer>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="app.js"></script>
+  </body>
+</html>
