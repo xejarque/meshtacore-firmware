@@ -31,7 +31,7 @@ template <class T> class SX126xInterface : public RadioLibInterface
 
     void resetAGC() override;
 
-#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+#if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
     bool meshCoreTxSupported() const override { return true; }
 #endif
 

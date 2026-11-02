@@ -938,18 +938,12 @@ void NimbleBluetooth::setup()
         // Set IO capability to DisplayOnly for MITM authentication
         security.setCapability(ESP_IO_CAP_OUT);
         // Set the passkey
-#if HAS_SCREEN && !defined(MESHTASTIC_EXCLUDE_SCREEN)
-        bool canShowPin = (screen != nullptr);
-#else
-        bool canShowPin = false;
-#endif
-        if (config.bluetooth.mode == meshtastic_Config_BluetoothConfig_PairingMode_RANDOM_PIN && canShowPin) {
+        if (bleUseRandomPin()) {
             LOG_INFO("Use random passkey");
             security.setPassKey(false); // generate a random passkey
         } else {
             LOG_INFO("Use fixed passkey");
-            uint32_t pin = (config.bluetooth.fixed_pin != 0) ? config.bluetooth.fixed_pin : defaultBLEPin;
-            security.setPassKey(true, pin);
+            security.setPassKey(true, bleFixedPin());
         }
         // Enable authorization requirements:
         // - bonding: true (for persistent storage of the keys)

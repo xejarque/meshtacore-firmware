@@ -382,13 +382,8 @@ void NRF52Bluetooth::setup()
     Bluefruit.setTxPower(NRF52_BLE_TX_POWER);
 #endif
     if (config.bluetooth.mode != meshtastic_Config_BluetoothConfig_PairingMode_NO_PIN) {
-#if HAS_SCREEN && !defined(MESHTASTIC_EXCLUDE_SCREEN)
-        bool canShowPin = (screen != nullptr);
-#else
-        bool canShowPin = false;
-#endif
-        if (config.bluetooth.mode == meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN || !canShowPin) {
-            configuredPasskey = (config.bluetooth.fixed_pin != 0) ? config.bluetooth.fixed_pin : defaultBLEPin;
+        if (!bleUseRandomPin()) {
+            configuredPasskey = bleFixedPin();
         } else {
             uint32_t hwrand = 0;
             HardwareRNG::fill(reinterpret_cast<uint8_t *>(&hwrand), sizeof(hwrand));

@@ -21,6 +21,13 @@ extern const uint8_t MESH_SERVICE_UUID_16[], TORADIO_UUID_16[16u], FROMRADIO_UUI
 /// Given a level between 0-100, update the BLE attribute
 void updateBatteryLevel(uint8_t level);
 
+/// True when pairing should use a random PIN: RANDOM_PIN is configured and a screen exists to show it.
+/// Headless nodes cannot display one, so they pair with bleFixedPin() instead (config is left untouched).
+bool bleUseRandomPin();
+
+/// The configured fixed PIN, or the default one when none is set.
+uint32_t bleFixedPin();
+
 class BluetoothApi
 {
   public:

@@ -403,15 +403,9 @@ template <typename T> int16_t LR11x0Interface<T>::programModemParams()
         return err;
     }
 
-#if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
-    err = lora.setSyncWord(MESHTASTIC_LR11X0_MESHCORE_RX_SYNCWORD);
-#else
-    err = lora.setSyncWord(syncWord);
-#endif
-    if (err != RADIOLIB_ERR_NONE) {
-        LOG_ERROR("LR11x0 setSyncWord %s%d", radioLibErr, err);
+    err = setRxSyncWord();
+    if (err != RADIOLIB_ERR_NONE)
         return err;
-    }
 
     if (config.lora.region == meshtastic_Config_LoRaConfig_RegionCode_LORA_24) { // clamp if wide freq range
         limitPower(LR1120_MAX_POWER);
@@ -567,21 +561,38 @@ template <typename T> void LR11x0Interface<T>::addReceiveMetadata(meshtastic_Mes
 
 /** We override to turn on transmitter power as needed.
  */
+template <typename T> int16_t LR11x0Interface<T>::setRxSyncWord()
+{
+#if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
+    // RX listens on the hybrid word so one radio hears Meshtastic (0x2B) and MeshCore (0x12). The alternate modem has
+    // no LoRa sync word of its own to protect, so it keeps the plain Meshtastic one.
+    const uint8_t word = altModemActive() ? syncWord : MESHTASTIC_LR11X0_MESHCORE_RX_SYNCWORD;
+#else
+    const uint8_t word = syncWord;
+#endif
+    const int16_t err = lora.setSyncWord(word);
+    if (err != RADIOLIB_ERR_NONE)
+        LOG_ERROR("LR11x0 setSyncWord 0x%02x %s%d", word, radioLibErr, err);
+    return err;
+}
+
 template <typename T> void LR11x0Interface<T>::configHardwareForSend()
 {
 #if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
+    // RX runs on the hybrid sync word; each protocol must go out on its own. Already in standby here (startSend()).
     if (!altModemActive()) {
-        int err = lora.setSyncWord(isRawSending() ? meshCoreSyncWord : syncWord);
+        const uint8_t txWord = isRawSending() ? meshCoreSyncWord : syncWord;
+        const int16_t err = lora.setSyncWord(txWord);
         if (err != RADIOLIB_ERR_NONE)
-            LOG_ERROR("LR11x0 setSyncWord %s%d", radioLibErr, err);
+            LOG_ERROR("LR11x0 setSyncWord 0x%02x %s%d", txWord, radioLibErr, err);
     }
 #endif
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+    // MeshCore listens for a longer preamble at low SF (RadioLibWrapper::preambleLengthForSF: 32 at SF<=8, else 16).
+    // startReceive() always puts ours back.
     const uint16_t meshCorePreamble = sf <= 8 ? 32 : 16;
-    if (!altModemActive() && isRawSending() && meshCorePreamble != preambleLength) {
-        if (lora.setPreambleLength(meshCorePreamble) == RADIOLIB_ERR_NONE)
-            meshCorePreambleSet = true;
-    }
+    if (!altModemActive() && isRawSending() && meshCorePreamble != preambleLength)
+        lora.setPreambleLength(meshCorePreamble);
 #endif
     RadioLibInterface::configHardwareForSend();
 }
@@ -599,18 +610,9 @@ template <typename T> void LR11x0Interface<T>::startReceive()
 
     if (err == RADIOLIB_ERR_NONE) {
 #if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
-        if (!altModemActive()) {
-            int err = lora.setSyncWord(MESHTASTIC_LR11X0_MESHCORE_RX_SYNCWORD);
-            if (err != RADIOLIB_ERR_NONE)
-                LOG_ERROR("LR11x0 setSyncWord %s%d", radioLibErr, err);
-        }
-#endif
-#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
-        if (meshCorePreambleSet) {
-            if (!altModemActive())
-                lora.setPreambleLength(preambleLength);
-            meshCorePreambleSet = false;
-        }
+        // Back to the hybrid sync word after a TX; a failure is logged and RX still starts.
+        if (!altModemActive())
+            setRxSyncWord();
 #endif
         if (!meshtastic::nexusModule || meshtastic::nexusModule->altModem.mode == 0) {
             lora.setPreambleLength(preambleLength); // Solve RX ack fail after direct message sent.  Not sure why this is needed.
