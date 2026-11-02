@@ -8,9 +8,12 @@
 #include "MeshService.h"
 #include "NodeDB.h"
 #include "Power.h"
+#include "RadioLibInterface.h"
 #include "UptimeClock.h"
+#include "airtime.h"
 #include "configuration.h"
 #include "main.h"
+#include "memGet.h"
 #include "mesh/generated/meshtastic/apponly.pb.h"
 #include "modules/NexusModule.h"
 #include "modules/NexusRescue.h"
@@ -74,6 +77,9 @@ bool NexusModule::handleMeshtacoreCommand(const char *cmd)
         // /nexus VWAKE [<n>/<d>|DEFAULT]: LPCOMP battery wake threshold, a fraction of VDD
         // seen after the battery divider. Persist with SAVE.
         handleVwakeCommand(cmd[5] ? cmd + 6 : "");
+    } else if (strcasecmp(cmd, "HEALTH") == 0 || strncasecmp(cmd, "HEALTH ", 7) == 0 || strcasecmp(cmd, "SALUT") == 0 ||
+               strncasecmp(cmd, "SALUT ", 6) == 0) {
+        handleHealthCommand();
     } else {
         return false;
     }
@@ -270,4 +276,65 @@ void NexusModule::handleChemCommand(const char *arg)
     snprintf(replyMsg, sizeof(replyMsg), "JT: CHEM %s, full %u mV, cutoff %u mV per cell",
              batteryChemistryName((BatteryChemistry)battery_chemistry), activeBatteryOcv[0],
              activeBatteryOcv[NUM_OCV_POINTS - 1]);
+}
+
+void NexusModule::handleHealthCommand()
+{
+    uint64_t ms = Time::getMillisMonotonic();
+    uint32_t s = (uint32_t)(ms / 1000ULL);
+    uint32_t d = s / 86400;
+    s %= 86400;
+    uint32_t h = s / 3600;
+    s %= 3600;
+    uint32_t m = s / 60;
+    s %= 60;
+    char upBuf[24];
+    if (d > 0)
+        snprintf(upBuf, sizeof(upBuf), "%ud %02uh %02um", d, h, m);
+    else
+        snprintf(upBuf, sizeof(upBuf), "%uh %02um %02us", h, m, (unsigned)s);
+
+    static meshtastic_Telemetry dm = meshtastic_Telemetry_init_zero;
+    char batBuf[24] = "N/A";
+    if (getNexusDeviceTelemetry(&dm) && dm.which_variant == meshtastic_Telemetry_device_metrics_tag) {
+        const auto &dev = dm.variant.device_metrics;
+        if (dev.has_battery_level && dev.battery_level > 100) {
+            if (dev.has_voltage && dev.voltage > 0.1f)
+                snprintf(batBuf, sizeof(batBuf), "Powered(%.2fV)", dev.voltage);
+            else
+                snprintf(batBuf, sizeof(batBuf), "Powered");
+        } else if (dev.has_battery_level && dev.has_voltage) {
+            snprintf(batBuf, sizeof(batBuf), "%.2fV (%u%%)", dev.voltage, (unsigned)dev.battery_level);
+        } else if (dev.has_battery_level) {
+            snprintf(batBuf, sizeof(batBuf), "%u%%", (unsigned)dev.battery_level);
+        } else if (dev.has_voltage && dev.voltage > 0.1f) {
+            snprintf(batBuf, sizeof(batBuf), "%.2fV", dev.voltage);
+        }
+    }
+
+    uint32_t freeH = memGet.getFreeHeap();
+    uint32_t totH = memGet.getHeapSize();
+    char heapBuf[24];
+    if (totH > 0)
+        snprintf(heapBuf, sizeof(heapBuf), "%uK/%uK", (unsigned)(freeH / 1024), (unsigned)(totH / 1024));
+    else
+        snprintf(heapBuf, sizeof(heapBuf), "%uK free", (unsigned)(freeH / 1024));
+
+    float temp = getDieTemp();
+    const char *reason = getResetReason();
+    uint32_t rbt = myNodeInfo.reboot_count;
+    uint32_t unexp = getUnexpectedRebootCount();
+
+    char bootBuf[36];
+    if (unexp > 0)
+        snprintf(bootBuf, sizeof(bootBuf), "%s (x%u, %u unexp)", reason, (unsigned)rbt, (unsigned)unexp);
+    else
+        snprintf(bootBuf, sizeof(bootBuf), "%s (x%u)", reason, (unsigned)rbt);
+
+    float chUtil = (airTime != NULL) ? airTime->channelUtilizationPercent() : 0.0f;
+    int32_t noise = (RadioLibInterface::instance) ? RadioLibInterface::instance->getAverageNoiseFloor() : -120;
+
+    snprintf(replyMsg, sizeof(replyMsg),
+             "MTC HEALTH:\nUp: %s\nBoot: %s\nBat: %s\nHeap: %s\nTemp: %.1fC\nChU: %.1f%% Noise: %ddBm", upBuf, bootBuf, batBuf,
+             heapBuf, temp, chUtil, (int)noise);
 }

@@ -374,6 +374,36 @@ NexusModule::~NexusModule() {
 void NexusModule::setup() {
     MeshModule::setup();
 
+#ifdef ARCH_ESP32
+    Preferences preferences;
+    preferences.begin("meshtastic", false);
+    unexp_reboot_count = preferences.getUInt("unexpRebootCount", 0);
+    if (isUnexpectedReset()) {
+        unexp_reboot_count++;
+        preferences.putUInt("unexpRebootCount", unexp_reboot_count);
+    }
+    preferences.end();
+#elif defined(FSCom) && !defined(ARCH_PORTDUINO)
+    uint32_t counter = 0;
+    if (FSCom.exists("/prefs/unexpRebootCount")) {
+        auto f = FSCom.open("/prefs/unexpRebootCount", FILE_O_READ);
+        if (f) {
+            f.read(reinterpret_cast<uint8_t *>(&counter), sizeof(counter));
+            f.close();
+        }
+    }
+    if (isUnexpectedReset()) {
+        counter++;
+        FSCom.mkdir("/prefs");
+        auto f = FSCom.open("/prefs/unexpRebootCount", FILE_O_WRITE);
+        if (f) {
+            f.write(reinterpret_cast<const uint8_t *>(&counter), sizeof(counter));
+            f.close();
+        }
+    }
+    unexp_reboot_count = counter;
+#endif
+
 #ifdef STATION_G3
     // Nexus-28005 (2026-09-15): /nexus G3 boot-detect + vault apply.
     //
@@ -3266,6 +3296,26 @@ const char* NexusModule::getResetReason() {
 #endif
 }
 
+bool NexusModule::isUnexpectedReset() {
+#ifdef ARCH_ESP32
+    esp_reset_reason_t reason = esp_reset_reason();
+    return (reason == ESP_RST_PANIC ||
+            reason == ESP_RST_INT_WDT ||
+            reason == ESP_RST_TASK_WDT ||
+            reason == ESP_RST_WDT ||
+            reason == ESP_RST_BROWNOUT);
+#elif defined(ARCH_NRF52)
+    uint32_t why = readResetReason();
+    return (why & (POWER_RESETREAS_DOG_Msk | POWER_RESETREAS_LOCKUP_Msk)) != 0;
+#else
+    return false;
+#endif
+}
+
+uint32_t NexusModule::getUnexpectedRebootCount() {
+    return unexp_reboot_count;
+}
+
 float NexusModule::getDieTemp() {
 #ifdef ARCH_ESP32
     return temperatureRead();
@@ -3353,7 +3403,7 @@ void NexusModule::formatMCUInfo(char *buf, size_t bufSize) {
         "  CPU:       %lu MHz\n"
         "  Heap:      %lu B free (min-ever %lu, min 8-bit-cap %lu%s)\n"
         "  DieTemp:   %.1fC\n"
-        "  Boot:      %s\n"
+        "  Boot:      %s (x%u)\n"
         "  MAC:       %s\n"
         "  RNG:       0x%08lX\n"
         "  Up-time:   %s",
@@ -3369,6 +3419,7 @@ void NexusModule::formatMCUInfo(char *buf, size_t bufSize) {
         heapIntOk ? "" : ", integrity FAIL",
         (double)getDieTemp(),
         getResetReason(),
+        (unsigned)myNodeInfo.reboot_count,
         devIdHex,
         (unsigned long)randSample,
         upStr);
@@ -3433,7 +3484,7 @@ void NexusModule::formatMCUInfo(char *buf, size_t bufSize) {
         "  Platform:  %s%s%s / %s / %lu KB RAM / %lu KB Flash\n"
         "  Heap:       %lu B free, largest block %lu B\n"
         "  DieTemp:    %.1fC\n"
-        "  Boot:       %s\n"
+        "  Boot:       %s (x%u)\n"
         "  DeviceID:   !%08X %08X\n"
         "  UICR BL:    0x%08lX\n"
         "  UICR MBR:   0x%08lX\n"
@@ -3447,6 +3498,7 @@ void NexusModule::formatMCUInfo(char *buf, size_t bufSize) {
         (unsigned long)heapLargestBlock,
         (double)getDieTemp(),
         getResetReason(),
+        (unsigned)myNodeInfo.reboot_count,
         (unsigned)devIdHi,
         (unsigned)devIdLo,
         (unsigned long)blAddr,
@@ -3460,13 +3512,14 @@ void NexusModule::formatMCUInfo(char *buf, size_t bufSize) {
         "  Platform:  %s\n"
         "  Heap:      %lu B free, largest block %lu B\n"
         "  DieTemp:   %.1fC\n"
-        "  Boot:      %s\n"
+        "  Boot:      %s (x%u)\n"
         "  Up-time:   %s",
         "host/board",
         (unsigned long)memGet.getFreeHeap(),
         (unsigned long)memGet.getMinFreeBlock(),
         (double)getDieTemp(),
         getResetReason(),
+        (unsigned)myNodeInfo.reboot_count,
         upStr);
 #endif
 }

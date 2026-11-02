@@ -570,6 +570,24 @@ NodeDB::NodeDB()
     myNodeInfo.reboot_count = preferences.getUInt("rebootCounter", 0);
     preferences.end();
     LOG_DEBUG("Device reboots: %d", myNodeInfo.reboot_count);
+#elif defined(FSCom) && !defined(ARCH_PORTDUINO)
+    uint32_t counter = 0;
+    if (FSCom.exists("/prefs/rebootCount")) {
+        auto f = FSCom.open("/prefs/rebootCount", FILE_O_READ);
+        if (f) {
+            f.read(reinterpret_cast<uint8_t *>(&counter), sizeof(counter));
+            f.close();
+        }
+    }
+    counter++;
+    myNodeInfo.reboot_count = counter;
+    FSCom.mkdir("/prefs");
+    auto f = FSCom.open("/prefs/rebootCount", FILE_O_WRITE);
+    if (f) {
+        f.write(reinterpret_cast<const uint8_t *>(&counter), sizeof(counter));
+        f.close();
+    }
+    LOG_DEBUG("Device reboots: %d", myNodeInfo.reboot_count);
 #endif
 
     // UA_868 is obsolete; migrate to EU_868 before resetRadioConfig() below validates the region.

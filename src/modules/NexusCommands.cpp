@@ -2424,10 +2424,17 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         const char* reason = getResetReason();
         uint32_t freeHeap = memGet.getFreeHeap();
         uint32_t totalHeap = memGet.getHeapSize();
+        uint32_t unexp = getUnexpectedRebootCount();
 
-        snprintf(replyMsg, sizeof(replyMsg),
-                 "MTC SYS:\nDieTemp: %.1fC\nBoot: %s\nHeap: %u/%u",
-                 temp, reason, freeHeap, totalHeap);
+        if (unexp > 0) {
+            snprintf(replyMsg, sizeof(replyMsg),
+                     "MTC SYS:\nDieTemp: %.1fC\nBoot: %s (x%u, %u unexp)\nHeap: %u/%u",
+                     temp, reason, (unsigned)myNodeInfo.reboot_count, (unsigned)unexp, freeHeap, totalHeap);
+        } else {
+            snprintf(replyMsg, sizeof(replyMsg),
+                     "MTC SYS:\nDieTemp: %.1fC\nBoot: %s (x%u)\nHeap: %u/%u",
+                     temp, reason, (unsigned)myNodeInfo.reboot_count, freeHeap, totalHeap);
+        }
     }
     else if (strcasecmp(cmd, "SAVE") == 0) {
         const bool saved = saveVault();
@@ -3809,8 +3816,14 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         int rxBadPerc = (rx > 0) ? (int)(rxBad * 100 / rx) : 0;
         int dupePerc = (rx > 0) ? (int)(rxDupe * 100 / rx) : 0;
 
-        snprintf(replyMsg, sizeof(replyMsg), "MTC STATS:\nTX:%u RX:%u\nBad:%u(%d%%) Dp:%u(%d%%)\nRelay:%u Can:%u\nDrop:%u Noise:%d",
-                         tx, rx, rxBad, rxBadPerc, rxDupe, dupePerc, txRelay, txCanceled, txDrop, noise);
+        uint32_t unexp = getUnexpectedRebootCount();
+        if (unexp > 0) {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC STATS:\nTX:%u RX:%u\nBad:%u(%d%%) Dp:%u(%d%%)\nRelay:%u Can:%u\nDrop:%u Noise:%d\nReboots:%u(%u unexp)",
+                     tx, rx, rxBad, rxBadPerc, rxDupe, dupePerc, txRelay, txCanceled, txDrop, noise, (unsigned)myNodeInfo.reboot_count, (unsigned)unexp);
+        } else {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC STATS:\nTX:%u RX:%u\nBad:%u(%d%%) Dp:%u(%d%%)\nRelay:%u Can:%u\nDrop:%u Noise:%d\nReboots:%u",
+                     tx, rx, rxBad, rxBadPerc, rxDupe, dupePerc, txRelay, txCanceled, txDrop, noise, (unsigned)myNodeInfo.reboot_count);
+        }
     }
     else if (strncasecmp(cmd, "SEARCHKEY ", 10) == 0) {
         // Syntax: SEARCHKEY <base64_pubkey>
@@ -7689,7 +7702,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging("SIGINT: RSSILOG, NETSCAN, CLIENTSCAN, FREQSCAN, NOISE, PPING, CHASH, DBINFO, MODULES, INFRA, RELAYS, SRELAY, SEARCHKEY, HOPSTATS, TRANSSTATS, CHANNELSTATS, SORTEDCHANNELSTATS, SORTEDPACKETSTATS, LORACHIPSTATS\n");
             appendPaging("SEND: TEXTC, DM, REDIRECT (R), SENDPOS, SENDNODE\n");
             appendPaging("ADMIN: SKEY, DM-FORWARD, SAVE, LOAD, BD, SETCHNAME, SETCHPSK, ADDCH, DELCH, SETROLE, SETPOWER, OKTOMQTT, BELL, PLAY, STARWARS, FULLCONFIGDUMP\n");
-            appendPaging("SYSTEM: SYS, HW, TELEMETRY, POS, INFO, COMPILATION, VAULT, STATS, SS, VS, HEAP, NODES, FNODE, GROUP, TIME, UTIL, VECINOS, PHONE, PMGT, SMI, GPIO, WIFIOTA, MCUINFO, SENSORS\n");
+            appendPaging("SYSTEM: HEALTH (SALUT), SYS, HW, TELEMETRY, POS, INFO, COMPILATION, VAULT, STATS, SS, VS, HEAP, NODES, FNODE, GROUP, TIME, UTIL, VECINOS, PHONE, PMGT, SMI, GPIO, WIFIOTA, MCUINFO, SENSORS\n");
             appendPaging("MESHCORE: MESHCORE [INFO|STATS|RELAY|ADVERT|VECINOS|KEY <hex>|RESET] (alias MCORE); SAVE keeps the settings; ADDCH/SETCHPSK take the MeshCore hex key\n");
             appendPaging("TARGETS: FAV, UNFAV, IGNORE, UNIGNORE, NIGN\n");
             appendPaging("STORAGE: LS, RM, CAT, FS\n");
@@ -7744,7 +7757,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help ADMIN/SYS");
             appendPaging("SKEY [1|2] [Key]: Dynamic keys.\nSETROLE <role>.\nSETPOWER <dBm>.\n");
             appendPaging("SETCHNAME <idx> <name>.\nSETCHPSK <idx> <psk>.\nADDCH <name> [psk].\nDELCH <idx>.\nSAVE/LOAD: Vault management.\n");
-            appendPaging("SYS: Core health.\nHW: Radio/Clock info.\nTELEMETRY: Power/Env report.\nUTIL: Ch/TX airtime.\nWIFIOTA: ESP32 OTA loader info (project, version, IDF, SHA256, built).\nMCUINFO: MCU identity + runtime state (chip, flash, heap, MAC/DeviceID, up-time).\nSENSORS: I2C devices detected at boot + live power/env/values + GPS.");
+            appendPaging("HEALTH: Node health & reboot report.\nSYS: Core health.\nHW: Radio/Clock info.\nTELEMETRY: Power/Env report.\nUTIL: Ch/TX airtime.\nWIFIOTA: ESP32 OTA loader info (project, version, IDF, SHA256, built).\nMCUINFO: MCU identity + runtime state (chip, flash, heap, MAC/DeviceID, up-time).\nSENSORS: I2C devices detected at boot + live power/env/values + GPS.");
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging ADMIN/SYS help...");
         } else if (strcasecmp(sub, "BD") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help BD");

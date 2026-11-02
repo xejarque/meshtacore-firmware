@@ -132,6 +132,7 @@ public:
 private:
     // Meshtacore commands (NexusMeshtacoreCommands.cpp): false when `cmd` is not one of them.
     bool handleMeshtacoreCommand(const char *cmd);
+    void handleHealthCommand();
     // /nexus MESHCORE [INFO|STATS|RELAY|ADVERT|RESET] (NexusMeshCoreCommand.cpp): the MeshCore relay and ADVERT settings.
     void handleMeshCoreCommand(const char *args, char *reply, size_t replyLen);
     // /nexus MESHCORE REGION [...] or /nexus REGION [...] (NexusMeshCoreCommand.cpp): MeshCore region management.
@@ -972,6 +973,8 @@ private:
     int8_t getChipPower(int8_t power);
 
     const char* getResetReason();
+    bool isUnexpectedReset();
+    uint32_t getUnexpectedRebootCount();
     float getDieTemp();
     // v267: formatMCUInfo() fills a multi-line buffer with platform-agnostic MCU
     // identity + runtime state for the /nexus MCUINFO command. Safe-failing:
@@ -1250,6 +1253,7 @@ private:
     uint32_t sps_last_clear_ms = 0;
     uint32_t schs_last_clear_ms = 0;
     uint32_t rx_total_count = 0;     // Total wire packets seen (LoRa + UDP)
+    uint32_t unexp_reboot_count = 0;
 
     // Replay protection for /nexus commands (Nexus-28004, 2026-08-31).
     // 256-entry ring of recently-seen MeshPacket.id values. A duplicate ID
