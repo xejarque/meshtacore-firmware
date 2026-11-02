@@ -1860,6 +1860,65 @@ void test_trace_timeout_handling(void)
     TEST_ASSERT_NOT_NULL(strstr(body, "Trace timeout"));
 }
 
+void test_meshcore_drops_filter(void)
+{
+    GroupSetup s;
+    const uint8_t badPrefix[2] = {0xDE, 0xAD};
+    TEST_ASSERT_TRUE(s.c.addDrop(badPrefix, 2));
+    TEST_ASSERT_TRUE(s.c.isDropped(badPrefix, 2));
+
+    const uint8_t frameHash[4] = {0xDE, 0xAD, 0x12, 0x34};
+    TEST_ASSERT_TRUE(s.c.isDropped(frameHash, 4));
+
+    const uint8_t goodHash[4] = {0xCA, 0xFE, 0x12, 0x34};
+    TEST_ASSERT_FALSE(s.c.isDropped(goodHash, 4));
+
+    char list[128];
+    s.c.listDrops(list, sizeof(list));
+    TEST_ASSERT_NOT_NULL(strstr(list, "dead"));
+
+    TEST_ASSERT_TRUE(s.c.removeDrop(badPrefix, 2));
+    TEST_ASSERT_FALSE(s.c.isDropped(badPrefix, 2));
+
+    s.c.clearDrops();
+}
+
+void test_meshcore_node_listing(void)
+{
+    GroupSetup s;
+    const uint8_t pubA[32] = {0x55, 0x01};
+    const uint8_t pubB[32] = {0x55, 0x02};
+    s.c.learnContact(pubA, "UserOne");
+    s.c.learnRepeater(pubB, "TowerRpt");
+
+    char list[256];
+    TEST_ASSERT_TRUE(s.c.formatNodeList(0, list, sizeof(list)) > 0);
+    TEST_ASSERT_NOT_NULL(strstr(list, "UserOne"));
+    TEST_ASSERT_NOT_NULL(strstr(list, "TowerRpt"));
+
+    char contacts[256];
+    TEST_ASSERT_TRUE(s.c.formatNodeList(MeshCoreNode::CHAT, contacts, sizeof(contacts)) > 0);
+    TEST_ASSERT_NOT_NULL(strstr(contacts, "UserOne"));
+    TEST_ASSERT_NULL(strstr(contacts, "TowerRpt"));
+
+    char detail[256];
+    TEST_ASSERT_TRUE(s.c.formatNodeDetail("UserOne", detail, sizeof(detail)));
+    TEST_ASSERT_NOT_NULL(strstr(detail, "CHAT"));
+}
+
+void test_meshcore_heard_find_by_from(void)
+{
+    GroupSetup s;
+    const uint8_t hops[] = {0x11, 0x22};
+    const uint32_t aliceNum = MeshCoreCompanion::senderNodeNum("Alice");
+    s.c.noteHeardRoute(0x100, 0x200, aliceNum, 0, hops, 2, 1, 1, 6.0f, -70);
+
+    const MeshCoreCompanion::HeardPath *h = s.c.heardFindByFrom(aliceNum);
+    TEST_ASSERT_NOT_NULL(h);
+    TEST_ASSERT_EQUAL_UINT32(0x100, h->packetId);
+    TEST_ASSERT_NULL(s.c.heardFindByFrom(0x99999999));
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -1939,6 +1998,9 @@ void setup()
     RUN_TEST(test_trace_command_refused_while_one_is_running);
     RUN_TEST(test_trace_response_formats_snr_report);
     RUN_TEST(test_trace_timeout_handling);
+    RUN_TEST(test_meshcore_drops_filter);
+    RUN_TEST(test_meshcore_node_listing);
+    RUN_TEST(test_meshcore_heard_find_by_from);
 #endif
     exit(UNITY_END());
 }

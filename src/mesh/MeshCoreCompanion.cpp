@@ -691,6 +691,20 @@ const MeshCoreCompanion::HeardPath *MeshCoreCompanion::heardFind(uint32_t packet
     return nullptr;
 }
 
+const MeshCoreCompanion::HeardPath *MeshCoreCompanion::heardFindByFrom(uint32_t fromNum) const
+{
+    if (!fromNum)
+        return nullptr;
+    const HeardPath *best = nullptr;
+    for (const HeardPath &h : heard) {
+        if (h.packetId && h.fromNum == fromNum) {
+            if (!best || (int32_t)(h.heardMs - best->heardMs) > 0)
+                best = &h;
+        }
+    }
+    return best;
+}
+
 /// A node the companion announced for a MeshCore peer: our number range, a MeshCore key and no Meshtastic hardware.
 static bool isMeshCoreNode(const meshtastic_NodeInfoLite *n)
 {
@@ -1114,48 +1128,158 @@ const MeshCoreNode *MeshCoreCompanion::findContact(const char *nameOrHex) const
     return findNodeForTrace(nodes, nameOrHex);
 }
 
-bool MeshCoreCompanion::handleTraceCommand(const meshtastic_MeshPacket *p, bool direct)
+size_t MeshCoreCompanion::formatNodeList(uint8_t typeFilter, char *out, size_t cap) const
 {
-    if (!p || p->which_payload_variant != meshtastic_MeshPacket_decoded_tag ||
-        p->decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP)
-        return false;
-    if (!direct && !channels.isMeshCoreChannel((ChannelIndex)p->channel))
-        return false;
+    if (!out || cap == 0)
+        return 0;
+    out[0] = 0;
+    size_t count = 0;
+    nodes.forEach([&](const MeshCoreNode &n) {
+        if (!n.lastMod)
+            return;
+        if (typeFilter && n.type != typeFilter)
+            return;
+        count++;
+    });
 
-    char text[sizeof(p->decoded.payload.bytes) + 1];
-    const size_t len =
-        p->decoded.payload.size < sizeof(p->decoded.payload.bytes) ? p->decoded.payload.size : sizeof(p->decoded.payload.bytes);
-    memcpy(text, p->decoded.payload.bytes, len);
-    text[len] = 0;
-    trimInPlace(text);
-
-    if (strncasecmp(text, "..trace", 7) != 0)
-        return false;
-    if (text[7] != 0 && text[7] != ' ' && text[7] != '\t')
-        return false;
-
-    reportDelivery(direct ? p->to : PSEUDO_NODE_NUM, p->id, meshtastic_Routing_Error_NONE);
-    const MeshCoreNode *c = direct ? contactByNodeNum(p->to) : nullptr;
-    if (direct) {
-        if (!c)
-            return true;
-        ensureSenderNode(c->nodeNum, c->name, true, c->pub, meshtastic_Config_DeviceConfig_Role_CLIENT);
-    } else {
-        ensurePseudoNode();
+    const char *title = (typeFilter == MeshCoreNode::CHAT)       ? "Contacts"
+                        : (typeFilter == MeshCoreNode::REPEATER) ? "Repeaters"
+                                                                 : "Nodes";
+    if (count == 0) {
+        snprintf(out, cap, "JT MESHCORE: no %s learned yet", title);
+        return strlen(out);
     }
+    size_t len = snprintf(out, cap, "JT MESHCORE %s (%u):\n", title, (unsigned)count);
 
-    const uint32_t fromNum = c ? c->nodeNum : PSEUDO_NODE_NUM;
-    const uint32_t to = direct ? nodeDB->getNodeNum() : NODENUM_BROADCAST;
-    const uint8_t channel = direct ? 0 : p->channel;
-    const uint32_t replyId = p->id;
+    nodes.forEach([&](const MeshCoreNode &n) {
+        if (!n.lastMod || len >= cap - 1)
+            return;
+        if (typeFilter && n.type != typeFilter)
+            return;
+        char hexPub[9];
+        snprintf(hexPub, sizeof(hexPub), "%02x%02x%02x%02x", n.pub[0], n.pub[1], n.pub[2], n.pub[3]);
+        char route[16] = "";
+        if (n.hops == 0) {
+            snprintf(route, sizeof(route), "⚡");
+        } else if (n.hops != 0xFF) {
+            snprintf(route, sizeof(route), "%uh", (unsigned)n.hops);
+        }
+        int nChars = snprintf(out + len, cap - len, "!%08x %s [%s] %s SNR:%.1f RSSI:%d\n", (unsigned)n.nodeNum, n.name, hexPub,
+                              route, (double)n.snr, (int)n.rssi);
+        if (nChars > 0 && (size_t)nChars < cap - len)
+            len += nChars;
+        else
+            len = cap - 1;
+    });
+    if (len > 0 && out[len - 1] == '\n')
+        out[--len] = 0;
+    return len;
+}
 
-    // One trace at a time: a second one would take over the first one's tag and hop names, and its report.
+bool MeshCoreCompanion::formatNodeDetail(const char *nameOrHex, char *out, size_t cap) const
+{
+    if (!nameOrHex || !out || cap == 0)
+        return false;
+    const MeshCoreNode *n = findContact(nameOrHex);
+    if (!n)
+        return false;
+
+    char hexPub[17];
+    snprintf(hexPub, sizeof(hexPub), "%02x%02x%02x%02x%02x%02x%02x%02x", n->pub[0], n->pub[1], n->pub[2], n->pub[3], n->pub[4],
+             n->pub[5], n->pub[6], n->pub[7]);
+    const char *typeName = (n->type == MeshCoreNode::CHAT)       ? "CHAT"
+                           : (n->type == MeshCoreNode::REPEATER) ? "REPEATER"
+                           : (n->type == MeshCoreNode::ROOM)     ? "ROOM"
+                                                                 : "OTHER";
+
+    snprintf(out, cap, "!%08x %s (%s) key:%s.. hops:%u SNR:%.1f RSSI:%d", (unsigned)n->nodeNum, n->name, typeName, hexPub,
+             (unsigned)(n->hops == 0xFF ? 0 : n->hops), (double)n->snr, (int)n->rssi);
+    return true;
+}
+
+bool MeshCoreCompanion::addDrop(const uint8_t *prefix, uint8_t len)
+{
+    if (!prefix || len == 0 || len > 4)
+        return false;
+    for (size_t i = 0; i < MAX_MC_DROPS; i++) {
+        if (drops[i].len == len && memcmp(drops[i].prefix, prefix, len) == 0)
+            return true;
+    }
+    for (size_t i = 0; i < MAX_MC_DROPS; i++) {
+        if (drops[i].len == 0) {
+            memcpy(drops[i].prefix, prefix, len);
+            drops[i].len = len;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool MeshCoreCompanion::removeDrop(const uint8_t *prefix, uint8_t len)
+{
+    if (!prefix || len == 0 || len > 4)
+        return false;
+    for (size_t i = 0; i < MAX_MC_DROPS; i++) {
+        if (drops[i].len == len && memcmp(drops[i].prefix, prefix, len) == 0) {
+            drops[i].len = 0;
+            return true;
+        }
+    }
+    return false;
+}
+
+void MeshCoreCompanion::clearDrops()
+{
+    memset(drops, 0, sizeof(drops));
+}
+
+size_t MeshCoreCompanion::listDrops(char *out, size_t cap) const
+{
+    if (!out || cap == 0)
+        return 0;
+    size_t len = snprintf(out, cap, "JT MESHCORE drops: ");
+    size_t count = 0;
+    for (size_t i = 0; i < MAX_MC_DROPS; i++) {
+        if (drops[i].len > 0) {
+            char hex[9] = "";
+            for (size_t k = 0; k < drops[i].len; k++)
+                snprintf(hex + k * 2, sizeof(hex) - k * 2, "%02x", drops[i].prefix[k]);
+            int n = snprintf(out + len, cap - len, "%s%s", count ? ", " : "", hex);
+            if (n > 0)
+                len += n;
+            count++;
+        }
+    }
+    if (count == 0)
+        snprintf(out, cap, "JT MESHCORE drops: none");
+    return strlen(out);
+}
+
+bool MeshCoreCompanion::isDropped(const uint8_t *hash, uint8_t hashLen) const
+{
+    if (!hash || hashLen == 0)
+        return false;
+    for (size_t i = 0; i < MAX_MC_DROPS; i++) {
+        if (drops[i].len > 0 && drops[i].len <= hashLen) {
+            if (memcmp(drops[i].prefix, hash, drops[i].len) == 0)
+                return true;
+        }
+    }
+    return false;
+}
+
+bool MeshCoreCompanion::startTrace(const char *args, uint32_t fromNum, uint32_t to, uint8_t channel, uint32_t replyId,
+                                   bool direct, const MeshCoreNode *c, char *statusReply, size_t statusCap)
+{
     if (activeTrace.active) {
-        injectText(fromNum, to, channel, "🛰️ *Trace en curso*: espera a que termine.", replyId, direct, c, 0, 0, 0);
+        if (statusReply && statusCap)
+            snprintf(statusReply, statusCap, "JT MESHCORE: trace already in progress");
+        else
+            injectText(fromNum, to, channel, "🛰️ *Trace en curso*: espera a que termine.", replyId, direct, c, 0, 0, 0);
         return true;
     }
 
-    const char *pStr = text + 7;
+    const char *pStr = args ? args : "";
     bool symmetric = false;
     char targetNames[ActiveTrace::MAX_TRACE_HOPS][MeshCoreNode::NAME_LEN] = {};
     const MeshCoreNode *targets[ActiveTrace::MAX_TRACE_HOPS] = {};
@@ -1172,9 +1296,9 @@ bool MeshCoreCompanion::handleTraceCommand(const meshtastic_MeshPacket *p, bool 
             pStr += 3;
             continue;
         }
-        if ((uint8_t)pStr[0] == 0xE2 && (uint8_t)pStr[1] == 0x80 && (uint8_t)pStr[2] == 0xA6) {
+        if ((uint8_t)pStr[0] == 0xE2 && (uint8_t)pStr[1] == 0xA6) {
             symmetric = true;
-            pStr += 3;
+            pStr += 2;
             continue;
         }
 
@@ -1224,18 +1348,26 @@ bool MeshCoreCompanion::handleTraceCommand(const meshtastic_MeshPacket *p, bool 
     }
 
     if (targetCount == 0) {
-        char help[128];
-        snprintf(help, sizeof(help), "🛰️ *Uso*: ..trace @nodo1 @nodo2 ... (termina en ... para vuelta simétrica)");
-        injectText(fromNum, to, channel, help, replyId, direct, c, 0, 0, 0);
+        if (statusReply && statusCap) {
+            snprintf(statusReply, statusCap, "JT MESHCORE: TRACE expects target node/repeater");
+        } else {
+            char help[128];
+            snprintf(help, sizeof(help), "🛰️ *Uso*: ..trace @nodo1 @nodo2 ... (termina en ... para vuelta simétrica)");
+            injectText(fromNum, to, channel, help, replyId, direct, c, 0, 0, 0);
+        }
         return true;
     }
 
     for (size_t i = 0; i < targetCount; i++) {
         targets[i] = findNodeForTrace(nodes, targetNames[i]);
         if (!targets[i]) {
-            char err[128];
-            snprintf(err, sizeof(err), "🛰️ *Nodo no encontrado*: @%s", targetNames[i]);
-            injectText(fromNum, to, channel, err, replyId, direct, c, 0, 0, 0);
+            if (statusReply && statusCap) {
+                snprintf(statusReply, statusCap, "JT MESHCORE: node not found '%s'", targetNames[i]);
+            } else {
+                char err[128];
+                snprintf(err, sizeof(err), "🛰️ *Nodo no encontrado*: @%s", targetNames[i]);
+                injectText(fromNum, to, channel, err, replyId, direct, c, 0, 0, 0);
+            }
             return true;
         }
     }
@@ -1282,9 +1414,13 @@ bool MeshCoreCompanion::handleTraceCommand(const meshtastic_MeshPacket *p, bool 
 
     RadioInterface *iface = router ? router->getRadioIface() : nullptr;
     if (!iface || !iface->queueMeshCoreFrame(frame, flen)) {
-        char err[128];
-        snprintf(err, sizeof(err), "🛰️ *Error*: Radio no disponible o transmisión no permitida.");
-        injectText(fromNum, to, channel, err, replyId, direct, c, 0, 0, 0);
+        if (statusReply && statusCap) {
+            snprintf(statusReply, statusCap, "JT MESHCORE: radio not available or TX not allowed");
+        } else {
+            char err[128];
+            snprintf(err, sizeof(err), "🛰️ *Error*: Radio no disponible o transmisión no permitida.");
+            injectText(fromNum, to, channel, err, replyId, direct, c, 0, 0, 0);
+        }
         return true;
     }
 
@@ -1307,6 +1443,10 @@ bool MeshCoreCompanion::handleTraceCommand(const meshtastic_MeshPacket *p, bool 
         strncpy(activeTrace.hopNames[i], hopLabels[i], sizeof(activeTrace.hopNames[0]) - 1);
     }
 
+    if (statusReply && statusCap) {
+        snprintf(statusReply, statusCap, "JT MESHCORE: trace started (%u hops%s)", (unsigned)totalHops,
+                 symmetric ? ", symmetric" : "");
+    }
     char startMsg[128];
     if (symmetric)
         snprintf(startMsg, sizeof(startMsg), "🛰️ *Iniciando trace* (%u saltos con vuelta)...", (unsigned)totalHops);
@@ -1314,6 +1454,44 @@ bool MeshCoreCompanion::handleTraceCommand(const meshtastic_MeshPacket *p, bool 
         snprintf(startMsg, sizeof(startMsg), "🛰️ *Iniciando trace* (%u saltos, solo ida)...", (unsigned)totalHops);
     injectText(fromNum, to, channel, startMsg, replyId, direct, c, 0, 0, 0);
     return true;
+}
+
+bool MeshCoreCompanion::handleTraceCommand(const meshtastic_MeshPacket *p, bool direct)
+{
+    if (!p || p->which_payload_variant != meshtastic_MeshPacket_decoded_tag ||
+        p->decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP)
+        return false;
+    if (!direct && !channels.isMeshCoreChannel((ChannelIndex)p->channel))
+        return false;
+
+    char text[sizeof(p->decoded.payload.bytes) + 1];
+    const size_t len =
+        p->decoded.payload.size < sizeof(p->decoded.payload.bytes) ? p->decoded.payload.size : sizeof(p->decoded.payload.bytes);
+    memcpy(text, p->decoded.payload.bytes, len);
+    text[len] = 0;
+    trimInPlace(text);
+
+    if (strncasecmp(text, "..trace", 7) != 0)
+        return false;
+    if (text[7] != 0 && text[7] != ' ' && text[7] != '\t')
+        return false;
+
+    reportDelivery(direct ? p->to : PSEUDO_NODE_NUM, p->id, meshtastic_Routing_Error_NONE);
+    const MeshCoreNode *c = direct ? contactByNodeNum(p->to) : nullptr;
+    if (direct) {
+        if (!c)
+            return true;
+        ensureSenderNode(c->nodeNum, c->name, true, c->pub, meshtastic_Config_DeviceConfig_Role_CLIENT);
+    } else {
+        ensurePseudoNode();
+    }
+
+    const uint32_t fromNum = c ? c->nodeNum : PSEUDO_NODE_NUM;
+    const uint32_t to = direct ? nodeDB->getNodeNum() : NODENUM_BROADCAST;
+    const uint8_t channel = direct ? 0 : p->channel;
+    const uint32_t replyId = p->id;
+
+    return startTrace(text + 7, fromNum, to, channel, replyId, direct, c);
 }
 
 void MeshCoreCompanion::handleTraceFrame(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr,
@@ -1544,6 +1722,18 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
     MeshCoreRepeater::FrameInfo info;
     if (!MeshCoreRepeater::parse(raw, len, &info))
         return;
+
+#if MESHTASTIC_MESHCORE_PATH_COMMAND
+    if (info.path_hash_count > 0 && info.path_hash_size > 0) {
+        const size_t pathStart = info.header_len - (size_t)info.path_hash_count * info.path_hash_size;
+        if (isDropped(&raw[pathStart], info.path_hash_size))
+            return;
+    }
+    if (info.payload_type == 0x04 && len >= info.header_len + 4) {
+        if (isDropped(&raw[info.header_len], 4))
+            return;
+    }
+#endif
 
     switch (info.payload_type) {
     case 0x05: // GRP_TXT

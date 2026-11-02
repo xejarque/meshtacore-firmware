@@ -8,6 +8,7 @@
 #include "MeshService.h"
 #include "NodeDB.h"
 #include "Router.h"
+#include "UptimeClock.h"
 #include "configuration.h"
 #include "gps/RTC.h"
 #include "mesh/PathReport.h"
@@ -245,17 +246,34 @@ static void formatInfo(const RadioLibInterface &radio, char *reply, size_t reply
 #endif
 }
 
-static void formatStats(const RadioLibInterface &radio, char *reply, size_t replyLen)
+static void formatStats(const RadioLibInterface &radio, const char *arg, char *reply, size_t replyLen)
 {
     const MeshCoreRepeater &relay = radio.getMeshCoreRepeater();
+    while (arg && *arg == ' ')
+        arg++;
+    bool full = (arg && (strcasecmp(arg, "FULL") == 0 || strcasecmp(arg, "RELAY") == 0));
+
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
-    snprintf(reply, replyLen,
-             "JT MESHCORE: rx %lu dup %lu drop %lu relayed %lu defer %lu+%lu | DM rx %lu tx %lu acked %lu timeout %lu",
-             (unsigned long)relay.rxSeen, (unsigned long)relay.rxDup, (unsigned long)relay.rxDropped,
-             (unsigned long)relay.txRelayed, (unsigned long)relay.deferChannel, (unsigned long)relay.deferRadio,
-             (unsigned long)meshCoreCompanion.dmRx, (unsigned long)meshCoreCompanion.dmTx,
-             (unsigned long)meshCoreCompanion.dmAcked, (unsigned long)meshCoreCompanion.dmTimedOut);
+    if (full) {
+        snprintf(reply, replyLen,
+                 "JT MESHCORE STATS:\nrxSeen %lu (fld:%lu dir:%lu dup:%lu drop:%lu)\ntxRelayed %lu txDrop %lu\nAirtime tx:%lums "
+                 "rx:%lums\nDefer ch:%lu rad:%lu | DM rx:%lu tx:%lu ack:%lu to:%lu",
+                 (unsigned long)relay.rxSeen, (unsigned long)relay.rxFlood, (unsigned long)relay.rxDirectForUs,
+                 (unsigned long)relay.rxDup, (unsigned long)relay.rxDropped, (unsigned long)relay.txRelayed,
+                 (unsigned long)relay.txDropped, (unsigned long)relay.txAirtimeMs, (unsigned long)relay.rxAirtimeMs,
+                 (unsigned long)relay.deferChannel, (unsigned long)relay.deferRadio, (unsigned long)meshCoreCompanion.dmRx,
+                 (unsigned long)meshCoreCompanion.dmTx, (unsigned long)meshCoreCompanion.dmAcked,
+                 (unsigned long)meshCoreCompanion.dmTimedOut);
+    } else {
+        snprintf(reply, replyLen,
+                 "JT MESHCORE: rx %lu dup %lu drop %lu relayed %lu defer %lu+%lu | DM rx %lu tx %lu acked %lu timeout %lu",
+                 (unsigned long)relay.rxSeen, (unsigned long)relay.rxDup, (unsigned long)relay.rxDropped,
+                 (unsigned long)relay.txRelayed, (unsigned long)relay.deferChannel, (unsigned long)relay.deferRadio,
+                 (unsigned long)meshCoreCompanion.dmRx, (unsigned long)meshCoreCompanion.dmTx,
+                 (unsigned long)meshCoreCompanion.dmAcked, (unsigned long)meshCoreCompanion.dmTimedOut);
+    }
 #else
+    (void)full;
     snprintf(reply, replyLen, "JT MESHCORE: rx %lu dup %lu drop %lu relayed %lu defer %lu+%lu", (unsigned long)relay.rxSeen,
              (unsigned long)relay.rxDup, (unsigned long)relay.rxDropped, (unsigned long)relay.txRelayed,
              (unsigned long)relay.deferChannel, (unsigned long)relay.deferRadio);
@@ -596,6 +614,214 @@ void NexusModule::handleRegionCommand(const char *args, char *reply, size_t repl
     }
 }
 
+static void handleMeshCorePathCommand(const char *arg, char *reply, size_t replyLen)
+{
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    while (*arg == ' ')
+        arg++;
+    if (*arg == '\0') {
+        snprintf(reply, replyLen, "JT MESHCORE: PATH expects <contact|!hex|packetId>");
+        return;
+    }
+    char *end = nullptr;
+    unsigned long id = strtoul(arg, &end, 0);
+    if (id != 0 && end && *end == '\0') {
+        if (meshCoreCompanion.formatRouteForPacket(id, reply, replyLen))
+            return;
+    }
+    const MeshCoreNode *contact = meshCoreCompanion.findContact(arg);
+    if (!contact) {
+        snprintf(reply, replyLen, "JT MESHCORE: no contact matching '%s'", arg);
+        return;
+    }
+    const MeshCoreCompanion::HeardPath *route = meshCoreCompanion.heardFindByFrom(contact->nodeNum);
+    if (!route) {
+        snprintf(reply, replyLen, "JT MESHCORE: no route heard for %s", contact->name);
+        return;
+    }
+    char line[128];
+    if (meshCoreCompanion.formatRouteLine(*route, line, sizeof(line))) {
+        snprintf(reply, replyLen, "JT MESHCORE: %s › %s", contact->name, line);
+    } else {
+        snprintf(reply, replyLen, "JT MESHCORE: route format failed for %s", contact->name);
+    }
+#else
+    (void)arg;
+    snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
+#endif
+}
+
+static void handleMeshCoreTraceCommand(const char *args, char *reply, size_t replyLen)
+{
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    meshCoreCompanion.startTrace(args, MeshCoreCompanion::PSEUDO_NODE_NUM, NODENUM_BROADCAST, 0, 0, false, nullptr, reply,
+                                 replyLen);
+#else
+    (void)args;
+    snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
+#endif
+}
+
+static void handleMeshCoreNodesCommand(uint8_t typeFilter, const char *arg, char *reply, size_t replyLen)
+{
+    (void)arg;
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    meshCoreCompanion.formatNodeList(typeFilter, reply, replyLen);
+#else
+    (void)typeFilter;
+    snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
+#endif
+}
+
+static void handleMeshCoreNodeDetailCommand(const char *arg, char *reply, size_t replyLen)
+{
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    while (*arg == ' ')
+        arg++;
+    if (*arg == '\0') {
+        snprintf(reply, replyLen, "JT MESHCORE: NODE expects <name|!hex>");
+        return;
+    }
+    if (!meshCoreCompanion.formatNodeDetail(arg, reply, replyLen))
+        snprintf(reply, replyLen, "JT MESHCORE: node '%s' not found", arg);
+#else
+    (void)arg;
+    snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
+#endif
+}
+
+static void handleMeshCoreSendCommand(const char *args, char *reply, size_t replyLen)
+{
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    char target[32];
+    const char *text = takeWord(args, target, sizeof(target));
+    while (text && *text == ' ')
+        text++;
+    if (target[0] == '\0' || !text || text[0] == '\0') {
+        snprintf(reply, replyLen, "JT MESHCORE: SEND expects <contact|channel> <text>");
+        return;
+    }
+    const MeshCoreNode *contact = meshCoreCompanion.findContact(target);
+    if (contact) {
+        RadioInterface *iface = router ? router->getRadioIface() : nullptr;
+        if (meshCoreCompanion.sendDirectText(contact->nodeNum, generatePacketId(), text, Time::getMillis(), iface))
+            snprintf(reply, replyLen, "JT MESHCORE: DM sent to %s", contact->name);
+        else
+            snprintf(reply, replyLen, "JT MESHCORE: DM failed to %s", contact->name);
+        return;
+    }
+    for (size_t i = 0; i < MAX_NUM_CHANNELS; i++) {
+        auto &ch = channels.getByIndex((ChannelIndex)i);
+        if (ch.role != meshtastic_Channel_Role_DISABLED && strcasecmp(ch.settings.name, target) == 0) {
+            meshtastic_MeshPacket *tp = router ? router->allocForSending() : nullptr;
+            if (tp) {
+                tp->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+                tp->to = NODENUM_BROADCAST;
+                tp->channel = i;
+                size_t tlen = strlen(text);
+                if (tlen > sizeof(tp->decoded.payload.bytes))
+                    tlen = sizeof(tp->decoded.payload.bytes);
+                memcpy(tp->decoded.payload.bytes, text, tlen);
+                tp->decoded.payload.size = tlen;
+                if (service)
+                    service->sendToMesh(tp);
+                snprintf(reply, replyLen, "JT MESHCORE: sent on %s", target);
+            } else {
+                snprintf(reply, replyLen, "JT MESHCORE: alloc failed");
+            }
+            return;
+        }
+    }
+    snprintf(reply, replyLen, "JT MESHCORE: target '%s' not found (expected contact or channel)", target);
+#else
+    (void)args;
+    snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
+#endif
+}
+
+static bool parseHexBytes(const char *str, uint8_t *out, uint8_t *lenOut, uint8_t maxLen)
+{
+    while (*str == ' ' || *str == '!')
+        str++;
+    size_t slen = strlen(str);
+    if (slen == 0 || slen > (size_t)maxLen * 2 || (slen % 2) != 0)
+        return false;
+    uint8_t count = (uint8_t)(slen / 2);
+    for (size_t i = 0; i < count; i++) {
+        char byteBuf[3] = {str[i * 2], str[i * 2 + 1], 0};
+        char *end = nullptr;
+        out[i] = (uint8_t)strtoul(byteBuf, &end, 16);
+        if (!end || *end != '\0')
+            return false;
+    }
+    *lenOut = count;
+    return true;
+}
+
+static void handleMeshCoreDropCommand(const char *arg, char *reply, size_t replyLen)
+{
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    while (*arg == ' ')
+        arg++;
+    if (*arg == '\0') {
+        snprintf(reply, replyLen, "JT MESHCORE: DROP expects <hex_prefix|CLEAR>");
+        return;
+    }
+    if (strcasecmp(arg, "CLEAR") == 0) {
+        meshCoreCompanion.clearDrops();
+        snprintf(reply, replyLen, "JT MESHCORE: drops cleared");
+        return;
+    }
+    uint8_t prefix[4] = {};
+    uint8_t plen = 0;
+    if (!parseHexBytes(arg, prefix, &plen, 4)) {
+        snprintf(reply, replyLen, "JT MESHCORE: DROP expects 1-4 hex bytes (e.g. 4d, a1b2)");
+        return;
+    }
+    if (meshCoreCompanion.addDrop(prefix, plen))
+        snprintf(reply, replyLen, "JT MESHCORE: dropped prefix %s", arg);
+    else
+        snprintf(reply, replyLen, "JT MESHCORE: drop list full (max %u)", (unsigned)MeshCoreCompanion::MAX_MC_DROPS);
+#else
+    (void)arg;
+    snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
+#endif
+}
+
+static void handleMeshCoreUndropCommand(const char *arg, char *reply, size_t replyLen)
+{
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    while (*arg == ' ')
+        arg++;
+    if (*arg == '\0') {
+        snprintf(reply, replyLen, "JT MESHCORE: UNDROP expects <hex_prefix>");
+        return;
+    }
+    uint8_t prefix[4] = {};
+    uint8_t plen = 0;
+    if (!parseHexBytes(arg, prefix, &plen, 4)) {
+        snprintf(reply, replyLen, "JT MESHCORE: UNDROP expects 1-4 hex bytes");
+        return;
+    }
+    if (meshCoreCompanion.removeDrop(prefix, plen))
+        snprintf(reply, replyLen, "JT MESHCORE: undropped prefix %s", arg);
+    else
+        snprintf(reply, replyLen, "JT MESHCORE: prefix %s not found in drop list", arg);
+#else
+    (void)arg;
+    snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
+#endif
+}
+
+static void handleMeshCoreDropsCommand(char *reply, size_t replyLen)
+{
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    meshCoreCompanion.listDrops(reply, replyLen);
+#else
+    snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
+#endif
+}
+
 void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t replyLen)
 {
     RadioLibInterface *radio = RadioLibInterface::instance;
@@ -609,13 +835,33 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
 
     if (word[0] == '\0' || strcasecmp(word, "HELP") == 0) {
         snprintf(reply, replyLen,
-                 "JT MESHCORE: INFO, STATS, RELAY [ON|OFF|AUTO], ADVERT [1-168|NOW], REGION [...], VECINOS, KEY <hex>, PPING "
-                 "[ON|OFF|...], PING <target>, RESET. "
-                 "SAVE keeps them.");
+                 "JT MESHCORE: INFO, STATS [FULL], NODES, CONTACTS, REPEATERS, NODE <id>, PATH <target>, TRACE <target>, SEND "
+                 "<target> <msg>, DROP [hex|CLEAR], UNDROP <hex>, DROPS, RELAY [ON|OFF|AUTO], ADVERT [1-168|NOW], REGION [...], "
+                 "VECINOS, KEY <hex>, PPING [...], PING <target>, RESET. SAVE keeps them.");
     } else if (strcasecmp(word, "INFO") == 0) {
         formatInfo(*radio, reply, replyLen);
     } else if (strcasecmp(word, "STATS") == 0) {
-        formatStats(*radio, reply, replyLen);
+        formatStats(*radio, rest, reply, replyLen);
+    } else if (strcasecmp(word, "NODES") == 0) {
+        handleMeshCoreNodesCommand(0, rest, reply, replyLen);
+    } else if (strcasecmp(word, "CONTACTS") == 0) {
+        handleMeshCoreNodesCommand(MeshCoreNode::CHAT, rest, reply, replyLen);
+    } else if (strcasecmp(word, "REPEATERS") == 0) {
+        handleMeshCoreNodesCommand(MeshCoreNode::REPEATER, rest, reply, replyLen);
+    } else if (strcasecmp(word, "NODE") == 0) {
+        handleMeshCoreNodeDetailCommand(rest, reply, replyLen);
+    } else if (strcasecmp(word, "PATH") == 0 || strcasecmp(word, "RUTA") == 0) {
+        handleMeshCorePathCommand(rest, reply, replyLen);
+    } else if (strcasecmp(word, "TRACE") == 0 || strcasecmp(word, "TRAZA") == 0) {
+        handleMeshCoreTraceCommand(rest, reply, replyLen);
+    } else if (strcasecmp(word, "SEND") == 0) {
+        handleMeshCoreSendCommand(rest, reply, replyLen);
+    } else if (strcasecmp(word, "DROP") == 0) {
+        handleMeshCoreDropCommand(rest, reply, replyLen);
+    } else if (strcasecmp(word, "UNDROP") == 0) {
+        handleMeshCoreUndropCommand(rest, reply, replyLen);
+    } else if (strcasecmp(word, "DROPS") == 0) {
+        handleMeshCoreDropsCommand(reply, replyLen);
     } else if (strcasecmp(word, "RELAY") == 0) {
         setRelay(*radio, rest, signatureRequired, reply, replyLen);
     } else if (strcasecmp(word, "ADVERT") == 0) {

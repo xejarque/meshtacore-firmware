@@ -191,6 +191,9 @@ class MeshCoreCompanion
     /// Look up a heard route entry by packet id.
     const HeardPath *heardFind(uint32_t packetId) const;
 
+    /// Look up the most recent heard route entry for a given sender node number.
+    const HeardPath *heardFindByFrom(uint32_t fromNum) const;
+
     /// Format a single route line, unified across .path and MeshCore PPING replies.
     bool formatRouteLine(const HeardPath &route, char *out, size_t cap, float freqErr = 0.0f) const;
 
@@ -199,6 +202,27 @@ class MeshCoreCompanion
 
     /// Find contact by name, prefix, or !hex number.
     const MeshCoreNode *findContact(const char *nameOrHex) const;
+
+    /// Format compact list of known nodes matching typeFilter (0 for all).
+    size_t formatNodeList(uint8_t typeFilter, char *out, size_t cap) const;
+
+    /// Format detail for a single node matching name or !hex.
+    bool formatNodeDetail(const char *nameOrHex, char *out, size_t cap) const;
+
+    /// Launch a MeshCore trace route, returning true if queued.
+    bool startTrace(const char *args, uint32_t fromNum, uint32_t to, uint8_t channel, uint32_t replyId, bool direct,
+                    const MeshCoreNode *c, char *statusReply = nullptr, size_t statusCap = 0);
+
+    static constexpr size_t MAX_MC_DROPS = 4;
+    struct DropEntry {
+        uint8_t prefix[4] = {};
+        uint8_t len = 0;
+    };
+    bool addDrop(const uint8_t *prefix, uint8_t len);
+    bool removeDrop(const uint8_t *prefix, uint8_t len);
+    void clearDrops();
+    size_t listDrops(char *out, size_t cap) const;
+    bool isDropped(const uint8_t *hash, uint8_t hashLen) const;
 #endif
 
     /// Create the synthetic "MeshCore" node if it is missing, so the client has a sender name to render.
@@ -409,6 +433,7 @@ class MeshCoreCompanion
         int32_t rssi;
     };
     static void injectReportChunk(void *ctx, const char *text, size_t len);
+    DropEntry drops[MAX_MC_DROPS] = {};
 #endif
     void queueAck(uint32_t hash);
     /// Tell the client how a direct message ended, as if the contact itself had answered. relayNode >= 0 marks a relay.
