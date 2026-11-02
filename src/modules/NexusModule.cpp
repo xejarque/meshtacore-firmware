@@ -40,8 +40,11 @@
 // flag. Also gates the Shadow CLI /nexus TELEMETRY / POWER / ENV helpers
 // below to no-op when the corresponding module is not registered.
 #include "NexusSensorBudget.h"
-#if defined(ARCH_ESP32) && !MESHTASTIC_EXCLUDE_WIFI
+#if defined(ARCH_ESP32)
+#include <Preferences.h>
+#if !MESHTASTIC_EXCLUDE_WIFI
 #include "MeshtasticOTA.h"
+#endif
 #endif
 #include "CryptoEngine.h" // for crypto->xeddsa_verify (Nexus-28002, verifyTrustedSignature)
 #include "Router.h"
