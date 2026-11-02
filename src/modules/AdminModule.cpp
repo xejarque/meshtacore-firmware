@@ -1204,6 +1204,19 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c, bool fromOthers)
         LOG_INFO("Set config: Bluetooth");
         config.has_bluetooth = true;
         config.bluetooth = c.payload_variant.bluetooth;
+#if HAS_SCREEN && !defined(MESHTASTIC_EXCLUDE_SCREEN)
+        if (!screen && config.bluetooth.mode == meshtastic_Config_BluetoothConfig_PairingMode_RANDOM_PIN) {
+            config.bluetooth.mode = meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN;
+            if (config.bluetooth.fixed_pin == 0)
+                config.bluetooth.fixed_pin = defaultBLEPin;
+        }
+#else
+        if (config.bluetooth.mode == meshtastic_Config_BluetoothConfig_PairingMode_RANDOM_PIN) {
+            config.bluetooth.mode = meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN;
+            if (config.bluetooth.fixed_pin == 0)
+                config.bluetooth.fixed_pin = defaultBLEPin;
+        }
+#endif
         break;
     case meshtastic_Config_security_tag: {
         LOG_INFO("Set config: Security");

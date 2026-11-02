@@ -787,7 +787,10 @@ document.addEventListener("DOMContentLoaded", () => {
       : rebroadcastMode
         ? rebroadcastMode.value
         : "ALL";
-    const blePinVal = fixedBlePin ? fixedBlePin.value.trim() : "";
+    const blePinVal =
+      fixedBlePin && fixedBlePin.value.trim()
+        ? fixedBlePin.value.trim()
+        : "123456";
     const nodeInfoSecsVal = nodeInfoBroadcastSecs
       ? nodeInfoBroadcastSecs.value.trim()
       : "10800";
@@ -1118,6 +1121,8 @@ ${JSON.stringify(configPayload, null, 2)}
     }
     if (data.fixed_ble_pin) {
       prefs["USERPREFS_FIXED_BLUETOOTH"] = data.fixed_ble_pin;
+    } else {
+      prefs["USERPREFS_FIXED_BLUETOOTH"] = "123456";
     }
     if (data.node_info_broadcast_secs) {
       prefs["USERPREFS_CONFIG_DEVICE_NODE_INFO_BROADCAST_SECS"] =

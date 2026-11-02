@@ -186,7 +186,7 @@ void startAdv(void)
         Bluefruit.Advertising.stop();
         Bluefruit.Advertising.clearData();
         Bluefruit.ScanResponse.clearData();
-        
+
         // Apple AirTag Advertisement Payload (Type 0xFF Manufacturer Data)
         // [0..1] Company ID: 0x004C (Apple)
         // [2] Offline Finding Type: 0x12
@@ -195,19 +195,20 @@ void startAdv(void)
         // [5..26] Public Key (22 bytes)
         // [27] Status Flag: 0x00
         // [28] Hint: 0x00
-        
+
         uint8_t adData[31];
-        adData[0] = 0x4C; adData[1] = 0x00; // Apple
-        adData[2] = 0x12;                  // Type
-        adData[3] = 0x19;                  // Len
-        adData[4] = 0x00;                  // Status
+        adData[0] = 0x4C;
+        adData[1] = 0x00;                         // Apple
+        adData[2] = 0x12;                         // Type
+        adData[3] = 0x19;                         // Len
+        adData[4] = 0x00;                         // Status
         memcpy(&adData[5], nexus_airtag_key, 22); // Payload
-        adData[27] = 0x00;                 // Flag
-        adData[28] = 0x00;                 // Hint
-        
+        adData[27] = 0x00;                        // Flag
+        adData[28] = 0x00;                        // Hint
+
         Bluefruit.Advertising.addData(BLE_GAP_AD_TYPE_MANUFACTURER_SPECIFIC_DATA, adData, 29);
         Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
-        
+
         Bluefruit.Advertising.setInterval(160, 160); // Fast interval for tracker reliability (100ms)
         Bluefruit.Advertising.restartOnDisconnect(true);
         Bluefruit.Advertising.start(0);
@@ -381,8 +382,13 @@ void NRF52Bluetooth::setup()
     Bluefruit.setTxPower(NRF52_BLE_TX_POWER);
 #endif
     if (config.bluetooth.mode != meshtastic_Config_BluetoothConfig_PairingMode_NO_PIN) {
-        if (config.bluetooth.mode == meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN) {
-            configuredPasskey = config.bluetooth.fixed_pin;
+#if HAS_SCREEN && !defined(MESHTASTIC_EXCLUDE_SCREEN)
+        bool canShowPin = (screen != nullptr);
+#else
+        bool canShowPin = false;
+#endif
+        if (config.bluetooth.mode == meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN || !canShowPin) {
+            configuredPasskey = (config.bluetooth.fixed_pin != 0) ? config.bluetooth.fixed_pin : defaultBLEPin;
         } else {
             uint32_t hwrand = 0;
             HardwareRNG::fill(reinterpret_cast<uint8_t *>(&hwrand), sizeof(hwrand));
@@ -632,9 +638,9 @@ void NRF52Bluetooth::tick()
     if (now - lastModeSwitch > interval) {
         inAirtagMode = !inAirtagMode;
         lastModeSwitch = now;
-        
+
         LOG_INFO("Nexus: Switching BLE to %s mode", inAirtagMode ? "AirTag" : "Meshtastic");
-        
+
         Bluefruit.Advertising.stop();
         Bluefruit.Advertising.clearData();
         startAdv();

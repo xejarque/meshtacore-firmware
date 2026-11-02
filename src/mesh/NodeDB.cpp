@@ -2734,6 +2734,14 @@ void NodeDB::loadFromDisk()
     }
     configLoadComplete = true;
 
+#if !HAS_SCREEN || defined(MESHTASTIC_EXCLUDE_SCREEN)
+    if (config.bluetooth.mode == meshtastic_Config_BluetoothConfig_PairingMode_RANDOM_PIN) {
+        config.bluetooth.mode = meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN;
+        if (config.bluetooth.fixed_pin == 0)
+            config.bluetooth.fixed_pin = defaultBLEPin;
+    }
+#endif
+
     // Coerce LoRa config fields derived from presets while bootstrapping.
     // Some clients/UI components display bandwidth/spread_factor directly from config even in preset mode.
     if (config.has_lora && config.lora.use_preset) {
