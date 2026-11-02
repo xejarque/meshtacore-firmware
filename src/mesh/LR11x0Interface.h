@@ -34,11 +34,20 @@ template <class T> class LR11x0Interface : public RadioLibInterface
     /** Nexus LCS: busy pin + software RX view (LRxxxx::getStatus is protected, Stat1 mode bits unconfirmed). */
     uint8_t readChipState() override;
 
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+    bool meshCoreTxSupported() const override { return true; }
+#endif
+
   protected:
     /**
      * Specific module instance
      */
     T lora;
+
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+    /** The chip holds MeshCore's preamble length for a raw frame; startReceive() puts ours back. */
+    bool meshCorePreambleSet = false;
+#endif
 
     int16_t getCurrentRSSI() override;
 

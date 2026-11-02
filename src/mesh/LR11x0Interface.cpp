@@ -403,7 +403,11 @@ template <typename T> int16_t LR11x0Interface<T>::programModemParams()
         return err;
     }
 
+#if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
+    err = lora.setSyncWord(MESHTASTIC_LR11X0_MESHCORE_RX_SYNCWORD);
+#else
     err = lora.setSyncWord(syncWord);
+#endif
     if (err != RADIOLIB_ERR_NONE) {
         LOG_ERROR("LR11x0 setSyncWord %s%d", radioLibErr, err);
         return err;
@@ -565,6 +569,20 @@ template <typename T> void LR11x0Interface<T>::addReceiveMetadata(meshtastic_Mes
  */
 template <typename T> void LR11x0Interface<T>::configHardwareForSend()
 {
+#if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
+    if (!altModemActive()) {
+        int err = lora.setSyncWord(isRawSending() ? meshCoreSyncWord : syncWord);
+        if (err != RADIOLIB_ERR_NONE)
+            LOG_ERROR("LR11x0 setSyncWord %s%d", radioLibErr, err);
+    }
+#endif
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+    const uint16_t meshCorePreamble = sf <= 8 ? 32 : 16;
+    if (!altModemActive() && isRawSending() && meshCorePreamble != preambleLength) {
+        if (lora.setPreambleLength(meshCorePreamble) == RADIOLIB_ERR_NONE)
+            meshCorePreambleSet = true;
+    }
+#endif
     RadioLibInterface::configHardwareForSend();
 }
 
@@ -580,6 +598,20 @@ template <typename T> void LR11x0Interface<T>::startReceive()
     int16_t err = trySetStandby();
 
     if (err == RADIOLIB_ERR_NONE) {
+#if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
+        if (!altModemActive()) {
+            int err = lora.setSyncWord(MESHTASTIC_LR11X0_MESHCORE_RX_SYNCWORD);
+            if (err != RADIOLIB_ERR_NONE)
+                LOG_ERROR("LR11x0 setSyncWord %s%d", radioLibErr, err);
+        }
+#endif
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+        if (meshCorePreambleSet) {
+            if (!altModemActive())
+                lora.setPreambleLength(preambleLength);
+            meshCorePreambleSet = false;
+        }
+#endif
         if (!meshtastic::nexusModule || meshtastic::nexusModule->altModem.mode == 0) {
             lora.setPreambleLength(preambleLength); // Solve RX ack fail after direct message sent.  Not sure why this is needed.
         }
