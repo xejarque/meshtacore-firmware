@@ -21,16 +21,20 @@ def load_valid_targets() -> set:
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: parse_issue_build.py <path_to_issue_body_file>")
-        sys.exit(1)
+    body = ""
+    if len(sys.argv) >= 2:
+        issue_file = Path(sys.argv[1])
+        if issue_file.exists():
+            body = issue_file.read_text(encoding="utf-8")
+    if not body:
+        body = os.getenv("ISSUE_BODY", "")
 
-    issue_file = Path(sys.argv[1])
-    if not issue_file.exists():
-        print(f"Error: file {issue_file} does not exist", file=sys.stderr)
+    if not body:
+        print(
+            "Error: No issue body provided via file or ISSUE_BODY environment variable",
+            file=sys.stderr,
+        )
         sys.exit(1)
-
-    body = issue_file.read_text(encoding="utf-8")
 
     # Match JSON block in markdown
     match = re.search(

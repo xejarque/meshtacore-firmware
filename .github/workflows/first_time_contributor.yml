@@ -10,6 +10,7 @@ permissions: {}
 
 jobs:
   welcome:
+    if: (!github.event.issue) || (!contains(github.event.issue.title, '[Build Request]') && !contains(github.event.issue.body, 'meshtacore-build-config'))
     runs-on: ubuntu-latest
     permissions:
       issues: write # Required to post comments and labels on issues
