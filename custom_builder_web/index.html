@@ -164,27 +164,196 @@
           </p>
         </div>
 
-        <!-- Artisan Schematic Box -->
-        <div class="schematic-box">
-          <span class="comment"
-            >/* Diagrama del pipeline de recepción en hardware SX126x con
-            registro 0x14B4 */</span
-          >
+        <!-- Visual Pipeline Architecture -->
+        <div class="visual-pipeline">
+          <div class="pipeline-header">
+            <span class="pipeline-header-title"
+              >Arquitectura de Radio • Flujo de Recepción en Tiempo Real</span
+            >
+            <span class="pipeline-status-badge">REGISTRO HÍBRIDO 0x14B4</span>
+          </div>
 
-          [ <span class="accent-text">Antena LoRa Externa 868 MHz</span> ] | v [
-          <span class="accent-text">Transceptor Semtech SX126x</span> ] --->
-          <strong>Registro Sync Word: 0x14B4</strong> | (Detecta preámbulos 0x2B
-          y 0x12) | +------+---------------------------------+ | | v v [
-          <span class="accent-text">Prueba Claves Meshtastic</span> ] [
-          <span class="accent-text">Parser Nativo MeshCore</span> ] | |
-          (¿Descifra Canal?) (Trama de Red MeshCore) | | +------+------+
-          +------+------+ | Sí | No | | v v v v [
-          <span class="accent-text">Router MSH</span> ] [
-          <span class="comment">Pasa a MeshCore</span> ] [
-          <span class="accent-text">Flood Relay</span> ] [
-          <span class="accent-text">App Bridge</span> ] App Oficial (Sin pérdida
-          de tramas) Dedupe 160 pkts Entrega canal MC: Bluetooth/USB Backoff LBT
-          y DMs a la app móvil
+          <div class="flow-node-centered">
+            <!-- Node 1: Antenna -->
+            <div class="flow-node-box">
+              <div style="font-size: 1.1rem; margin-bottom: 0.2rem">📡</div>
+              <strong>Antena LoRa Externa (868 MHz)</strong>
+              <div
+                style="
+                  font-size: 0.8rem;
+                  color: var(--text-muted);
+                  margin-top: 0.2rem;
+                "
+              >
+                Captura física de señales RF en el aire (Misma Frecuencia, SF y
+                Ancho de Banda)
+              </div>
+            </div>
+
+            <div class="flow-arrow-down">↓</div>
+
+            <!-- Node 2: Transceiver Chip -->
+            <div class="flow-node-box hardware-chip">
+              <span class="flow-chip-tag"
+                >NIVEL FÍSICO (PHY) • SEMTECH SX126x</span
+              >
+              <div
+                style="
+                  font-weight: 700;
+                  color: var(--text-main);
+                  font-size: 0.95rem;
+                "
+              >
+                Registro Sync Word:
+                <code style="color: var(--accent-blue)">0x14B4</code>
+              </div>
+              <div
+                style="
+                  font-size: 0.82rem;
+                  color: var(--text-muted);
+                  margin-top: 0.25rem;
+                "
+              >
+                Detecta en una sola escucha activa tanto preámbulos de
+                Meshtastic (0x2B) como de MeshCore (0x12) sin reconfigurar el
+                chip.
+              </div>
+            </div>
+
+            <div class="flow-arrow-down">
+              ↓ Desmultiplexado asíncrono en memoria
+            </div>
+          </div>
+
+          <!-- Dual Pipeline Branches -->
+          <div class="pipeline-branches">
+            <!-- Branch 1: Meshtastic -->
+            <div class="branch-col branch-meshtastic">
+              <div class="branch-title-wrap">
+                <div class="branch-title">
+                  <span style="color: var(--accent)">●</span> Rama Meshtastic
+                </div>
+                <span class="branch-step-tag tag-msh"
+                  >PRIORIDAD 1 (ZERO-LOSS)</span
+                >
+              </div>
+
+              <div class="branch-step-box">
+                <div style="font-weight: 600; margin-bottom: 0.2rem">
+                  1. Prueba Criptográfica
+                </div>
+                <div style="font-size: 0.8rem; color: var(--text-muted)">
+                  Intenta descifrar la trama contra las claves AES-CTR de los
+                  canales configurados localmente.
+                </div>
+              </div>
+
+              <div
+                class="branch-step-box"
+                style="border-left: 3px solid var(--accent)"
+              >
+                <div
+                  style="
+                    font-weight: 600;
+                    color: var(--accent);
+                    margin-bottom: 0.2rem;
+                  "
+                >
+                  ¿Descifra con éxito? → SÍ
+                </div>
+                <ul class="branch-list">
+                  <li>
+                    Se entrega de inmediato al
+                    <strong>Router MSH oficial</strong>.
+                  </li>
+                  <li>Deduplicación en buffer circular de 160 paquetes.</li>
+                  <li>
+                    Notificación transparente a la app móvil oficial (BLE /
+                    Serial).
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- Branch 2: MeshCore -->
+            <div class="branch-col branch-meshcore">
+              <div class="branch-title-wrap">
+                <div class="branch-title">
+                  <span style="color: var(--accent-blue)">●</span> Rama MeshCore
+                </div>
+                <span class="branch-step-tag tag-mc">COEXISTENCIA NATIVA</span>
+              </div>
+
+              <div class="branch-step-box">
+                <div style="font-weight: 600; margin-bottom: 0.2rem">
+                  2. Desvío Alternativo
+                </div>
+                <div style="font-size: 0.8rem; color: var(--text-muted)">
+                  Si no coincide con ninguna clave local de Meshtastic, la trama
+                  pasa al <strong>Parser Nativo MeshCore</strong>.
+                </div>
+              </div>
+
+              <div
+                class="branch-step-box"
+                style="border-left: 3px solid var(--accent-blue)"
+              >
+                <div
+                  style="
+                    font-weight: 600;
+                    color: var(--accent-blue);
+                    margin-bottom: 0.2rem;
+                  "
+                >
+                  Trama de Red MeshCore Válida
+                </div>
+                <ul class="branch-list">
+                  <li>
+                    <strong>Flood Relay</strong> automático con LBT y Backoff
+                    adaptativo.
+                  </li>
+                  <li>
+                    Entrega en canal virtual <code>MC:</code> mapeado en la app.
+                  </li>
+                  <li>
+                    Respuestas directas y telemetría por consola remota
+                    <strong>Nexus</strong>.
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- Collapsible Terminal ASCII Diagram -->
+          <details class="schematic-terminal-details">
+            <summary class="schematic-summary">
+              💻 Ver esquema técnico en arte ASCII (formato consola de terminal)
+            </summary>
+            <!-- prettier-ignore -->
+            <pre class="schematic-pre"><code>+-----------------------------------------------------------------------------------+
+|                           ANTENA LORA EXTERNA (868 MHz)                           |
++-----------------------------------------+-----------------------------------------+
+                                          |  Señal aérea RF (Misma Frecuencia, SF y BW)
+                                          v
++-----------------------------------------------------------------------------------+
+|                        TRANSCEPTOR SEMTECH SX1262 / SX1268                        |
+|                         Registro REG_LR_SYNCWORD = 0x14B4                         |
+|   (Detecta en una sola escucha preámbulos Meshtastic 0x2B y MeshCore 0x12)        |
++-----------------------------------------+-----------------------------------------+
+                                          |
+                   +----------------------+----------------------+
+                   |                                             |
+                   v (Preámbulo 0x2B / Clave local)              v (Preámbulo 0x12 / Trama no-MSH)
++-------------------------------------------+   +-------------------------------------------+
+|     1. PIPELINE MESHTASTIC (PRIORIDAD)    |   |    2. PIPELINE MESHCORE (COEXISTENCIA)    |
++-------------------------------------------+   +-------------------------------------------+
+| • Prueba claves AES de canales locales    |   | • Parser nativo de tramas MeshCore        |
+| • ¿Descifra canal? SÍ                     |   | • Si es trama válida de red:              |
+| • Deduplicación circular de 160 pkts      |   |   - Flood Relay con LBT y Backoff         |
+| • Entrega a Router MSH oficial            |   |   - Inyección en canal virtual "MC:"      |
+| • Notificación a App móvil (BLE / Serial) |   |   - Consola y telemetría remota Nexus     |
++-------------------------------------------+   +-------------------------------------------+</code></pre>
+          </details>
         </div>
 
         <div class="artisan-grid-2">
