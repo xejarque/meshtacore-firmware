@@ -1,0 +1,251 @@
+name: Issue Firmware Builder Bot
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+  actions: read
+
+jobs:
+  build-from-issue:
+    name: Build Custom Firmware from Issue
+    if: contains(github.event.issue.title, '[Build Request]') || contains(github.event.issue.body, 'meshtacore-build-config')
+    runs-on: ubuntu-24.04
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Check Rate Limit (Max 3 builds/user per 24 hours)
+        id: rate-limit
+        run: |
+          ACTOR="${{ github.actor }}"
+          ISSUE_NUM="${{ github.event.issue.number }}"
+          REPO="${{ github.repository }}"
+          ONE_DAY_AGO=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+
+          echo "Checking recent requests for user: $ACTOR"
+          COUNT=$(gh issue list --repo "$REPO" --author "$ACTOR" --state all --limit 30 --json createdAt,number | jq --arg D "$ONE_DAY_AGO" '[.[] | select(.number != ('"$ISSUE_NUM"') and .createdAt >= $D)] | length')
+          echo "Recent issues in last 24h: $COUNT"
+
+          if [ "$COUNT" -ge 3 ]; then
+            echo "limit_exceeded=true" >> "$GITHUB_OUTPUT"
+            gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "⚠️ Hola @$ACTOR, has alcanzado el límite de 3 compilaciones en las últimas 24 horas para preservar los recursos de CI de la comunidad. Por favor, vuelve a intentarlo mañana."
+            gh issue edit "$ISSUE_NUM" --repo "$REPO" --add-label "rate-limited"
+            gh issue close "$ISSUE_NUM" --repo "$REPO" --reason "not_planned"
+            exit 0
+          else
+            echo "limit_exceeded=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Acknowledge Build Request
+        if: steps.rate-limit.outputs.limit_exceeded != 'true'
+        run: |
+          ISSUE_NUM="${{ github.event.issue.number }}"
+          REPO="${{ github.repository }}"
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh issue edit "$ISSUE_NUM" --repo "$REPO" --add-label "build-in-progress" || true
+          gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "⏳ **Solicitud recibida.** Compilando tu firmware personalizado en GitHub Actions... Puedes seguir el progreso en vivo aquí: [Ver ejecución]($RUN_URL)."
+
+      - name: Parse Issue Configuration
+        id: parse-step
+        if: steps.rate-limit.outputs.limit_exceeded != 'true'
+        run: |
+          ISSUE_NUM="${{ github.event.issue.number }}"
+          REPO="${{ github.repository }}"
+          cat << 'EOF' > /tmp/issue_body.md
+          ${{ github.event.issue.body }}
+          EOF
+          python3 .github/scripts/parse_issue_build.py /tmp/issue_body.md
+
+      - name: Handle Invalid Configuration
+        if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid != 'true'
+        run: |
+          ISSUE_NUM="${{ github.event.issue.number }}"
+          REPO="${{ github.repository }}"
+          MSG="${{ steps.parse-step.outputs.error_message }}"
+          gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "❌ **Error en la solicitud:** $MSG"
+          gh issue edit "$ISSUE_NUM" --repo "$REPO" --add-label "build-failed" || true
+          gh issue close "$ISSUE_NUM" --repo "$REPO" --reason "not_planned"
+          exit 1
+
+      - name: Install PlatformIO and Dependencies
+        if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
+        run: |
+          pip install -U "platformio==6.1.19" jq
+          mkdir -p "$HOME/.platformio/packages"
+          echo '{"last_version": "6.1.19", "last_check": {"platformio_upgrade": 2147483647, "prune_system": 2147483647}}' > "$HOME/.platformio/appstate.json"
+          if [ ! -f "$HOME/.platformio/penv/bin/python" ] || ! "$HOME/.platformio/penv/bin/python" -c "import pioarduino; assert pioarduino.__version__ == '6.1.19'" 2>/dev/null; then
+            rm -rf "$HOME/.platformio/penv"
+            python -m venv "$HOME/.platformio/penv"
+            "$HOME/.platformio/penv/bin/pip" install --upgrade "uv>=0.1.0"
+            "$HOME/.platformio/penv/bin/pip" install "pioarduino==6.1.19" "platformio==6.1.19"
+          fi
+
+      - name: Resolve Architecture
+        id: arch-step
+        if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
+        run: |
+          TARGET="${{ steps.parse-step.outputs.target }}"
+          ALL_TARGETS=$(~/.platformio/penv/bin/python ./bin/generate_ci_matrix.py all --level extra)
+          ARCH=$(echo "$ALL_TARGETS" | jq --arg T "$TARGET" -r '.[] | select(.board==$T) | .platform')
+          if [ -z "$ARCH" ] || [ "$ARCH" = "null" ]; then
+            echo "::error::No se pudo determinar la arquitectura para la placa '$TARGET'."
+            exit 1
+          fi
+          echo "arch=$ARCH" >> "$GITHUB_OUTPUT"
+          echo "Target '$TARGET' pertenece a la arquitectura: $ARCH"
+
+      - name: Cache PlatformIO packages
+        if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio6119-py312-${{ runner.os }}-${{ steps.arch-step.outputs.arch }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            pio6119-py312-${{ runner.os }}-${{ steps.arch-step.outputs.arch }}-
+
+      - name: Generate tailored userPrefs.jsonc
+        if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
+        run: |
+          python3 .github/scripts/generate_custom_userprefs.py \
+            --file userPrefs.jsonc \
+            --output userPrefs.jsonc \
+            --custom-userprefs-json "$(cat requested_userprefs.json)"
+
+      - name: Compile Custom Firmware
+        if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
+        env:
+          PLATFORMIO_BUILD_FLAGS: "-DHAS_NEXUS=1 -DAPP_REPO=\\\"meshtacore-firmware\\\""
+          PIP_BREAK_SYSTEM_PACKAGES: "1"
+        run: |
+          TARGET="${{ steps.parse-step.outputs.target }}"
+          ARCH="${{ steps.arch-step.outputs.arch }}"
+          case "$ARCH" in
+            esp32|esp32s3|esp32c3|esp32c6) SCRIPT=bin/build-esp32.sh ;;
+            nrf52840)                      SCRIPT=bin/build-nrf52.sh ;;
+            nrf54l15)                      SCRIPT=bin/build-nrf54l15.sh ;;
+            rp2040|rp2350)                 SCRIPT=bin/build-rp2xx0.sh ;;
+            stm32)                         SCRIPT=bin/build-stm32wl.sh ;;
+            *)
+              echo "::error::Arquitectura '$ARCH' no soportada directamente."
+              exit 1
+              ;;
+          esac
+          echo "Compilando $TARGET con $SCRIPT..."
+          bash "$SCRIPT" "$TARGET"
+
+      - name: Prepare Release Bundle
+        if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
+        run: |
+          TARGET="${{ steps.parse-step.outputs.target }}"
+          SHORT_NAME="${{ steps.parse-step.outputs.owner_short_name }}"
+          mkdir -p release
+          cp userPrefs.jsonc release/config_used.jsonc
+
+          cat << 'EOF' > release/FLASHING_INSTRUCTIONS.txt
+          ===================================================================
+          MESHTACORE CUSTOM FIRMWARE BUNDLE
+          ===================================================================
+
+          Este archivo contiene el firmware compilado con tus ajustes integrados.
+          Estos valores residen en el binario y se aplican en el primer arranque
+          y TRAS CUALQUIER FACTORY RESET.
+
+          CÓMO FLASHEAR:
+          --------------
+          1. Dispositivos nRF52 (RAK4631, Heltec T114, T-Echo, T1000-E...):
+             - Conecta el dispositivo por USB.
+             - Haz doble clic rápido en el botón RESET para entrar en modo bootloader.
+             - Aparecerá una unidad USB en tu ordenador.
+             - Copia el archivo .uf2 a esa unidad. El nodo se reiniciará automáticamente.
+
+          2. Dispositivos ESP32 (Heltec V3, T-Beam, Station G2...):
+             - Opción Web: Abre https://flasher.meshtastic.org en Chrome o Edge.
+               Elige tu placa, selecciona "Custom firmware" y carga el archivo .bin de factory.
+             - Opción esptool / terminal:
+               esptool.py write_flash 0x0 firmware-*.factory.bin
+          ===================================================================
+          EOF
+
+          TIMESTAMP=$(date +'%Y%m%d_%H%M%S')
+          ZIP_NAME="meshtacore-${TARGET}-${SHORT_NAME}-${TIMESTAMP}.zip"
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+          cd release
+          zip -9 -r "../$ZIP_NAME" ./*
+          cd ..
+
+      - name: Upload Firmware to Artifacts
+        if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_NAME }}
+          retention-days: 30
+
+      - name: Publish to Releases and Notify in Issue
+        if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
+        run: |
+          ISSUE_NUM="${{ github.event.issue.number }}"
+          REPO="${{ github.repository }}"
+          TARGET="${{ steps.parse-step.outputs.target }}"
+          ARCH="${{ steps.arch-step.outputs.arch }}"
+          LONG_NAME="${{ steps.parse-step.outputs.owner_long_name }}"
+          SHORT_NAME="${{ steps.parse-step.outputs.owner_short_name }}"
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+          # Create rolling custom-builds release if missing
+          if ! gh release view custom-builds --repo "$REPO" >/dev/null 2>&1; then
+            gh release create custom-builds --repo "$REPO" \
+              --title "Meshtacore Custom Firmware Builds" \
+              --notes "Firmwares compilados a medida por solicitud comunitaria." \
+              --prerelease
+          fi
+
+          # Upload ZIP to custom-builds release
+          gh release upload custom-builds "$ZIP_NAME" --repo "$REPO" --clobber
+          DOWNLOAD_URL="https://github.com/$REPO/releases/download/custom-builds/$ZIP_NAME"
+
+          # Post reply comment on issue
+          gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "### 🎉 ¡Tu Firmware Meshtacore está listo!
+
+          - **Placa Objetivo:** \`$TARGET\` (\`$ARCH\`)
+          - **Nombre del Nodo:** \`$LONG_NAME\` (\`$SHORT_NAME\`)
+          - **Archivo:** \`$ZIP_NAME\`
+
+          📥 **[Descargar Firmware Personalizado (ZIP)]($DOWNLOAD_URL)**
+
+          ---
+
+          #### 📲 Cómo flashearlo en tu nodo:
+          1. Descomprime el archivo \`.zip\` descargado.
+          2. Abre [flasher.meshtastic.org](https://flasher.meshtastic.org) en Chrome o Edge (o copia el archivo \`.uf2\` si tu placa es nRF52).
+          3. Sube el binario a tu dispositivo.
+          4. Tu nodo arrancará automáticamente con todos tus canales comunitarios, frecuencias y ajustes de fábrica preconfigurados.
+
+          _Enlace de respaldo en GitHub Actions: [Ver ejecución y artefactos]($RUN_URL)_"
+
+          gh issue edit "$ISSUE_NUM" --repo "$REPO" --remove-label "build-in-progress" --add-label "build-completed" || true
+          gh issue close "$ISSUE_NUM" --repo "$REPO"
+
+      - name: Notify Failure in Issue
+        if: failure() && steps.rate-limit.outputs.limit_exceeded != 'true'
+        run: |
+          ISSUE_NUM="${{ github.event.issue.number }}"
+          REPO="${{ github.repository }}"
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "❌ **Error durante la compilación.** Hubo un fallo al compilar para la placa seleccionada. Puedes revisar el registro de errores en: [Ver ejecución en GitHub Actions]($RUN_URL)."
+          gh issue edit "$ISSUE_NUM" --repo "$REPO" --remove-label "build-in-progress" --add-label "build-failed" || true
+          gh issue close "$ISSUE_NUM" --repo "$REPO" --reason "not_planned"

@@ -176,6 +176,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnOpenActions = document.getElementById("btnOpenActions");
   const btnDownloadJson = document.getElementById("btnDownloadJson");
   const dispatchStatus = document.getElementById("dispatchStatus");
+  const btnBuildViaIssue = document.getElementById("btnBuildViaIssue");
+  const issueStatus = document.getElementById("issueStatus");
 
   // Timezone UI Elements
   const timezoneString = document.getElementById("timezoneString");
@@ -766,6 +768,59 @@ document.addEventListener("DOMContentLoaded", () => {
       admin_key: "",
       extra_build_flags: "",
     };
+  }
+
+  // 1-Click Build via GitHub Issue Bot (No token needed, works for any user)
+  if (btnBuildViaIssue) {
+    btnBuildViaIssue.addEventListener("click", () => {
+      const data = getFormData();
+      const prefs = buildUserPrefs(data);
+
+      const issueTitle = `[Build Request] ${data.target} - ${data.owner_short_name || "Node"}`;
+
+      const configPayload = {
+        target: data.target,
+        custom_target: data.custom_target,
+        owner_long_name: data.owner_long_name,
+        owner_short_name: data.owner_short_name,
+        has_screen: data.has_screen,
+        enable_bluetooth: data.enable_bluetooth,
+        device_role: data.device_role,
+        lora_region: data.lora_region,
+        lora_preset_mode: data.lora_preset_mode,
+        timezone_string: data.timezone_string,
+        custom_userprefs: prefs,
+      };
+
+      const issueBody = `### ⚙️ Solicitud de Compilación Automática de Firmware Meshtacore
+
+- **Placa Objetivo:** \`${data.target}\`
+- **Nombre del Nodo:** \`${data.owner_long_name}\` (\`${data.owner_short_name}\`)
+- **Zona Horaria:** \`${data.timezone_string}\`
+- **Rol:** \`${data.device_role}\` | **Región LoRa:** \`${data.lora_region}\`
+
+\`\`\`json:meshtacore-build-config
+${JSON.stringify(configPayload, null, 2)}
+\`\`\`
+
+> ℹ️ _Pulsa **"Submit new issue"** abajo para que el bot de GitHub Actions empiece a compilar tu firmware y te adjunte el enlace de descarga en este mismo hilo._`;
+
+      const url = `https://github.com/${REPO_OWNER}/${REPO_NAME}/issues/new?title=${encodeURIComponent(issueTitle)}&body=${encodeURIComponent(issueBody)}`;
+
+      if (issueStatus) {
+        issueStatus.className = "status-msg status-success";
+        issueStatus.classList.remove("hidden");
+        issueStatus.innerHTML = `
+          <strong>🚀 Redirigiendo a GitHub...</strong><br>
+          Se abrirá una nueva pestaña con tu solicitud preconfigurada. Haz clic en <em>"Submit new issue"</em> para iniciar la compilación automática.<br>
+          <a href="${url}" target="_blank" style="color: #58a6ff; font-weight: 600; text-decoration: underline; margin-top: 6px; display: inline-block;">
+            Abrir solicitud de compilación en GitHub ↗
+          </a>
+        `;
+      }
+
+      window.open(url, "_blank");
+    });
   }
 
   // Trigger GitHub Actions workflow dispatch via REST API

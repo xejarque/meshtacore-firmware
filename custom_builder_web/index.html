@@ -1137,56 +1137,90 @@
 
               <div class="actions-grid mt-3">
                 <div class="action-box">
-                  <h3>Opción Directa en GitHub Actions</h3>
-                  <p>
-                    Puedes lanzar la compilación con un solo clic proporcionando
-                    un GitHub Token (con permisos de <code>workflow</code>).
-                  </p>
-                  <div class="form-group mt-2">
-                    <input
-                      type="password"
-                      id="githubToken"
-                      class="form-control"
-                      placeholder="GitHub Personal Access Token (opcional)"
-                    />
-                    <small class="helper-text"
-                      >Se almacena únicamente en tu navegador
-                      (localStorage).</small
-                    >
+                  <h3>🚀 Compilar con tu cuenta de GitHub</h3>
+                  <div class="badge-mini mb-2" style="display: inline-block">
+                    Recomendado • Sin necesidad de tokens
                   </div>
+                  <p>
+                    Cualquier usuario de GitHub puede solicitar su compilación a
+                    medida. Al pulsar el botón, se generará una solicitud
+                    oficial en GitHub con tu configuración.
+                  </p>
+                  <p class="helper-text mt-2">
+                    Un bot de GitHub Actions compilará tu placa en ~2 minutos,
+                    aplicará un límite de protección (<strong
+                      >3 compilaciones al día por usuario</strong
+                    >) y te responderá en el hilo con el enlace de descarga
+                    directa del archivo ZIP listo para flashear.
+                  </p>
                   <button
                     type="button"
-                    id="btnDispatch"
+                    id="btnBuildViaIssue"
                     class="btn btn-primary mt-3"
+                    style="
+                      width: 100%;
+                      padding: 0.75rem 1rem;
+                      font-size: 1rem;
+                      font-weight: 700;
+                    "
                   >
-                    ⚡ Compilar en GitHub Actions
+                    🚀 Enviar Solicitud de Compilación (1 Clic)
                   </button>
-                  <div id="dispatchStatus" class="status-msg hidden"></div>
+                  <div id="issueStatus" class="status-msg hidden mt-2"></div>
                 </div>
 
                 <div class="action-box">
-                  <h3>Otras opciones</h3>
+                  <h3>Opciones alternativas</h3>
                   <p>
-                    También puedes abrir directamente el formulario nativo de
-                    GitHub o descargar la configuración
-                    <code>userPrefs.jsonc</code>.
+                    También puedes descargar el archivo de configuración para
+                    compilar tú mismo en local con PlatformIO, o disparar
+                    directamente vía API si dispones de un token personal.
                   </p>
                   <div class="btn-group-vertical mt-3">
                     <button
                       type="button"
-                      id="btnOpenActions"
-                      class="btn btn-secondary"
-                    >
-                      ↗ Abrir pestaña Actions en GitHub
-                    </button>
-                    <button
-                      type="button"
                       id="btnDownloadJson"
-                      class="btn btn-outline mt-2"
+                      class="btn btn-secondary"
                     >
                       💾 Descargar userPrefs.jsonc
                     </button>
+                    <button
+                      type="button"
+                      id="btnOpenActions"
+                      class="btn btn-outline mt-2"
+                    >
+                      ↗ Ver ejecuciones en GitHub Actions
+                    </button>
                   </div>
+
+                  <details class="collapsible mt-3">
+                    <summary>
+                      🔑 Disparo directo vía GitHub Token (Colaboradores)
+                    </summary>
+                    <div class="form-group mt-2">
+                      <input
+                        type="password"
+                        id="githubToken"
+                        class="form-control"
+                        placeholder="GitHub Personal Access Token"
+                      />
+                      <small class="helper-text"
+                        >Solo para usuarios con permisos de escritura en el
+                        repositorio.</small
+                      >
+                    </div>
+                    <button
+                      type="button"
+                      id="btnDispatch"
+                      class="btn btn-sm btn-outline mt-2"
+                    >
+                      ⚡ Disparar vía API REST
+                    </button>
+                    <div
+                      id="dispatchStatus"
+                      class="status-msg hidden mt-2"
+                    ></div>
+                  </details>
                 </div>
               </div>
             </div>
