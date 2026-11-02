@@ -187,6 +187,18 @@ class MeshCoreCompanion
     /// Render every known route, shortest first, into client-sized pieces through sink. Names come from the node DB
     /// and the contact table; several candidates for one hash are listed. Public for tests.
     size_t formatPathReport(const HeardPath *const *routes, size_t count, const char *sender, ReportSink sink, void *ctx) const;
+
+    /// Look up a heard route entry by packet id.
+    const HeardPath *heardFind(uint32_t packetId) const;
+
+    /// Format a single route line, unified across .path and MeshCore PPING replies.
+    bool formatRouteLine(const HeardPath &route, char *out, size_t cap, float freqErr = 0.0f) const;
+
+    /// Format route for a given packet id into out. Returns true on success.
+    bool formatRouteForPacket(uint32_t packetId, char *out, size_t cap, float freqErr = 0.0f) const;
+
+    /// Find contact by name, prefix, or !hex number.
+    const MeshCoreNode *findContact(const char *nameOrHex) const;
 #endif
 
     /// Create the synthetic "MeshCore" node if it is missing, so the client has a sender name to render.
@@ -380,7 +392,6 @@ class MeshCoreCompanion
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
     HeardPath heard[PATH_MEMORY];
     size_t heardNext = 0;
-    const HeardPath *heardFind(uint32_t packetId) const;
     /// Names behind a path hash: the node DB first (repeaters live there), then the MeshCore node store, whose keys outlive
     /// a node DB eviction. Duplicates (the same node listed twice) collapse, so an ambiguous hash still shows names.
     /// Returns the total found; up to max names are written to out.

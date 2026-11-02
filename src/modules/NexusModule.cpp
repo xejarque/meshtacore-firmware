@@ -2185,7 +2185,11 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                     //    DMs (isPingDM) bypass this gate — a direct-to-me packet is not a
                     //    channel broadcast, and the operator who enabled ALLOWDM clearly wants
                     //    DMs regardless of the per-channel flag.
-                    if ((isPingDM || (mp.channel < MAX_NUM_CHANNELS && ping_channels[mp.channel]))) {
+                    bool mcBotChannel = false;
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+                    mcBotChannel = isMeshCoreBotChannel(mp.channel);
+#endif
+                    if ((isPingDM || mcBotChannel || (mp.channel < MAX_NUM_CHANNELS && ping_channels[mp.channel]))) {
                         LOG_INFO("Nexus: Public Ping triggered by !%08x on Ch %d (DM=%d)", mp.from, mp.channel, isPingDM ? 1 : 0);
 
                         // Emoji mode: 0=text, 1=emoji if indirect, 2=always emoji
@@ -2217,7 +2221,12 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                         static char rMsg[200];
                         memset(rMsg, 0, sizeof(rMsg));
 
-                int l;
+                int l = 0;
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+                if (isMeshCorePing(mp, isPingDM)) {
+                    formatMeshCorePingReply(mp, rMsg, sizeof(rMsg));
+                } else {
+#endif
                 if (custom_pping_active && pping_header[0] != '\0') {
                     l = snprintf(rMsg, sizeof(rMsg), "%s\n", pping_header);
                 } else {
@@ -2284,6 +2293,9 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                     }
                     l += snprintf(rMsg + l, sizeof(rMsg) - l, " S:%s", sigEmoji);
                 }
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+                }
+#endif
 
                 // Send the reply back (Multi-routing: immediate local + deferred mesh)
                 bool isDM = (mp.to == myNodeInfo.my_node_num);

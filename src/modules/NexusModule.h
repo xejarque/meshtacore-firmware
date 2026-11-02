@@ -143,6 +143,12 @@ private:
     void formatNeighbors(char *reply, size_t replyLen);
     // /nexus MESHCORE VECINOS: direct MeshCore neighbours.
     void formatMeshCoreNeighbors(char *reply, size_t replyLen);
+    // Format MeshCore PPING reply (NexusMeshCoreCommand.cpp)
+    bool isMeshCoreBotChannel(uint32_t channel);
+    bool isMeshCorePing(const meshtastic_MeshPacket &mp, bool isPingDM);
+    bool formatMeshCorePingReply(const meshtastic_MeshPacket &mp, char *rMsg, size_t rMsgLen);
+    void handleMeshCorePpingCommand(const char *args, char *reply, size_t replyLen);
+    void handleMeshCorePingSend(const char *target, char *reply, size_t replyLen);
     struct DirectNeighborEntry {
         char name[36];
         float snr;
@@ -318,7 +324,7 @@ public:
     bool public_ping = false;
     bool ping_rssi = false;
     bool ping_snr = false;
-    bool ping_freqerr = false;
+    bool ping_freqerr = true;
     bool ping_bitmask = true;
     bool ping_ignore_direct = false;
     bool ping_ignore_remote = false;

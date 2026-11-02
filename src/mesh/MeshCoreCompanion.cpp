@@ -849,6 +849,59 @@ struct ReportWriter {
     }
 };
 
+bool MeshCoreCompanion::formatRouteLine(const HeardPath &route, char *out, size_t cap, float freqErr) const
+{
+    if (!out || cap == 0)
+        return false;
+
+    size_t len = 0;
+    if (route.hopCount == 0) {
+        len = snprintf(out, cap, "⚡ directo");
+    } else {
+        if (const char *glyph = hopGlyph(route.hopCount))
+            len = snprintf(out, cap, "%s", glyph);
+        else
+            len = snprintf(out, cap, "%u saltos", (unsigned)route.hopCount);
+
+        const size_t stored = route.hashSize ? sizeof(route.path) / route.hashSize : 0;
+        const size_t total = route.hopCount < stored ? route.hopCount : stored;
+        for (size_t hop = 0; hop < total; hop++) {
+            const uint8_t *hash = &route.path[hop * route.hashSize];
+            const char *names[PATH_HOP_NAMES_MAX];
+            const size_t nameCount = pathHopNames(hash, route.hashSize, names, PATH_HOP_NAMES_MAX);
+            char one[96];
+            formatHopLabel(names, nameCount, one, sizeof(one));
+            if (!one[0])
+                formatHopHex(hash, route.hashSize, one, sizeof(one));
+            int n = snprintf(out + len, cap > len ? cap - len : 0, hop ? " › %s" : " %s", one);
+            if (n > 0)
+                len += (size_t)n;
+        }
+    }
+
+    char sig[64];
+    formatSignal(sig, sizeof(sig), route.snr, true, route.rssi);
+    int n = snprintf(out + len, cap > len ? cap - len : 0, "%s", sig);
+    if (n > 0)
+        len += (size_t)n;
+
+    if (freqErr != 0.0f) {
+        n = snprintf(out + len, cap > len ? cap - len : 0, " · Δf %.0fHz", (double)freqErr);
+        if (n > 0)
+            len += (size_t)n;
+    }
+
+    return len > 0 && len < cap;
+}
+
+bool MeshCoreCompanion::formatRouteForPacket(uint32_t packetId, char *out, size_t cap, float freqErr) const
+{
+    const HeardPath *entry = heardFind(packetId);
+    if (!entry)
+        return false;
+    return formatRouteLine(*entry, out, cap, freqErr);
+}
+
 size_t MeshCoreCompanion::formatPathReport(const HeardPath *const *routes, size_t count, const char *sender, ReportSink sink,
                                            void *ctx) const
 {
@@ -1054,6 +1107,11 @@ static const MeshCoreNode *findNodeForTrace(const MeshCoreNodeStore<MESHCORE_NOD
         }
     }
     return match;
+}
+
+const MeshCoreNode *MeshCoreCompanion::findContact(const char *nameOrHex) const
+{
+    return findNodeForTrace(nodes, nameOrHex);
 }
 
 bool MeshCoreCompanion::handleTraceCommand(const meshtastic_MeshPacket *p, bool direct)

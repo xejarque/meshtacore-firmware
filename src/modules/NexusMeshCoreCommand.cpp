@@ -4,9 +4,13 @@
 // live in RadioLibInterface (MeshCoreConfig); this file parses the operator's words and formats one reply. Like the other
 // tactical settings, a change is volatile until /nexus SAVE.
 
+#include "Channels.h"
+#include "MeshService.h"
 #include "NodeDB.h"
+#include "Router.h"
 #include "configuration.h"
 #include "gps/RTC.h"
+#include "mesh/PathReport.h"
 #include "mesh/RadioLibInterface.h"
 #include "modules/NexusModule.h"
 #include <stdio.h>
@@ -605,7 +609,8 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
 
     if (word[0] == '\0' || strcasecmp(word, "HELP") == 0) {
         snprintf(reply, replyLen,
-                 "JT MESHCORE: INFO, STATS, RELAY [ON|OFF|AUTO], ADVERT [1-168|NOW], REGION [...], VECINOS, KEY <hex>, RESET. "
+                 "JT MESHCORE: INFO, STATS, RELAY [ON|OFF|AUTO], ADVERT [1-168|NOW], REGION [...], VECINOS, KEY <hex>, PPING "
+                 "[ON|OFF|...], PING <target>, RESET. "
                  "SAVE keeps them.");
     } else if (strcasecmp(word, "INFO") == 0) {
         formatInfo(*radio, reply, replyLen);
@@ -621,6 +626,10 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
         formatMeshCoreNeighbors(reply, replyLen);
     } else if (strcasecmp(word, "KEY") == 0) {
         formatKey(rest, reply, replyLen);
+    } else if (strcasecmp(word, "PPING") == 0) {
+        handleMeshCorePpingCommand(rest, reply, replyLen);
+    } else if (strcasecmp(word, "PING") == 0) {
+        handleMeshCorePingSend(rest, reply, replyLen);
     } else if (strcasecmp(word, "RESET") == 0) {
         radio->setMeshCoreRelayMode(MeshCoreConfig::RELAY_AUTO);
         radio->setMeshCoreAdvertHours(0);
@@ -629,6 +638,266 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
     } else {
         snprintf(reply, replyLen, "JT MESHCORE: unknown '%s', try HELP", word);
     }
+}
+
+bool NexusModule::isMeshCoreBotChannel(uint32_t channel)
+{
+    if (channel >= MAX_NUM_CHANNELS || !channels.isMeshCoreChannel((ChannelIndex)channel))
+        return false;
+    const char *chName = channels.getName(channel);
+    return chName && strcasecmp(chName, "MC:#bot") == 0;
+}
+
+bool NexusModule::isMeshCorePing(const meshtastic_MeshPacket &mp, bool isPingDM)
+{
+    if (channels.isMeshCoreChannel((ChannelIndex)mp.channel))
+        return true;
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    if (isPingDM && (meshCoreCompanion.hasContact(mp.from) || (mp.from >> 24) == 0x4D))
+        return true;
+#endif
+    return false;
+}
+
+bool NexusModule::formatMeshCorePingReply(const meshtastic_MeshPacket &mp, char *rMsg, size_t rMsgLen)
+{
+    int l = 0;
+    if (custom_pping_active && pping_header[0] != '\0') {
+        l = snprintf(rMsg, rMsgLen, "%s\n", pping_header);
+    } else {
+        l = snprintf(rMsg, rMsgLen, "🤖MeshCore Ping🤖\n");
+    }
+
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    char routeLine[128] = {0};
+    const float fErr = ping_freqerr ? mp.rx_frequency_error : 0.0f;
+    if (meshCoreCompanion.formatRouteForPacket(mp.id, routeLine, sizeof(routeLine), fErr)) {
+        l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "%s", routeLine);
+        return true;
+    }
+#endif
+
+    uint32_t hopsUsed = (mp.hop_start >= mp.hop_limit) ? (mp.hop_start - mp.hop_limit) : 0;
+    if (hopsUsed == 0) {
+        l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "⚡ directo");
+    } else {
+        const char *glyph = hopGlyph(hopsUsed);
+        if (glyph)
+            l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "%s", glyph);
+        else
+            l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "%u saltos", (unsigned)hopsUsed);
+    }
+    char sig[64];
+    formatSignal(sig, sizeof(sig), mp.rx_snr, mp.has_rx_rssi, mp.rx_rssi);
+    l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "%s", sig);
+    if (ping_freqerr && mp.rx_frequency_error != 0.0f) {
+        l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, " · Δf %.0fHz", (double)mp.rx_frequency_error);
+    }
+    return true;
+}
+
+void NexusModule::handleMeshCorePpingCommand(const char *args, char *reply, size_t replyLen)
+{
+    while (*args == ' ')
+        args++;
+
+    int botCh = -1;
+    for (ChannelIndex i = 0; i < MAX_NUM_CHANNELS; i++) {
+        const char *name = channels.getName(i);
+        if (name && strcasecmp(name, "MC:#bot") == 0) {
+            botCh = (int)i;
+            break;
+        }
+    }
+
+    if (*args == '\0') {
+        char botStatus[32] = "not found";
+        if (botCh >= 0) {
+            snprintf(botStatus, sizeof(botStatus), "Ch %d (%s)", botCh, ping_channels[botCh] ? "ON" : "OFF");
+        }
+        snprintf(reply, replyLen, "JT MESHCORE PPING:\nGlobal:%d MC:#bot:%s RSSI:%d SNR:%d FE:%d Emoji:%d DM:%d Custom:%d",
+                 public_ping ? 1 : 0, botStatus, ping_rssi ? 1 : 0, ping_snr ? 1 : 0, ping_freqerr ? 1 : 0, (int)ping_emoji_mode,
+                 ping_allow_dm ? 1 : 0, custom_pping_active ? 1 : 0);
+    } else if (strcasecmp(args, "ON") == 0) {
+        public_ping = true;
+        if (botCh >= 0) {
+            ping_channels[botCh] = true;
+            snprintf(reply, replyLen, "JT MESHCORE: PPING ON (MC:#bot on Ch %d)", botCh);
+        } else {
+            snprintf(reply, replyLen, "JT MESHCORE: PPING ON (MC:#bot channel not configured)");
+        }
+    } else if (strcasecmp(args, "OFF") == 0) {
+        for (ChannelIndex i = 0; i < MAX_NUM_CHANNELS; i++) {
+            if (channels.isMeshCoreChannel(i))
+                ping_channels[i] = false;
+        }
+        snprintf(reply, replyLen, "JT MESHCORE: PPING OFF on MeshCore channels");
+    } else if (strncasecmp(args, "HEADER ", 7) == 0) {
+        const char *h = args + 7;
+        while (*h == ' ')
+            h++;
+        if (strcasecmp(h, "OFF") == 0) {
+            custom_pping_active = false;
+            snprintf(reply, replyLen, "JT MESHCORE: Custom Header DISABLED");
+        } else {
+            memset(pping_header, 0, sizeof(pping_header));
+            strncpy(pping_header, h, 63);
+            custom_pping_active = true;
+            snprintf(reply, replyLen, "JT MESHCORE: Custom Header set to '%s'", pping_header);
+        }
+    } else if (strncasecmp(args, "EMOJI ", 6) == 0) {
+        const char *e = args + 6;
+        while (*e == ' ')
+            e++;
+        if (strcasecmp(e, "OFF") == 0) {
+            ping_emoji_mode = 0;
+            snprintf(reply, replyLen, "JT MESHCORE: Ping response in TEXT mode");
+        } else if (strcasecmp(e, "INDIRECT") == 0 || strcasecmp(e, "INDR") == 0) {
+            ping_emoji_mode = 1;
+            snprintf(reply, replyLen, "JT MESHCORE: Ping response in EMOJI for indirect");
+        } else if (strcasecmp(e, "ALWAYS") == 0 || strcasecmp(e, "ALW") == 0) {
+            ping_emoji_mode = 2;
+            snprintf(reply, replyLen, "JT MESHCORE: Ping response in ALWAYS-EMOJI mode");
+        } else {
+            snprintf(reply, replyLen, "JT MESHCORE: PPING EMOJI <OFF|INDIRECT|ALWAYS>");
+        }
+    } else if (strcasecmp(args, "RSSI ON") == 0) {
+        ping_rssi = true;
+        snprintf(reply, replyLen, "JT MESHCORE: Ping RSSI reporting ENABLED");
+    } else if (strcasecmp(args, "RSSI OFF") == 0) {
+        ping_rssi = false;
+        snprintf(reply, replyLen, "JT MESHCORE: Ping RSSI reporting DISABLED");
+    } else if (strcasecmp(args, "SNR ON") == 0) {
+        ping_snr = true;
+        snprintf(reply, replyLen, "JT MESHCORE: Ping SNR reporting ENABLED");
+    } else if (strcasecmp(args, "SNR OFF") == 0) {
+        ping_snr = false;
+        snprintf(reply, replyLen, "JT MESHCORE: Ping SNR reporting DISABLED");
+    } else if (strcasecmp(args, "FREQERR ON") == 0) {
+        ping_freqerr = true;
+        snprintf(reply, replyLen, "JT MESHCORE: Ping FreqErr reporting ENABLED");
+    } else if (strcasecmp(args, "FREQERR OFF") == 0) {
+        ping_freqerr = false;
+        snprintf(reply, replyLen, "JT MESHCORE: Ping FreqErr reporting DISABLED");
+    } else if (strcasecmp(args, "ALLOWDM ON") == 0) {
+        ping_allow_dm = true;
+        snprintf(reply, replyLen, "JT MESHCORE: Ping DM replies ENABLED");
+    } else if (strcasecmp(args, "ALLOWDM OFF") == 0) {
+        ping_allow_dm = false;
+        snprintf(reply, replyLen, "JT MESHCORE: Ping DM replies DISABLED");
+    } else if (strcasecmp(args, "DIRECT IGNORE ON") == 0 || strcasecmp(args, "IGNORE DIRECT ON") == 0) {
+        ping_ignore_direct = true;
+        snprintf(reply, replyLen, "JT MESHCORE: Direct Ignore ENABLED");
+    } else if (strcasecmp(args, "DIRECT IGNORE OFF") == 0 || strcasecmp(args, "IGNORE DIRECT OFF") == 0) {
+        ping_ignore_direct = false;
+        snprintf(reply, replyLen, "JT MESHCORE: Direct Ignore DISABLED");
+    } else if (strcasecmp(args, "IGNORE REMOTE ON") == 0 || strcasecmp(args, "REMOTE IGNORE ON") == 0) {
+        ping_ignore_remote = true;
+        snprintf(reply, replyLen, "JT MESHCORE: Remote Ignore ENABLED");
+    } else if (strcasecmp(args, "IGNORE REMOTE OFF") == 0 || strcasecmp(args, "REMOTE IGNORE OFF") == 0) {
+        ping_ignore_remote = false;
+        snprintf(reply, replyLen, "JT MESHCORE: Remote Ignore DISABLED");
+    } else if (strncasecmp(args, "CHAN ", 5) == 0) {
+        const char *cPtr = args + 5;
+        bool enable = true;
+        if (strncasecmp(cPtr, "ON ", 3) == 0) {
+            enable = true;
+            cPtr += 3;
+        } else if (strncasecmp(cPtr, "OFF ", 4) == 0) {
+            enable = false;
+            cPtr += 4;
+        }
+        while (*cPtr == ' ')
+            cPtr++;
+        int targetCh = -1;
+        if (isdigit((unsigned char)*cPtr) && *(cPtr + 1) == '\0') {
+            targetCh = *cPtr - '0';
+        } else {
+            for (ChannelIndex i = 0; i < MAX_NUM_CHANNELS; i++) {
+                const char *name = channels.getName(i);
+                if (name && strcasecmp(name, cPtr) == 0) {
+                    targetCh = (int)i;
+                    break;
+                }
+            }
+        }
+        if (targetCh >= 0 && (size_t)targetCh < MAX_NUM_CHANNELS) {
+            ping_channels[targetCh] = enable;
+            snprintf(reply, replyLen, "JT MESHCORE: Ping on Ch %d (%s) set to %d", targetCh, channels.getName(targetCh), enable);
+        } else {
+            snprintf(reply, replyLen, "JT MESHCORE: Channel '%s' not found", cPtr);
+        }
+    } else {
+        snprintf(reply, replyLen, "JT MESHCORE: PPING ON|OFF|RSSI|SNR|FREQERR|EMOJI|HEADER|ALLOWDM|CHAN");
+    }
+}
+
+void NexusModule::handleMeshCorePingSend(const char *target, char *reply, size_t replyLen)
+{
+    while (*target == ' ')
+        target++;
+
+    if (*target == '\0' || strcasecmp(target, "STATUS") == 0 || strcasecmp(target, "ON") == 0 || strcasecmp(target, "OFF") == 0 ||
+        strncasecmp(target, "HEADER", 6) == 0 || strncasecmp(target, "EMOJI", 5) == 0 || strncasecmp(target, "RSSI", 4) == 0 ||
+        strncasecmp(target, "SNR", 3) == 0 || strncasecmp(target, "FREQERR", 7) == 0 || strncasecmp(target, "ALLOWDM", 7) == 0 ||
+        strncasecmp(target, "CHAN", 4) == 0) {
+        handleMeshCorePpingCommand(target, reply, replyLen);
+        return;
+    }
+
+    int targetCh = -1;
+    if (isdigit((unsigned char)*target) && *(target + 1) == '\0') {
+        targetCh = *target - '0';
+    } else {
+        for (ChannelIndex i = 0; i < MAX_NUM_CHANNELS; i++) {
+            const char *name = channels.getName(i);
+            if (name && strcasecmp(name, target) == 0) {
+                targetCh = (int)i;
+                break;
+            }
+        }
+    }
+
+    if (targetCh >= 0 && (size_t)targetCh < MAX_NUM_CHANNELS) {
+        meshtastic_MeshPacket *tp = router ? router->allocForSending() : nullptr;
+        if (tp) {
+            tp->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+            tp->to = NODENUM_BROADCAST;
+            tp->channel = targetCh;
+            const char *pingMsg = "/ping";
+            memcpy(tp->decoded.payload.bytes, pingMsg, strlen(pingMsg));
+            tp->decoded.payload.size = strlen(pingMsg);
+            if (service)
+                service->sendToMesh(tp);
+            snprintf(reply, replyLen, "JT MESHCORE: Ping sent to Ch %d (%s)", targetCh, channels.getName(targetCh));
+        } else {
+            snprintf(reply, replyLen, "JT MESHCORE: Packet alloc failed");
+        }
+        return;
+    }
+
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    const MeshCoreNode *contact = meshCoreCompanion.findContact(target);
+    if (contact) {
+        meshtastic_MeshPacket *tp = router ? router->allocForSending() : nullptr;
+        if (tp) {
+            tp->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+            tp->to = contact->nodeNum;
+            tp->channel = 0;
+            const char *pingMsg = "/ping";
+            memcpy(tp->decoded.payload.bytes, pingMsg, strlen(pingMsg));
+            tp->decoded.payload.size = strlen(pingMsg);
+            if (service)
+                service->sendToMesh(tp);
+            snprintf(reply, replyLen, "JT MESHCORE: Ping sent to %s (!%08x)", contact->name, (unsigned)contact->nodeNum);
+        } else {
+            snprintf(reply, replyLen, "JT MESHCORE: Packet alloc failed");
+        }
+        return;
+    }
+#endif
+
+    snprintf(reply, replyLen, "JT MESHCORE: Unknown channel or contact '%s'", target);
 }
 
 void NexusModule::saveMeshCoreSettings()
@@ -653,6 +922,31 @@ void NexusModule::handleMeshCoreCommand(const char *, char *reply, size_t replyL
 void NexusModule::handleRegionCommand(const char *, char *reply, size_t replyLen)
 {
     snprintf(reply, replyLen, "MTC REGION: not in this build (MeshCore sniffer off)");
+}
+
+bool NexusModule::isMeshCoreBotChannel(uint32_t)
+{
+    return false;
+}
+
+bool NexusModule::isMeshCorePing(const meshtastic_MeshPacket &, bool)
+{
+    return false;
+}
+
+bool NexusModule::formatMeshCorePingReply(const meshtastic_MeshPacket &, char *, size_t)
+{
+    return false;
+}
+
+void NexusModule::handleMeshCorePpingCommand(const char *, char *reply, size_t replyLen)
+{
+    snprintf(reply, replyLen, "JT MESHCORE: not in this build (MeshCore sniffer off)");
+}
+
+void NexusModule::handleMeshCorePingSend(const char *, char *reply, size_t replyLen)
+{
+    snprintf(reply, replyLen, "JT MESHCORE: not in this build (MeshCore sniffer off)");
 }
 
 void NexusModule::saveMeshCoreSettings() {}

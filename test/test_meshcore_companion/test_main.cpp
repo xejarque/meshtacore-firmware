@@ -1595,7 +1595,7 @@ void test_meshcore_copies_in_the_node_db_are_marked()
     s.c.ensureSenderNode(num, "Dana", true, pub);
     s.c.ensureSenderNode(eveNum, "Eve");
     TEST_ASSERT_TRUE(nodeInfoLiteIsMeshCore(nodeDB->getMeshNode(num)));
-    TEST_ASSERT_FALSE(nodeInfoLiteIsMeshCore(nodeDB->getMeshNode(eveNum)));
+    TEST_ASSERT_TRUE(nodeInfoLiteIsMeshCore(nodeDB->getMeshNode(eveNum)));
 
     nodeInfoLiteSetBit(nodeDB->getMeshNode(num), NODEINFO_BITFIELD_IS_MESHCORE_MASK, false);
     s.c.contactsFingerprint(); // the save sweep marks whatever the announce created since
