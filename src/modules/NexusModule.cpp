@@ -2506,7 +2506,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                         if (cmdStart) {
                             // ID/Name/MAC are DMs (isBroadcast=false), group is broadcast.
                             bool isGroup = (kind == TARGET_GROUP);
-                            char mcoreCmd[160];
+                            static char mcoreCmd[160];
                             const char *finalCmd = cmdStart;
                             if (strcasecmp(NEXUS_PREFIX_ROOTS[rootIdx], "/mcore") == 0) {
                                 if (cmdStart[0] == '\0') {
@@ -2524,7 +2524,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                     else if (isBroadcast) {
                         const char *cmdStart = cmdBuf + prefLen;
                         while(*cmdStart == ' ') cmdStart++;
-                        char mcoreCmd[160];
+                        static char mcoreCmd[160];
                         const char *finalCmd = cmdStart;
                         if (strcasecmp(NEXUS_PREFIX_ROOTS[rootIdx], "/mcore") == 0) {
                             if (cmdStart[0] == '\0') {
@@ -2648,7 +2648,7 @@ ProcessMessage NexusModule::handleLocal(const meshtastic_MeshPacket &mp) {
         // broadcast NAME/OWNER safety gate ("prevent mass-wiping a network") and the 5s
         // broadcast rate limit must not fire on local commands. Routing/paging read mp.to
         // directly, so nothing is lost by not passing the broadcast flag here.
-        char mcoreLocal[160];
+        static char mcoreLocal[160];
         const char *finalTail = tail;
         if (strcasecmp(NEXUS_PREFIX_ROOTS[r], "/mcore") == 0) {
             if (tail[0] == '\0') {
@@ -4416,10 +4416,10 @@ void NexusModule::appendFCDSection_REMOTEHW()
     FCD_LINE("enabled: %s\n", rh.enabled ? "true" : "false");
     FCD_LINE("allow_undefined_pin_access: %s\n", rh.allow_undefined_pin_access ? "true" : "false");
     FCD_LINE("available_pins_count: %u\n", (unsigned)rh.available_pins_count);
-    // The available_pins[] array needs a bigger stack buffer because each
+    // The available_pins[] array needs a bigger buffer because each
     // line includes a name string. 256 bytes covers full pin description.
     for (size_t i = 0; i < rh.available_pins_count && i < 4; i++) {
-        char line[256];
+        static char line[256];
         snprintf(line, sizeof(line), "available_pins[%u]: gpio=%u name=%s\n",
                  (unsigned)i, (unsigned)rh.available_pins[i].gpio_pin,
                  rh.available_pins[i].name);

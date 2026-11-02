@@ -4579,7 +4579,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     cron_table[i].mode != v->cron_table[i].mode ||
                     cron_table[i].value != v->cron_table[i].value ||
                     strncmp(cron_table[i].command, v->cron_table[i].command, 64) != 0) {
-                    char line[160];
+                    static char line[160];
                     snprintf(line, sizeof(line),
                              "cron[%d]: RAM=%d/m%d/v%u/cmd='%.32s' Vault=%d/m%d/v%u/cmd='%.32s'",
                              i,
@@ -4752,7 +4752,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             for (int i = 0; i < 4; i++) {
                 if (strncmp(nexus_macros[i].name, v->macros[i].name, 12) != 0 ||
                     strncmp(nexus_macros[i].command, v->macros[i].command, 128) != 0) {
-                    char line[160];
+                    static char line[160];
                     snprintf(line, sizeof(line),
                              "macro[%d]: RAM='%.12s'/'%.32s' Vault='%.12s'/'%.32s'",
                              i, nexus_macros[i].name, nexus_macros[i].command,
@@ -8832,7 +8832,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) mc.payload_variant.traffic_management
                 // line reads the same; the structure future-proofs per-port HOPSCALE.
                 // Compact format — every appendPaging() is a LoRa packet, keep it tight.
                 startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "HSC WANTS");
-                char line[160];
+                static char line[160];
                 snprintf(line, sizeof(line), "MTC HSC WANTS: user=%u want=%u cap=%u", (unsigned)userHop, (unsigned)want, (unsigned)cap);
                 appendPaging(line);
                 snprintf(line, sizeof(line), "POSITION:%u", (unsigned)cap); appendPaging(line);
@@ -8865,7 +8865,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) mc.payload_variant.traffic_management
 
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "HOPSCALE");
 
-            char line[160];
+            static char line[160];
             // 1. Header + status
             snprintf(line, sizeof(line),
                      "MTC HOPSCALE: status=%s  entries=%u/128 (%u%%)  samp=1/%u  filt=1/%u",
@@ -8961,7 +8961,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) mc.payload_variant.traffic_management
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF,
                         mp.channel, replyId, "NODES28");
 
-            char line[128];
+            static char line[128];
             size_t matched = 0;
 
             for (size_t i = 0; i < totalNodes; i++) {

@@ -190,7 +190,8 @@ void NexusModule::handleSetUrlCommand(const char *url)
         return;
     }
 
-    char notes[160] = {0};
+    static char notes[160];
+    notes[0] = '\0';
     int applied = 0;
     for (pb_size_t i = 0; i < set.settings_count; i++) {
         if (mergeSharedChannel(set.settings[i], i == 0, notes, sizeof(notes)) >= 0)

@@ -112,27 +112,36 @@ static bool isDirectNeighbor(const MeshCoreNode &n)
 }
 #endif
 
+// Static scratch buffer to avoid allocating 1.5 KB on the nRF52 FreeRTOS stack.
+static NexusModule::DirectNeighborEntry neighborEntries[32];
+
+static void formatNeighborLine(const NexusModule::DirectNeighborEntry &entry, uint32_t now, char *out, size_t outLen)
+{
+    char ago[8];
+    formatAgo(now > entry.lastHeard ? now - entry.lastHeard : 0, ago, sizeof(ago));
+    snprintf(out, outLen, "%s (%.1fdB, %s)\n", entry.name, entry.snr, ago);
+}
+
 void NexusModule::renderNeighbors(const DirectNeighborEntry *entries, size_t count, const char *header, const char *title,
                                   char *reply, size_t replyLen)
 {
     const uint32_t now = getTime(false);
     size_t totalLen = strlen(header);
-    char items[32][64];
 
     for (size_t i = 0; i < count; i++) {
-        char ago[8];
-        formatAgo(now > entries[i].lastHeard ? now - entries[i].lastHeard : 0, ago, sizeof(ago));
-        int n = snprintf(items[i], sizeof(items[i]), "%s (%.1fdB, %s)\n", entries[i].name, entries[i].snr, ago);
-        if (n > 0)
-            totalLen += (size_t)n;
+        char item[64];
+        formatNeighborLine(entries[i], now, item, sizeof(item));
+        totalLen += strlen(item);
     }
 
     if (totalLen + 6 < replyLen && totalLen < NEXUS_MAX_REPLY_BODY - 10) {
         size_t len = snprintf(reply, replyLen, "%s", header);
         for (size_t i = 0; i < count && len < replyLen; i++) {
-            size_t iLen = strlen(items[i]);
+            char item[64];
+            formatNeighborLine(entries[i], now, item, sizeof(item));
+            size_t iLen = strlen(item);
             if (len + iLen < replyLen) {
-                memcpy(reply + len, items[i], iLen + 1);
+                memcpy(reply + len, item, iLen + 1);
                 len += iLen;
             }
         }
@@ -145,17 +154,22 @@ void NexusModule::renderNeighbors(const DirectNeighborEntry *entries, size_t cou
     uint32_t ch = activeRequest ? activeRequest->channel : 0;
     uint32_t rId = activeRequest ? activeRequest->id : 0;
     startPaging(to, ch, rId, title);
-    for (size_t i = 0; i < count; i++)
-        appendPaging(items[i]);
+    for (size_t i = 0; i < count; i++) {
+        char item[64];
+        formatNeighborLine(entries[i], now, item, sizeof(item));
+        appendPaging(item);
+    }
 
     if (activeRequest) {
         snprintf(reply, replyLen, "JT: Paging %s (%u)...", title, (unsigned)count);
     } else {
         size_t len = snprintf(reply, replyLen, "%s", header);
         for (size_t i = 0; i < count && len < replyLen; i++) {
-            size_t iLen = strlen(items[i]);
+            char item[64];
+            formatNeighborLine(entries[i], now, item, sizeof(item));
+            size_t iLen = strlen(item);
             if (len + iLen < replyLen) {
-                memcpy(reply + len, items[i], iLen + 1);
+                memcpy(reply + len, item, iLen + 1);
                 len += iLen;
             }
         }
@@ -168,7 +182,7 @@ void NexusModule::formatNeighbors(char *reply, size_t replyLen)
 {
     const uint32_t myNum = myNodeInfo.my_node_num != 0 ? myNodeInfo.my_node_num : (nodeDB ? nodeDB->getNodeNum() : 0);
     const size_t nodeCount = nodeDB ? nodeDB->getNumMeshNodes() : 0;
-    DirectNeighborEntry entries[32];
+    DirectNeighborEntry *entries = neighborEntries;
     size_t count = 0;
     for (size_t i = 0; i < nodeCount; i++) {
         const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
@@ -339,7 +353,7 @@ void NexusModule::formatMeshCoreNeighbors(char *reply, size_t replyLen)
 {
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
     const uint32_t myNum = myNodeInfo.my_node_num != 0 ? myNodeInfo.my_node_num : (nodeDB ? nodeDB->getNodeNum() : 0);
-    DirectNeighborEntry entries[32];
+    DirectNeighborEntry *entries = neighborEntries;
     size_t count = 0;
     meshCoreCompanion.nodes.forEach([&](const MeshCoreNode &n) {
         if (isDirectNeighbor(n) && count < 32) {
@@ -403,7 +417,7 @@ static void formatKey(const char *hex, char *reply, size_t replyLen)
 
 static void formatRegionTree(const MeshCoreRegionMap &map, char *reply, size_t replyLen)
 {
-    char tree[256];
+    static char tree[256];
     size_t len = map.exportTo(tree, sizeof(tree));
     if (len == 0) {
         snprintf(reply, replyLen, "MTC REGION: tree empty");
@@ -442,7 +456,7 @@ void NexusModule::handleRegionCommand(const char *args, char *reply, size_t repl
     } else if (strcasecmp(subcmd, "LIST") == 0) {
         char mode[16];
         takeWord(rest, mode, sizeof(mode));
-        char listBuf[160];
+        static char listBuf[160];
         if (strcasecmp(mode, "ALLOWED") == 0) {
             int count = map.exportNamesTo(listBuf, sizeof(listBuf), REGION_DENY_FLOOD, false);
             snprintf(reply, replyLen, "MTC REGION ALLOWED (%d): %s", count, count > 0 ? listBuf : "-none-");
@@ -639,7 +653,7 @@ static void handleMeshCorePathCommand(const char *arg, char *reply, size_t reply
         snprintf(reply, replyLen, "JT MESHCORE: no route heard for %s", contact->name);
         return;
     }
-    char line[256];
+    static char line[200];
     if (meshCoreCompanion.formatRouteLine(*route, line, sizeof(line))) {
         snprintf(reply, replyLen, "JT MESHCORE: %s › %s", contact->name, line);
     } else {
@@ -946,7 +960,8 @@ bool NexusModule::formatMeshCorePingReply(const meshtastic_MeshPacket &mp, char 
     }
 
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
-    char routeLine[256] = {0};
+    static char routeLine[200];
+    routeLine[0] = '\0';
     const float fErr = ping_freqerr ? mp.rx_frequency_error : 0.0f;
     if (meshCoreCompanion.formatRouteForPacket(mp.id, routeLine, sizeof(routeLine), fErr)) {
         l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "%s", routeLine);
