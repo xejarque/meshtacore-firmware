@@ -2193,7 +2193,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
         }
 
         if (public_ping) {
-            if (strcasecmp(cmdBuf, "/ping") == 0 || strcasecmp(cmdBuf, "/test") == 0 || strcasecmp(cmdBuf, "/prueba") == 0) {
+            if (ping_trigger[0] != '\0' && strcasecmp(cmdBuf, ping_trigger) == 0) {
                 // (SELF-ECHO GUARD 2026-08-02) Same rationale as the /nexus RSSI guard:
                 // a loopback / MQTT-echo / retransmission has uninitialized rx_rssi/SNR,
                 // so replying produces zeroed telemetry. mp.from == 0 covers anonymous
@@ -4860,7 +4860,7 @@ bool NexusModule::saveVault()
     }
     memset(v, 0, sizeof(NexusVault));
     memcpy(v->magic, "JenT", 4);
-    v->version = 68; // v68: LPCOMP wake level, battery chemistry, ext flags, persisted auto Zero-Hop masks
+    v->version = 69; // v69: custom PPING command (ping_trigger)
     // v67: nexusVariantBits (generic variant-bitmask pool — station-g3 PA/LNA today, future variants tomorrow)
     // - v66 was: features_mask + secondary_keys[4] (4 slots)
     v->drop_mask = getNexusDropHex();

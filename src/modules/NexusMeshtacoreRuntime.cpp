@@ -29,6 +29,8 @@ void NexusModule::fillVaultV68(NexusVault &v) const
     v.ext_flags = ext_flags;
     memcpy(v.zero_hop_auto_router_mask, zero_hop_auto_router_mask, sizeof(zero_hop_auto_router_mask));
     memcpy(v.zero_hop_auto_client_mask, zero_hop_auto_client_mask, sizeof(zero_hop_auto_client_mask));
+    strncpy(v.ping_trigger, ping_trigger, sizeof(v.ping_trigger) - 1);
+    v.ping_trigger[sizeof(v.ping_trigger) - 1] = '\0';
 }
 
 bool NexusModule::hasRealNexusChannel()
@@ -157,10 +159,15 @@ int NexusModule::diffVaultV68(const NexusVault &v)
         appendPaging(line);
         diffs++;
     }
+    if (v.version >= 69 && strncmp(ping_trigger, v.ping_trigger, sizeof(ping_trigger)) != 0) {
+        snprintf(line, sizeof(line), "ping_trigger: RAM='%.16s' Vault='%.16s'", ping_trigger, v.ping_trigger);
+        appendPaging(line);
+        diffs++;
+    }
     return diffs;
 }
 
-// Adds the v68 fields to the VAULT summary already in `out`. Older vaults have none, so they add nothing.
+// Adds the v68/v69 fields to the VAULT summary already in `out`. Older vaults have none, so they add nothing.
 void NexusModule::summarizeVaultV68(const NexusVault &v, char *out, size_t len) const
 {
     if (v.version < 68)
@@ -168,10 +175,18 @@ void NexusModule::summarizeVaultV68(const NexusVault &v, char *out, size_t len) 
     const size_t used = strlen(out);
     if (used >= len)
         return;
-    snprintf(out + used, len - used, "\nWake:%u Chem:%u Ext:0x%02X ZH:%u/%u", (unsigned)v.lpcomp_wake_ref,
-             (unsigned)v.battery_chemistry, (unsigned)v.ext_flags,
-             countBits(v.zero_hop_auto_router_mask, sizeof(v.zero_hop_auto_router_mask)),
-             countBits(v.zero_hop_auto_client_mask, sizeof(v.zero_hop_auto_client_mask)));
+    if (v.version >= 69) {
+        snprintf(out + used, len - used, "\nWake:%u Chem:%u Ext:0x%02X ZH:%u/%u Cmd:%.10s", (unsigned)v.lpcomp_wake_ref,
+                 (unsigned)v.battery_chemistry, (unsigned)v.ext_flags,
+                 countBits(v.zero_hop_auto_router_mask, sizeof(v.zero_hop_auto_router_mask)),
+                 countBits(v.zero_hop_auto_client_mask, sizeof(v.zero_hop_auto_client_mask)),
+                 v.ping_trigger[0] ? v.ping_trigger : "/ping");
+    } else {
+        snprintf(out + used, len - used, "\nWake:%u Chem:%u Ext:0x%02X ZH:%u/%u", (unsigned)v.lpcomp_wake_ref,
+                 (unsigned)v.battery_chemistry, (unsigned)v.ext_flags,
+                 countBits(v.zero_hop_auto_router_mask, sizeof(v.zero_hop_auto_router_mask)),
+                 countBits(v.zero_hop_auto_client_mask, sizeof(v.zero_hop_auto_client_mask)));
+    }
 }
 
 // Called by loadVault() once a vault passed validation: remembers its version and applies the v68 fields it carries.
@@ -190,6 +205,13 @@ void NexusModule::applyVaultV68(const NexusVault &v)
     ext_flags = v.ext_flags;
     memcpy(zero_hop_auto_router_mask, v.zero_hop_auto_router_mask, sizeof(zero_hop_auto_router_mask));
     memcpy(zero_hop_auto_client_mask, v.zero_hop_auto_client_mask, sizeof(zero_hop_auto_client_mask));
+    if (v.version >= 69 && v.ping_trigger[0] != '\0') {
+        strncpy(ping_trigger, v.ping_trigger, sizeof(ping_trigger) - 1);
+        ping_trigger[sizeof(ping_trigger) - 1] = '\0';
+    } else {
+        strncpy(ping_trigger, "/ping", sizeof(ping_trigger) - 1);
+        ping_trigger[sizeof(ping_trigger) - 1] = '\0';
+    }
 }
 
 bool NexusModule::isLiveAutoZeroHopRelay(uint8_t relay_id, bool clientBase)
@@ -219,7 +241,7 @@ void NexusModule::applyZeroHopRoleDefaults(bool vaultHasV68)
     // An older vault is migrated here, once: saved as v68 so the operator can turn these off and have it stick.
     if (vaultVersionLoaded != 0) {
         if (saveVault())
-            vaultVersionLoaded = 68;
+            vaultVersionLoaded = 69;
         else
             LOG_WARN("Nexus: could not save the migrated vault, Zero-Hop defaults apply again next boot");
     }

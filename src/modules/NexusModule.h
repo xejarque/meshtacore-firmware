@@ -337,6 +337,7 @@ public:
     bool ping_ignore_remote = false;
     bool ping_allow_dm = false;       // /ping DM toggle (v66, bit 15 of ping_mask)
     bool ping_channels[MAX_NUM_CHANNELS] = {true, false, false, false, false, false, false, false};
+    char ping_trigger[16] = "/ping"; // Custom PPING command (v69)
 
     // Firewall state
     bool drop_nodeinfo = false;
@@ -644,6 +645,8 @@ public:
         uint8_t  reserved_v68;
         uint8_t  zero_hop_auto_router_mask[32];
         uint8_t  zero_hop_auto_client_mask[32];
+        // v69: custom PPING command
+        char     ping_trigger[16];
         uint32_t crc32;
     };
 

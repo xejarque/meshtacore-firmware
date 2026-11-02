@@ -7779,7 +7779,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging GPIO help...");
         } else if (strcasecmp(sub, "PPING") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help PPING");
-            appendPaging("SubCmds: ON, OFF, RSSI, SNR, FREQERR, FLAGS, DIRECT IGNORE, REMOTE IGNORE, CHAN [ON/OFF] [ID], HEADER [text|OFF], EMOJI [OFF|INDIRECT|ALWAYS], SETHEX [hex]");
+            appendPaging("SubCmds: ON, OFF, CMD [cmd|DEFAULT], RSSI, SNR, FREQERR, FLAGS, DIRECT IGNORE, REMOTE IGNORE, CHAN [ON/OFF] [ID], HEADER [text|OFF], EMOJI [OFF|INDIRECT|ALWAYS], SETHEX [hex]");
+            appendPaging("CMD: Define el comando disparador (def: /ping, ej: !ping). Sin alias adicionales.\n");
             appendPaging("EMOJI: OFF=texto completo, INDIRECT=emoji si hops>0, ALWAYS=emoji siempre.");
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging PPING help...");
         } else if (strcasecmp(sub, "SKEY") == 0) {
@@ -8096,8 +8097,27 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             for(int i=0; i<8; i++) {
                 if (ping_channels[i]) chLen += snprintf(chBuf + chLen, sizeof(chBuf) - chLen, "%d ", i);
             }
-            snprintf(replyMsg, sizeof(replyMsg), "MTC PPING:\nGlobal:%d RSSI:%d SNR:%d FE:%d Flags:%d DI:%d RI:%d DM:%d EM:%d\nChans:%s Custom:%d",
-                     public_ping, ping_rssi, ping_snr, ping_freqerr, ping_bitmask, ping_ignore_direct, ping_ignore_remote, ping_allow_dm, ping_emoji_mode, chBuf, custom_pping_active);
+            snprintf(replyMsg, sizeof(replyMsg), "MTC PPING:\nGlobal:%d RSSI:%d SNR:%d FE:%d Flags:%d DI:%d RI:%d DM:%d EM:%d\nChans:%s Custom:%d Cmd:%s",
+                     public_ping, ping_rssi, ping_snr, ping_freqerr, ping_bitmask, ping_ignore_direct, ping_ignore_remote, ping_allow_dm, ping_emoji_mode, chBuf, custom_pping_active, ping_trigger);
+        }
+        else if (strncasecmp(p, "CMD ", 4) == 0 || strncasecmp(p, "TRIGGER ", 8) == 0 || strcasecmp(p, "CMD") == 0 || strcasecmp(p, "TRIGGER") == 0) {
+            const char *c = (strncasecmp(p, "TRIGGER", 7) == 0) ? (p + 7) : (p + 3);
+            while (*c == ' ') c++;
+            if (*c == '\0') {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC PPING: Current command is '%s'", ping_trigger);
+            } else if (strcasecmp(c, "DEFAULT") == 0) {
+                strncpy(ping_trigger, "/ping", sizeof(ping_trigger) - 1);
+                ping_trigger[sizeof(ping_trigger) - 1] = '\0';
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping command reset to '/ping'");
+            } else {
+                size_t len = 0;
+                while (c[len] && !isspace((unsigned char)c[len]) && len < sizeof(ping_trigger) - 1) {
+                    ping_trigger[len] = c[len];
+                    len++;
+                }
+                ping_trigger[len] = '\0';
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping command set to '%s'", ping_trigger);
+            }
         }
         else if (strncasecmp(p, "HEADER ", 7) == 0) {
             const char *h = p + 7;
@@ -8224,7 +8244,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
             snprintf(replyMsg, sizeof(replyMsg), "MTC: PPING hex mask: 0x%04X", (unsigned int)(h & 0xFFFF));
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC PPING: ON|OFF|RSSI|SNR|FREQERR|FLAGS|OM|DIRECT IGNORE|IGNORE REMOTE|ALLOWDM|SETHEX|GETHEX");
+            snprintf(replyMsg, sizeof(replyMsg), "MTC PPING: ON|OFF|CMD <cmd>|RSSI|SNR|FREQERR|FLAGS|OM|DIRECT IGNORE|IGNORE REMOTE|ALLOWDM|SETHEX|GETHEX");
         }
     }
     else if (strncasecmp(cmd, "WATCH ", 6) == 0 || strcasecmp(cmd, "WATCH") == 0) {

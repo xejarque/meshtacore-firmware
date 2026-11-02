@@ -2,12 +2,13 @@
 //
 // What is under test:
 //   - noteLoadedVault() records the vault version and invokes applyVaultV68() when v.version >= 68.
+//   - noteLoadedVault() restores custom ping_trigger when v.version >= 69, defaulting to /ping on older vaults.
 //   - applyZeroHopRoleDefaults() selectively enables Zero-Hop role defaults (ZERO_HOP_EN, ZERO_HOP_AUTO_ROUTER,
 //     ZERO_HOP_AUTO_CLIENT) for infrastructure roles (ROUTER, ROUTER_LATE, CLIENT_BASE), migrating older vaults
-//     (v65-v67) to v68 in flash exactly once.
+//     (v65-v67) to v69 in flash exactly once.
 //
 // Why that behavior is required:
-//   - Infrastructure roles require Zero-Hop and auto masks enabled out of the box, but once a v68 vault is
+//   - Infrastructure roles require Zero-Hop and auto masks enabled out of the box, but once a v68+ vault is
 //     persisted, an operator's explicit choice to disable or tweak Zero-Hop must not be overridden on subsequent boots.
 //   - Client nodes (non-infrastructure) must not be forced into Zero-Hop defaults, nor should they incur an automatic
 //     flash write migration on boot.
@@ -19,6 +20,7 @@
 //   - If the migration does not synchronize vaultVersionLoaded in RAM, subsequent runtime checks believe the node runs an
 //     older vault until a hard reboot.
 //   - If client roles are not filtered, client nodes unnecessarily write to flash at boot and enable router masks.
+//   - If noteLoadedVault() reads ping_trigger on a v68 image, uninitialized memory corrupts the active ping trigger.
 #include "MeshTypes.h"
 #include "TestUtil.h"
 #include <unity.h>
@@ -73,6 +75,31 @@ void test_noteLoadedVault_records_version_without_applying_v68_fields_for_older_
     TEST_ASSERT_EQUAL_UINT8(0, module.lpcomp_wake_ref);
 }
 
+void test_noteLoadedVault_records_version_and_applies_v69()
+{
+    TestNexusModule module;
+    meshtastic::NexusModule::NexusVault v = {};
+    v.version = 69;
+    strncpy(v.ping_trigger, "!ping", sizeof(v.ping_trigger) - 1);
+
+    module.noteLoadedVault(v);
+
+    TEST_ASSERT_EQUAL_UINT32(69, module.vaultVersionLoaded);
+    TEST_ASSERT_EQUAL_STRING("!ping", module.ping_trigger);
+}
+
+void test_noteLoadedVault_defaults_ping_trigger_for_v68()
+{
+    TestNexusModule module;
+    meshtastic::NexusModule::NexusVault v = {};
+    v.version = 68;
+
+    module.noteLoadedVault(v);
+
+    TEST_ASSERT_EQUAL_UINT32(68, module.vaultVersionLoaded);
+    TEST_ASSERT_EQUAL_STRING("/ping", module.ping_trigger);
+}
+
 void test_migrates_v67_vault_on_router_role()
 {
     TestNexusModule module;
@@ -88,8 +115,8 @@ void test_migrates_v67_vault_on_router_role()
     constexpr uint8_t EXPECTED_ZH = 0x01 | 0x08 | 0x10;
     TEST_ASSERT_EQUAL_UINT8(EXPECTED_ZH, module.zero_hop_config & EXPECTED_ZH);
     TEST_ASSERT_EQUAL_INT(1, module.saveVaultCallCount);
-    // Vault version in RAM must be updated to 68 once migration succeeds
-    TEST_ASSERT_EQUAL_UINT32(68, module.vaultVersionLoaded);
+    // Vault version in RAM must be updated to 69 once migration succeeds
+    TEST_ASSERT_EQUAL_UINT32(69, module.vaultVersionLoaded);
 }
 
 void test_v68_vault_on_router_preserves_operator_choice()
@@ -202,6 +229,8 @@ void setup()
     UNITY_BEGIN();
     RUN_TEST(test_noteLoadedVault_records_version_and_applies_v68);
     RUN_TEST(test_noteLoadedVault_records_version_without_applying_v68_fields_for_older_vault);
+    RUN_TEST(test_noteLoadedVault_records_version_and_applies_v69);
+    RUN_TEST(test_noteLoadedVault_defaults_ping_trigger_for_v68);
     RUN_TEST(test_migrates_v67_vault_on_router_role);
     RUN_TEST(test_v68_vault_on_router_preserves_operator_choice);
     RUN_TEST(test_v67_vault_on_client_role_does_not_migrate);

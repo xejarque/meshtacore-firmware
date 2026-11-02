@@ -995,9 +995,9 @@ void NexusModule::handleMeshCorePpingCommand(const char *args, char *reply, size
         if (botCh >= 0) {
             snprintf(botStatus, sizeof(botStatus), "Ch %d (%s)", botCh, ping_channels[botCh] ? "ON" : "OFF");
         }
-        snprintf(reply, replyLen, "JT MESHCORE PPING:\nGlobal:%d MC:#bot:%s RSSI:%d SNR:%d FE:%d Emoji:%d DM:%d Custom:%d",
+        snprintf(reply, replyLen, "JT MESHCORE PPING:\nGlobal:%d MC:#bot:%s RSSI:%d SNR:%d FE:%d Emoji:%d DM:%d Custom:%d Cmd:%s",
                  public_ping ? 1 : 0, botStatus, ping_rssi ? 1 : 0, ping_snr ? 1 : 0, ping_freqerr ? 1 : 0, (int)ping_emoji_mode,
-                 ping_allow_dm ? 1 : 0, custom_pping_active ? 1 : 0);
+                 ping_allow_dm ? 1 : 0, custom_pping_active ? 1 : 0, ping_trigger);
     } else if (strcasecmp(args, "ON") == 0) {
         public_ping = true;
         if (botCh >= 0) {
@@ -1012,6 +1012,26 @@ void NexusModule::handleMeshCorePpingCommand(const char *args, char *reply, size
                 ping_channels[i] = false;
         }
         snprintf(reply, replyLen, "JT MESHCORE: PPING OFF on MeshCore channels");
+    } else if (strncasecmp(args, "CMD ", 4) == 0 || strncasecmp(args, "TRIGGER ", 8) == 0 || strcasecmp(args, "CMD") == 0 ||
+               strcasecmp(args, "TRIGGER") == 0) {
+        const char *c = (strncasecmp(args, "TRIGGER", 7) == 0) ? (args + 7) : (args + 3);
+        while (*c == ' ')
+            c++;
+        if (*c == '\0') {
+            snprintf(reply, replyLen, "JT MESHCORE: Ping command is '%s'", ping_trigger);
+        } else if (strcasecmp(c, "DEFAULT") == 0) {
+            strncpy(ping_trigger, "/ping", sizeof(ping_trigger) - 1);
+            ping_trigger[sizeof(ping_trigger) - 1] = '\0';
+            snprintf(reply, replyLen, "JT MESHCORE: Ping command reset to '/ping'");
+        } else {
+            size_t len = 0;
+            while (c[len] && !isspace((unsigned char)c[len]) && len < sizeof(ping_trigger) - 1) {
+                ping_trigger[len] = c[len];
+                len++;
+            }
+            ping_trigger[len] = '\0';
+            snprintf(reply, replyLen, "JT MESHCORE: Ping command set to '%s'", ping_trigger);
+        }
     } else if (strncasecmp(args, "HEADER ", 7) == 0) {
         const char *h = args + 7;
         while (*h == ' ')
@@ -1108,7 +1128,7 @@ void NexusModule::handleMeshCorePpingCommand(const char *args, char *reply, size
             snprintf(reply, replyLen, "JT MESHCORE: Channel '%s' not found", cPtr);
         }
     } else {
-        snprintf(reply, replyLen, "JT MESHCORE: PPING ON|OFF|RSSI|SNR|FREQERR|EMOJI|HEADER|ALLOWDM|CHAN");
+        snprintf(reply, replyLen, "JT MESHCORE: PPING ON|OFF|CMD <cmd>|RSSI|SNR|FREQERR|EMOJI|HEADER|ALLOWDM|CHAN");
     }
 }
 
@@ -1118,9 +1138,9 @@ void NexusModule::handleMeshCorePingSend(const char *target, char *reply, size_t
         target++;
 
     if (*target == '\0' || strcasecmp(target, "STATUS") == 0 || strcasecmp(target, "ON") == 0 || strcasecmp(target, "OFF") == 0 ||
-        strncasecmp(target, "HEADER", 6) == 0 || strncasecmp(target, "EMOJI", 5) == 0 || strncasecmp(target, "RSSI", 4) == 0 ||
-        strncasecmp(target, "SNR", 3) == 0 || strncasecmp(target, "FREQERR", 7) == 0 || strncasecmp(target, "ALLOWDM", 7) == 0 ||
-        strncasecmp(target, "CHAN", 4) == 0) {
+        strncasecmp(target, "CMD", 3) == 0 || strncasecmp(target, "TRIGGER", 7) == 0 || strncasecmp(target, "HEADER", 6) == 0 ||
+        strncasecmp(target, "EMOJI", 5) == 0 || strncasecmp(target, "RSSI", 4) == 0 || strncasecmp(target, "SNR", 3) == 0 ||
+        strncasecmp(target, "FREQERR", 7) == 0 || strncasecmp(target, "ALLOWDM", 7) == 0 || strncasecmp(target, "CHAN", 4) == 0) {
         handleMeshCorePpingCommand(target, reply, replyLen);
         return;
     }
@@ -1144,7 +1164,7 @@ void NexusModule::handleMeshCorePingSend(const char *target, char *reply, size_t
             tp->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
             tp->to = NODENUM_BROADCAST;
             tp->channel = targetCh;
-            const char *pingMsg = "/ping";
+            const char *pingMsg = (ping_trigger[0] != '\0') ? ping_trigger : "/ping";
             memcpy(tp->decoded.payload.bytes, pingMsg, strlen(pingMsg));
             tp->decoded.payload.size = strlen(pingMsg);
             if (service)
@@ -1164,7 +1184,7 @@ void NexusModule::handleMeshCorePingSend(const char *target, char *reply, size_t
             tp->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
             tp->to = contact->nodeNum;
             tp->channel = 0;
-            const char *pingMsg = "/ping";
+            const char *pingMsg = (ping_trigger[0] != '\0') ? ping_trigger : "/ping";
             memcpy(tp->decoded.payload.bytes, pingMsg, strlen(pingMsg));
             tp->decoded.payload.size = strlen(pingMsg);
             if (service)
