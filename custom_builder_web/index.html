@@ -9,7 +9,7 @@
       content="Firmware abierto para radioenlaces LoRa en transceptores SX126x. Coexistencia simultánea Meshtastic + MeshCore, inmunidad a Factory Reset y consola Nexus por RF."
     />
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
-    <link rel="stylesheet" href="landing.css" />
+    <link rel="stylesheet" href="landing.css?v=3" />
     <script src="theme.js"></script>
   </head>
   <body>
@@ -164,196 +164,85 @@
           </p>
         </div>
 
-        <!-- Visual Pipeline Architecture -->
-        <div class="visual-pipeline">
-          <div class="pipeline-header">
-            <span class="pipeline-header-title"
-              >Arquitectura de Radio • Flujo de Recepción en Tiempo Real</span
-            >
-            <span class="pipeline-status-badge">REGISTRO HÍBRIDO 0x14B4</span>
-          </div>
+        <!-- Architecture Diagram (Vector SVG) -->
+        <div class="pipeline-svg-container">
+          <!-- prettier-ignore -->
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 440" width="100%" height="auto" class="pipeline-svg" role="img" aria-label="Diagrama del pipeline de recepción en hardware SX126x con registro 0x14B4">
+            <defs>
+              <marker id="arrow-green" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 1 L 10 5 L 0 9 z" fill="var(--accent, #1a7f37)" />
+              </marker>
+              <marker id="arrow-blue" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 1 L 10 5 L 0 9 z" fill="var(--accent-blue, #0969da)" />
+              </marker>
+              <marker id="arrow-gray" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 1 L 10 5 L 0 9 z" fill="var(--text-muted, #8c959f)" />
+              </marker>
+            </defs>
 
-          <div class="flow-node-centered">
-            <!-- Node 1: Antenna -->
-            <div class="flow-node-box">
-              <div style="font-size: 1.1rem; margin-bottom: 0.2rem">📡</div>
-              <strong>Antena LoRa Externa (868 MHz)</strong>
-              <div
-                style="
-                  font-size: 0.8rem;
-                  color: var(--text-muted);
-                  margin-top: 0.2rem;
-                "
-              >
-                Captura física de señales RF en el aire (Misma Frecuencia, SF y
-                Ancho de Banda)
-              </div>
-            </div>
+            <!-- Container Card -->
+            <rect x="2" y="2" width="816" height="436" rx="12" fill="var(--card-bg, #ffffff)" stroke="var(--card-border, #d0d7de)" stroke-width="1.5" />
 
-            <div class="flow-arrow-down">↓</div>
+            <!-- 1. Antenna Box -->
+            <rect x="280" y="20" width="260" height="48" rx="8" fill="var(--bg-color, #f6f8fa)" stroke="var(--card-border, #d0d7de)" stroke-width="1.5" />
+            <text x="410" y="41" text-anchor="middle" font-size="13" font-weight="700" fill="var(--text-main, #1f2328)">📡 Antena LoRa Externa (868 MHz)</text>
+            <text x="410" y="57" text-anchor="middle" font-size="11" fill="var(--text-muted, #59636e)">Captura física • Mismo SF, BW y Frecuencia</text>
 
-            <!-- Node 2: Transceiver Chip -->
-            <div class="flow-node-box hardware-chip">
-              <span class="flow-chip-tag"
-                >NIVEL FÍSICO (PHY) • SEMTECH SX126x</span
-              >
-              <div
-                style="
-                  font-weight: 700;
-                  color: var(--text-main);
-                  font-size: 0.95rem;
-                "
-              >
-                Registro Sync Word:
-                <code style="color: var(--accent-blue)">0x14B4</code>
-              </div>
-              <div
-                style="
-                  font-size: 0.82rem;
-                  color: var(--text-muted);
-                  margin-top: 0.25rem;
-                "
-              >
-                Detecta en una sola escucha activa tanto preámbulos de
-                Meshtastic (0x2B) como de MeshCore (0x12) sin reconfigurar el
-                chip.
-              </div>
-            </div>
+            <!-- Line from Antenna to Chip -->
+            <line x1="410" y1="68" x2="410" y2="98" stroke="var(--text-muted, #8c959f)" stroke-width="2" marker-end="url(#arrow-gray)" />
+            <rect x="355" y="74" width="110" height="18" rx="4" fill="var(--card-bg, #ffffff)" stroke="var(--card-border, #d0d7de)" stroke-width="1" />
+            <text x="410" y="86" text-anchor="middle" font-size="9.5" font-weight="600" fill="var(--text-muted, #59636e)">Señal RF Aérea</text>
 
-            <div class="flow-arrow-down">
-              ↓ Desmultiplexado asíncrono en memoria
-            </div>
-          </div>
+            <!-- 2. Transceiver Chip -->
+            <rect x="190" y="102" width="440" height="92" rx="10" fill="var(--card-bg, #ffffff)" stroke="var(--accent-blue, #0969da)" stroke-width="2" />
+            <!-- Chip Pins -->
+            <rect x="183" y="120" width="7" height="6" rx="1" fill="var(--text-muted, #8c959f)" />
+            <rect x="183" y="138" width="7" height="6" rx="1" fill="var(--text-muted, #8c959f)" />
+            <rect x="183" y="156" width="7" height="6" rx="1" fill="var(--text-muted, #8c959f)" />
+            <rect x="630" y="120" width="7" height="6" rx="1" fill="var(--text-muted, #8c959f)" />
+            <rect x="630" y="138" width="7" height="6" rx="1" fill="var(--text-muted, #8c959f)" />
+            <rect x="630" y="156" width="7" height="6" rx="1" fill="var(--text-muted, #8c959f)" />
 
-          <!-- Dual Pipeline Branches -->
-          <div class="pipeline-branches">
-            <!-- Branch 1: Meshtastic -->
-            <div class="branch-col branch-meshtastic">
-              <div class="branch-title-wrap">
-                <div class="branch-title">
-                  <span style="color: var(--accent)">●</span> Rama Meshtastic
-                </div>
-                <span class="branch-step-tag tag-msh"
-                  >PRIORIDAD 1 (ZERO-LOSS)</span
-                >
-              </div>
+            <text x="410" y="124" text-anchor="middle" font-size="11" font-weight="700" fill="var(--accent-blue, #0969da)" letter-spacing="0.08em">NIVEL FÍSICO (PHY) • SEMTECH SX126x</text>
+            <text x="410" y="147" text-anchor="middle" font-size="15" font-weight="800" fill="var(--text-main, #1f2328)">Registro Sync Word: <tspan fill="var(--accent-blue, #0969da)">0x14B4</tspan></text>
+            <text x="410" y="168" text-anchor="middle" font-size="11.5" fill="var(--text-muted, #59636e)">Detecta en una sola escucha activa tanto paquetes Meshtastic (0x2B) como MeshCore (0x12)</text>
+            <text x="410" y="183" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--accent, #1a7f37)">Sin pérdida de tramas de red • Desmultiplexado asíncrono en RAM</text>
 
-              <div class="branch-step-box">
-                <div style="font-weight: 600; margin-bottom: 0.2rem">
-                  1. Prueba Criptográfica
-                </div>
-                <div style="font-size: 0.8rem; color: var(--text-muted)">
-                  Intenta descifrar la trama contra las claves AES-CTR de los
-                  canales configurados localmente.
-                </div>
-              </div>
+            <!-- Fork Lines -->
+            <path d="M 410 194 L 410 220 L 205 220 L 205 240" fill="none" stroke="var(--accent, #1a7f37)" stroke-width="2.5" marker-end="url(#arrow-green)" />
+            <path d="M 410 194 L 410 220 L 615 220 L 615 240" fill="none" stroke="var(--accent-blue, #0969da)" stroke-width="2.5" marker-end="url(#arrow-blue)" />
 
-              <div
-                class="branch-step-box"
-                style="border-left: 3px solid var(--accent)"
-              >
-                <div
-                  style="
-                    font-weight: 600;
-                    color: var(--accent);
-                    margin-bottom: 0.2rem;
-                  "
-                >
-                  ¿Descifra con éxito? → SÍ
-                </div>
-                <ul class="branch-list">
-                  <li>
-                    Se entrega de inmediato al
-                    <strong>Router MSH oficial</strong>.
-                  </li>
-                  <li>Deduplicación en buffer circular de 160 paquetes.</li>
-                  <li>
-                    Notificación transparente a la app móvil oficial (BLE /
-                    Serial).
-                  </li>
-                </ul>
-              </div>
-            </div>
+            <!-- Fork Badges -->
+            <rect x="120" y="210" width="170" height="20" rx="4" fill="var(--card-bg, #ffffff)" stroke="var(--accent, #1a7f37)" stroke-width="1.2" />
+            <text x="205" y="224" text-anchor="middle" font-size="10" font-weight="700" fill="var(--accent, #1a7f37)">Preámbulo 0x2B • Clave MSH</text>
 
-            <!-- Branch 2: MeshCore -->
-            <div class="branch-col branch-meshcore">
-              <div class="branch-title-wrap">
-                <div class="branch-title">
-                  <span style="color: var(--accent-blue)">●</span> Rama MeshCore
-                </div>
-                <span class="branch-step-tag tag-mc">COEXISTENCIA NATIVA</span>
-              </div>
+            <rect x="530" y="210" width="170" height="20" rx="4" fill="var(--card-bg, #ffffff)" stroke="var(--accent-blue, #0969da)" stroke-width="1.2" />
+            <text x="615" y="224" text-anchor="middle" font-size="10" font-weight="700" fill="var(--accent-blue, #0969da)">Preámbulo 0x12 • Trama MC</text>
 
-              <div class="branch-step-box">
-                <div style="font-weight: 600; margin-bottom: 0.2rem">
-                  2. Desvío Alternativo
-                </div>
-                <div style="font-size: 0.8rem; color: var(--text-muted)">
-                  Si no coincide con ninguna clave local de Meshtastic, la trama
-                  pasa al <strong>Parser Nativo MeshCore</strong>.
-                </div>
-              </div>
+            <!-- 3. Left Branch: Meshtastic -->
+            <rect x="25" y="244" width="360" height="175" rx="10" fill="var(--bg-color, #f6f8fa)" stroke="var(--accent, #1a7f37)" stroke-width="2" />
+            <rect x="37" y="256" width="160" height="22" rx="4" fill="var(--accent-light, rgba(26, 127, 55, 0.12))" />
+            <text x="117" y="271" text-anchor="middle" font-size="10" font-weight="800" fill="var(--accent, #1a7f37)">PRIORIDAD 1 • ZERO-LOSS</text>
+            <text x="37" y="300" font-size="14" font-weight="700" fill="var(--text-main, #1f2328)">Pipeline Meshtastic</text>
+            
+            <text x="37" y="324" font-size="12" fill="var(--text-main, #1f2328)">1. Prueba AES-CTR contra canales locales</text>
+            <text x="37" y="344" font-size="12" font-weight="700" fill="var(--accent, #1a7f37)">✔ ¿Descifra con éxito? → SÍ</text>
+            <text x="37" y="366" font-size="11.5" fill="var(--text-muted, #59636e)">• Pasa al Router MSH oficial sin retardo</text>
+            <text x="37" y="386" font-size="11.5" fill="var(--text-muted, #59636e)">• Buffer circular de 160 paquetes dedupe</text>
+            <text x="37" y="406" font-size="11.5" fill="var(--text-muted, #59636e)">• Notificación transparente a App Móvil (BLE/USB)</text>
 
-              <div
-                class="branch-step-box"
-                style="border-left: 3px solid var(--accent-blue)"
-              >
-                <div
-                  style="
-                    font-weight: 600;
-                    color: var(--accent-blue);
-                    margin-bottom: 0.2rem;
-                  "
-                >
-                  Trama de Red MeshCore Válida
-                </div>
-                <ul class="branch-list">
-                  <li>
-                    <strong>Flood Relay</strong> automático con LBT y Backoff
-                    adaptativo.
-                  </li>
-                  <li>
-                    Entrega en canal virtual <code>MC:</code> mapeado en la app.
-                  </li>
-                  <li>
-                    Respuestas directas y telemetría por consola remota
-                    <strong>Nexus</strong>.
-                  </li>
-                </ul>
-              </div>
-            </div>
-          </div>
+            <!-- 4. Right Branch: MeshCore -->
+            <rect x="435" y="244" width="360" height="175" rx="10" fill="var(--bg-color, #f6f8fa)" stroke="var(--accent-blue, #0969da)" stroke-width="2" />
+            <rect x="447" y="256" width="150" height="22" rx="4" fill="rgba(9, 105, 218, 0.12)" />
+            <text x="522" y="271" text-anchor="middle" font-size="10" font-weight="800" fill="var(--accent-blue, #0969da)">COEXISTENCIA NATIVA</text>
+            <text x="447" y="300" font-size="14" font-weight="700" fill="var(--text-main, #1f2328)">Pipeline MeshCore</text>
 
-          <!-- Collapsible Terminal ASCII Diagram -->
-          <details class="schematic-terminal-details">
-            <summary class="schematic-summary">
-              💻 Ver esquema técnico en arte ASCII (formato consola de terminal)
-            </summary>
-            <!-- prettier-ignore -->
-            <pre class="schematic-pre"><code>+-----------------------------------------------------------------------------------+
-|                           ANTENA LORA EXTERNA (868 MHz)                           |
-+-----------------------------------------+-----------------------------------------+
-                                          |  Señal aérea RF (Misma Frecuencia, SF y BW)
-                                          v
-+-----------------------------------------------------------------------------------+
-|                        TRANSCEPTOR SEMTECH SX1262 / SX1268                        |
-|                         Registro REG_LR_SYNCWORD = 0x14B4                         |
-|   (Detecta en una sola escucha preámbulos Meshtastic 0x2B y MeshCore 0x12)        |
-+-----------------------------------------+-----------------------------------------+
-                                          |
-                   +----------------------+----------------------+
-                   |                                             |
-                   v (Preámbulo 0x2B / Clave local)              v (Preámbulo 0x12 / Trama no-MSH)
-+-------------------------------------------+   +-------------------------------------------+
-|     1. PIPELINE MESHTASTIC (PRIORIDAD)    |   |    2. PIPELINE MESHCORE (COEXISTENCIA)    |
-+-------------------------------------------+   +-------------------------------------------+
-| • Prueba claves AES de canales locales    |   | • Parser nativo de tramas MeshCore        |
-| • ¿Descifra canal? SÍ                     |   | • Si es trama válida de red:              |
-| • Deduplicación circular de 160 pkts      |   |   - Flood Relay con LBT y Backoff         |
-| • Entrega a Router MSH oficial            |   |   - Inyección en canal virtual "MC:"      |
-| • Notificación a App móvil (BLE / Serial) |   |   - Consola y telemetría remota Nexus     |
-+-------------------------------------------+   +-------------------------------------------+</code></pre>
-          </details>
+            <text x="447" y="324" font-size="12" fill="var(--text-main, #1f2328)">1. Si no descifra en MSH → Parser MeshCore</text>
+            <text x="447" y="344" font-size="12" font-weight="700" fill="var(--accent-blue, #0969da)">✔ ¿Trama MeshCore válida? → SÍ</text>
+            <text x="447" y="366" font-size="11.5" fill="var(--text-muted, #59636e)">• Flood Relay automático con LBT y Backoff</text>
+            <text x="447" y="386" font-size="11.5" fill="var(--text-muted, #59636e)">• Inyección en canal virtual MC: en la app</text>
+            <text x="447" y="406" font-size="11.5" fill="var(--text-muted, #59636e)">• Respuestas directas y telemetría por consola Nexus</text>
+          </svg>
         </div>
 
         <div class="artisan-grid-2">
