@@ -119,6 +119,7 @@
   // "USERPREFS_NODEINFO_REPLY_SUPPRESS_SECS": "43200",
   // "USERPREFS_UI_TEST_LOG": "true", // Test-only: emits `Screen: frame N/M name=... reason=...` log per UI transition (for the meshtastic-mcp ui test tier); off in release builds.
   "USERPREFS_CONFIG_LORA_REGION": "meshtastic_Config_LoRaConfig_RegionCode_EU_868",
+  "USERPREFS_NEXUS_BASE_TEXTS": "true",
   "USERPREFS_LORACONFIG_USE_PRESET": "false",
   "USERPREFS_LORACONFIG_BANDWIDTH": "62",
   "USERPREFS_LORACONFIG_SPREAD_FACTOR": "7",

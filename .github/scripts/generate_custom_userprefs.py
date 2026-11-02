@@ -88,6 +88,11 @@ def main():
         default="",
         help="Default region prefix for adverts (empty = none)",
     )
+    parser.add_argument(
+        "--nexus-base-texts",
+        type=lambda v: v.lower() in ("true", "1", "yes"),
+        default=True,
+    )
     parser.add_argument("--nexus-master-key", default="")
     parser.add_argument("--device-role", default="CLIENT")
     parser.add_argument("--lora-region", default="EU_868")
@@ -247,6 +252,12 @@ def main():
                 pass
     else:
         prefs.pop("NEXUS_MASTER_KEY_1", None)
+
+    # Nexus Base Texts
+    if args.nexus_base_texts:
+        prefs["USERPREFS_NEXUS_BASE_TEXTS"] = "true"
+    else:
+        prefs["USERPREFS_NEXUS_BASE_TEXTS"] = "false"
 
     # Device role
     role_enum = f"meshtastic_Config_DeviceConfig_Role_{args.device_role.upper()}"

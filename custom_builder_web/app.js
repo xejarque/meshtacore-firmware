@@ -661,6 +661,9 @@ document.addEventListener("DOMContentLoaded", () => {
       .value.trim();
     const mcHome = document.getElementById("meshcoreHomeRegion").value.trim();
     const mcDef = document.getElementById("meshcoreDefaultRegion").value.trim();
+    const baseTexts = document.getElementById("nexusBaseTexts")
+      ? document.getElementById("nexusBaseTexts").checked
+      : true;
     const keyChoice = nexusMasterKey.value;
     const masterKey =
       keyChoice === "custom" ? customMasterKey.value.trim() : keyChoice;
@@ -729,6 +732,7 @@ document.addEventListener("DOMContentLoaded", () => {
       meshcore_regions_def: mcRegions,
       meshcore_home_region: mcHome,
       meshcore_default_region: mcDef,
+      nexus_base_texts: baseTexts,
       nexus_master_key: masterKey,
       device_role: deviceRole,
       lora_region: loraRegion,
@@ -952,6 +956,12 @@ ${JSON.stringify(configPayload, null, 2)}
     if (data.meshcore_default_region && data.meshcore_default_region.trim()) {
       prefs["USERPREFS_MESHCORE_DEFAULT_REGION"] =
         data.meshcore_default_region.trim();
+    }
+
+    if (data.nexus_base_texts !== undefined) {
+      prefs["USERPREFS_NEXUS_BASE_TEXTS"] = data.nexus_base_texts
+        ? "true"
+        : "false";
     }
 
     if (data.nexus_master_key) {

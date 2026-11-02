@@ -507,7 +507,11 @@ public:
     int8_t M_S = -1; //-1 = OFF
 
     bool client_always = false;
-    bool base_texts = false;
+#ifdef USERPREFS_NEXUS_BASE_TEXTS
+    bool base_texts = USERPREFS_NEXUS_BASE_TEXTS;
+#else
+    bool base_texts = true;
+#endif
 
     // Internal state
     uint8_t R_S_mode = 0;
