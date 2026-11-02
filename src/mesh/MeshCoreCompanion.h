@@ -287,7 +287,7 @@ class MeshCoreCompanion
 
     /// Consume a received MeshCore frame: GRP_TXT on any MC: channel and TXT_MSG for us are injected into the
     /// router, an ACK settles a pending direct message, an ADVERT teaches us a contact.
-    void handleFrame(const uint8_t *raw, size_t len, float snr, int32_t rssi);
+    void handleFrame(const uint8_t *raw, size_t len, float snr, int32_t rssi, float freqErr = 0.0f, uint8_t codingRate = 0);
 
     /// Install our MeshCore identity (Ed25519 seed and public key); direct messages need it.
     void setIdentity(const uint8_t seed[32], const uint8_t pub[32]);
@@ -466,11 +466,27 @@ class MeshCoreCompanion
     void announceUser(uint32_t nodeNum, const meshtastic_User &user, const MeshCoreRx &rx);
     void announceIfNeeded(uint32_t nodeNum, const meshtastic_User &user, const MeshCoreRx &rx);
 
+    float lastRxFreqErr = 0.0f;
+    uint8_t lastRxCodingRate = 0;
+    float lastRxSnr = 0.0f;
+    int32_t lastRxRssi = 0;
+    bool lastRxHasRssi = false;
+    uint16_t lastFrameFlags = 0;
+    uint16_t lastFrameRelayNode = 0;
+    uint8_t lastFrameHops = 0;
+    uint8_t lastFramePathLen = 0;
+    static constexpr size_t FRAME_PATH_CAP = 27;
+    uint8_t lastFramePath[FRAME_PATH_CAP] = {};
+
+    uint32_t resolveRelayNode(const uint8_t *hash, uint8_t hashSize);
+
     bool cachedChannelHash(ChannelIndex ch, const uint8_t *key, size_t keyLen, uint8_t *out);
     bool wasRecentlySeen(uint32_t hash) const { return dedup.contains(hash); }
     void rememberFrame(uint32_t hash) { dedup.remember(hash); }
 };
 
 extern MeshCoreCompanion meshCoreCompanion;
+using JenCoreCompanion = MeshCoreCompanion;
+#define jencoreCompanion meshCoreCompanion
 
 #endif // MESHTASTIC_ENABLE_MESHCORE_COMPANION

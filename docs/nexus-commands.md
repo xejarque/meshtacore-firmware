@@ -483,6 +483,52 @@ SETFLRC 1300 2         → 1.3 Mbps, CR 1/2 (high throughput with full FEC)
 SETFSK OFF             → back to LoRa (applies in 5 s)
 ```
 
+### 7.1 Dynamic Role Switching (`SETROLE ... RAM`)
+
+Switch operating role in RAM only, without writing to flash (preserving flash endurance or enabling transient router modes).
+
+- `SETROLE <role> RAM`: e.g. `SETROLE ROUTER RAM`, `SETROLE ROUTER_LATE RAM`, `SETROLE CLIENT RAM`.
+
+### 7.2 Split-Tier Uplink / Downlink Presets (`SPLIT`)
+
+For rooftop or high-elevation nodes, configure separate presets for receiving weak uplink signals and transmitting long-range downlinks:
+
+- `SPLIT`: Shows current split status and configured uplink/downlink presets.
+- `SPLIT ON` / `SPLIT OFF`: Toggles split mode.
+- `SPLIT UPLINK <preset>`: Configures RX listening preset (e.g. `LONG_FAST` or `P1`).
+- `SPLIT DOWNLINK <preset>`: Configures TX broadcast preset.
+
+### 7.3 Multi-SF Concurrent Tiers (`TIER` - LR2021)
+
+On LR2021 transceivers, configures multiple concurrent Spreading Factors on the same frequency for simultaneous Meshtastic, MeshCore, and Reticulum reception:
+
+- `TIER`: Displays current tier mapping, main tier, and side detectors.
+- `TIER MAIN <MESHTASTIC|RNODE|MESHCORE|DOUBLESHARED|TRIPLESHARED> <syncword>`: Sets main carrier tier.
+- `TIER SIDE <1..3> <SF> <protocol> <syncword>`: Arms a side detector for concurrent listening.
+- `TIER SIDE <1..3> OFF`: Removes a side detector.
+- `TIER PRESET MADRID`: Loads the standard Madrid multi-SF coexistence preset.
+- `TIER OFF`: Clears all side detectors.
+
+### 7.4 Automatic Power Control (`APC`)
+
+Dynamically adjusts transmit power to each destination peer based on observed SNR from their recent packets:
+
+- `APC`: Displays APC status, target SNR, and cache statistics.
+- `APC ON` / `APC OFF`: Toggles dynamic power scaling.
+- `APC TARGET <dB>`: Sets desired link margin target SNR (e.g. `APC TARGET 6`).
+
+### 7.5 Reticulum KISS RNode Bridge (`RNODE` / `JRNODE`)
+
+Integrates a native Reticulum KISS RNode interface over Serial, TCP, or Bluetooth Low Energy (BLE NUS):
+
+- `RNODE`: Status of RNode bridge, mode, frequency, SF, and connected central.
+- `RNODE <OFF|BRIDGE|STANDALONE>`:
+  - `BRIDGE`: Concurrent Meshtastic + MeshCore + Reticulum on same carrier.
+  - `STANDALONE`: Dedicated RNode interface.
+- `RNODE BLE <ON|OFF>`: Enables BLE NUS service for wireless Reticulum clients (e.g. Columba, Sideband).
+- `RNODE TCP <port>`: Enables KISS TCP server on ESP32/WiFi.
+- `RNODE SF <sf>`: Custom RNode Spreading Factor override.
+
 ---
 
 ## 8. Identity, Naming & NodeDB
@@ -686,6 +732,11 @@ Nexus stores its persistent configuration in an encrypted / versioned flash segm
 | `UTIL`              | `UTIL`                                                         | Channel airtime utilization and transmit duty cycle percentages.                                                                                                                                         | `MTC UTIL:`<br>`ChUtil: <pct>%`<br>`TxUtil: <pct>%`                                                                                                               |
 | `SYS`               | `SYS`                                                          | System health summary: CPU die temperature, boot reason, heap usage.                                                                                                                                     | `MTC SYS:`<br>`DieTemp: <t>C`<br>`Boot: <reason>`<br>`Heap: <used>/<total>`                                                                                       |
 | `UPTIME` / `UP`     | `UPTIME`                                                       | Displays device uptime since boot in days, hours, minutes, and seconds.                                                                                                                                  | `MTC UPTIME: <d>d <h>h <m>m <s>s`                                                                                                                                 |
+| `VOLT` / `VOLTAGE`  | `VOLT`                                                         | Displays current battery / INA voltage, configured rules, and hibernation state.                                                                                                                         | `MTC VOLT: <v>mV (BATT/INA)...`                                                                                                                                   |
+|                     | `VOLT RULE <1-4> <min_mv> <max_mv> <INA\|BATT> <ACTION> [ARG]` | Configures automated voltage action when voltage stays in range for 15s. Actions: `SHUTDOWN`, `DEEPSLEEP <sec>`, `TEXT <msg>`, `STATUS <msg>`, `MACRO <1-4>`.                                            | `MTC: Volt Rule <n> configured`                                                                                                                                   |
+|                     | `VOLT CLEAR <1-4>`                                             | Clears specified voltage automation rule.                                                                                                                                                                | `MTC: Volt Rule <n> cleared`                                                                                                                                      |
+|                     | `VOLT TEST <1-4>`                                              | Forces immediate test execution of specified voltage rule.                                                                                                                                               | `MTC: Executing rule <n> action`                                                                                                                                  |
+|                     | `VOLT HIBERNATE <ON\|OFF>`                                     | Enables emergency low-voltage hibernation (radio off, minimal background sleep).                                                                                                                         | `MTC: Hibernation <ON\|OFF>`                                                                                                                                      |
 
 ---
 
@@ -764,6 +815,7 @@ Nexus stores its persistent configuration in an encrypted / versioned flash segm
 | `ADDCH`                                           | §12 Channels & Config            | Add a new channel slot                                                         |
 | `ADMINS`                                          | §8 Identity & NodeDB             | List authorized admin public keys                                              |
 | `ALIAS`                                           | §15 Aliases, Macros & Automation | Custom 4-char node alias management                                            |
+| `APC`                                             | §7 Radio & RF Control            | Automatic Power Control (dynamic SNR-based TX power)                           |
 | `BASETEXTS`                                       | §7 Radio & RF Control            | Client-base text-only rebroadcast toggle                                       |
 | `BD`                                              | §11 Vault & Persistence          | Broadcast delay / paging jitter settings                                       |
 | `BELL`                                            | §14 Messaging & Routing          | Hardware buzzer single alert bell                                              |
@@ -823,6 +875,7 @@ Nexus stores its persistent configuration in an encrypted / versioned flash segm
 | `INFO`                                            | §2 Help & Build Info             | Node identity, version, and role                                               |
 | `INFRA`                                           | §12 Channels & Config            | List mesh infrastructure router nodes                                          |
 | `INVALIDS` / `INV`                                | §3 Firewall & Filtering          | Packet sanity validation drop rules                                            |
+| `JRNODE` / `RNODE`                                | §7 Radio & RF Control            | Reticulum KISS RNode bridge (Serial/TCP/BLE)                                   |
 | `LCS` / `LORACHIPSTATS`                           | §9 Observation & SIGINT          | LoRa chip state time percentages                                               |
 | `LNA`                                             | §7 Radio & RF Control            | Show LNA gain mode (Heltec V4.3)                                               |
 | `LOAD`                                            | §11 Vault & Persistence          | Reload settings from flash vault                                               |
@@ -903,6 +956,7 @@ Nexus stores its persistent configuration in an encrypted / versioned flash segm
 | `SORTEDCHANNELSTATS`                              | §9 Observation & SIGINT          | Sorted channel traffic distribution                                            |
 | `SORTEDPACKETSTATS`                               | §9 Observation & SIGINT          | Sorted PortNum traffic activity list                                           |
 | `SORTEDRELAYSTATS`                                | §9 Observation & SIGINT          | Sorted relay ID activity list                                                  |
+| `SPLIT`                                           | §7 Radio & RF Control            | Dual-preset rooftop uplink/downlink preset separation                          |
 | `STARWARS`                                        | §14 Messaging & Routing          | Play Star Wars melody on buzzer                                                |
 | `STATUSPS`                                        | §9 Observation & SIGINT          | Send packet-volume summary as Node Status                                      |
 | `SYS`                                             | §13 Hardware & Sensors           | CPU temperature, boot reason, heap                                             |
@@ -910,6 +964,7 @@ Nexus stores its persistent configuration in an encrypted / versioned flash segm
 | `TELEMETRY`                                       | §13 Hardware & Sensors           | Battery, temperature, pressure telemetry                                       |
 | `TEXT`                                            | §14 Messaging & Routing          | Broadcast text message on channel 0                                            |
 | `TEXTC`                                           | §14 Messaging & Routing          | Broadcast text message on channel `<ch>`                                       |
+| `TIER`                                            | §7 Radio & RF Control            | LR2021 multi-SF concurrent channel tiers                                       |
 | `TIME`                                            | §16 Filesystem & Utilities       | Current date, time, and sync source                                            |
 | `TM`                                              | §12 Channels & Config            | TrafficManagementModule tuning & stats                                         |
 | `TRACE` / `TR`                                    | §9 Observation & SIGINT          | Trace route to destination node                                                |
@@ -922,6 +977,7 @@ Nexus stores its persistent configuration in an encrypted / versioned flash segm
 | `VAULT DIFF` / `VDF`                              | §11 Vault & Persistence          | Diff RAM settings against saved vault                                          |
 | `VERIFYSTATS` / `VS`                              | §9 Observation & SIGINT          | XEdDSA signature verification stats                                            |
 | `VERSION` / `V`                                   | §2 Help & Build Info             | Firmware version string                                                        |
+| `VOLT` / `VOLTAGE`                                | §13 Hardware & Sensors           | Battery & INA automated voltage threshold rules & hibernation                  |
 | `WATCH`                                           | §10 Target Watchlist             | In-depth continuous node RF & hop tracker                                      |
 | `WIFI`                                            | §13 Hardware & Sensors           | WiFi connection status, SSID, IP                                               |
 | `WIFIOTA` / `OTA`                                 | §13 Hardware & Sensors           | ESP32 OTA firmware metadata                                                    |

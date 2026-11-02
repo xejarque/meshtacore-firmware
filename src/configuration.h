@@ -175,6 +175,43 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #error "MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC requires MESHTASTIC_ENABLE_MESHCORE_SNIFFER"
 #endif
 
+// Compatibility aliases for JenTastic upstream naming (JenCore -> MeshCore)
+#ifndef NEXUS_ENABLE_JENCORE
+#define NEXUS_ENABLE_JENCORE (MESHTASTIC_ENABLE_MESHCORE_COMPANION || MESHTASTIC_ENABLE_MESHCORE_SNIFFER)
+#endif
+#ifndef NEXUS_ENABLE_JENCORE_SNIFFER
+#define NEXUS_ENABLE_JENCORE_SNIFFER MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+#endif
+#ifndef NEXUS_ENABLE_JENCORE_RELAY
+#define NEXUS_ENABLE_JENCORE_RELAY MESHTASTIC_ENABLE_MESHCORE_RELAY
+#endif
+#ifndef NEXUS_ENABLE_JENCORE_COMPANION
+#define NEXUS_ENABLE_JENCORE_COMPANION MESHTASTIC_ENABLE_MESHCORE_COMPANION
+#endif
+#ifndef NEXUS_ENABLE_JENCORE_HYBRID_SYNC
+#define NEXUS_ENABLE_JENCORE_HYBRID_SYNC MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
+#endif
+#ifndef NEXUS_JENCORE_RX_SYNCWORD
+#define NEXUS_JENCORE_RX_SYNCWORD MESHTASTIC_MESHCORE_RX_SYNCWORD
+#endif
+
+// Reticulum RNode master gate
+#ifndef NEXUS_ENABLE_RNODE
+#define NEXUS_ENABLE_RNODE 1
+#endif
+
+#if !NEXUS_ENABLE_RNODE
+#undef NEXUS_ENABLE_RNODE_TCP
+#define NEXUS_ENABLE_RNODE_TCP 0
+#undef NEXUS_ENABLE_RNODE_BLE
+#define NEXUS_ENABLE_RNODE_BLE 0
+#endif
+
+// Default RNode TCP KISS server port
+#ifndef RNODE_DEFAULT_TCP_PORT
+#define RNODE_DEFAULT_TCP_PORT 7633
+#endif
+
 /// Convert a preprocessor name into a quoted string
 #define xstr(s) ystr(s)
 #define ystr(s) #s
@@ -706,6 +743,25 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #ifdef MESHTASTIC_EXCLUDE_BLUETOOTH
 #undef HAS_BLUETOOTH
 #define HAS_BLUETOOTH 0
+#endif
+
+// RNode transports can only be inferred once architecture.h/variant.h have
+// supplied HAS_WIFI / HAS_BLUETOOTH. Explicit -D overrides still win.
+#if NEXUS_ENABLE_RNODE
+#ifndef NEXUS_ENABLE_RNODE_TCP
+#if HAS_WIFI
+#define NEXUS_ENABLE_RNODE_TCP 1
+#else
+#define NEXUS_ENABLE_RNODE_TCP 0
+#endif
+#endif
+#ifndef NEXUS_ENABLE_RNODE_BLE
+#if HAS_BLUETOOTH || HAS_BLE
+#define NEXUS_ENABLE_RNODE_BLE 1
+#else
+#define NEXUS_ENABLE_RNODE_BLE 0
+#endif
+#endif
 #endif
 
 // // Turn off GPS

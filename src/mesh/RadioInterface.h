@@ -111,6 +111,10 @@ class RadioInterface
     static constexpr uint32_t PROCESSING_TIME_MSEC =
         4500; // time to construct, process and construct a packet again (empirically determined)
 
+    // Uniform Nexus high-speed GFSK & FLRC sync word across all transceivers (SX126x, SX128x, LR11x0, LR20x0):
+    // 4 bytes: 0x2D, 0x4B, 0xD4, 0x93 (high autocorrelation, balanced 0/1, no bit runs, immune to noise locks)
+    static constexpr uint8_t nexusAltSyncWord[4] = {0x2D, 0x4B, 0xD4, 0x93};
+
     meshtastic_MeshPacket *sendingPacket = NULL; // The packet we are currently sending
     uint32_t lastTxStart = 0L;
 
@@ -192,6 +196,26 @@ class RadioInterface
      * companion for GRP_TXT. The frame is copied; returns false if it could not be queued.
      */
     virtual bool queueMeshCoreFrame(const uint8_t *bytes, size_t len)
+    {
+        (void)bytes;
+        (void)len;
+        return false;
+    }
+
+    /**
+     * Queue a raw JenCore frame for transmission through the radio's listen-before-talk path.
+     * Aliased to queueMeshCoreFrame() for upstream compatibility.
+     */
+    virtual bool queueJenCoreFrame(const uint8_t *bytes, size_t len)
+    {
+        return queueMeshCoreFrame(bytes, len);
+    }
+
+    /**
+     * Queue a raw Reticulum RNode frame for transmission through the radio's listen-before-talk path.
+     * The frame is copied; returns false if it could not be queued.
+     */
+    virtual bool queueRNodeFrame(const uint8_t *bytes, size_t len)
     {
         (void)bytes;
         (void)len;
@@ -296,6 +320,55 @@ class RadioInterface
     [[nodiscard]] uint32_t getPreambleTimeMsec() { return preambleTimeMsec; }
     [[nodiscard]] uint32_t getSlotTimeMsec() { return slotTimeMsec; }
     [[nodiscard]] int8_t getPower() { return power; }
+
+    /**
+     * Nexus (2.8.105): Live per-packet TX power control. Changes output power
+     * without touching channel PLL frequency or receiver state.
+     * Returns RADIOLIB_ERR_NONE (0) on success.
+     */
+    virtual int16_t setOutputPowerLive(int8_t powerDb) { return -1; }
+
+    /**
+     * Nexus (2.8.105): Fast-path Spreading Factor and TX power switch on the current carrier.
+     * Used when presets share the same frequency, BW, and CR (e.g. SFNarrow SF7 <-> NarrowPlus SF6).
+     * Returns RADIOLIB_ERR_NONE (0) on success.
+     */
+    virtual int16_t setSpreadingFactorLive(uint8_t targetSf, int8_t targetPwr = 0x7F) { return -1; }
+
+    /**
+     * Nexus: per-packet LoRa syncword switch on the current carrier. Used by the
+     * multi-SF tier dispatcher (LR2021) to send Meshtastic on 0x2B and RNode/
+     * MeshCore on 0x12 without reconfiguring the whole radio.
+     */
+    virtual int16_t setSyncWordLive(uint8_t syncword)
+    {
+        (void)syncword;
+        return -1;
+    }
+
+    /** The syncword the main detector is using for RX. */
+    [[nodiscard]] virtual uint8_t getSyncWord() const { return 0; }
+
+    /** True if this driver implements the SX126x-style 0x14B4 hybrid RX syncword. */
+    [[nodiscard]] virtual bool supportsHybridSync() const { return false; }
+
+    /**
+     * Protocol tier of the frame just read off the radio. 1 = Meshtastic is
+     * the default; LR2021 overrides this when a multi-SF table is enabled.
+     */
+    [[nodiscard]] virtual uint8_t readRxTierProtocol() { return 1; }
+
+    /**
+     * Nexus (2.8.105): Returns the Spreading Factor of the last received packet.
+     * On multi-SF hardware (LR2021), reports the actual detector SF that received the packet.
+     */
+    [[nodiscard]] virtual uint8_t getLastRxSF() { return sf; }
+
+    /// Nexus/MeshCore: last packet's frequency error (Hz) and raw LoRa header CR (1..7).
+    /// 0 when the driver cannot report it. Populated for packets injected into the
+    /// Meshtastic app by the companion.
+    [[nodiscard]] virtual float getLastRxFrequencyError() { return 0.0f; }
+    [[nodiscard]] virtual uint8_t getLastRxCodingRate() { return 0; }
 
     /**
      * Nexus-28002 (2026-08-21): restored runtime TCXO/XTAL detection from Nexus-269.

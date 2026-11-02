@@ -1688,7 +1688,7 @@ void test_own_alias_advert_is_not_learned_as_a_contact()
 
     TEST_ASSERT_TRUE(s.repeater.hasAliasIdentity());
     uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
-    const size_t len = s.repeater.buildAdvert(frame, sizeof(frame), "Xavi (relay)", 1792521507, true, true);
+    const size_t len = s.repeater.buildAdvert(frame, sizeof(frame), "Xavi [REP]", 1792521507, true, true);
     TEST_ASSERT_GREATER_THAN(0, len);
 
     const size_t nodesBefore = nodeDB->getNumMeshNodes();

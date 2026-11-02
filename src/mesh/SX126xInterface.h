@@ -90,9 +90,16 @@ template <class T> class SX126xInterface : public RadioLibInterface
 
     virtual void setStandby() override;
 
+    virtual int16_t setOutputPowerLive(int8_t powerDb) override;
+    virtual int16_t setSpreadingFactorLive(uint8_t targetSf, int8_t targetPwr = 0x7F) override;
+    virtual float getLastRxFrequencyError() override;
+    virtual uint8_t getLastRxCodingRate() override;
+    bool supportsHybridSync() const override { return true; }
+
     uint32_t getPacketTime(uint32_t pl, bool received) override { return computePacketTime(lora, pl, received); }
 
   private:
+    float altSensitivityDbm();
 #ifdef LORA_DIO1_SOFTWARE_POLL
     bool irqPollingActive = false;
     bool pollTxMode = false;

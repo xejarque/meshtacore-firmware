@@ -978,11 +978,41 @@
                   <td>
                     <span class="cmd-badge">ROLE</span> / <code>SETROLE</code>
                   </td>
-                  <td><code>SETROLE &lt;rol&gt;</code></td>
+                  <td><code>SETROLE &lt;rol&gt; [RAM]</code></td>
                   <td>
                     Consulta o cambia el rol del nodo: <code>CLIENT</code>,
                     <code>CLIENT_MUTE</code>, <code>ROUTER</code>,
-                    <code>CLIENT_BASE</code>, <code>SENSOR</code>.
+                    <code>ROUTER_LATE</code>, <code>CLIENT_BASE</code>,
+                    <code>SENSOR</code>. Con el parámetro opcional
+                    <code>RAM</code> el cambio se aplica únicamente en memoria
+                    sin desgaste de flash.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">SPLIT</span></td>
+                  <td><code>SPLIT &lt;ON|OFF|UPLINK|DOWNLINK&gt;</code></td>
+                  <td>
+                    Separación de presets de subida y bajada para nodos en
+                    azoteas o cotas altas. Permite escuchar en un preset
+                    sensible y emitir en otro de largo alcance.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">APC</span></td>
+                  <td><code>APC &lt;ON|OFF|TARGET &lt;snr&gt;&gt;</code></td>
+                  <td>
+                    Control automático de potencia de transmisión (Automatic
+                    Power Control). Modula la potencia RF hacia cada nodo
+                    destino según el SNR recibido en paquetes recientes.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><span class="cmd-badge">TIER</span></td>
+                  <td><code>TIER &lt;MAIN|SIDE|PRESET MADRID|OFF&gt;</code></td>
+                  <td>
+                    Configura canales multi-SF concurrentes en chips LR2021
+                    sobre la misma portadora. Permite coexistencia simultánea de
+                    tramas Meshtastic, MeshCore y Reticulum.
                   </td>
                 </tr>
                 <tr class="cmd-row">
@@ -1476,6 +1506,18 @@
                   </td>
                 </tr>
                 <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">VOLT</span> / <code>VOLTAGE</code>
+                  </td>
+                  <td><code>VOLT &lt;RULE|CLEAR|TEST|HIBERNATE&gt;</code></td>
+                  <td>
+                    Automatización de acciones por umbral de voltaje (batería o
+                    sensor INA). Permite ejecutar comandos, emitir alertas o
+                    entrar en sueño profundo / hibernación cuando el voltaje cae
+                    por debajo de un nivel programado.
+                  </td>
+                </tr>
+                <tr class="cmd-row">
                   <td><span class="cmd-badge">GPIO</span></td>
                   <td><code>GPIO &lt;W|R|WATCH&gt; &lt;pin&gt; [val]</code></td>
                   <td>
@@ -1743,6 +1785,21 @@
                     tiempo en el aire de Meshtastic vs MeshCore.
                   </td>
                 </tr>
+                <tr class="cmd-row">
+                  <td>
+                    <span class="cmd-badge">RNODE</span> / <code>JRNODE</code>
+                  </td>
+                  <td>
+                    <code>RNODE &lt;OFF|BRIDGE|STANDALONE|BLE|TCP&gt;</code>
+                  </td>
+                  <td>
+                    Puente KISS Reticulum RNode. Permite operar como interfaz
+                    física para redes Reticulum (Columba, Sideband, NomadNet)
+                    simultáneamente con Meshtastic y MeshCore. Soporta conexión
+                    vía puerto serie, BLE Nordic UART Service (NUS) y servidor
+                    TCP.
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -1805,6 +1862,13 @@
                   <td><code>ALIAS</code></td>
                   <td>§15 Macros</td>
                   <td>Gestión de alias cortos para nodos frecuentes</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>APC</code></td>
+                  <td>§7 Radio</td>
+                  <td>
+                    Control automático de potencia de transmisión (SNR target)
+                  </td>
                 </tr>
                 <tr class="cmd-row">
                   <td><code>BASETEXTS</code></td>
@@ -2221,6 +2285,11 @@
                   <td>Eliminación de archivos en almacenamiento local</td>
                 </tr>
                 <tr class="cmd-row">
+                  <td><code>RNODE / JRNODE</code></td>
+                  <td>§7 / §17 Reticulum</td>
+                  <td>Puente Reticulum KISS RNode (Serial, BLE NUS, TCP)</td>
+                </tr>
+                <tr class="cmd-row">
                   <td><code>ROLE / SETROLE</code></td>
                   <td>§7 Radio</td>
                   <td>Consulta o cambio de rol de funcionamiento del nodo</td>
@@ -2294,6 +2363,13 @@
                   </td>
                 </tr>
                 <tr class="cmd-row">
+                  <td><code>SPLIT</code></td>
+                  <td>§7 Radio</td>
+                  <td>
+                    Separación de presets de subida (uplink) y bajada (downlink)
+                  </td>
+                </tr>
+                <tr class="cmd-row">
                   <td><code>STARWARS</code></td>
                   <td>§14 Mensajería</td>
                   <td>
@@ -2321,6 +2397,14 @@
                   <td><code>TEXT / TEXTC</code></td>
                   <td>§14 Mensajería</td>
                   <td>Emisión de texto en canal general o secundario</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>TIER</code></td>
+                  <td>§7 Radio</td>
+                  <td>
+                    Canales multi-SF concurrentes sobre la misma frecuencia
+                    (LR2021)
+                  </td>
                 </tr>
                 <tr class="cmd-row">
                   <td><code>TIME / SETTIME</code></td>
@@ -2374,6 +2458,13 @@
                   <td><code>VERSION / V</code></td>
                   <td>§2 Ayuda</td>
                   <td>Cadena de compilación y versión del firmware</td>
+                </tr>
+                <tr class="cmd-row">
+                  <td><code>VOLT / VOLTAGE</code></td>
+                  <td>§13 Sensores</td>
+                  <td>
+                    Reglas de automatización y apagado/hibernación por voltaje
+                  </td>
                 </tr>
                 <tr class="cmd-row">
                   <td><code>WATCH</code></td>

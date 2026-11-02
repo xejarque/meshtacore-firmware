@@ -15,6 +15,7 @@
 #include "mesh/MeshModule.h"
 #include "mesh/generated/meshtastic/mesh.pb.h"
 #include "modules/NexusRuntime.h"
+#include "modules/NexusMultiSF.h"
 #include <vector>
 
 namespace meshtastic {
@@ -566,6 +567,73 @@ public:
         uint8_t type;      // 0=hex, 1=base64, 2=text (for display only)
     };
 
+    enum NexusVoltAction : uint8_t {
+        NEXUS_VOLT_ACT_NONE      = 0,
+        NEXUS_VOLT_ACT_CMD       = 1,
+        NEXUS_VOLT_ACT_HIBERNATE = 2,
+        NEXUS_VOLT_ACT_WAKE      = 3
+    };
+
+    enum NexusVoltDir : uint8_t {
+        NEXUS_VOLT_DIR_HIGH = 0, // >= target
+        NEXUS_VOLT_DIR_LOW  = 1  // <= target
+    };
+
+    struct __attribute__((packed)) NexusVoltRule {
+        uint16_t mv;          // Target millivolts
+        uint8_t  action;      // NexusVoltAction
+        uint8_t  direction;   // NexusVoltDir
+        uint8_t  channel;     // 0 = default battery / INA CH1, 1 = INA CH2, 2 = INA CH3
+        uint8_t  flags;       // Reserved / trigger tracking
+        char     command[32]; // Command string
+    };
+
+    enum NexusSplitMode : uint8_t {
+        NEXUS_SPLIT_OFF          = 0,
+        NEXUS_SPLIT_ROOF_SPLIT   = 1, // Single-RX rooftop: RX on primary, downlink on altPreset, indoor 0-hop uplink on primary
+        NEXUS_SPLIT_CLIENT_SPLIT = 2, // Indoor client: RX on primary, all TX on altPreset
+        NEXUS_SPLIT_ROOF_MSF     = 3  // LR2021 concurrent RX: Primary=low SF (indoor), SideDet=high SF (mesh), cross-repeats
+    };
+
+    enum NexusSplitFlags : uint8_t {
+        NEXUS_SPLIT_FLAG_USE_ZH_MASK = (1 << 0), // Only treat nodes in zero_hop_mask as indoor nodes (default in ROOF_SPLIT)
+        NEXUS_SPLIT_FLAG_INDOOR_ECHO = (1 << 1), // Rooftop also echoes indoor->indoor packets on the indoor preset
+        NEXUS_SPLIT_FLAG_MESH_RELAY  = (1 << 2), // In ROOF_MSF, also relay outside SF7->SF7 in addition to SF7->SF6 downlink
+        NEXUS_SPLIT_FLAG_APC_EN      = (1 << 3)  // Enable SNR-based per-packet APC on unicast direct hops
+    };
+
+    struct __attribute__((packed)) NexusSplitConfig {
+        uint8_t mode;            // NexusSplitMode (0..3)
+        uint8_t flags;           // NexusSplitFlags bitmask
+        uint8_t alt_sf;          // Secondary preset SF (5..12)
+        uint8_t alt_cr;          // Secondary preset CR (5..8)
+        uint16_t alt_bw;         // Secondary preset BW code (31, 62, 125, 250, 400, 500, 800, 1600)
+        float alt_freq;          // Secondary preset frequency in MHz
+        int8_t alt_tx_power;     // TX power (dBm) when transmitting on secondary/indoor tier
+        int8_t apc_min_power;    // Minimum TX power (dBm) for APC step-down (default 0)
+    };
+
+    struct __attribute__((packed)) NexusRNodeConfig {
+        uint8_t rnode_mode;        // RNodeMode: 0 OFF, 1 BRIDGE, 2 STANDALONE
+        uint8_t rnode_tcp;         // TCP KISS server enabled
+        uint8_t rnode_ble;         // NUS BLE persona enabled
+        uint8_t rnode_sf;          // Reticulum tier SF (5..12)
+        uint8_t meshcore_enabled;  // master MeshCore switch
+        uint8_t meshcore_relay;    // flood relay
+        uint8_t meshcore_path_hash;// 1..3 bytes
+        uint8_t reserved;
+    };
+
+    struct __attribute__((packed)) NexusTierChannelMap {
+        uint8_t count;
+        uint8_t reserved[3];
+        struct __attribute__((packed)) {
+            uint8_t channel;
+            uint8_t sf;
+            uint8_t reserved[2];
+        } entries[8];
+    };
+
     // Nexus Storage Vault structure (Fixed-length for simplicity and speed)
     struct __attribute__((packed)) NexusVault {
         char magic[4];       // "JenT"
@@ -647,6 +715,16 @@ public:
         uint8_t  zero_hop_auto_client_mask[32];
         // v69: custom PPING command
         char     ping_trigger[16];
+        // v70: 4-voltage threshold rules
+        NexusVoltRule volt_rules[4];
+        // v71: Dual-preset split-tier and APC configuration
+        NexusSplitConfig split_config;
+        // v72: same-carrier protocol tiers (LR2021)
+        nexus::MultiSFConfig multi_sf;
+        // v73: RNode & MeshCore config
+        NexusRNodeConfig rnode_config;
+        // v74: per-channel Meshtastic TX tier overrides
+        NexusTierChannelMap tier_channels;
         uint32_t crc32;
     };
 
@@ -750,6 +828,43 @@ public:
 
     uint16_t nexus_ignore_count = 0;
     uint32_t nexus_ignore_list[64] = {0};
+
+    // Voltage Threshold Automation Engine (v70)
+    NexusVoltRule volt_rules[4] = {{0}};
+    uint32_t last_volt_check_ms = 0;
+    uint8_t volt_debounce_count[4] = {0};
+    bool volt_triggered[4] = {false};
+    bool is_hibernating = false;
+    void setHibernating(bool hib);
+    uint16_t getVoltageReadingMv(uint8_t channel);
+    void runVoltageAutomations();
+
+    // Dual-Preset Split-Tier and APC Engine (v71)
+    NexusSplitConfig splitConfig = {};
+    bool isSplitEnabled() const { return splitConfig.mode != NEXUS_SPLIT_OFF; }
+    bool isApcEnabled() const { return (splitConfig.flags & NEXUS_SPLIT_FLAG_APC_EN) != 0; }
+    int8_t getApcMinPower() const { return splitConfig.apc_min_power; }
+
+    // Same-carrier protocol tiers (v72). Independent of the frequency SPLIT.
+    nexus::MultiSFConfig multiSFConfig = {};
+
+    // v74: per-Meshtastic-channel TX tier overrides (channel index -> tier SF).
+    static constexpr size_t MAX_TIER_CHANNEL_OVERRIDES = 8;
+    struct TierChannelOverride {
+        uint8_t channel = 0;
+        uint8_t sf = 0;
+    };
+    uint8_t tierChannelOverrideCount = 0;
+    TierChannelOverride tierChannelOverrides[MAX_TIER_CHANNEL_OVERRIDES] = {};
+    bool setTierChannelOverride(uint8_t channel, uint8_t sf);
+    bool clearTierChannelOverride(uint8_t channel);
+    void clearTierChannelOverrides() { tierChannelOverrideCount = 0; }
+    uint8_t getTierSFForChannel(uint8_t ch) const {
+        for (uint8_t i = 0; i < tierChannelOverrideCount; i++) {
+            if (tierChannelOverrides[i].channel == ch) return tierChannelOverrides[i].sf;
+        }
+        return 0;
+    }
 
     // Zero-Hop System (v22)
     uint8_t zero_hop_config = 0; // Bit 0: EN, Bit 1: TELE, Bit 2: POS, Bit 3: AUTO_ROUTER, Bit 4: AUTO_CLIENT

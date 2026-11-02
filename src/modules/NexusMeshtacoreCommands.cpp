@@ -31,7 +31,9 @@ using namespace meshtastic;
 bool NexusModule::handleMeshtacoreCommand(const char *cmd)
 {
     if (strcasecmp(cmd, "MESHCORE") == 0 || strncasecmp(cmd, "MESHCORE ", 9) == 0 || strcasecmp(cmd, "MCORE") == 0 ||
-        strncasecmp(cmd, "MCORE ", 6) == 0) {
+        strncasecmp(cmd, "MCORE ", 6) == 0 || strcasecmp(cmd, "JENCORE") == 0 || strncasecmp(cmd, "JENCORE ", 8) == 0 ||
+        strcasecmp(cmd, "JC") == 0 || strncasecmp(cmd, "JC ", 3) == 0 || strcasecmp(cmd, "MC") == 0 ||
+        strncasecmp(cmd, "MC ", 3) == 0) {
         const char *args = strchr(cmd, ' ');
         handleMeshCoreCommand(args ? args + 1 : "", replyMsg, sizeof(replyMsg));
     } else if (strcasecmp(cmd, "REGION") == 0 || strncasecmp(cmd, "REGION ", 7) == 0) {

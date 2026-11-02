@@ -419,6 +419,48 @@ template <typename T> int16_t SX126xInterface<T>::programModemParams()
     return RADIOLIB_ERR_NONE;
 }
 
+template <typename T> int16_t SX126xInterface<T>::setOutputPowerLive(int8_t powerDb)
+{
+    limitPower(SX126X_MAX_POWER);
+    if (powerDb < -9)
+        powerDb = -9;
+    if (powerDb > SX126X_MAX_POWER)
+        powerDb = SX126X_MAX_POWER;
+#ifdef SX126X_NO_POWER_OPTIMIZATION_TABLE
+    int16_t err = lora.setOutputPower(powerDb, false);
+#else
+    int16_t err = lora.setOutputPower(powerDb);
+#endif
+    if (err == RADIOLIB_ERR_NONE) {
+        power = powerDb;
+    }
+    return err;
+}
+
+template <typename T> float SX126xInterface<T>::getLastRxFrequencyError()
+{
+    return lora.getFrequencyError();
+}
+
+template <typename T> uint8_t SX126xInterface<T>::getLastRxCodingRate()
+{
+    uint8_t rxCR = 0;
+    bool hasCRC = true;
+    return lora.getLoRaRxHeaderInfo(&rxCR, &hasCRC) == RADIOLIB_ERR_NONE ? rxCR : 0;
+}
+
+template <typename T> int16_t SX126xInterface<T>::setSpreadingFactorLive(uint8_t targetSf, int8_t targetPwr)
+{
+    int16_t err = lora.setSpreadingFactor(targetSf);
+    if (err != RADIOLIB_ERR_NONE)
+        return err;
+    sf = targetSf;
+    if (targetPwr != 0x7F) {
+        return setOutputPowerLive(targetPwr);
+    }
+    return RADIOLIB_ERR_NONE;
+}
+
 template <typename T> bool SX126xInterface<T>::reconfigure()
 {
     RadioLibInterface::reconfigure();
@@ -798,8 +840,8 @@ template <typename T> bool SX126xInterface<T>::sleep()
 
 template <typename T> void SX126xInterface<T>::resetAGC()
 {
-    // Safety: don't reset mid-packet
-    if (sendingPacket != NULL || (isReceiving && isActivelyReceiving()))
+    // Safety: don't reset mid-packet (including raw MeshCore/RNode frames)
+    if (isSending() || (isReceiving && isActivelyReceiving()))
         return;
 
     LOG_DEBUG("SX126x AGC reset: warm sleep + Calibrate(0x7F)");
@@ -907,6 +949,13 @@ template <typename T> void SX126xInterface<T>::setTransmitEnable(bool txon)
         loraFEMInterface.setRxModeEnable();
     }
 #endif
+}
+
+/// Approximate SX126x sensitivity (Semtech datasheet table 13-3) of the active FSK setting
+template <typename T> float SX126xInterface<T>::altSensitivityDbm()
+{
+    const auto &m = meshtastic::nexusModule->altModem;
+    return m.brKbps >= 250 ? -99.0f : m.brKbps >= 150 ? -103.0f : m.brKbps >= 50 ? -108.0f : m.brKbps >= 10 ? -114.0f : -118.0f;
 }
 
 #endif

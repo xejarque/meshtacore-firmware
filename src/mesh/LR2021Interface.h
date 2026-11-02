@@ -21,18 +21,19 @@ class LR2021Interface : public LR20x0Interface<LR2021>
     // to disable all side detectors. Returns true on chip-level acceptance;
     // false on validation failure (num>3, out-of-range SF, duplicate SF, spread>4)
     // or chip-side reject.
-    bool configureSideDetectors(const uint8_t *sfs, uint8_t num);
+    bool configureSideDetectors(const uint8_t *sfs, uint8_t num, const uint8_t *syncWords = nullptr);
 
     // Storage + accessors used by /nexus LR2021_SF (NexusCommands.cpp) and
     // the apply hooks in LR20x0Interface::init(), ::reconfigure(), and
     // ::fullBegin(). RAM-only persistence (the table is lost on reboot;
     // operators re-set with /nexus LR2021_SF). A future vault bump could
-    // persist this — Nexus-28005 keeps it RAM-only because the apply runs
+    // persist this - Nexus-28005 keeps it RAM-only because the apply runs
     // before vault-load validation.
     static constexpr uint8_t MAX_SF_TABLE = 3;
     const uint8_t *sideDetectors() const { return sideSFs_; }
+    const uint8_t *sideSyncWords() const { return sideSyncWords_; }
     uint8_t sideDetectorsCount() const { return sideSFsCount_; }
-    void setSideDetectors(const uint8_t *sfs, uint8_t num);
+    void setSideDetectors(const uint8_t *sfs, uint8_t num, const uint8_t *syncWords = nullptr);
     void clearSideDetectors() { sideSFsCount_ = 0; }
 
     // Apply the stored side-detector table to the chip. Called from all
@@ -45,8 +46,18 @@ class LR2021Interface : public LR20x0Interface<LR2021>
     // re-apply a phantom entry on every subsequent reconfigure.
     void applyStoredSideDetectors();
 
+    /// Apply the multi-SF tier table. Returns false on a hard
+    /// validation/chip reject; a parked table (main SF temporarily above a
+    /// side SF) returns true without touching the chip.
+    bool applyMultiSFTiers();
+
+    /// Disable the side detectors on the chip and clear the stored table.
+    /// Used by TIER OFF.
+    void clearMultiSFTiers();
+
   private:
     uint8_t sideSFs_[MAX_SF_TABLE] = {0};
+    uint8_t sideSyncWords_[MAX_SF_TABLE] = {0};
     uint8_t sideSFsCount_ = 0;
 };
 #endif

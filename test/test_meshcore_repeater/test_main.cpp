@@ -1175,7 +1175,7 @@ void test_alias_advert_is_signed_by_the_alias()
     MeshCoreRepeater repeater;
     giveIdentity(repeater);
     uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
-    const size_t len = repeater.buildAdvert(frame, sizeof(frame), "Xavi (relay)", 1792521507, true, true);
+    const size_t len = repeater.buildAdvert(frame, sizeof(frame), "Xavi [REP]", 1792521507, true, true);
     TEST_ASSERT_GREATER_THAN(0, len);
     TEST_ASSERT_EQUAL_HEX8(0x82, frame[102]); // repeater (2) with the name flag
     TEST_ASSERT_EQUAL_MEMORY(repeater.getAliasPub(), &frame[2], 32);
@@ -1196,7 +1196,7 @@ void test_own_alias_advert_echo_is_not_relayed()
     giveIdentity(repeater);
     repeater.setAliasEnabled(true);
     uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
-    const size_t len = repeater.buildAdvert(frame, sizeof(frame), "Xavi (relay)", 1792521507, true, true);
+    const size_t len = repeater.buildAdvert(frame, sizeof(frame), "Xavi [REP]", 1792521507, true, true);
     repeater.handleReceivedFrame(frame, len, 5, kAirtimeMs);
     TEST_ASSERT_FALSE(repeater.hasPendingFrame());
 }

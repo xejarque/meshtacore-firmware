@@ -15,6 +15,9 @@
 #include "main.h"
 #include "mesh-pb-constants.h"
 #include "modules/NexusModule.h"
+#if NEXUS_ENABLE_RNODE
+#include "RNodeEngine.h"
+#endif
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
 #include "FSCommon.h"
 #include "HardwareRNG.h"
@@ -50,12 +53,13 @@ bool RadioLibInterface::sendRawFrame(const uint8_t *bytes, size_t len)
     // handleTransmitInterrupt() will route to completeRawSend(). rawSending is set before
     // configHardwareForSend() so drivers can pick the MeshCore sync word for this frame.
     rawSending = true;
-    enableInterrupt(isrTxLevel0);
-    configHardwareForSend();
-    int res = iface->startTransmit(rawTxBuf, rawTxLen);
+    if (rawSendingType == RAW_SEND_NONE)
+        rawSendingType = RAW_SEND_MESHCORE;
+    int res = startTransmitFrame(rawTxLen);
     if (res != RADIOLIB_ERR_NONE) {
         LOG_ERROR("sendRawFrame startTransmit failed, error=%d", res);
         rawSending = false;
+        rawSendingType = RAW_SEND_NONE;
         rawTxLen = 0;
         startReceive();
         return false;
@@ -113,8 +117,17 @@ void RadioLibInterface::completeRawSend()
     uint32_t xmitMsec = getPacketTime(rawTxLen, false);
     airTime->logAirtime(TX_LOG, xmitMsec);
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
-    meshCoreRepeater.txAirtimeMs += xmitMsec;
+    if (rawSendingType == RAW_SEND_MESHCORE)
+        meshCoreRepeater.txAirtimeMs += xmitMsec;
 #endif
+#if NEXUS_ENABLE_RNODE
+    if (rawSendingType == RAW_SEND_RNODE) {
+        rnodeEngine.txPackets++;
+        rnodeEngine.txBytes += rawTxLen;
+        rnodeRadioDirty = true;
+    }
+#endif
+    rawSendingType = RAW_SEND_NONE;
     // txGood feeds the Meshtastic num_packets_tx telemetry: MeshCore frames are counted by meshCoreRepeater/Companion.
     rawTxLen = 0;
 }
@@ -134,7 +147,7 @@ static constexpr uint32_t MESHCORE_ADVERT_NOW_MIN_MS = 10UL * 60 * 1000;
 // alias: MeshCore applications only name a path hop from a contact held as a repeater, so without it the hop we append
 // shows as an unknown repeater. It rides the same slot as the main flood, one own frame at a time, so the cost is one
 // extra flood per interval.
-static const char MESHCORE_ALIAS_SUFFIX[] = " (relay)";
+static const char MESHCORE_ALIAS_SUFFIX[] = " [REP]";
 // The alias flood bypasses the 12 h deadline while it is pending, so a queue that keeps refusing it must give up.
 static constexpr uint8_t MESHCORE_ALIAS_ADVERT_MAX_ATTEMPTS = 3;
 static constexpr uint32_t MESHCORE_ADVERT_RETRY_MS = 60 * 1000;           // no identity / no valid time
@@ -619,8 +632,17 @@ void RadioLibInterface::wakeMeshCoreRelay()
 uint32_t RadioLibInterface::meshCoreRelayTick()
 {
     maybeSendMeshCoreFrame();
+#if NEXUS_ENABLE_RNODE
+    maybeSendRNodeFrame();
+#endif
 
-    if (!meshCoreRepeater.hasPendingFrame())
+    const bool hasPending = meshCoreRepeater.hasPendingFrame()
+#if NEXUS_ENABLE_RNODE
+                            || (rnodeTxCount > 0)
+#endif
+        ;
+
+    if (!hasPending)
         return meshCoreRelayThread->disable();
     // On air now: the TX-done event wakes us again; this only covers a TX-done that never comes.
     if (isSending())
@@ -628,6 +650,47 @@ uint32_t RadioLibInterface::meshCoreRelayTick()
     // Due but deferred (radio or channel busy): come back after a random backoff. Otherwise at its deadline.
     return meshCoreRepeater.isRelayDue() ? meshCoreRepeater.busyBackoffMs(slotTimeMsec) : meshCoreRepeater.relayDueInMs() + 1;
 }
+
+#if NEXUS_ENABLE_RNODE
+bool RadioLibInterface::queueRNodeFrame(const uint8_t *bytes, size_t len)
+{
+    if (!bytes || len == 0 || len > MAX_LORA_PAYLOAD_LEN)
+        return false;
+    if (disabled || !config.lora.tx_enabled)
+        return false;
+    if (rnodeTxCount >= RNODE_TX_QUEUE_SIZE)
+        return false;
+
+    memcpy(rnodeTxQueue[rnodeTxHead].buf, bytes, len);
+    rnodeTxQueue[rnodeTxHead].len = len;
+    rnodeTxHead = (rnodeTxHead + 1) % RNODE_TX_QUEUE_SIZE;
+    rnodeTxCount++;
+
+    wakeMeshCoreRelay();
+    return true;
+}
+
+void RadioLibInterface::maybeSendRNodeFrame()
+{
+    if (rnodeTxCount == 0 || isSending() || !isReceiving || !canSendImmediately())
+        return;
+    if (isChannelActive()) {
+        startReceive();
+        return;
+    }
+
+    RNodeTxEntry &entry = rnodeTxQueue[rnodeTxTail];
+    rawSendingType = RAW_SEND_RNODE;
+    if (sendRawFrame(entry.buf, entry.len)) {
+        LOG_INFO("RNode TX: len=%u", (unsigned)entry.len);
+        rnodeTxTail = (rnodeTxTail + 1) % RNODE_TX_QUEUE_SIZE;
+        rnodeTxCount--;
+    } else {
+        rawSendingType = RAW_SEND_NONE;
+        startReceive();
+    }
+}
+#endif
 
 void RadioLibInterface::maybeSendMeshCoreFrame()
 {

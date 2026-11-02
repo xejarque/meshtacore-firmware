@@ -93,6 +93,12 @@
 #include "mesh/generated/meshtastic/admin.pb.h"
 #include "mesh/generated/meshtastic/apponly.pb.h"
 #include "modules/NexusRescue.h"
+#include "modules/NodeInfoModule.h"
+#include "modules/NexusTxHook.h"
+#include "modules/NexusMultiSF.h"
+#if NEXUS_ENABLE_RNODE
+#include "mesh/RNodeEngine.h"
+#endif
 #include "modules/TraceRouteModule.h"
 #include "modules/ExternalNotificationModule.h"
 #include "RadioLibInterface.h"
@@ -2292,6 +2298,60 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     }
 #endif
+#if NEXUS_ENABLE_RNODE
+    else if (strcasecmp(cmd, "JRNODE") == 0 || strcasecmp(cmd, "RNODE") == 0 || strcasecmp(cmd, "JRN") == 0 ||
+             strcasecmp(cmd, "RN") == 0 || strncasecmp(cmd, "JRNODE ", 7) == 0 || strncasecmp(cmd, "RNODE ", 6) == 0 ||
+             strncasecmp(cmd, "JRN ", 4) == 0 || strncasecmp(cmd, "RN ", 3) == 0) {
+        const char *sub = skipToken(cmd);
+        if (!*sub || strcasecmp(sub, "STATUS") == 0) {
+            const char *modeStr = (rnodeEngine.getMode() == RNODE_MODE_STANDALONE) ? "STANDALONE" :
+                                  (rnodeEngine.getMode() == RNODE_MODE_BRIDGE) ? "BRIDGE" : "OFF";
+            snprintf(replyMsg, sizeof(replyMsg),
+                     "MTC JRNODE:\n Enabled: %s\n Mode: %s\n Tier SF: %u\n TCP: %s (%s)\n BLE: %s (%s)\n RxPkts: %u (bytes=%u)\n TxPkts: %u (bytes=%u)\n LastRSSI: %d, SNR: %.1f",
+                     rnodeEngine.isEnabled() ? "ON" : "OFF", modeStr, rnodeEngine.getSf(),
+                     rnodeEngine.isTcpEnabled() ? "ON" : "OFF", rnodeEngine.isTcpConnected() ? "conn" : "idle",
+                     rnodeEngine.isBleEnabled() ? "ON" : "OFF", rnodeEngine.isBleConnected() ? "conn" : "idle",
+                     (unsigned)rnodeEngine.rxPackets, (unsigned)rnodeEngine.rxBytes,
+                     (unsigned)rnodeEngine.txPackets, (unsigned)rnodeEngine.txBytes,
+                     (int)rnodeEngine.lastRssi, (double)rnodeEngine.lastSnr);
+        } else if (strcasecmp(sub, "ON") == 0) {
+            rnodeEngine.setMode(RNODE_MODE_BRIDGE);
+            snprintf(replyMsg, sizeof(replyMsg), "MTC JRNODE: ON (BRIDGE)");
+        } else if (strcasecmp(sub, "MODE OFF") == 0 || strcasecmp(sub, "OFF") == 0) {
+            rnodeEngine.setMode(RNODE_MODE_OFF);
+            snprintf(replyMsg, sizeof(replyMsg), "MTC JRNODE: Mode OFF");
+        } else if (strcasecmp(sub, "MODE BRIDGE") == 0 || strcasecmp(sub, "BRIDGE") == 0) {
+            rnodeEngine.setMode(RNODE_MODE_BRIDGE);
+            snprintf(replyMsg, sizeof(replyMsg), "MTC JRNODE: Mode BRIDGE (Concurrent Meshtastic + MeshCore + Reticulum)");
+        } else if (strcasecmp(sub, "MODE STANDALONE") == 0 || strcasecmp(sub, "STANDALONE") == 0) {
+            rnodeEngine.setMode(RNODE_MODE_STANDALONE);
+            snprintf(replyMsg, sizeof(replyMsg), "MTC JRNODE: Mode STANDALONE (Dedicated Reticulum RNode)");
+        } else if (strcasecmp(sub, "TCP ON") == 0 || strcasecmp(sub, "TCP 1") == 0) {
+            rnodeEngine.setTcpEnabled(true);
+            snprintf(replyMsg, sizeof(replyMsg), "MTC JRNODE: TCP server ON (port 7633)");
+        } else if (strcasecmp(sub, "TCP OFF") == 0 || strcasecmp(sub, "TCP 0") == 0) {
+            rnodeEngine.setTcpEnabled(false);
+            snprintf(replyMsg, sizeof(replyMsg), "MTC JRNODE: TCP server OFF");
+        } else if (strcasecmp(sub, "BLE ON") == 0 || strcasecmp(sub, "BLE 1") == 0) {
+            rnodeEngine.setBleEnabled(true);
+            snprintf(replyMsg, sizeof(replyMsg), "MTC JRNODE: BLE NUS ON");
+        } else if (strcasecmp(sub, "BLE OFF") == 0 || strcasecmp(sub, "BLE 0") == 0) {
+            rnodeEngine.setBleEnabled(false);
+            snprintf(replyMsg, sizeof(replyMsg), "MTC JRNODE: BLE NUS OFF");
+        } else if (strncasecmp(sub, "TIER ", 5) == 0 || strncasecmp(sub, "SF ", 3) == 0) {
+            const char *valStr = skipToken(sub);
+            int sfVal = atoi(valStr);
+            if (sfVal >= 5 && sfVal <= 12) {
+                rnodeEngine.setSf((uint8_t)sfVal);
+                snprintf(replyMsg, sizeof(replyMsg), "MTC JRNODE: Reticulum tier SF set to %d", sfVal);
+            } else {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC JRNODE: Invalid SF %d (must be 5..12)", sfVal);
+            }
+        } else {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC JRNODE: Usage: JRNODE [ON/OFF|STATUS|MODE BRIDGE/STANDALONE/OFF|TCP ON/OFF|BLE ON/OFF|TIER <5-12>] (RNODE alias)");
+        }
+    }
+#endif
     else if (strcasecmp(cmd, "DROPS") == 0) {
         int l = snprintf(replyMsg, sizeof(replyMsg), "MTC ACTIVE DROPS:\n");
 
@@ -3898,32 +3958,806 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         snprintf(replyMsg, sizeof(replyMsg), "MTC ROLE: %s (%u)", getRoleName(config.device.role), (uint32_t)config.device.role);
     }
     else if (strncasecmp(cmd, "SETROLE ", 8) == 0) {
-        const char *roleStr = cmd + 8;
-        while (*roleStr == ' ') roleStr++;
+        const char *p = cmd + 8;
+        while (*p == ' ') p++;
+        char roleArg[32] = {0};
+        bool isRam = false;
+        int len = 0;
+        while (*p && *p != ' ' && len < (int)sizeof(roleArg) - 1) {
+            roleArg[len++] = *p++;
+        }
+        roleArg[len] = '\0';
+        while (*p == ' ') p++;
+        if (strcasecmp(p, "RAM") == 0) {
+            isRam = true;
+        }
 
         int role = -1;
-        if (strcasecmp(roleStr, "CLIENT") == 0) role = meshtastic_Config_DeviceConfig_Role_CLIENT;
-        else if (strcasecmp(roleStr, "SENS") == 0 || strcasecmp(roleStr, "SENSOR") == 0) role = meshtastic_Config_DeviceConfig_Role_SENSOR;
-        else if (strcasecmp(roleStr, "RTR") == 0 || strcasecmp(roleStr, "ROUTER") == 0) role = meshtastic_Config_DeviceConfig_Role_ROUTER;
-        else if (strcasecmp(roleStr, "RTR_CLIENT") == 0) role = meshtastic_Config_DeviceConfig_Role_ROUTER_CLIENT;
-        else if (strcasecmp(roleStr, "BASE") == 0 || strcasecmp(roleStr, "CLIENT_BASE") == 0) role = meshtastic_Config_DeviceConfig_Role_CLIENT_BASE;
-        else if (strcasecmp(roleStr, "MUTE") == 0 || strcasecmp(roleStr, "CLIENT_MUTE") == 0) role = meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE;
-        else if (strcasecmp(roleStr, "HIDDEN") == 0 || strcasecmp(roleStr, "CLIENT_HIDDEN") == 0) role = meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN;
-        else if (strcasecmp(roleStr, "LOST") == 0 || strcasecmp(roleStr, "LOST_AND_FOUND") == 0) role = meshtastic_Config_DeviceConfig_Role_LOST_AND_FOUND;
-        else if (strcasecmp(roleStr, "TAK") == 0) role = meshtastic_Config_DeviceConfig_Role_TAK;
-        else if (strcasecmp(roleStr, "TAK_TRACKER") == 0) role = meshtastic_Config_DeviceConfig_Role_TAK_TRACKER;
-        else if (isdigit(roleStr[0])) role = atoi(roleStr);
+        if (strcasecmp(roleArg, "CLIENT") == 0) role = meshtastic_Config_DeviceConfig_Role_CLIENT;
+        else if (strcasecmp(roleArg, "SENS") == 0 || strcasecmp(roleArg, "SENSOR") == 0) role = meshtastic_Config_DeviceConfig_Role_SENSOR;
+        else if (strcasecmp(roleArg, "RTR") == 0 || strcasecmp(roleArg, "ROUTER") == 0) role = meshtastic_Config_DeviceConfig_Role_ROUTER;
+        else if (strcasecmp(roleArg, "RTR_CLIENT") == 0) role = meshtastic_Config_DeviceConfig_Role_ROUTER_CLIENT;
+        else if (strcasecmp(roleArg, "ROUTER_LATE") == 0) role = meshtastic_Config_DeviceConfig_Role_ROUTER_LATE;
+        else if (strcasecmp(roleArg, "BASE") == 0 || strcasecmp(roleArg, "CLIENT_BASE") == 0) role = meshtastic_Config_DeviceConfig_Role_CLIENT_BASE;
+        else if (strcasecmp(roleArg, "MUTE") == 0 || strcasecmp(roleArg, "CLIENT_MUTE") == 0) role = meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE;
+        else if (strcasecmp(roleArg, "HIDDEN") == 0 || strcasecmp(roleArg, "CLIENT_HIDDEN") == 0) role = meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN;
+        else if (strcasecmp(roleArg, "LOST") == 0 || strcasecmp(roleArg, "LOST_AND_FOUND") == 0) role = meshtastic_Config_DeviceConfig_Role_LOST_AND_FOUND;
+        else if (strcasecmp(roleArg, "TAK") == 0) role = meshtastic_Config_DeviceConfig_Role_TAK;
+        else if (strcasecmp(roleArg, "TAK_TRACKER") == 0) role = meshtastic_Config_DeviceConfig_Role_TAK_TRACKER;
+        else if (isdigit(roleArg[0])) role = atoi(roleArg);
 
         if (role >= 0 && role <= 13) {
-            static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
-            c.which_payload_variant = meshtastic_Config_device_tag;
-            c.payload_variant.device = config.device;
-            c.payload_variant.device.role = (meshtastic_Config_DeviceConfig_Role)role;
+            if (isRam) {
+                config.device.role = (meshtastic_Config_DeviceConfig_Role)role;
+                owner.role = (meshtastic_Config_DeviceConfig_Role)role;
+                meshtastic_NodeInfoLite *us = nodeDB->getMeshNode(nodeDB->getNodeNum());
+                if (us) us->role = (meshtastic_Config_DeviceConfig_Role)role;
+                nodeDB->installRoleDefaults((meshtastic_Config_DeviceConfig_Role)role);
+                if (nodeInfoModule) nodeInfoModule->triggerImmediateNodeInfoCheck();
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Role set to %s (%d) in RAM (no reboot).", roleArg, role);
+            } else {
+                static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
+                c.which_payload_variant = meshtastic_Config_device_tag;
+                c.payload_variant.device = config.device;
+                c.payload_variant.device.role = (meshtastic_Config_DeviceConfig_Role)role;
 
-            if (adminModule) adminModule->handleSetConfig(c, false);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Role updated to %s (%d).", roleStr, role);
+                if (adminModule) adminModule->handleSetConfig(c, false);
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Role updated to %s (%d).", roleArg, role);
+            }
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid role '%s'", roleStr);
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid role '%s'", roleArg);
+        }
+    }
+    else if (strcasecmp(cmd, "VOLT") == 0 || strcasecmp(cmd, "VOLTAGE") == 0 ||
+             strncasecmp(cmd, "VOLT ", 5) == 0 || strncasecmp(cmd, "VOLTAGE ", 8) == 0) {
+        const char *p = (strncasecmp(cmd, "VOLTAGE", 7) == 0) ? cmd + 7 : cmd + 4;
+        while (*p == ' ') p++;
+
+        if (*p == '\0' || strcasecmp(p, "LIST") == 0 || strcasecmp(p, "STATUS") == 0) {
+            startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "VOLT Rules");
+            char header[64];
+            uint16_t bV = getVoltageReadingMv(0);
+            snprintf(header, sizeof(header), "MTC VOLT (Bat: %u.%02uV, Hib: %s):\n",
+                     bV / 1000, (bV % 1000) / 10, is_hibernating ? "YES" : "NO");
+            appendPaging(header);
+
+            for (int i = 0; i < 4; i++) {
+                char line[96];
+                NexusVoltRule &r = volt_rules[i];
+                if (r.action == NEXUS_VOLT_ACT_NONE || r.mv == 0) {
+                    snprintf(line, sizeof(line), "[%d] OFF\n", i + 1);
+                } else {
+                    const char *actStr = (r.action == NEXUS_VOLT_ACT_CMD) ? "CMD" :
+                                         (r.action == NEXUS_VOLT_ACT_HIBERNATE) ? "HIB" :
+                                         (r.action == NEXUS_VOLT_ACT_WAKE) ? "WAKE" : "UNK";
+                    const char *dirStr = (r.direction == NEXUS_VOLT_DIR_HIGH) ? "HIGH" : "LOW";
+                    const char *chStr = (r.channel == 1) ? "CH2" : (r.channel == 2) ? "CH3" : "BAT";
+                    const char *stateStr = volt_triggered[i] ? "TRIGGERED" : "ARMED";
+                    uint16_t reading = getVoltageReadingMv(r.channel);
+                    snprintf(line, sizeof(line), "[%d] %u.%02uV %s %s [%s] (%s, cur %u.%02uV)%s%.20s\n",
+                             i + 1, r.mv / 1000, (r.mv % 1000) / 10, dirStr, actStr, chStr, stateStr,
+                             reading / 1000, (reading % 1000) / 10,
+                             r.command[0] ? " : " : "", r.command);
+                }
+                appendPaging(line);
+            }
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging VOLT rules...");
+            return;
+        }
+
+        if (strcasecmp(p, "WAKE") == 0) {
+            setHibernating(false);
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Hibernation cleared in RAM.");
+            return;
+        }
+
+        // Parse slot: 1..4
+        if (*p < '1' || *p > '4') {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC VOLT: Invalid slot '%s'. Use 1..4.", p);
+            return;
+        }
+        int slot = *p - '0';
+        p++;
+        while (*p == ' ') p++;
+
+        if (*p == '\0') {
+            // Show single slot
+            NexusVoltRule &r = volt_rules[slot - 1];
+            if (r.action == NEXUS_VOLT_ACT_NONE || r.mv == 0) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC VOLT [%d]: OFF", slot);
+            } else {
+                const char *actStr = (r.action == NEXUS_VOLT_ACT_CMD) ? "CMD" :
+                                     (r.action == NEXUS_VOLT_ACT_HIBERNATE) ? "HIB" :
+                                     (r.action == NEXUS_VOLT_ACT_WAKE) ? "WAKE" : "UNK";
+                const char *dirStr = (r.direction == NEXUS_VOLT_DIR_HIGH) ? "HIGH" : "LOW";
+                const char *chStr = (r.channel == 1) ? "CH2" : (r.channel == 2) ? "CH3" : "BAT";
+                snprintf(replyMsg, sizeof(replyMsg), "MTC VOLT [%d]: %u.%02uV %s %s [%s] %s%s",
+                         slot, r.mv / 1000, (r.mv % 1000) / 10, dirStr, actStr, chStr,
+                         volt_triggered[slot - 1] ? "[TRIG] " : "[ARMED] ", r.command);
+            }
+            return;
+        }
+
+        // Check if clearing slot: OFF / CLEAR / NONE / 0
+        if (strcasecmp(p, "OFF") == 0 || strcasecmp(p, "CLEAR") == 0 ||
+            strcasecmp(p, "NONE") == 0 || strcmp(p, "0") == 0) {
+            NexusVoltRule &r = volt_rules[slot - 1];
+            memset(&r, 0, sizeof(r));
+            volt_debounce_count[slot - 1] = 0;
+            volt_triggered[slot - 1] = false;
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Volt slot [%d] cleared (RAM). /nexus SAVE to persist.", slot);
+            return;
+        }
+
+        // Parse: <voltage> <HIGH|LOW> <CMD|HIB|WAKE> [CH1..3|BAT] [command...]
+        char tokVolt[16] = {0};
+        char tokDir[16] = {0};
+        char tokAct[16] = {0};
+
+        int tlen = 0;
+        while (*p && *p != ' ' && tlen < (int)sizeof(tokVolt) - 1) tokVolt[tlen++] = *p++;
+        tokVolt[tlen] = '\0';
+        while (*p == ' ') p++;
+
+        tlen = 0;
+        while (*p && *p != ' ' && tlen < (int)sizeof(tokDir) - 1) tokDir[tlen++] = *p++;
+        tokDir[tlen] = '\0';
+        while (*p == ' ') p++;
+
+        tlen = 0;
+        while (*p && *p != ' ' && tlen < (int)sizeof(tokAct) - 1) tokAct[tlen++] = *p++;
+        tokAct[tlen] = '\0';
+        while (*p == ' ') p++;
+
+        if (tokVolt[0] == '\0' || tokDir[0] == '\0' || tokAct[0] == '\0') {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC VOLT: Usage: VOLT <1..4> <V|mV> <HIGH|LOW> <CMD|HIB|WAKE> [CH1..3] [cmd...]");
+            return;
+        }
+
+        // Parse voltage
+        uint16_t targetMv = 0;
+        if (strchr(tokVolt, '.') != nullptr) {
+            float v = atof(tokVolt);
+            if (v > 0) targetMv = (uint16_t)(v * 1000.0f + 0.5f);
+        } else {
+            int v = atoi(tokVolt);
+            if (v > 0 && v <= 30) targetMv = v * 1000;
+            else if (v > 30) targetMv = (uint16_t)v;
+        }
+        if (targetMv < 500 || targetMv > 30000) {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC VOLT: Invalid voltage '%s' (range 500..30000 mV)", tokVolt);
+            return;
+        }
+
+        // Parse direction
+        uint8_t dir = 0;
+        if (strcasecmp(tokDir, "HIGH") == 0 || strcasecmp(tokDir, "HI") == 0 ||
+            strcasecmp(tokDir, "RISE") == 0 || strcasecmp(tokDir, "UP") == 0 || strcmp(tokDir, ">=") == 0) {
+            dir = NEXUS_VOLT_DIR_HIGH;
+        } else if (strcasecmp(tokDir, "LOW") == 0 || strcasecmp(tokDir, "LO") == 0 ||
+                   strcasecmp(tokDir, "FALL") == 0 || strcasecmp(tokDir, "DOWN") == 0 || strcmp(tokDir, "<=") == 0) {
+            dir = NEXUS_VOLT_DIR_LOW;
+        } else {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC VOLT: Invalid direction '%s' (HIGH or LOW)", tokDir);
+            return;
+        }
+
+        // Parse action
+        uint8_t act = 0;
+        if (strcasecmp(tokAct, "CMD") == 0 || strcasecmp(tokAct, "COMMAND") == 0) {
+            act = NEXUS_VOLT_ACT_CMD;
+        } else if (strcasecmp(tokAct, "HIB") == 0 || strcasecmp(tokAct, "HIBERNATE") == 0 ||
+                   strcasecmp(tokAct, "SLEEP") == 0) {
+            act = NEXUS_VOLT_ACT_HIBERNATE;
+        } else if (strcasecmp(tokAct, "WAKE") == 0) {
+            act = NEXUS_VOLT_ACT_WAKE;
+        } else {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC VOLT: Invalid action '%s' (CMD, HIB, or WAKE)", tokAct);
+            return;
+        }
+
+        // Parse optional channel: CH1, CH2, CH3, BAT
+        uint8_t ch = 0;
+        if (strncasecmp(p, "CH1", 3) == 0 && (p[3] == ' ' || p[3] == '\0')) {
+            ch = 0; p += 3; while (*p == ' ') p++;
+        } else if (strncasecmp(p, "CH2", 3) == 0 && (p[3] == ' ' || p[3] == '\0')) {
+            ch = 1; p += 3; while (*p == ' ') p++;
+        } else if (strncasecmp(p, "CH3", 3) == 0 && (p[3] == ' ' || p[3] == '\0')) {
+            ch = 2; p += 3; while (*p == ' ') p++;
+        } else if (strncasecmp(p, "BAT", 3) == 0 && (p[3] == ' ' || p[3] == '\0')) {
+            ch = 0; p += 3; while (*p == ' ') p++;
+        }
+
+        NexusVoltRule &rule = volt_rules[slot - 1];
+        rule.mv = targetMv;
+        rule.direction = dir;
+        rule.action = act;
+        rule.channel = ch;
+        rule.flags = 0;
+        strncpy(rule.command, p, sizeof(rule.command) - 1);
+        rule.command[sizeof(rule.command) - 1] = '\0';
+
+        volt_debounce_count[slot - 1] = 0;
+        volt_triggered[slot - 1] = false;
+
+        const char *actName = (act == NEXUS_VOLT_ACT_CMD) ? "CMD" : (act == NEXUS_VOLT_ACT_HIBERNATE) ? "HIB" : "WAKE";
+        const char *dirName = (dir == NEXUS_VOLT_DIR_HIGH) ? "HIGH" : "LOW";
+        const char *chName = (ch == 1) ? "CH2" : (ch == 2) ? "CH3" : "BAT";
+
+        snprintf(replyMsg, sizeof(replyMsg),
+                 "MTC VOLT: [%d] %u.%02uV %s %s [%s]%s%.16s configured (RAM). Run /nexus SAVE to persist.",
+                 slot, targetMv / 1000, (targetMv % 1000) / 10, dirName, actName, chName,
+                 rule.command[0] ? " : " : "", rule.command);
+    }
+    else if (strcasecmp(cmd, "SPLIT") == 0 || strncasecmp(cmd, "SPLIT ", 6) == 0) {
+        const char *p = skipToken(cmd);
+        if (!*p || strcasecmp(p, "STATUS") == 0) {
+            const char *modeStr = (splitConfig.mode == NEXUS_SPLIT_ROOF_MSF)     ? "ROOF_MSF" :
+                                  (splitConfig.mode == NEXUS_SPLIT_ROOF_SPLIT)   ? "ROOF_SPLIT" :
+                                  (splitConfig.mode == NEXUS_SPLIT_CLIENT_SPLIT) ? "CLIENT_SPLIT" : "OFF";
+            snprintf(replyMsg, sizeof(replyMsg),
+                     "MTC SPLIT: Mode=%s Alt=SF%u/%.1fk/%.3fMHz Pwr=%d dBm Flags=0x%02X",
+                     modeStr, splitConfig.alt_sf, (float)splitConfig.alt_bw, splitConfig.alt_freq,
+                     splitConfig.alt_tx_power, splitConfig.flags);
+        } else if (strcasecmp(p, "OFF") == 0) {
+            splitConfig.mode = NEXUS_SPLIT_OFF;
+            snprintf(replyMsg, sizeof(replyMsg), "MTC SPLIT: OFF (RAM). Run /nexus SAVE to persist.");
+        } else if (multiSFConfig.enabled) {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC SPLIT: disable TIER first (/nexus TIER OFF)");
+        } else {
+            char subMode[16] = {0};
+            char targetTok[32] = {0};
+            const char *rest = nullptr;
+
+            const char *sp = strchr(p, ' ');
+            if (sp) {
+                size_t l = sp - p;
+                if (l >= sizeof(subMode)) l = sizeof(subMode) - 1;
+                strncpy(subMode, p, l);
+                subMode[l] = '\0';
+                p = skipToken(p);
+            } else {
+                strncpy(subMode, p, sizeof(subMode) - 1);
+                p = "";
+            }
+
+            if (*p) {
+                sp = strchr(p, ' ');
+                if (sp) {
+                    size_t l = sp - p;
+                    if (l >= sizeof(targetTok)) l = sizeof(targetTok) - 1;
+                    strncpy(targetTok, p, l);
+                    targetTok[l] = '\0';
+                    rest = skipToken(p);
+                } else {
+                    strncpy(targetTok, p, sizeof(targetTok) - 1);
+                    rest = "";
+                }
+            }
+
+            NexusSplitMode newMode = NEXUS_SPLIT_OFF;
+            if (strcasecmp(subMode, "MSF") == 0) {
+                newMode = NEXUS_SPLIT_ROOF_MSF;
+            } else if (strcasecmp(subMode, "ROOF") == 0) {
+                newMode = NEXUS_SPLIT_ROOF_SPLIT;
+            } else if (strcasecmp(subMode, "CLIENT") == 0) {
+                newMode = NEXUS_SPLIT_CLIENT_SPLIT;
+            } else {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC SPLIT: Unknown mode '%s'. Use MSF, ROOF, CLIENT, or OFF.", subMode);
+                return;
+            }
+
+            if (!targetTok[0]) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC SPLIT: Missing target preset/SF. Usage: SPLIT %s <PRESET|SF> [PWR=<dBm>] [ECHO] [MESHRELAY]", subMode);
+                return;
+            }
+
+            RadioInterface *iface = (router) ? router->getInterface() : nullptr;
+            uint8_t targetSf = 0;
+            // F2 fix (Jenny 2026-10-23): getBW() returns kHz (e.g. 62.5) — alt_bw stores the
+            // wire code (62); convert before comparing or the fast path never matches.
+            uint16_t targetBw = iface ? bwKHzToCode(iface->getBW()) : 62;
+            uint8_t targetCr = iface ? iface->getCR() : 5;
+            float targetFreq = iface ? iface->getFreq() : 869.6180f;
+            int8_t targetPwr = -9;
+
+            char *endp = nullptr;
+            long numericSf = strtol(targetTok, &endp, 10);
+            bool isCurrent24 = (config.lora.region == meshtastic_Config_LoRaConfig_RegionCode_LORA_24);
+            if (endp && *endp == '\0' && numericSf >= 5 && numericSf <= 12) {
+                targetSf = (uint8_t)numericSf;
+            } else if (strncasecmp(targetTok, "SF", 2) == 0 && isdigit((unsigned char)targetTok[2]) &&
+                       strcasecmp(targetTok, "SF24") != 0 && strcasecmp(targetTok, "SF868") != 0) {
+                targetSf = (uint8_t)atoi(targetTok + 2);
+            } else if (strcasecmp(targetTok, "MADRID24") == 0 || strcasecmp(targetTok, "MADRID-24") == 0 || strcasecmp(targetTok, "MADRID_24") == 0) {
+                targetSf = 9; targetBw = 400; targetCr = 5; targetFreq = 2482.0000f;
+            } else if (strcasecmp(targetTok, "LF24") == 0 || strcasecmp(targetTok, "LONGFAST24") == 0 || strcasecmp(targetTok, "LONGFAST_24") == 0) {
+                targetSf = 11; targetBw = 800; targetCr = 5; targetFreq = 2482.0000f;
+            } else if (strcasecmp(targetTok, "MS24") == 0 || strcasecmp(targetTok, "MEDSLOW24") == 0 || strcasecmp(targetTok, "MEDSLOW_24") == 0) {
+                targetSf = 10; targetBw = 800; targetCr = 5; targetFreq = 2482.0000f;
+            } else if (strcasecmp(targetTok, "MF24") == 0 || strcasecmp(targetTok, "MEDFAST24") == 0 || strcasecmp(targetTok, "MEDFAST_24") == 0) {
+                targetSf = 9; targetBw = 800; targetCr = 5; targetFreq = 2482.0000f;
+            } else if (strcasecmp(targetTok, "SF24") == 0 || strcasecmp(targetTok, "SHORTFAST24") == 0 || strcasecmp(targetTok, "SHORTFAST_24") == 0) {
+                targetSf = 7; targetBw = 800; targetCr = 5; targetFreq = 2482.0000f;
+            } else if (strcasecmp(targetTok, "SS24") == 0 || strcasecmp(targetTok, "SHORTSLOW24") == 0 || strcasecmp(targetTok, "SHORTSLOW_24") == 0) {
+                targetSf = 8; targetBw = 800; targetCr = 5; targetFreq = 2482.0000f;
+            } else if (strcasecmp(targetTok, "LM24") == 0 || strcasecmp(targetTok, "LONGMOD24") == 0 || strcasecmp(targetTok, "LONGMOD_24") == 0) {
+                targetSf = 11; targetBw = 400; targetCr = 5; targetFreq = 2482.0000f;
+            } else if (strcasecmp(targetTok, "LS24") == 0 || strcasecmp(targetTok, "LONGSLOW24") == 0 || strcasecmp(targetTok, "LONGSLOW_24") == 0) {
+                targetSf = 12; targetBw = 400; targetCr = 5; targetFreq = 2482.0000f;
+            } else if (strcasecmp(targetTok, "ST24") == 0 || strcasecmp(targetTok, "SHORTTURBO24") == 0 || strcasecmp(targetTok, "SHORTTURBO_24") == 0) {
+                targetSf = 7; targetBw = 1600; targetCr = 5; targetFreq = 2482.0000f;
+            } else if (strcasecmp(targetTok, "LT24") == 0 || strcasecmp(targetTok, "LONGTURBO24") == 0 || strcasecmp(targetTok, "LONGTURBO_24") == 0) {
+                targetSf = 10; targetBw = 1600; targetCr = 5; targetFreq = 2482.0000f;
+            } else if (strcasecmp(targetTok, "LF") == 0 || strcasecmp(targetTok, "LONGFAST") == 0 || strcasecmp(targetTok, "LONG_FAST") == 0) {
+                if (isCurrent24) { targetSf = 11; targetBw = 800; targetCr = 5; targetFreq = 2482.0000f; }
+                else { targetSf = 11; targetBw = 250; targetCr = 5; targetFreq = 869.5250f; }
+            } else if (strcasecmp(targetTok, "MS") == 0 || strcasecmp(targetTok, "MEDSLOW") == 0 || strcasecmp(targetTok, "MEDIUM_SLOW") == 0) {
+                if (isCurrent24) { targetSf = 10; targetBw = 800; targetCr = 5; targetFreq = 2482.0000f; }
+                else { targetSf = 10; targetBw = 250; targetCr = 5; targetFreq = 869.5250f; }
+            } else if (strcasecmp(targetTok, "MF") == 0 || strcasecmp(targetTok, "MEDFAST") == 0 || strcasecmp(targetTok, "MEDIUM_FAST") == 0) {
+                if (isCurrent24) { targetSf = 9; targetBw = 800; targetCr = 5; targetFreq = 2482.0000f; }
+                else { targetSf = 9; targetBw = 250; targetCr = 5; targetFreq = 869.5250f; }
+            } else if (strcasecmp(targetTok, "SF") == 0 || strcasecmp(targetTok, "SHORTFAST") == 0 || strcasecmp(targetTok, "SHORT_FAST") == 0) {
+                if (isCurrent24) { targetSf = 7; targetBw = 800; targetCr = 5; targetFreq = 2482.0000f; }
+                else { targetSf = 7; targetBw = 250; targetCr = 5; targetFreq = 869.5250f; }
+            } else if (strcasecmp(targetTok, "SS") == 0 || strcasecmp(targetTok, "SHORTSLOW") == 0 || strcasecmp(targetTok, "SHORT_SLOW") == 0) {
+                if (isCurrent24) { targetSf = 8; targetBw = 800; targetCr = 5; targetFreq = 2482.0000f; }
+                else { targetSf = 8; targetBw = 250; targetCr = 5; targetFreq = 869.5250f; }
+            } else if (strcasecmp(targetTok, "LM") == 0 || strcasecmp(targetTok, "LONGMOD") == 0 || strcasecmp(targetTok, "LONG_MODERATE") == 0) {
+                if (isCurrent24) { targetSf = 11; targetBw = 400; targetCr = 5; targetFreq = 2482.0000f; }
+                else { targetSf = 11; targetBw = 125; targetCr = 5; targetFreq = 869.5250f; }
+            } else if (strcasecmp(targetTok, "LS") == 0 || strcasecmp(targetTok, "LONGSLOW") == 0 || strcasecmp(targetTok, "LONG_SLOW") == 0) {
+                if (isCurrent24) { targetSf = 12; targetBw = 400; targetCr = 5; targetFreq = 2482.0000f; }
+                else { targetSf = 12; targetBw = 125; targetCr = 5; targetFreq = 869.5250f; }
+            } else if (strcasecmp(targetTok, "ST") == 0 || strcasecmp(targetTok, "SHORTTURBO") == 0 || strcasecmp(targetTok, "SHORT_TURBO") == 0) {
+                if (isCurrent24) { targetSf = 7; targetBw = 1600; targetCr = 5; targetFreq = 2482.0000f; }
+                else { targetSf = 7; targetBw = 500; targetCr = 5; targetFreq = 869.5250f; }
+            } else if (strcasecmp(targetTok, "LT") == 0 || strcasecmp(targetTok, "LONGTURBO") == 0 || strcasecmp(targetTok, "LONG_TURBO") == 0) {
+                if (isCurrent24) { targetSf = 10; targetBw = 1600; targetCr = 5; targetFreq = 2482.0000f; }
+                else { targetSf = 10; targetBw = 500; targetCr = 5; targetFreq = 869.5250f; }
+            } else if (strcasecmp(targetTok, "P1") == 0 || strcasecmp(targetTok, "PRESET1") == 0) {
+                targetSf = 7; targetBw = 62; targetCr = 5; targetFreq = 869.6180f;
+            } else if (strcasecmp(targetTok, "P7") == 0 || strcasecmp(targetTok, "PRESET7") == 0) {
+                targetSf = 6; targetBw = 62; targetCr = 5; targetFreq = 869.6180f;
+            } else if (strcasecmp(targetTok, "SP") == 0 || strcasecmp(targetTok, "SPEEDPRO") == 0) {
+                targetSf = 7; targetBw = 125; targetCr = 5; targetFreq = 869.6180f;
+            } else if (strcasecmp(targetTok, "SPM") == 0 || strcasecmp(targetTok, "SPEEDPROMAX") == 0) {
+                targetSf = 6; targetBw = 125; targetCr = 5; targetFreq = 869.6180f;
+            } else if (strcasecmp(targetTok, "NPM") == 0 || strcasecmp(targetTok, "NARROWPROMAX") == 0) {
+                targetSf = 6; targetBw = 31; targetCr = 5; targetFreq = 869.6180f;
+            } else if (strcasecmp(targetTok, "NF") == 0 || strcasecmp(targetTok, "NARROWFAST") == 0 || strcasecmp(targetTok, "NARROW_FAST") == 0) {
+                targetSf = 7; targetBw = 62; targetCr = 5; targetFreq = 869.5250f;
+            } else if (strcasecmp(targetTok, "NS") == 0 || strcasecmp(targetTok, "NARROWSLOW") == 0 || strcasecmp(targetTok, "NARROW_SLOW") == 0) {
+                targetSf = 8; targetBw = 62; targetCr = 5; targetFreq = 869.5250f;
+            } else if (strcasecmp(targetTok, "LITEFAST") == 0 || strcasecmp(targetTok, "LITE_FAST") == 0) {
+                targetSf = 6; targetBw = 125; targetCr = 5; targetFreq = 866.0875f;
+            } else if (strcasecmp(targetTok, "LITESLOW") == 0 || strcasecmp(targetTok, "LITE_SLOW") == 0) {
+                targetSf = 7; targetBw = 125; targetCr = 5; targetFreq = 866.0875f;
+            } else if (strcasecmp(targetTok, "NAP-1") == 0 || strcasecmp(targetTok, "NAP1") == 0) {
+                targetSf = 7; targetBw = 62; targetCr = 5; targetFreq = 866.1875f;
+            } else if (strcasecmp(targetTok, "NAP-2") == 0 || strcasecmp(targetTok, "NAP2") == 0) {
+                targetSf = 7; targetBw = 62; targetCr = 5; targetFreq = 866.3875f;
+            } else if (strcasecmp(targetTok, "NAP-3") == 0 || strcasecmp(targetTok, "NAP3") == 0) {
+                targetSf = 7; targetBw = 62; targetCr = 5; targetFreq = 866.5875f;
+            } else if (strcasecmp(targetTok, "NAP-4") == 0 || strcasecmp(targetTok, "NAP4") == 0) {
+                targetSf = 7; targetBw = 62; targetCr = 5; targetFreq = 866.7875f;
+            } else if (strcasecmp(targetTok, "NAP-5") == 0 || strcasecmp(targetTok, "NAP5") == 0) {
+                targetSf = 7; targetBw = 62; targetCr = 5; targetFreq = 866.9875f;
+            } else if (strcasecmp(targetTok, "NAPN-1") == 0 || strcasecmp(targetTok, "NAPN1") == 0) {
+                targetSf = 7; targetBw = 62; targetCr = 5; targetFreq = 866.0625f;
+            } else if (strcasecmp(targetTok, "NAPN-2") == 0 || strcasecmp(targetTok, "NAPN2") == 0) {
+                targetSf = 7; targetBw = 62; targetCr = 5; targetFreq = 866.2125f;
+            } else if (strcasecmp(targetTok, "NAPN-3") == 0 || strcasecmp(targetTok, "NAPN3") == 0) {
+                targetSf = 7; targetBw = 62; targetCr = 5; targetFreq = 866.3625f;
+            } else if (strcasecmp(targetTok, "NAPN-4") == 0 || strcasecmp(targetTok, "NAPN4") == 0) {
+                targetSf = 7; targetBw = 62; targetCr = 5; targetFreq = 866.5125f;
+            } else if (strcasecmp(targetTok, "NAPN-5") == 0 || strcasecmp(targetTok, "NAPN5") == 0) {
+                targetSf = 7; targetBw = 62; targetCr = 5; targetFreq = 866.6625f;
+            } else if (strcasecmp(targetTok, "MINI-1") == 0 || strcasecmp(targetTok, "MINI1") == 0 ||
+                       strcasecmp(targetTok, "MICRO-1") == 0 || strcasecmp(targetTok, "MICRO1") == 0) {
+                targetSf = 6; targetBw = 31; targetCr = 5; targetFreq = 865.6188f;
+            } else if (strcasecmp(targetTok, "MINI-2") == 0 || strcasecmp(targetTok, "MINI2") == 0 ||
+                       strcasecmp(targetTok, "MICRO-2") == 0 || strcasecmp(targetTok, "MICRO2") == 0) {
+                targetSf = 6; targetBw = 31; targetCr = 5; targetFreq = 865.7812f;
+            } else if (strcasecmp(targetTok, "MINI-3") == 0 || strcasecmp(targetTok, "MINI3") == 0 ||
+                       strcasecmp(targetTok, "MICRO-3") == 0 || strcasecmp(targetTok, "MICRO3") == 0) {
+                targetSf = 6; targetBw = 31; targetCr = 5; targetFreq = 866.2188f;
+            } else if (strcasecmp(targetTok, "MINI-4") == 0 || strcasecmp(targetTok, "MINI4") == 0 ||
+                       strcasecmp(targetTok, "MICRO-4") == 0 || strcasecmp(targetTok, "MICRO4") == 0) {
+                targetSf = 6; targetBw = 31; targetCr = 5; targetFreq = 866.3812f;
+            } else if (strcasecmp(targetTok, "MINI-5") == 0 || strcasecmp(targetTok, "MINI5") == 0 ||
+                       strcasecmp(targetTok, "MICRO-5") == 0 || strcasecmp(targetTok, "MICRO5") == 0) {
+                targetSf = 6; targetBw = 31; targetCr = 5; targetFreq = 866.8188f;
+            } else if (strcasecmp(targetTok, "MINI-6") == 0 || strcasecmp(targetTok, "MINI6") == 0 ||
+                       strcasecmp(targetTok, "MICRO-6") == 0 || strcasecmp(targetTok, "MICRO6") == 0) {
+                targetSf = 6; targetBw = 31; targetCr = 5; targetFreq = 866.9812f;
+            } else if (strcasecmp(targetTok, "MINI-7") == 0 || strcasecmp(targetTok, "MINI7") == 0 ||
+                       strcasecmp(targetTok, "MICRO-7") == 0 || strcasecmp(targetTok, "MICRO7") == 0) {
+                targetSf = 6; targetBw = 31; targetCr = 5; targetFreq = 867.4188f;
+            } else if (strcasecmp(targetTok, "MINI-8") == 0 || strcasecmp(targetTok, "MINI8") == 0 ||
+                       strcasecmp(targetTok, "MICRO-8") == 0 || strcasecmp(targetTok, "MICRO8") == 0) {
+                targetSf = 6; targetBw = 31; targetCr = 5; targetFreq = 867.5812f;
+            } else {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC SPLIT: Unknown target preset '%s'", targetTok);
+                return;
+            }
+
+            if (targetSf < 5 || targetSf > 12) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC SPLIT: Invalid SF%u (must be 5..12)", targetSf);
+                return;
+            }
+
+            uint8_t flags = NEXUS_SPLIT_FLAG_USE_ZH_MASK;
+            if (rest && *rest) {
+                char restBuf[64] = {0};
+                strncpy(restBuf, rest, sizeof(restBuf) - 1);
+                char *tok = strtok(restBuf, " ");
+                while (tok) {
+                    if (strncasecmp(tok, "PWR=", 4) == 0) {
+                        targetPwr = (int8_t)atoi(tok + 4);
+                    } else if (strcasecmp(tok, "ECHO") == 0) {
+                        flags |= NEXUS_SPLIT_FLAG_INDOOR_ECHO;
+                    } else if (strcasecmp(tok, "MESHRELAY") == 0) {
+                        flags |= NEXUS_SPLIT_FLAG_MESH_RELAY;
+                    } else if (strcasecmp(tok, "NOZH") == 0) {
+                        flags &= ~NEXUS_SPLIT_FLAG_USE_ZH_MASK;
+                    }
+                    tok = strtok(nullptr, " ");
+                }
+            }
+
+            if (newMode == NEXUS_SPLIT_ROOF_MSF) {
+#if (defined(USE_LR2021) || defined(ARCH_PORTDUINO)) && !RADIOLIB_EXCLUDE_LR2021
+                LR2021Interface *lr2021 = static_cast<LR2021Interface *>(RadioLibInterface::instance);
+                if (lr2021) {
+                    uint8_t curMainSf = lr2021->getSF();
+                    if (targetSf <= curMainSf) {
+                        snprintf(replyMsg, sizeof(replyMsg),
+                                 "MTC SPLIT: LR2021 requires Side SF > Main SF. Current Main=SF%u, Target=SF%u (reverse them).",
+                                 curMainSf, targetSf);
+                        return;
+                    }
+                    uint8_t sfs[1] = { targetSf };
+                    if (!lr2021->configureSideDetectors(sfs, 1)) {
+                        snprintf(replyMsg, sizeof(replyMsg), "MTC SPLIT: LR2021 rejected Side Detector SF%u", targetSf);
+                        return;
+                    }
+                    lr2021->setSideDetectors(sfs, 1);
+                } else {
+                    snprintf(replyMsg, sizeof(replyMsg), "MTC SPLIT: ROOF_MSF requires LR2021 hardware.");
+                    return;
+                }
+#else
+                snprintf(replyMsg, sizeof(replyMsg), "MTC SPLIT: ROOF_MSF requires LR2021 hardware.");
+                return;
+#endif
+            }
+
+            splitConfig.mode = newMode;
+            splitConfig.flags = flags;
+            splitConfig.alt_sf = targetSf;
+            splitConfig.alt_bw = targetBw;
+            splitConfig.alt_cr = targetCr;
+            splitConfig.alt_freq = targetFreq;
+            splitConfig.alt_tx_power = targetPwr;
+
+            snprintf(replyMsg, sizeof(replyMsg),
+                     "MTC SPLIT: %s configured (Alt=SF%u/%.1fk/%.3fMHz Pwr=%d dBm, RAM). Run /nexus SAVE to persist.",
+                     subMode, targetSf, (float)targetBw, targetFreq, targetPwr);
+        }
+    }
+#if (defined(USE_LR2021) || defined(ARCH_PORTDUINO)) && !RADIOLIB_EXCLUDE_LR2021
+    else if (strcasecmp(cmd, "TIER") == 0 || strncasecmp(cmd, "TIER ", 5) == 0) {
+        LR2021Interface *lr2021 = static_cast<LR2021Interface *>(RadioLibInterface::instance);
+        const char *sub = skipToken(cmd);
+        if (!lr2021) {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: LR2021 interface unavailable");
+        } else if (!*sub || strcasecmp(sub, "STATUS") == 0) {
+            const nexus::MultiSFConfig &cfg = multiSFConfig;
+            const int txSlot = (cfg.meshtastic_tx_slot == nexus::MULTISF_NO_TX_SLOT) ? 0 : cfg.meshtastic_tx_slot + 1;
+            int length = snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: %s main=SF%u/%s:0x%02X sides=%u tx=%d txch=%u",
+                                  cfg.enabled ? "ON" : "OFF", lr2021->getSF(),
+                                  nexus::tierProtocolName(cfg.main_protocol), cfg.main_syncword, cfg.side_count, txSlot,
+                                  (unsigned)tierChannelOverrideCount);
+            for (uint8_t i = 0; i < cfg.side_count && length >= 0 && length < (int)sizeof(replyMsg); ++i) {
+                length += snprintf(replyMsg + length, sizeof(replyMsg) - length, " | %u:SF%u/%s:0x%02X",
+                                   (unsigned)(i + 1), cfg.side[i].sf,
+                                   nexus::tierProtocolName(cfg.side[i].protocol), cfg.side[i].syncword);
+            }
+            if (length < 0)
+                length = 0;
+            if (length > (int)sizeof(replyMsg) - 1)
+                length = (int)sizeof(replyMsg) - 1;
+            if (cfg.enabled) {
+                const char *reason = nullptr;
+                bool ok = nexus::validateMultiSF(cfg, lr2021->getSF(), lr2021->getBW(), &reason);
+                snprintf(replyMsg + length, sizeof(replyMsg) - length, " [%s]", ok ? "OK" : (reason ? reason : "INVALID"));
+            }
+        } else if (strcasecmp(sub, "MADRID") == 0) {
+            nexus::makeMadridPreset(multiSFConfig);
+            splitConfig.mode = NEXUS_SPLIT_OFF;
+            const char *reason = nullptr;
+            if (!nexus::validateMultiSF(multiSFConfig, 5, 62.5f, &reason)) {
+                multiSFConfig.enabled = 0;
+                snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: Madrid rejected: %s", reason ? reason : "invalid");
+            } else {
+#if NEXUS_ENABLE_RNODE
+                rnodeEngine.setMode(RNODE_MODE_BRIDGE);
+#endif
+#if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
+                MeshCoreRepeater::setMeshCoreEnabled(true);
+#endif
+                memset(&pendingConfig, 0, sizeof(pendingConfig));
+                pendingConfig.which_payload_variant = meshtastic_Config_lora_tag;
+                pendingConfig.payload_variant.lora = config.lora;
+                pendingConfig.payload_variant.lora.use_preset = false;
+                pendingConfig.payload_variant.lora.spread_factor = 5;
+                pendingConfig.payload_variant.lora.bandwidth = bwKHzToCode(62.5f);
+                pendingConfig.payload_variant.lora.coding_rate = 5;
+                pendingConfig.payload_variant.lora.override_frequency = 869.618f;
+                pendingLoRaConfig = true;
+                pendingLoRaApplyAt = Time::getMillis() + 5000;
+                snprintf(replyMsg, sizeof(replyMsg),
+                         "MTC TIER: Madrid staged (SF5 RNode main, SF6/7 Meshtastic, SF8 MeshCore). Applying in 5s. Run /nexus SAVE.");
+            }
+        } else if (strncasecmp(sub, "MAIN", 4) == 0 && (sub[4] == '\0' || sub[4] == ' ')) {
+            const char *rest = sub + 4;
+            while (*rest == ' ')
+                rest++;
+            const char *protoTok = rest;
+            rest = skipToken(rest);
+            const char *syncTok = rest;
+            uint8_t proto = 0;
+            char *end = nullptr;
+            if (!*protoTok || !*syncTok || !nexus::parseTierProtocol(protoTok, proto)) {
+                snprintf(replyMsg, sizeof(replyMsg),
+                         "MTC TIER: usage: MAIN <MESHTASTIC|RNODE|MESHCORE|"
+                         "DOUBLESHARED|TRIPLESHARED> <syncword>");
+            } else {
+                const long sv = strtol(syncTok, &end, 0);
+                if (!end || *end != '\0' || sv < 1 || sv > 255)
+                    snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: invalid syncword (use 0xNN)");
+                else {
+                    multiSFConfig.enabled = 1;
+                    multiSFConfig.main_protocol = proto;
+                    multiSFConfig.main_syncword = (uint8_t)sv;
+                    multiSFConfig.main_tx_power = nexus::MULTISF_DEFAULT_POWER;
+                    if (multiSFConfig.meshtastic_tx_slot == 0 && multiSFConfig.side_count == 0)
+                        multiSFConfig.meshtastic_tx_slot = nexus::MULTISF_NO_TX_SLOT;
+                    snprintf(replyMsg, sizeof(replyMsg),
+                             "MTC TIER: main = SF%u/%s:0x%02X (main SF comes from SETLORA; run TIER APPLY)",
+                             (unsigned)lr2021->getSF(), nexus::tierProtocolName(proto), (unsigned)sv);
+                }
+            }
+        } else if (strncasecmp(sub, "SIDE ", 5) == 0) {
+            const char *p = sub + 5;
+            while (*p == ' ')
+                p++;
+            const int slot = atoi(p);
+            p = skipToken(p);
+            if (slot < 1 || slot > 3) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: side slot must be 1..3");
+            } else if (strcasecmp(p, "OFF") == 0) {
+                const uint8_t idx = (uint8_t)(slot - 1);
+                if (idx >= multiSFConfig.side_count || !multiSFConfig.side[idx].enabled) {
+                    snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: side %d is not configured", slot);
+                } else {
+                    for (uint8_t i = idx; i + 1 < multiSFConfig.side_count; i++)
+                        multiSFConfig.side[i] = multiSFConfig.side[i + 1];
+                    memset(&multiSFConfig.side[multiSFConfig.side_count - 1], 0, sizeof(nexus::TierConfig));
+                    multiSFConfig.side_count--;
+                    if (multiSFConfig.meshtastic_tx_slot == idx)
+                        multiSFConfig.meshtastic_tx_slot = nexus::MULTISF_NO_TX_SLOT;
+                    else if (multiSFConfig.meshtastic_tx_slot != nexus::MULTISF_NO_TX_SLOT &&
+                             multiSFConfig.meshtastic_tx_slot > idx)
+                        multiSFConfig.meshtastic_tx_slot--;
+                    snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: side %d removed", slot);
+                }
+            } else {
+                const char *sfTok = p;
+                p = skipToken(p);
+                const char *protoTok = p;
+                p = skipToken(p);
+                const char *syncTok = p;
+                uint8_t proto = 0;
+                char *end = nullptr;
+                const char *sfNum = sfTok;
+                if (strncasecmp(sfNum, "SF", 2) == 0)
+                    sfNum += 2;
+                const long sfv = strtol(sfNum, &end, 10);
+                if (!*sfTok || !*protoTok || !*syncTok || end == sfNum || (end && *end != '\0') || sfv < 5 || sfv > 12 ||
+                    !nexus::parseTierProtocol(protoTok, proto)) {
+                    snprintf(replyMsg, sizeof(replyMsg),
+                             "MTC TIER: usage: SIDE <1-3> <SF5-12> <MESHTASTIC|RNODE|MESHCORE|"
+                             "DOUBLESHARED|TRIPLESHARED> <syncword>");
+                } else {
+                    const long sv = strtol(syncTok, &end, 0);
+                    if (!end || *end != '\0' || sv < 1 || sv > 255) {
+                        snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: invalid syncword (use 0xNN)");
+                    } else if (slot > (int)multiSFConfig.side_count + 1) {
+                        snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: add sides in order from 1");
+                    } else if (multiSFConfig.main_protocol == 0) {
+                        snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: set MAIN first");
+                    } else if ((uint8_t)sfv <= lr2021->getSF()) {
+                        snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: side SF must be higher than main SF%u",
+                                 (unsigned)lr2021->getSF());
+                    } else {
+                        const uint8_t idx = (uint8_t)(slot - 1);
+                        for (uint8_t i = 0; i < multiSFConfig.side_count; i++)
+                            if (i != idx && multiSFConfig.side[i].enabled && multiSFConfig.side[i].sf == (uint8_t)sfv) {
+                                snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: duplicate side SF%u", (unsigned)sfv);
+                                goto tier_side_done;
+                            }
+                        multiSFConfig.side[idx].enabled = 1;
+                        multiSFConfig.side[idx].sf = (uint8_t)sfv;
+                        multiSFConfig.side[idx].protocol = proto;
+                        multiSFConfig.side[idx].syncword = (uint8_t)sv;
+                        multiSFConfig.side[idx].tx_power = nexus::MULTISF_DEFAULT_POWER;
+                        multiSFConfig.side[idx].flags = 0;
+                        if ((uint8_t)slot > multiSFConfig.side_count)
+                            multiSFConfig.side_count = (uint8_t)slot;
+                        multiSFConfig.enabled = 1;
+                        if (multiSFConfig.meshtastic_tx_slot == nexus::MULTISF_NO_TX_SLOT &&
+                            nexus::tierCarriesProtocol(proto, nexus::TIER_MESHTASTIC))
+                            multiSFConfig.meshtastic_tx_slot = idx;
+                        snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: side %d = SF%u/%s:0x%02X", slot,
+                                 (unsigned)sfv, nexus::tierProtocolName(proto), (unsigned)sv);
+                    }
+                }
+            }
+        tier_side_done:;
+        } else if (strcasecmp(sub, "CLEAR") == 0) {
+            multiSFConfig = {};
+            multiSFConfig.meshtastic_tx_slot = nexus::MULTISF_NO_TX_SLOT;
+            splitConfig.mode = NEXUS_SPLIT_OFF;
+            tierChannelOverrideCount = 0;
+            memset(tierChannelOverrides, 0, sizeof(tierChannelOverrides));
+            lr2021->clearMultiSFTiers();
+            snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: table cleared (main LoRa config unchanged)");
+        } else if (strcasecmp(sub, "OFF") == 0) {
+            multiSFConfig.enabled = 0;
+            splitConfig.mode = NEXUS_SPLIT_OFF;
+            lr2021->clearMultiSFTiers();
+            snprintf(replyMsg, sizeof(replyMsg),
+                     "MTC TIER: OFF (side detectors cleared; main LoRa config unchanged).");
+        } else if (strcasecmp(sub, "APPLY") == 0) {
+            const char *reason = nullptr;
+            if (!nexus::validateMultiSF(multiSFConfig, lr2021->getSF(), lr2021->getBW(), &reason)) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: rejected: %s", reason ? reason : "invalid");
+            } else {
+                bool ok = lr2021->reconfigure();
+                snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: %s", ok ? "applied" : "apply failed");
+            }
+        } else if (strcasecmp(sub, "SAVE") == 0) {
+            bool ok = saveVault();
+            snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: vault %s", ok ? "saved" : "save failed");
+        } else if (strncasecmp(sub, "TXCHANNEL", 9) == 0 && (sub[9] == '\0' || sub[9] == ' ')) {
+            const char *rest = sub + 9;
+            while (*rest == ' ')
+                rest++;
+            auto resolveTxTarget = [&](const char *arg, int *slotOut, uint8_t *sfOut) -> bool {
+                const int v = atoi(arg);
+                int slot = -1;
+                if (v >= 5 && v <= 12) {
+                    for (uint8_t i = 0; i < multiSFConfig.side_count; i++)
+                        if (multiSFConfig.side[i].enabled &&
+                            nexus::tierCarriesProtocol(multiSFConfig.side[i].protocol, nexus::TIER_MESHTASTIC) &&
+                            multiSFConfig.side[i].sf == v) {
+                            slot = (int)i;
+                            break;
+                        }
+                } else if (v >= 1 && v <= 3) {
+                    slot = v - 1;
+                }
+                if (slot < 0 || slot >= multiSFConfig.side_count || !multiSFConfig.side[slot].enabled ||
+                    !nexus::tierCarriesProtocol(multiSFConfig.side[slot].protocol, nexus::TIER_MESHTASTIC))
+                    return false;
+                *slotOut = slot;
+                *sfOut = multiSFConfig.side[slot].sf;
+                return true;
+            };
+
+            if (*rest == '\0' || strcasecmp(rest, "STATUS") == 0) {
+                char list[150] = "";
+                size_t at = 0;
+                for (uint8_t i = 0; i < tierChannelOverrideCount && at + 2 < sizeof(list); i++) {
+                    const uint8_t chId = tierChannelOverrides[i].channel;
+                    const char *chName = chId < MAX_NUM_CHANNELS ? channels.getByIndex(chId).settings.name : "?";
+                    const int n = snprintf(list + at, sizeof(list) - at, "%sch%u(%s)=SF%u", i ? ", " : "", (unsigned)chId,
+                                           chName[0] ? chName : "?", tierChannelOverrides[i].sf);
+                    if (n > 0)
+                        at += (size_t)n;
+                }
+                snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: TXCHANNEL %u%s%s",
+                         (unsigned)tierChannelOverrideCount, list[0] ? " | " : "", list);
+            } else {
+                const char *next = nullptr;
+                const int ch = findChannelByNameOrIndex(rest, &next);
+                if (ch < 0 || ch >= MAX_NUM_CHANNELS) {
+                    snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: unknown channel");
+                } else {
+                    const char *name = channels.getByIndex(ch).settings.name;
+                    if (!name[0]) {
+                        snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: channel %d has no name", ch);
+                    } else if (next && strcasecmp(next, "OFF") == 0) {
+                        if (clearTierChannelOverride((uint8_t)ch))
+                            snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: TXCHANNEL '%s' cleared", name);
+                        else
+                            snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: no override for '%s'", name);
+                    } else {
+                        int slot = -1;
+                        uint8_t sf = 0;
+                        if (!next || !resolveTxTarget(next, &slot, &sf)) {
+                            snprintf(replyMsg, sizeof(replyMsg),
+                                     "MTC TIER: target must be a Meshtastic side 1-3 or SF5-12");
+                        } else if (!setTierChannelOverride((uint8_t)ch, sf)) {
+                            snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: TXCHANNEL table full");
+                        } else {
+                            snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: ch %d '%s' -> tier %d / SF%u", ch, name,
+                                     slot + 1, sf);
+                        }
+                    }
+                }
+            }
+        } else if (strncasecmp(sub, "TX ", 3) == 0) {
+            const char *arg = sub + 3;
+            while (*arg == ' ')
+                arg++;
+            auto resolveTxTarget = [&](const char *value, int *slotOut, uint8_t *sfOut) -> bool {
+                const int v = atoi(value);
+                int slot = -1;
+                if (v >= 5 && v <= 12) {
+                    for (uint8_t i = 0; i < multiSFConfig.side_count; i++)
+                        if (multiSFConfig.side[i].enabled &&
+                            nexus::tierCarriesProtocol(multiSFConfig.side[i].protocol, nexus::TIER_MESHTASTIC) &&
+                            multiSFConfig.side[i].sf == v) {
+                            slot = (int)i;
+                            break;
+                        }
+                } else if (v >= 1 && v <= 3) {
+                    slot = v - 1;
+                }
+                if (slot < 0 || slot >= multiSFConfig.side_count || !multiSFConfig.side[slot].enabled ||
+                    !nexus::tierCarriesProtocol(multiSFConfig.side[slot].protocol, nexus::TIER_MESHTASTIC))
+                    return false;
+                *slotOut = slot;
+                *sfOut = multiSFConfig.side[slot].sf;
+                return true;
+            };
+            int slot = -1;
+            uint8_t sf = 0;
+            if (!resolveTxTarget(arg, &slot, &sf)) {
+                snprintf(replyMsg, sizeof(replyMsg),
+                         "MTC TIER: TX target must be side 1-%u or an SF5-12 Meshtastic side",
+                         (unsigned)multiSFConfig.side_count);
+            } else {
+                multiSFConfig.meshtastic_tx_slot = static_cast<uint8_t>(slot);
+                snprintf(replyMsg, sizeof(replyMsg), "MTC TIER: Meshtastic TX tier = %d / SF%u", slot + 1, sf);
+            }
+        } else {
+            snprintf(replyMsg, sizeof(replyMsg),
+                     "MTC TIER: usage: TIER [STATUS|MADRID|MAIN <proto> <sync>|SIDE <1-3> <SF5-12> <proto> <sync>|SIDE <1-3> OFF|CLEAR|OFF|APPLY|SAVE|TX <1-3|SF5-12>|TXCHANNEL <ch> <1-3|SF5-12|OFF>]");
+        }
+    }
+#endif
+    else if (strcasecmp(cmd, "APC") == 0 || strncasecmp(cmd, "APC ", 4) == 0) {
+        const char *sub = (strlen(cmd) > 3) ? skipToken(cmd) : "";
+        if (!*sub || strcasecmp(sub, "STATUS") == 0) {
+            bool en = (splitConfig.flags & NEXUS_SPLIT_FLAG_APC_EN) != 0;
+            snprintf(replyMsg, sizeof(replyMsg), "MTC APC: %s (Min: %d dBm)", en ? "ON" : "OFF", splitConfig.apc_min_power);
+        } else if (strncasecmp(sub, "ON", 2) == 0) {
+            splitConfig.flags |= NEXUS_SPLIT_FLAG_APC_EN;
+            const char *minTok = strstr(sub, "MIN=");
+            if (minTok) {
+                splitConfig.apc_min_power = (int8_t)atoi(minTok + 4);
+            }
+            snprintf(replyMsg, sizeof(replyMsg), "MTC APC: ON (Min: %d dBm, RAM). Run /nexus SAVE to persist.", splitConfig.apc_min_power);
+        } else if (strcasecmp(sub, "OFF") == 0) {
+            splitConfig.flags &= ~NEXUS_SPLIT_FLAG_APC_EN;
+            snprintf(replyMsg, sizeof(replyMsg), "MTC APC: OFF (RAM). Run /nexus SAVE to persist.");
+        } else {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC APC: Usage: APC [ON [MIN=<dBm>] | OFF | STATUS]");
         }
     }
     else if (strcasecmp(cmd, "LNA") == 0) {
@@ -7701,7 +8535,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging("FIREWALL: DROPS, DROP, OUTDROP, PRALLOW, PRBLOCK, SS, SETHEX, SETHEXOUT, RL, FSIG\n");
             appendPaging("SIGINT: RSSILOG, NETSCAN, CLIENTSCAN, FREQSCAN, NOISE, PPING, CHASH, DBINFO, MODULES, INFRA, RELAYS, SRELAY, SEARCHKEY, HOPSTATS, TRANSSTATS, CHANNELSTATS, SORTEDCHANNELSTATS, SORTEDPACKETSTATS, LORACHIPSTATS\n");
             appendPaging("SEND: TEXTC, DM, REDIRECT (R), SENDPOS, SENDNODE\n");
-            appendPaging("ADMIN: SKEY, DM-FORWARD, SAVE, LOAD, BD, SETCHNAME, SETCHPSK, ADDCH, DELCH, SETROLE, SETPOWER, OKTOMQTT, BELL, PLAY, STARWARS, FULLCONFIGDUMP\n");
+            appendPaging("ADMIN: SKEY, DM-FORWARD, SAVE, LOAD, BD, SETCHNAME, SETCHPSK, ADDCH, DELCH, SETROLE, VOLT, SPLIT, APC, TIER, JRNODE, SETPOWER, OKTOMQTT, BELL, PLAY, STARWARS, FULLCONFIGDUMP\n");
             appendPaging("SYSTEM: HEALTH (SALUT), SYS, HW, TELEMETRY, POS, INFO, COMPILATION, VAULT, STATS, SS, VS, HEAP, NODES, FNODE, GROUP, TIME, UTIL, VECINOS, PHONE, PMGT, SMI, GPIO, WIFIOTA, MCUINFO, SENSORS\n");
             appendPaging("MESHCORE: MESHCORE [INFO|STATS|RELAY|ADVERT|VECINOS|KEY <hex>|RESET] (alias MCORE); SAVE keeps the settings; ADDCH/SETCHPSK take the MeshCore hex key\n");
             appendPaging("TARGETS: FAV, UNFAV, IGNORE, UNIGNORE, NIGN\n");
@@ -7766,6 +8600,57 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging("Jitter floor stays at 100ms; range scales to N*1000ms.\n");
             appendPaging("Default 5. Persisted to vault on SAVE.");
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging ADMIN/SYS help...");
+        } else if (strcasecmp(sub, "VOLT") == 0 || strcasecmp(sub, "VOLTAGE") == 0) {
+            startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help VOLT");
+            appendPaging("Usage: VOLT [LIST|STATUS]             -> Display all 4 slots, status & live readings\n");
+            appendPaging("Usage: VOLT <1..4> OFF                 -> Disable slot\n");
+            appendPaging("Usage: VOLT WAKE                       -> Clear hibernation flag in RAM\n");
+            appendPaging("Usage: VOLT <1..4> <V|mV> <HIGH|LOW> <CMD|HIB|WAKE> [CH1|CH2|CH3|BAT] [cmd...]\n");
+            appendPaging("Examples:\n");
+            appendPaging("  VOLT 1 3.80V HIGH CMD SETROLE ROUTER RAM\n");
+            appendPaging("  VOLT 2 3.60V LOW  CMD SETROLE MUTE RAM\n");
+            appendPaging("  VOLT 3 3.50V HIGH WAKE\n");
+            appendPaging("  VOLT 4 3.20V LOW  HIB\n");
+            appendPaging("Multi-channel INA: pass CH2 or CH3 after action type. Default BAT / CH1.\n");
+            appendPaging("Persistence: RAM-only. Run /nexus SAVE to write to /nexus.bin vault.");
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging VOLT help...");
+        } else if (strcasecmp(sub, "SPLIT") == 0) {
+            startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help SPLIT");
+            appendPaging("Usage: SPLIT [STATUS]                  -> Display current split-tier state\n");
+            appendPaging("Usage: SPLIT OFF                       -> Disable split-tier repeating\n");
+            appendPaging("Usage: SPLIT MSF <preset|SF> [PWR=<dBm>] [ECHO] [MESHRELAY]\n");
+            appendPaging("  LR2021 Concurrent Multi-SF Bridge: Main SF < Side SF (e.g. Main=P7 SF6, Alt=P1 SF7).\n");
+            appendPaging("  ECHO: also echoes indoor->indoor on SF6. MESHRELAY: relays outside SF7->SF7 too.\n");
+            appendPaging("Usage: SPLIT ROOF <preset> [PWR=<dBm>] [ECHO]\n");
+            appendPaging("  Single-Radio Rooftop Split: listens on primary preset, downlinks to house on target preset.\n");
+            appendPaging("Usage: SPLIT CLIENT <preset> [PWR=<dBm>]\n");
+            appendPaging("  Indoor Client: listens on primary, switches to target preset on TX (uplink to roof).\n");
+            appendPaging("Persistence: RAM-only. Run /nexus SAVE to write to /nexus.bin vault.");
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging SPLIT help...");
+        } else if (strcasecmp(sub, "TIER") == 0) {
+            startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help TIER");
+            appendPaging("Usage: TIER [STATUS|MADRID|OFF|APPLY|SAVE|TX <1-3>]\n");
+            appendPaging("  MADRID (LR2021): SF5 RNode main, SF6/7 Meshtastic, SF8 MeshCore, 869.618/BW62.5/CR5.\n");
+            appendPaging("  Protos: MESHTASTIC, RNODE, MESHCORE, DOUBLESHARED (RNode+MeshCore), TRIPLESHARED (all 3).\n");
+            appendPaging("  TX <slot>: choose the Meshtastic TX side (1=SF6, 2=SF7).\n");
+            appendPaging("  No SPLIT frequency required; /nexus SAVE persists vault v74.");
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging TIER help...");
+        } else if (strcasecmp(sub, "APC") == 0) {
+            startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help APC");
+            appendPaging("Usage: APC [STATUS]                    -> Display APC state & min power\n");
+            appendPaging("Usage: APC ON [MIN=<dBm>]              -> Enable SNR-based Automatic Power Control on 0-hop direct unicast\n");
+            appendPaging("Usage: APC OFF                         -> Disable APC (always use configured preset power)\n");
+            appendPaging("Persistence: RAM-only. Run /nexus SAVE to write to /nexus.bin vault.");
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging APC help...");
+        } else if (strcasecmp(sub, "JRNODE") == 0 || strcasecmp(sub, "RNODE") == 0) {
+            startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help JRNODE");
+            appendPaging("Usage: JRNODE [STATUS]                 -> Display Reticulum RNode engine status\n");
+            appendPaging("Usage: JRNODE ON                       -> Enable RNode in BRIDGE mode\n");
+            appendPaging("Usage: JRNODE MODE <BRIDGE|STANDALONE|OFF>\n");
+            appendPaging("Usage: JRNODE TCP <ON|OFF>             -> Toggle KISS TCP server (port 7633)\n");
+            appendPaging("Usage: JRNODE BLE <ON|OFF>             -> Toggle KISS BLE NUS service\n");
+            appendPaging("Usage: JRNODE TIER <5-12>              -> Dedicated SF for Reticulum\n");
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging JRNODE help...");
         } else if (strcasecmp(sub, "IDENTITY") == 0 || strcasecmp(sub, "NAME") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help IDENTITY");
             appendPaging("NAME <name>: Identity rotation + reboot.");

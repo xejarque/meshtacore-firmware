@@ -176,6 +176,47 @@ class MeshCoreRepeater
     /** Check an ADVERT payload's Ed25519 signature over pub_key || timestamp || app_data. */
     static bool verifyAdvert(const uint8_t *payload, size_t payloadLen);
 
+    static bool &enabledStorage()
+    {
+        static bool enabled = true;
+        return enabled;
+    }
+    static bool &relayStorage()
+    {
+        static bool relay = true;
+        return relay;
+    }
+    static uint8_t &pathHashStorage()
+    {
+        static uint8_t size = 3;
+        return size;
+    }
+    static uint16_t &advertLocalStorage()
+    {
+        static uint16_t m = 0;
+        return m;
+    }
+    static uint16_t &advertFloodStorage()
+    {
+        static uint16_t m = 0;
+        return m;
+    }
+    static bool isMeshCoreEnabled() { return enabledStorage(); }
+    static void setMeshCoreEnabled(bool en) { enabledStorage() = en; }
+    static bool isJenCoreEnabled() { return isMeshCoreEnabled(); }
+    static void setJenCoreEnabled(bool en) { setMeshCoreEnabled(en); }
+    static bool isRelayEnabled() { return relayStorage(); }
+    static void setRelayEnabled(bool en) { relayStorage() = en; }
+    static uint8_t getPathHashSize() { return pathHashStorage(); }
+    static void setPathHashSize(uint8_t size) { pathHashStorage() = size < 1 ? 1 : (size > 3 ? 3 : size); }
+    static uint16_t getAdvertLocalMinutes() { return advertLocalStorage(); }
+    static uint16_t getAdvertFloodMinutes() { return advertFloodStorage(); }
+    static void setAdvertIntervals(uint16_t localMinutes, uint16_t floodMinutes)
+    {
+        advertLocalStorage() = localMinutes > 10080 ? 10080 : localMinutes;
+        advertFloodStorage() = floodMinutes > 10080 ? 10080 : floodMinutes;
+    }
+
     /**
      * Encode an ADVERT for this node, signed over pub||timestamp||app_data exactly as MeshCore's Mesh::createAdvert does.
      * flood=false gives a zero-hop advert (route DIRECT, empty path) that only direct neighbours hear, like a MeshCore
@@ -356,5 +397,7 @@ class MeshCoreRepeater
     void applyLazyDecay();
     uint32_t adaptiveDelayMs(uint32_t airtimeMs);
 };
+
+using JenCoreRepeater = MeshCoreRepeater;
 
 #endif // MESHTASTIC_ENABLE_MESHCORE_SNIFFER

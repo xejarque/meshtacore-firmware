@@ -1,4 +1,5 @@
 #include "MeshCoreCompanion.h"
+#include "MeshCoreMeta.h"
 
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 
@@ -1756,7 +1757,28 @@ bool MeshCoreCompanion::cachedChannelHash(ChannelIndex ch, const uint8_t *key, s
     return true;
 }
 
-void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, int32_t rssi)
+uint32_t MeshCoreCompanion::resolveRelayNode(const uint8_t *hash, uint8_t hashSize)
+{
+    if (!hash || hashSize == 0 || hashSize > 3)
+        return 0;
+
+    const MeshCoreNode *candidates[1] = {nullptr};
+    if (nodes.findByPrefix(hash, hashSize, candidates, 1) > 0 && candidates[0]) {
+        return candidates[0]->nodeNum;
+    }
+    if (!nodeDB)
+        return 0;
+
+    for (size_t i = 0; i < nodeDB->getNumMeshNodes(); i++) {
+        const meshtastic_NodeInfoLite *lite = nodeDB->getMeshNodeByIndex(i);
+        if (lite && lite->public_key.size == sizeof(lite->public_key.bytes) &&
+            memcmp(lite->public_key.bytes, hash, hashSize) == 0)
+            return lite->num;
+    }
+    return 0;
+}
+
+void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, int32_t rssi, float freqErr, uint8_t codingRate)
 {
     if (!raw || !router)
         return;
@@ -1765,8 +1787,32 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
     if (!MeshCoreRepeater::parse(raw, len, &info))
         return;
 
-#if MESHTASTIC_MESHCORE_PATH_COMMAND
+    lastRxSnr = snr;
+    lastRxRssi = rssi;
+    lastRxHasRssi = true;
+    lastRxFreqErr = freqErr;
+    lastRxCodingRate = codingRate;
+
     const size_t pathBytes = (size_t)info.path_hash_count * info.path_hash_size;
+    const uint8_t *path = pathBytes ? raw + info.header_len - pathBytes : nullptr;
+    bool pathTruncated = false;
+    lastFramePathLen = (uint8_t)nexus::jen_core_meta::copyPathTail(path, pathBytes, info.path_hash_size, lastFramePath,
+                                                                   sizeof(lastFramePath), &pathTruncated);
+    lastFrameHops = info.path_hash_count;
+    lastFrameRelayNode = 0;
+    if (info.path_hash_count > 0 && path) {
+        const uint32_t relay = resolveRelayNode(path + pathBytes - info.path_hash_size, info.path_hash_size);
+        lastFrameRelayNode = (uint16_t)(relay & 0xFFFF);
+    }
+    bool regionScoped = false;
+    uint8_t regionIndex = 0xFF;
+    if (info.route_type == 0 && len >= 5) {
+        regionScoped = ((uint16_t)raw[1] | ((uint16_t)raw[2] << 8)) != 0;
+    }
+    lastFrameFlags = nexus::jen_core_meta::packFlags(true, regionScoped, pathTruncated, info.route_type, info.payload_type,
+                                                     info.path_hash_size, regionIndex);
+
+#if MESHTASTIC_MESHCORE_PATH_COMMAND
     if (pathBytes > 0 && pathBytes <= info.header_len && info.header_len <= len) {
         const size_t pathStart = info.header_len - pathBytes;
         for (size_t h = 0; h < info.path_hash_count; h++) {
@@ -2183,6 +2229,9 @@ uint32_t MeshCoreCompanion::injectText(uint32_t fromNum, uint32_t to, uint8_t ch
         p->has_rx_rssi = true;
         p->rx_rssi = rssi;
     }
+    p->rx_frequency_error = lastRxFreqErr;
+    p->rx_coding_rate = lastRxCodingRate;
+    nexus::jen_core_meta::apply(*p, lastFrameFlags, lastFrameRelayNode, lastFramePath, lastFramePathLen);
     const uint32_t id = p->id;
     router->enqueueReceivedMessage(p);
     return id;
@@ -2292,6 +2341,9 @@ void MeshCoreCompanion::reportDelivery(uint32_t fromNum, uint32_t packetId, mesh
     hopFields(0, &p->hop_start, &p->hop_limit);
     if (relayNode >= 0)
         p->relay_node = (uint8_t)relayNode;
+    p->rx_frequency_error = lastRxFreqErr;
+    p->rx_coding_rate = lastRxCodingRate;
+    nexus::jen_core_meta::apply(*p, lastFrameFlags, lastFrameRelayNode, lastFramePath, lastFramePathLen);
     p->transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
     router->enqueueReceivedMessage(p);
 }
