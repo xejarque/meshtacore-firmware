@@ -28,10 +28,20 @@ on:
         default: ""
         type: string
       tag:
-        description: "Snapshot tag for a keepable draft (empty = rolling draft)"
+        description: "Snapshot tag for a release (empty = rolling draft)"
         required: false
         default: ""
         type: string
+      draft:
+        description: "Create as draft (false = public release)"
+        required: false
+        default: false
+        type: boolean
+      prerelease:
+        description: "Mark as pre-release"
+        required: false
+        default: true
+        type: boolean
 
 concurrency:
   group: nexus-community-${{ github.ref }}
@@ -150,6 +160,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Read version
         id: version
@@ -205,6 +217,12 @@ jobs:
           VERSION: ${{ steps.version.outputs.long }}
         run: |
           TARGETS=$(printf '%s' "$MATRIX" | python3 -c 'import json,sys; print(", ".join(r["board"] for r in json.load(sys.stdin)))')
+          PREV_TAG=$(git tag -l "meshtacore-beta-*" --sort=-v:refname | head -n 1)
+          CHANGELOG=""
+          if [ -n "$PREV_TAG" ]; then
+            CHANGELOG=$(git log "$PREV_TAG..HEAD" --pretty=format:"• %s (%h)" --no-merges || true)
+          fi
+
           cat > ./notes.md <<EOF
           Community firmware - \`$VERSION\`
 
@@ -215,6 +233,18 @@ jobs:
           - Targets: $TARGETS
           - Run: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
+          EOF
+
+          if [ -n "$CHANGELOG" ]; then
+            cat >> ./notes.md <<EOF
+          ## Changes since $PREV_TAG
+
+          $CHANGELOG
+
+          EOF
+          fi
+
+          cat >> ./notes.md <<EOF
           Download only the file for your board:
 
           - \`firmware-<target>-<version>.uf2\` - copy it onto the device in UF2/DFU mode.
@@ -234,17 +264,20 @@ jobs:
           gh release view "$TAG" --json assets --jq '.assets[].name' |
             while read -r name; do gh release delete-asset "$TAG" "$name" --yes; done
           gh release upload "$TAG" ./artifacts/firmware-* --clobber
+          if [ "${{ inputs.draft }}" = "false" ]; then
+            gh release edit "$TAG" --draft=false
+          fi
           echo "### Assets" >> "$GITHUB_STEP_SUMMARY"
           gh release view "$TAG" --json assets --jq '.assets[].name' >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Create draft release
+      - name: Create release
         if: steps.tag.outputs.exists != 'true'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: Meshtacore Community Build
-          draft: true
-          prerelease: true
+          name: Meshtacore Community - ${{ steps.version.outputs.long }}
+          draft: ${{ inputs.draft }}
+          prerelease: ${{ inputs.prerelease }}
           body_path: ./notes.md
           files: ./artifacts/firmware-*
