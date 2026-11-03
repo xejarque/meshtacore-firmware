@@ -14,6 +14,7 @@
 #include "TestUtil.h"
 #include "TypeConversions.h"
 #include "modules/NexusMeshCoreKey.h"
+#include "modules/NexusModule.h"
 #include <unity.h>
 
 // The three seeded MeshCore channel keys (16-byte PSKs).
@@ -1939,6 +1940,38 @@ void test_meshcore_format_route_line_bounds(void)
     TEST_ASSERT_NOT_NULL(strstr(full, "Δf 125Hz"));
 }
 
+/**
+ * Pins the unified formatting for direct neighbors in /nexus VECINOS and MESHCORE VECINOS.
+ * Guards against regression of markdown bolding for node names, italics for metrics,
+ * emoji indicators (direct bolt and signal), and UTF-8 truncation for long names.
+ */
+void test_unified_vecinos_formatting(void)
+{
+    meshtastic::NexusModule::DirectNeighborEntry entry = {};
+    strncpy(entry.name, "Repeater-Sud", sizeof(entry.name) - 1);
+    entry.snr = 5.2f;
+    entry.lastHeard = 900;
+    entry.nodeNum = 0x12345678;
+
+    char line[96];
+    size_t len = meshtastic::NexusModule::formatNeighborLine(entry, 1020, line, sizeof(line));
+    TEST_ASSERT_TRUE(len > 0);
+    TEST_ASSERT_NOT_NULL(strstr(line, "⚡ **Repeater-Sud**"));
+    TEST_ASSERT_NOT_NULL(strstr(line, "📶 *5.2dB*"));
+    TEST_ASSERT_NOT_NULL(strstr(line, "*2m*"));
+
+    meshtastic::NexusModule::DirectNeighborEntry longEntry = {};
+    strncpy(longEntry.name, "SuperLongNodeName12345", sizeof(longEntry.name) - 1);
+    longEntry.snr = -3.5f;
+    longEntry.lastHeard = 1010;
+    longEntry.nodeNum = 0x87654321;
+
+    len = meshtastic::NexusModule::formatNeighborLine(longEntry, 1020, line, sizeof(line));
+    TEST_ASSERT_TRUE(len > 0);
+    TEST_ASSERT_NOT_NULL(strstr(line, "..**"));
+    TEST_ASSERT_NOT_NULL(strstr(line, "📶 *-3.5dB*"));
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -2022,6 +2055,7 @@ void setup()
     RUN_TEST(test_meshcore_node_listing);
     RUN_TEST(test_meshcore_heard_find_by_from);
     RUN_TEST(test_meshcore_format_route_line_bounds);
+    RUN_TEST(test_unified_vecinos_formatting);
 #endif
     exit(UNITY_END());
 }

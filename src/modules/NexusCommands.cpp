@@ -2625,7 +2625,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     }
     else if (strcasecmp(cmd, "NEIGHBORS") == 0 || strcasecmp(cmd, "NEIGHBOURS") == 0 || strcasecmp(cmd, "VECINOS") == 0 ||
              strcasecmp(cmd, "DIRECT") == 0) {
-        formatNeighbors(replyMsg, sizeof(replyMsg));
+        if (isMeshCorePing(mp, !isBroadcast))
+            formatMeshCoreNeighbors(replyMsg, sizeof(replyMsg));
+        else
+            formatNeighbors(replyMsg, sizeof(replyMsg));
     }
     else if ((strncasecmp(cmd, "NODES", 5) == 0 && (cmd[5] == '\0' || cmd[5] == ' '))
              || strncasecmp(cmd, "FNODE", 5) == 0) {

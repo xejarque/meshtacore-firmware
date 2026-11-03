@@ -112,13 +112,33 @@ static bool isDirectNeighbor(const MeshCoreNode &n)
 }
 #endif
 
+static void cleanNeighborName(const char *src, char *out, size_t cap, size_t maxBytes)
+{
+    if (!src || !out || cap == 0) {
+        if (out && cap > 0)
+            out[0] = '\0';
+        return;
+    }
+    char cleaned[48];
+    cleanPathLabel(src, cleaned, sizeof(cleaned), sizeof(cleaned) - 1);
+    size_t len = strlen(cleaned);
+    if (len > maxBytes) {
+        const size_t keep = utf8PrefixLen(cleaned, maxBytes > 2 ? maxBytes - 2 : maxBytes);
+        snprintf(out, cap, "%.*s..", (int)keep, cleaned);
+    } else {
+        snprintf(out, cap, "%s", cleaned);
+    }
+}
+
 NexusModule::DirectNeighborEntry NexusModule::neighborEntries[32];
 
 size_t NexusModule::formatNeighborLine(const DirectNeighborEntry &entry, uint32_t now, char *out, size_t outLen)
 {
     char ago[8];
     formatAgo(now > entry.lastHeard ? now - entry.lastHeard : 0, ago, sizeof(ago));
-    const int n = snprintf(out, outLen, "%s (%.1fdB, %s)\n", entry.name, entry.snr, ago);
+    char cleanName[24];
+    cleanNeighborName(entry.name[0] ? entry.name : "???", cleanName, sizeof(cleanName), 16);
+    const int n = snprintf(out, outLen, "⚡ **%s** · 📶 *%.1fdB* · *%s*\n", cleanName, entry.snr, ago);
     if (n < 0)
         return 0;
     return (size_t)n < outLen ? (size_t)n : outLen - 1;
@@ -131,7 +151,7 @@ void NexusModule::appendNeighborLines(const DirectNeighborEntry *entries, size_t
     if (len >= replyLen)
         len = replyLen - 1;
     for (size_t i = 0; i < count; i++) {
-        char item[64];
+        char item[96];
         const size_t iLen = formatNeighborLine(entries[i], now, item, sizeof(item));
         if (len + iLen >= replyLen)
             break;
@@ -149,7 +169,7 @@ void NexusModule::renderNeighbors(const DirectNeighborEntry *entries, size_t cou
     size_t totalLen = strlen(header);
 
     for (size_t i = 0; i < count; i++) {
-        char item[64];
+        char item[96];
         totalLen += formatNeighborLine(entries[i], now, item, sizeof(item));
     }
 
@@ -160,13 +180,15 @@ void NexusModule::renderNeighbors(const DirectNeighborEntry *entries, size_t cou
     }
 
     uint32_t to = activeRequest->to == myNodeInfo.my_node_num ? activeRequest->from : 0xFFFFFFFF;
-    startPaging(to, activeRequest->channel, activeRequest->id, title);
+    char pagedTitle[48];
+    snprintf(pagedTitle, sizeof(pagedTitle), "%s (%u)", title, (unsigned)count);
+    startPaging(to, activeRequest->channel, activeRequest->id, pagedTitle);
     for (size_t i = 0; i < count; i++) {
-        char item[64];
+        char item[96];
         formatNeighborLine(entries[i], now, item, sizeof(item));
         appendPaging(item);
     }
-    snprintf(reply, replyLen, "JT: Paging %s (%u)...", title, (unsigned)count);
+    snprintf(reply, replyLen, "📡 Paging %s (%u)...", title, (unsigned)count);
 }
 
 void NexusModule::formatNeighbors(char *reply, size_t replyLen)
@@ -188,12 +210,12 @@ void NexusModule::formatNeighbors(char *reply, size_t replyLen)
         }
     }
     if (count == 0) {
-        snprintf(reply, replyLen, "JT VECINOS: 0 directos");
+        snprintf(reply, replyLen, "📡 **Vecinos directos**: *0 directos*");
         return;
     }
 
-    char header[32];
-    snprintf(header, sizeof(header), "JT VECINOS (%u):\n", (unsigned)count);
+    char header[48];
+    snprintf(header, sizeof(header), "📡 **Vecinos directos** (%u):\n", (unsigned)count);
     renderNeighbors(entries, count, header, "Vecinos", reply, replyLen);
 }
 
@@ -390,15 +412,15 @@ void NexusModule::formatMeshCoreNeighbors(char *reply, size_t replyLen)
     }
 
     if (count == 0) {
-        snprintf(reply, replyLen, "JT MESHCORE: 0 vecinos directos");
+        snprintf(reply, replyLen, "📡 **Vecinos MeshCore**: *0 directos*");
         return;
     }
 
-    char header[32];
-    snprintf(header, sizeof(header), "JT MESHCORE (%u vecinos):\n", (unsigned)count);
-    renderNeighbors(entries, count, header, "MeshCore Vecinos", reply, replyLen);
+    char header[48];
+    snprintf(header, sizeof(header), "📡 **Vecinos MeshCore** (%u):\n", (unsigned)count);
+    renderNeighbors(entries, count, header, "Vecinos MeshCore", reply, replyLen);
 #else
-    snprintf(reply, replyLen, "JT MESHCORE: companion off");
+    snprintf(reply, replyLen, "📡 **Vecinos MeshCore**: *companion off*");
 #endif
 }
 
@@ -1386,6 +1408,11 @@ void NexusModule::handleMeshCorePpingCommand(const char *, char *reply, size_t r
 void NexusModule::handleMeshCorePingSend(const char *, char *reply, size_t replyLen)
 {
     snprintf(reply, replyLen, "JT MESHCORE: not in this build (MeshCore sniffer off)");
+}
+
+void NexusModule::formatMeshCoreNeighbors(char *reply, size_t replyLen)
+{
+    snprintf(reply, replyLen, "📡 **Vecinos MeshCore**: *companion off*");
 }
 
 void NexusModule::saveMeshCoreSettings() {}
