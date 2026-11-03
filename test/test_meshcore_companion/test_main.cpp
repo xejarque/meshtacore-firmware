@@ -661,6 +661,16 @@ void test_a_node_is_announced_until_heard_and_again_when_it_changes_or_goes_stal
     TEST_ASSERT_TRUE(MeshCoreCompanion::needsAnnounce(&lite, renamed, now + 60));
     TEST_ASSERT_TRUE(MeshCoreCompanion::needsAnnounce(&lite, user, now + MeshCoreCompanion::HEARD_REFRESH_SECS));
     TEST_ASSERT_FALSE(MeshCoreCompanion::needsAnnounce(&lite, user, 0)); // clock untrusted: nothing to compare
+
+    MeshCoreRx rx0(0, 10.0f, -80);
+    MeshCoreRx rx2(2, 0, 0);
+    TEST_ASSERT_TRUE(MeshCoreCompanion::needsAnnounce(&lite, user, now + 60, &rx0));
+    lite.has_hops_away = true;
+    lite.hops_away = 0;
+    nodeInfoLiteSetBit(&lite, NODEINFO_BITFIELD_HAS_SNR_MASK, true);
+    lite.snr = 10.0f;
+    TEST_ASSERT_FALSE(MeshCoreCompanion::needsAnnounce(&lite, user, now + 60, &rx0));
+    TEST_ASSERT_TRUE(MeshCoreCompanion::needsAnnounce(&lite, user, now + 60, &rx2));
 }
 
 void test_contacts_find_a_name_only_when_unique(void)
@@ -1939,6 +1949,129 @@ void test_meshcore_format_route_line_bounds(void)
     TEST_ASSERT_NOT_NULL(strstr(full, "Δf 125Hz"));
 }
 
+static size_t buildAdvertWithPos(uint8_t *out, const uint8_t *seed, const uint8_t *pub, const char *name, int32_t latMicro,
+                                 int32_t lonMicro, uint32_t timestamp)
+{
+    uint8_t appData[64];
+    size_t appLen = 1;
+    appData[0] = MeshCoreRepeater::ADV_TYPE_CHAT | 0x10;
+    appData[appLen++] = (uint8_t)latMicro;
+    appData[appLen++] = (uint8_t)(latMicro >> 8);
+    appData[appLen++] = (uint8_t)(latMicro >> 16);
+    appData[appLen++] = (uint8_t)(latMicro >> 24);
+    appData[appLen++] = (uint8_t)lonMicro;
+    appData[appLen++] = (uint8_t)(lonMicro >> 8);
+    appData[appLen++] = (uint8_t)(lonMicro >> 16);
+    appData[appLen++] = (uint8_t)(lonMicro >> 24);
+    if (name && name[0]) {
+        appData[0] |= 0x80;
+        size_t nlen = strlen(name);
+        memcpy(&appData[appLen], name, nlen);
+        appLen += nlen;
+    }
+
+    out[0] = (0x04 << 2) | 0x01; // ADVERT, FLOOD
+    out[1] = 0x00;
+    size_t i = 2;
+    memcpy(&out[i], pub, 32);
+    i += 32;
+    out[i++] = (uint8_t)timestamp;
+    out[i++] = (uint8_t)(timestamp >> 8);
+    out[i++] = (uint8_t)(timestamp >> 16);
+    out[i++] = (uint8_t)(timestamp >> 24);
+    uint8_t *sig = &out[i];
+    i += 64;
+    memcpy(&out[i], appData, appLen);
+    i += appLen;
+
+    uint8_t msg[32 + 4 + 64];
+    size_t msgLen = 0;
+    memcpy(&msg[msgLen], pub, 32);
+    msgLen += 32;
+    msg[msgLen++] = (uint8_t)timestamp;
+    msg[msgLen++] = (uint8_t)(timestamp >> 8);
+    msg[msgLen++] = (uint8_t)(timestamp >> 16);
+    msg[msgLen++] = (uint8_t)(timestamp >> 24);
+    memcpy(&msg[msgLen], appData, appLen);
+    msgLen += appLen;
+    Ed25519::sign(sig, seed, pub, msg, msgLen);
+
+    return i;
+}
+
+// MeshCore nodes (repeaters and chat contacts) include positions in their adverts.
+// An earlier implementation hardcoded hopFields(1) in announcePosition(), which overwrote
+// the true hop distance with 1 in NodeDB and on client map/node lists.
+// Regression guard: ensure direct (0 hops) and multi-hop adverts announce their real hop count
+// for both the node info and position packets.
+void test_advert_with_position_announces_real_hops(void)
+{
+    GroupSetup s;
+    uint8_t seed[32];
+    for (int i = 0; i < 32; i++)
+        seed[i] = (uint8_t)(0x33 ^ i);
+    uint8_t pub[32];
+    Ed25519::derivePublicKey(pub, seed);
+    s.c.setIdentity(seed, pub);
+
+    uint8_t remoteSeed[32];
+    for (int i = 0; i < 32; i++)
+        remoteSeed[i] = (uint8_t)(0x44 ^ i);
+    uint8_t remotePub[32];
+    Ed25519::derivePublicKey(remotePub, remoteSeed);
+
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = buildAdvertWithPos(frame, remoteSeed, remotePub, "DirectNode", 41387900, 2169900, 1792521507);
+    TEST_ASSERT_GREATER_THAN(0, len);
+
+    s.c.handleFrame(frame, len, 6.5f, -70);
+    TEST_ASSERT_GREATER_OR_EQUAL(2, s.capture.received.size());
+
+    meshtastic_MeshPacket *nodeInfoPkt = nullptr;
+    meshtastic_MeshPacket *posPkt = nullptr;
+    for (auto &p : s.capture.received) {
+        if (p.decoded.portnum == meshtastic_PortNum_NODEINFO_APP)
+            nodeInfoPkt = &p;
+        else if (p.decoded.portnum == meshtastic_PortNum_POSITION_APP)
+            posPkt = &p;
+    }
+    TEST_ASSERT_NOT_NULL(nodeInfoPkt);
+    TEST_ASSERT_NOT_NULL(posPkt);
+    TEST_ASSERT_EQUAL_INT8(0, getHopsAway(*nodeInfoPkt));
+    TEST_ASSERT_EQUAL_INT8(0, getHopsAway(*posPkt));
+    TEST_ASSERT_TRUE(nodeInfoPkt->has_rx_rssi);
+    TEST_ASSERT_TRUE(posPkt->has_rx_rssi);
+
+    s.capture.received.clear();
+    uint8_t remoteSeed2[32];
+    for (int i = 0; i < 32; i++)
+        remoteSeed2[i] = (uint8_t)(0x55 ^ i);
+    uint8_t remotePub2[32];
+    Ed25519::derivePublicKey(remotePub2, remoteSeed2);
+
+    uint8_t frame2[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len2 = buildAdvertWithPos(frame2, remoteSeed2, remotePub2, "RelayedNode", 41387900, 2169900, 1792521507);
+    TEST_ASSERT_GREATER_THAN(0, len2);
+
+    uint8_t hops[2] = {0x11, 0x22};
+    uint8_t relayedFrame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t relayedLen = withPath(frame2, len2, relayedFrame, 1, hops, 2);
+    s.c.handleFrame(relayedFrame, relayedLen, 0.0f, -90);
+
+    nodeInfoPkt = nullptr;
+    posPkt = nullptr;
+    for (auto &p : s.capture.received) {
+        if (p.decoded.portnum == meshtastic_PortNum_NODEINFO_APP)
+            nodeInfoPkt = &p;
+        else if (p.decoded.portnum == meshtastic_PortNum_POSITION_APP)
+            posPkt = &p;
+    }
+    TEST_ASSERT_NOT_NULL(nodeInfoPkt);
+    TEST_ASSERT_NOT_NULL(posPkt);
+    TEST_ASSERT_EQUAL_INT8(2, getHopsAway(*nodeInfoPkt));
+    TEST_ASSERT_EQUAL_INT8(2, getHopsAway(*posPkt));
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -2022,6 +2155,7 @@ void setup()
     RUN_TEST(test_meshcore_node_listing);
     RUN_TEST(test_meshcore_heard_find_by_from);
     RUN_TEST(test_meshcore_format_route_line_bounds);
+    RUN_TEST(test_advert_with_position_announces_real_hops);
 #endif
     exit(UNITY_END());
 }

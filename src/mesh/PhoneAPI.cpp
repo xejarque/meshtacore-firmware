@@ -1294,15 +1294,33 @@ meshtastic_MeshPacket makeReplayMeshCorePacket(const MeshCoreNode &n, meshtastic
     pkt.has_rx_time = n.lastAdvert >= MIN_PLAUSIBLE_EPOCH;
     pkt.rx_time = pkt.has_rx_time ? n.lastAdvert : 0;
     pkt.id = makeReplayPacketId(n.nodeNum, pkt.rx_time, port);
-    setReplayHopFields(pkt, nullptr); // the store keeps no hop count: unknown
+    const meshtastic_NodeInfoLite *header = nodeDB ? nodeDB->getMeshNode(n.nodeNum) : nullptr;
+    if (header && header->has_hops_away) {
+        setReplayHopFields(pkt, header);
+    } else if (n.hops != 0xFF) {
+        uint8_t hopLimit = Default::getConfiguredOrDefaultHopLimit(config.lora.hop_limit);
+        uint8_t hopsAway = n.hops;
+        pkt.hop_start = hopLimit;
+        pkt.hop_limit = hopsAway < hopLimit ? (uint8_t)(hopLimit - hopsAway) : 0;
+        pkt.decoded.has_bitfield = true;
+        pkt.decoded.bitfield = 0;
+    } else {
+        setReplayHopFields(pkt, nullptr);
+    }
+    if (n.hops == 0) {
+        pkt.rx_snr = n.snr;
+        pkt.has_rx_rssi = true;
+        pkt.rx_rssi = n.rssi;
+    }
     pkt.priority = meshtastic_MeshPacket_Priority_BACKGROUND;
     pkt.transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
     pkt.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     pkt.decoded.portnum = port;
     if (port == meshtastic_PortNum_NODEINFO_APP) {
         const bool chat = n.type == MeshCoreNode::CHAT;
-        const meshtastic_User user = MeshCoreCompanion::senderUser(
-            n.name, chat, n.pub, chat ? meshtastic_Config_DeviceConfig_Role_CLIENT : meshtastic_Config_DeviceConfig_Role_REPEATER);
+        const meshtastic_User user = MeshCoreCompanion::senderUser(n.name, chat, n.pub,
+                                                                   chat ? meshtastic_Config_DeviceConfig_Role_CLIENT
+                                                                        : meshtastic_Config_DeviceConfig_Role_REPEATER);
         pkt.decoded.payload.size = (pb_size_t)pb_encode_to_bytes(pkt.decoded.payload.bytes, sizeof(pkt.decoded.payload.bytes),
                                                                  &meshtastic_User_msg, &user);
     } else {
