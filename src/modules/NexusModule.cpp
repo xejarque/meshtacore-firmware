@@ -2274,10 +2274,9 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                 } else {
                     l = snprintf(rMsg, sizeof(rMsg), "🤖Derpy Ping🤖\n");
                 }
-                l += snprintf(rMsg + l, sizeof(rMsg) - l, "📡 Hops:%u/%u ", hopsUsed, mp.hop_start);
 
                 if (hopsUsed == 0) {
-                    l += snprintf(rMsg + l, sizeof(rMsg) - l, "(Direct)\n");
+                    l += snprintf(rMsg + l, sizeof(rMsg) - l, "⚡ *directo* · 📡 *0/%u*\n", mp.hop_start);
                 } else {
                     static char relayNames[64];
                     memset(relayNames, 0, sizeof(relayNames));
@@ -2285,27 +2284,30 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                     getRelayNames(relayNames, sizeof(relayNames), targetSuffix);
 
                     if (relayNames[0] != '\0') {
-                        l += snprintf(rMsg + l, sizeof(rMsg) - l, "Relay:%s (*%02x)\n", relayNames, targetSuffix);
+                        char cleanRelay[64];
+                        NexusModule::cleanNeighborName(relayNames, cleanRelay, sizeof(cleanRelay), sizeof(cleanRelay) - 1);
+                        l += snprintf(rMsg + l, sizeof(rMsg) - l, "📡 **Hops**: *%u/%u* · 🔄 **%s** (*%02x*)\n",
+                                      hopsUsed, mp.hop_start, cleanRelay, targetSuffix);
                     } else {
-                        l += snprintf(rMsg + l, sizeof(rMsg) - l, "Relay:*%02x\n", targetSuffix);
+                        l += snprintf(rMsg + l, sizeof(rMsg) - l, "📡 **Hops**: *%u/%u* · 🔄 (*%02x*)\n",
+                                      hopsUsed, mp.hop_start, targetSuffix);
                     }
                     memset(relayNames, 0, sizeof(relayNames));
                 }
 
                 if (ping_rssi || ping_snr) {
                     l += snprintf(rMsg + l, sizeof(rMsg) - l, "📶 ");
-                    if (ping_rssi) l += snprintf(rMsg + l, sizeof(rMsg) - l, "RSSI:%d ", (int)mp.rx_rssi);
-                    if (ping_snr) l += snprintf(rMsg + l, sizeof(rMsg) - l, "SNR:%.1f", mp.rx_snr);
-                    l += snprintf(rMsg + l, sizeof(rMsg) - l, "\n");
+                    if (ping_snr && ping_rssi) {
+                        l += snprintf(rMsg + l, sizeof(rMsg) - l, "**%.1fdB** · *%ddBm*\n", mp.rx_snr, (int)mp.rx_rssi);
+                    } else if (ping_snr) {
+                        l += snprintf(rMsg + l, sizeof(rMsg) - l, "**%.1fdB**\n", mp.rx_snr);
+                    } else {
+                        l += snprintf(rMsg + l, sizeof(rMsg) - l, "*%ddBm*\n", (int)mp.rx_rssi);
+                    }
                 }
 
-                if (ping_freqerr) {
-                    // Nexus port (Nexus-28001, 2026-08-16): rx_frequency_error + rx_coding_rate
-                    // both restored. PPING FREQERR now reports the live frequency error in Hz and
-                    // the recovered coding rate (raw 1-7 -> display 5/6/7/8 short, 9/10/11 long).
-                    l += snprintf(rMsg + l, sizeof(rMsg) - l, "🔬 Δf: %.0fHz CR:%d\n",
-                                  mp.rx_frequency_error, nexusCRDisplay(mp.rx_coding_rate));
-                }
+                l += snprintf(rMsg + l, sizeof(rMsg) - l, "🔬 *Δf %.0fHz* · *CR %d*\n",
+                              mp.rx_frequency_error, nexusCRDisplay(mp.rx_coding_rate));
 
                 if (ping_bitmask) {
                     if (l < 0 || (size_t)l >= sizeof(rMsg)) l = sizeof(rMsg) - 1;

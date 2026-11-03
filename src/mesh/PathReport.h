@@ -2,8 +2,8 @@
 
 #include "meshUtils.h"
 #include <stddef.h>
-#include <stdio.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 /**
@@ -41,6 +41,25 @@ inline size_t cleanPathLabel(const char *src, char *out, size_t cap, size_t maxB
     const size_t keep = utf8PrefixLen(out, maxBytes);
     out[keep] = 0;
     return keep;
+}
+
+/// Clean markdown control chars and truncate long names to maxBytes with '..' suffix.
+inline void cleanNeighborName(const char *src, char *out, size_t cap, size_t maxBytes = 16)
+{
+    if (!src || !out || cap == 0) {
+        if (out && cap > 0)
+            out[0] = '\0';
+        return;
+    }
+    char cleaned[48];
+    cleanPathLabel(src, cleaned, sizeof(cleaned), sizeof(cleaned) - 1);
+    size_t len = strlen(cleaned);
+    if (len > maxBytes) {
+        const size_t keep = utf8PrefixLen(cleaned, maxBytes > 2 ? maxBytes - 2 : maxBytes);
+        snprintf(out, cap, "%.*s..", (int)keep, cleaned);
+    } else {
+        snprintf(out, cap, "%s", cleaned);
+    }
 }
 
 /// Drop the " (MC)" suffix that tells a MeshCore copy of a node from the Meshtastic one of the same name.
