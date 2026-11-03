@@ -1117,7 +1117,7 @@ bool NexusModule::formatMeshCorePingReply(const meshtastic_MeshPacket &mp, char 
                           (double)mp.rx_frequency_error);
         }
     } else {
-        l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "%u🦘:\n", (unsigned)hopsUsed);
+        l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "%u hops:\n", (unsigned)hopsUsed);
         if (mp.has_rx_rssi) {
             l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "SNR: %.1f dB · RSSI: %d dBm · Δf %.0fHz",
                           (double)mp.rx_snr, (int)mp.rx_rssi, (double)mp.rx_frequency_error);

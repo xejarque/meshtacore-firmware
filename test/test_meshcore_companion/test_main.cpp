@@ -1974,7 +1974,7 @@ void test_unified_vecinos_formatting(void)
 
 /**
  * Pins MeshCore PPING formatting:
- * Guards against regression of newline separators per hop, kangaroo emoji for hop count,
+ * Guards against regression of newline separators per hop, "N hops:" header,
  * direct bolt + emojis on direct pings, and delta frequency error reporting.
  */
 void test_meshcore_ping_formatting(void)
@@ -2000,7 +2000,7 @@ void test_meshcore_ping_formatting(void)
 
     char hopOut[128];
     TEST_ASSERT_TRUE(s.c.formatRouteLine(hopRoute, hopOut, sizeof(hopOut), -12.0f));
-    TEST_ASSERT_NOT_NULL(strstr(hopOut, "2🦘:\n"));
+    TEST_ASSERT_NOT_NULL(strstr(hopOut, "2 hops:\n"));
     TEST_ASSERT_NOT_NULL(strstr(hopOut, "SNR: -3.2 dB · RSSI: -88 dBm · Δf -12Hz"));
 }
 
