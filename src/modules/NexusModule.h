@@ -186,6 +186,7 @@ private:
     bool formatMeshCorePingReply(const meshtastic_MeshPacket &mp, char *rMsg, size_t rMsgLen);
     void handleMeshCorePpingCommand(const char *args, char *reply, size_t replyLen);
     void handleMeshCorePingSend(const char *target, char *reply, size_t replyLen);
+public:
     struct DirectNeighborEntry {
         char name[36];
         float snr;
@@ -200,7 +201,6 @@ private:
                                     char *reply, size_t replyLen);
     void renderNeighbors(const DirectNeighborEntry *entries, size_t count, const char *header, const char *title,
                          char *reply, size_t replyLen);
-public:
     // ---- end of the Meshtacore extensions -----------------------------------------------------------------------------
 
     virtual bool wantPacket(const meshtastic_MeshPacket *p) override;
