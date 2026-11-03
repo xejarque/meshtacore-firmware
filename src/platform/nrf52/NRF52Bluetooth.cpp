@@ -172,11 +172,12 @@ void onConnect(uint16_t conn_handle)
     connection->getPeerName(central_name, sizeof(central_name));
     LOG_INFO("BLE Connected to %s (handle=%u)", central_name, (unsigned)conn_handle);
 
+#if NEXUS_ENABLE_RNODE_BLE
     // A connection stops advertising by default. Keep it running while a second slot is free so the
     // Meshtastic phone and the RNode/NUS client can be connected at the same time.
     if (Bluefruit.Periph.connected() < 2)
         Bluefruit.Advertising.start(0);
-
+#endif
 }
 /**
  * Callback invoked when a connection is dropped
@@ -206,9 +207,11 @@ void onDisconnect(uint16_t conn_handle, uint8_t reason)
         bluetoothStatus->updateStatus(&newStatus);
     }
 
+#if NEXUS_ENABLE_RNODE_BLE
     // Free a slot again: let the other persona (re)connect without waiting for a full advertising cycle.
     if (Bluefruit.Periph.connected() < 2)
         Bluefruit.Advertising.start(0);
+#endif
 
 #if HAS_SCREEN
     // If a pairing prompt is active, make sure we dismiss it on disconnect/cancel/failure paths.
@@ -471,17 +474,24 @@ void NRF52Bluetooth::setup()
     // Initialise the Bluefruit module
     LOG_INFO("Init the Bluefruit nRF52 module");
     Bluefruit.autoConnLed(false);
+    // Never call begin() twice: the SoftDevice is already enabled after the first attempt, and a second call can
+    // wedge the stack into a reset loop.
+#if NEXUS_ENABLE_RNODE_BLE
     // Two peripheral slots so the Meshtastic app and Columba can be connected at once. HIGH (MTU 128,
     // short event) rather than MAX, because the MAX event length/queues do not fit two links in the
-    // SoftDevice's RAM budget. Never call begin() twice: the SoftDevice is already enabled after the
-    // first attempt, and a second call can wedge the stack into a reset loop.
+    // SoftDevice's RAM budget.
     Bluefruit.configPrphBandwidth(BANDWIDTH_HIGH);
     if (!Bluefruit.begin(2, 0)) {
+#else
+    // One phone at a time: the PhoneAPI has a single client, so a second link would only share its state.
+    Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
+    if (!Bluefruit.begin()) {
+#endif
         // sd_ble_enable() rejected our RAM base: the linker RAM ORIGIN
         // (src/platform/nrf52/nrf52840_s140_v*.ld) is below what the SoftDevice needs for the
         // current Bluefruit config. Rebuild with -DCFG_DEBUG=1 to get "SoftDevice's RAM requires:
         // 0x..." in the log, then raise the ORIGIN accordingly.
-        LOG_ERROR("Bluefruit.begin(2) failed: SoftDevice RAM too small");
+        LOG_ERROR("Bluefruit.begin failed: SoftDevice RAM too small");
         RECORD_CRITICALERROR(meshtastic_CriticalErrorCode_UNSPECIFIED);
         return;
     }
