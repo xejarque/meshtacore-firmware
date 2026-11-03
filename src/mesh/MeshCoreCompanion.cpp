@@ -890,7 +890,7 @@ bool MeshCoreCompanion::formatRouteLine(const HeardPath &route, char *out, size_
         if (nSig > 0)
             len += (size_t)nSig < (cap - len) ? (size_t)nSig : (cap - len - 1);
     } else {
-        int n = snprintf(out, cap, "%u🦘:\n", (unsigned)route.hopCount);
+        int n = snprintf(out, cap, "%u hops:\n", (unsigned)route.hopCount);
         if (n > 0)
             len = (size_t)n < cap ? (size_t)n : cap - 1;
 
