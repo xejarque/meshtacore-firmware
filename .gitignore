@@ -83,3 +83,7 @@ build/wasm-*.log
 
 # Command Code session state
 .commandcode/
+# Local scratch: serial/build logs, exported text, and assorted untracked notes.
+/logs/
+/untracked/
+/txts/

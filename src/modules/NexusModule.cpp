@@ -368,6 +368,7 @@ NexusModule::NexusModule()
         NexusRescue::snapshot();
     applyZeroHopRoleDefaults(vaultVersionLoaded >= 68);
     readyAnnouncePending = wokeFromBatteryWake();
+    seedHibernatingFromRtc();
 }
 
 NexusModule::~NexusModule() {
@@ -3223,6 +3224,12 @@ int32_t NexusModule::runOnce() {
         setIntervalFromNow(100);
     }
 
+    // Voltage threshold automation (v70)
+    if (!Throttle::isWithinTimespanMs(last_volt_check_ms, 15000)) {
+        last_volt_check_ms = now;
+        runVoltageAutomations();
+    }
+
     if (noise_sampling_active || freqscan_active)
         return 50;
     if (netscan_active || clientscan_active || pendingReply.active || pendingLoRaConfig || macro_running_cmd[0] || paging_ptr ||
@@ -4860,7 +4867,7 @@ bool NexusModule::saveVault()
     }
     memset(v, 0, sizeof(NexusVault));
     memcpy(v->magic, "JenT", 4);
-    v->version = 69; // v69: custom PPING command (ping_trigger)
+    v->version = 70; // v70: volt_rules (v69: custom PPING command, ping_trigger)
     // v67: nexusVariantBits (generic variant-bitmask pool — station-g3 PA/LNA today, future variants tomorrow)
     // - v66 was: features_mask + secondary_keys[4] (4 slots)
     v->drop_mask = getNexusDropHex();

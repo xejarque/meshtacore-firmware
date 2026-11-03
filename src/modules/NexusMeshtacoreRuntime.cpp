@@ -31,6 +31,7 @@ void NexusModule::fillVaultV68(NexusVault &v) const
     memcpy(v.zero_hop_auto_client_mask, zero_hop_auto_client_mask, sizeof(zero_hop_auto_client_mask));
     strncpy(v.ping_trigger, ping_trigger, sizeof(v.ping_trigger) - 1);
     v.ping_trigger[sizeof(v.ping_trigger) - 1] = '\0';
+    memcpy(v.volt_rules, volt_rules, sizeof(volt_rules));
 }
 
 bool NexusModule::hasRealNexusChannel()
@@ -164,6 +165,11 @@ int NexusModule::diffVaultV68(const NexusVault &v)
         appendPaging(line);
         diffs++;
     }
+    if (v.version >= 70 && memcmp(volt_rules, v.volt_rules, sizeof(volt_rules)) != 0) {
+        snprintf(line, sizeof(line), "volt_rules: RAM and Vault differ (see /nexus VOLT)");
+        appendPaging(line);
+        diffs++;
+    }
     return diffs;
 }
 
@@ -175,7 +181,16 @@ void NexusModule::summarizeVaultV68(const NexusVault &v, char *out, size_t len) 
     const size_t used = strlen(out);
     if (used >= len)
         return;
-    if (v.version >= 69) {
+    if (v.version >= 70) {
+        unsigned voltRules = 0;
+        for (const auto &rule : v.volt_rules)
+            voltRules += (rule.action != NEXUS_VOLT_ACT_NONE && rule.mv > 0) ? 1 : 0;
+        snprintf(out + used, len - used, "\nWake:%u Chem:%u Ext:0x%02X ZH:%u/%u Cmd:%.10s Volt:%u", (unsigned)v.lpcomp_wake_ref,
+                 (unsigned)v.battery_chemistry, (unsigned)v.ext_flags,
+                 countBits(v.zero_hop_auto_router_mask, sizeof(v.zero_hop_auto_router_mask)),
+                 countBits(v.zero_hop_auto_client_mask, sizeof(v.zero_hop_auto_client_mask)),
+                 v.ping_trigger[0] ? v.ping_trigger : "/ping", voltRules);
+    } else if (v.version >= 69) {
         snprintf(out + used, len - used, "\nWake:%u Chem:%u Ext:0x%02X ZH:%u/%u Cmd:%.10s", (unsigned)v.lpcomp_wake_ref,
                  (unsigned)v.battery_chemistry, (unsigned)v.ext_flags,
                  countBits(v.zero_hop_auto_router_mask, sizeof(v.zero_hop_auto_router_mask)),
@@ -211,6 +226,15 @@ void NexusModule::applyVaultV68(const NexusVault &v)
     } else {
         strncpy(ping_trigger, "/ping", sizeof(ping_trigger) - 1);
         ping_trigger[sizeof(ping_trigger) - 1] = '\0';
+    }
+    if (v.version >= 70) {
+        memcpy(volt_rules, v.volt_rules, sizeof(volt_rules));
+        for (auto &rule : volt_rules) {
+            rule.command[sizeof(rule.command) - 1] = '\0';
+            if (rule.action > NEXUS_VOLT_ACT_WAKE || rule.direction > NEXUS_VOLT_DIR_LOW || rule.channel > 2) {
+                rule = NexusVoltRule();
+            }
+        }
     }
 }
 

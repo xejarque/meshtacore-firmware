@@ -586,7 +586,7 @@ bool RadioLibInterface::isMeshtasticOnOurChannels(size_t length)
     if (length <= sizeof(PacketHeader))
         return false;
     const PacketHeader &h = radioBuffer.header;
-    return decodesOnOurChannels(h.from, h.id, h.channel, radioBuffer.payload, length - sizeof(PacketHeader));
+    return decodesOnOurChannels(h.from, h.to, h.id, h.channel, radioBuffer.payload, length - sizeof(PacketHeader));
 }
 
 MeshCoreRelayThread::MeshCoreRelayThread(RadioLibInterface *radio) : OSThread("MeshCoreRelay"), radio(radio)

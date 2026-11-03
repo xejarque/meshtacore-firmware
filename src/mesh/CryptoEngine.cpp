@@ -443,7 +443,18 @@ void CryptoEngine::aesEncrypt(uint8_t *in, uint8_t *out)
 
 bool CryptoEngine::setDHPublicKey(uint8_t *pubKey)
 {
+    // X25519 takes ~70 ms on an nRF52 and every DM / ack proof needs one, so keep the last few results. Entries are
+    // keyed on our private key too, so a key change can never serve a stale secret. Callers hold cryptLock.
+    for (auto &e : dhCache) {
+        if (e.used && memcmp(e.peer, pubKey, 32) == 0 && memcmp(e.priv, private_key, 32) == 0) {
+            memcpy(shared_key, e.secret, 32);
+            return true;
+        }
+    }
+
     uint8_t local_priv[32];
+    uint8_t peer[32];
+    memcpy(peer, pubKey, 32);
     memcpy(shared_key, pubKey, 32);
     memcpy(local_priv, private_key, 32);
     // Calculate the shared secret with the specified node's public key and our private key
@@ -452,6 +463,13 @@ bool CryptoEngine::setDHPublicKey(uint8_t *pubKey)
         LOG_WARN("Curve25519DH step 2 failed");
         return false;
     }
+
+    DhCacheEntry &e = dhCache[dhCacheNext];
+    dhCacheNext = (dhCacheNext + 1) % DH_CACHE_SIZE;
+    memcpy(e.peer, peer, 32);
+    memcpy(e.priv, private_key, 32);
+    memcpy(e.secret, shared_key, 32);
+    e.used = true;
     return true;
 }
 

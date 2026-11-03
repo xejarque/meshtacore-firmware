@@ -3996,7 +3996,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         snprintf(replyMsg, sizeof(replyMsg), "MTC TX Power:\nActive: %d dBm\nChip: %d dBm",
                  activePwr, sxPwr);
     }
-    else if (handleMeshtacoreCommand(cmd)) {
+    else if (handleMeshtacoreCommand(mp, replyId, cmd)) {
         // Meshtacore commands: NexusMeshtacoreCommands.cpp
     }
     else if (strncasecmp(cmd, "CLIENTALWAYS ", 13) == 0 || strcasecmp(cmd, "CLIENTALWAYS") == 0) {

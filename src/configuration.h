@@ -175,6 +175,24 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #error "MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC requires MESHTASTIC_ENABLE_MESHCORE_SNIFFER"
 #endif
 
+// Reticulum RNode master gate (from JenTastic 2.8.105). NEXUS_ENABLE_RNODE compiles the RNode subsystem
+// (engine, KISS framing, TCP server, BLE NUS persona) in (=1) or out (=0). DEFAULT OFF: enable per variant
+// (-DNEXUS_ENABLE_RNODE=1 in build_flags) or at build time.
+#ifndef NEXUS_ENABLE_RNODE
+#define NEXUS_ENABLE_RNODE 0
+#endif
+
+#if !NEXUS_ENABLE_RNODE
+#undef NEXUS_ENABLE_RNODE_TCP
+#define NEXUS_ENABLE_RNODE_TCP 0
+#undef NEXUS_ENABLE_RNODE_BLE
+#define NEXUS_ENABLE_RNODE_BLE 0
+#endif
+
+#ifndef RNODE_DEFAULT_TCP_PORT
+#define RNODE_DEFAULT_TCP_PORT 7633
+#endif
+
 /// Convert a preprocessor name into a quoted string
 #define xstr(s) ystr(s)
 #define ystr(s) #s
@@ -706,6 +724,25 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #ifdef MESHTASTIC_EXCLUDE_BLUETOOTH
 #undef HAS_BLUETOOTH
 #define HAS_BLUETOOTH 0
+#endif
+
+// RNode transports can only be inferred once architecture.h/variant.h have
+// supplied HAS_WIFI / HAS_BLUETOOTH. Explicit -D overrides still win.
+#if NEXUS_ENABLE_RNODE
+#ifndef NEXUS_ENABLE_RNODE_TCP
+#if HAS_WIFI
+#define NEXUS_ENABLE_RNODE_TCP 1
+#else
+#define NEXUS_ENABLE_RNODE_TCP 0
+#endif
+#endif
+#ifndef NEXUS_ENABLE_RNODE_BLE
+#if HAS_BLUETOOTH || HAS_BLE
+#define NEXUS_ENABLE_RNODE_BLE 1
+#else
+#define NEXUS_ENABLE_RNODE_BLE 0
+#endif
+#endif
 #endif
 
 // // Turn off GPS

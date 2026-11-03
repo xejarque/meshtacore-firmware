@@ -84,6 +84,29 @@ class NexusModule : public MeshModule,
                     public concurrency::OSThread,
                     public ScanI2CConsumer {
 public:
+    // Voltage threshold rules (VOLT), ported from JenTastic 2.8.105. In the JenTastic vault they are v68; here they are v70 because this
+    // fork's v68/v69 already carry other fields. See NexusMeshtacoreVolt.cpp.
+    enum NexusVoltAction : uint8_t {
+        NEXUS_VOLT_ACT_NONE = 0,
+        NEXUS_VOLT_ACT_CMD = 1,
+        NEXUS_VOLT_ACT_HIBERNATE = 2,
+        NEXUS_VOLT_ACT_WAKE = 3
+    };
+
+    enum NexusVoltDir : uint8_t {
+        NEXUS_VOLT_DIR_HIGH = 0, // >= target
+        NEXUS_VOLT_DIR_LOW = 1   // <= target
+    };
+
+    struct __attribute__((packed)) NexusVoltRule {
+        uint16_t mv;          // Target millivolts
+        uint8_t action;       // NexusVoltAction
+        uint8_t direction;    // NexusVoltDir
+        uint8_t channel;      // 0 = default battery / INA CH1, 1 = INA CH2, 2 = INA CH3
+        uint8_t flags;        // Reserved
+        char command[32];     // Command string
+    };
+
     NexusModule();
 
     // ---- Meshtacore extensions ----------------------------------------------------------------------------------------
@@ -131,7 +154,20 @@ public:
     uint32_t vaultVersionLoaded = 0; // 0 = no vault was loaded
 private:
     // Meshtacore commands (NexusMeshtacoreCommands.cpp): false when `cmd` is not one of them.
-    bool handleMeshtacoreCommand(const char *cmd);
+    bool handleMeshtacoreCommand(const meshtastic_MeshPacket &mp, uint32_t replyId, const char *cmd);
+    // VOLT (NexusMeshtacoreVolt.cpp)
+    void handleVoltCommand(const meshtastic_MeshPacket &mp, uint32_t replyId, const char *args);
+    void setHibernating(bool hib);
+    uint16_t getVoltageReadingMv(uint8_t channel);
+    void runVoltageAutomations();
+    void applyRuleAction(const NexusVoltRule &rule);
+    void continueHibernation();
+    void runRuleCommand(const char *command);
+    void listVoltRules(const meshtastic_MeshPacket &mp, uint32_t replyId);
+    void showVoltRule(uint8_t slot);
+    void clearVoltRule(uint8_t slot);
+    void configureVoltRule(uint8_t slot, const char *args);
+    void seedHibernatingFromRtc();
     void handleHealthCommand();
     // /nexus MESHCORE [INFO|STATS|RELAY|ADVERT|RESET] (NexusMeshCoreCommand.cpp): the MeshCore relay and ADVERT settings.
     void handleMeshCoreCommand(const char *args, char *reply, size_t replyLen);
@@ -338,6 +374,13 @@ public:
     bool ping_allow_dm = false;       // /ping DM toggle (v66, bit 15 of ping_mask)
     bool ping_channels[MAX_NUM_CHANNELS] = {true, false, false, false, false, false, false, false};
     char ping_trigger[16] = "/ping"; // Custom PPING command (v69)
+
+    // Voltage threshold automation (v70): up to 4 rules that run a command, hibernate or wake on a battery / INA voltage.
+    NexusVoltRule volt_rules[4] = {};
+    uint32_t last_volt_check_ms = 0;
+    uint8_t volt_debounce_count[4] = {0};
+    bool volt_triggered[4] = {false};
+    bool is_hibernating = false;
 
     // Firewall state
     bool drop_nodeinfo = false;
@@ -647,6 +690,8 @@ public:
         uint8_t  zero_hop_auto_client_mask[32];
         // v69: custom PPING command
         char     ping_trigger[16];
+        // v70: voltage threshold rules
+        NexusVoltRule volt_rules[4];
         uint32_t crc32;
     };
 

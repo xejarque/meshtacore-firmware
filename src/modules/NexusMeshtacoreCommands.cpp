@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
-// Meshtacore additions to the /nexus CLI: RESCUE, CHEM, STORM, SETURL, PUBSILENCE, VWAKE and MESHCORE. They live here, not
+// Meshtacore additions to the /nexus CLI: RESCUE, CHEM, STORM, SETURL, PUBSILENCE, VWAKE, VOLT and MESHCORE. They live here, not
 // in NexusCommands.cpp, so a merge of the jentastic upstream does not collide with them: the dispatch chain in
 // handleNexusCommand() carries a single call to handleMeshtacoreCommand().
 
@@ -28,7 +28,7 @@ using namespace meshtastic;
  * Runs the Meshtacore command in `cmd`, leaving its answer in replyMsg.
  * @return false when `cmd` is not one of ours, so the caller keeps matching.
  */
-bool NexusModule::handleMeshtacoreCommand(const char *cmd)
+bool NexusModule::handleMeshtacoreCommand(const meshtastic_MeshPacket &mp, uint32_t replyId, const char *cmd)
 {
     if (strcasecmp(cmd, "MESHCORE") == 0 || strncasecmp(cmd, "MESHCORE ", 9) == 0 || strcasecmp(cmd, "MCORE") == 0 ||
         strncasecmp(cmd, "MCORE ", 6) == 0) {
@@ -37,6 +37,10 @@ bool NexusModule::handleMeshtacoreCommand(const char *cmd)
     } else if (strcasecmp(cmd, "REGION") == 0 || strncasecmp(cmd, "REGION ", 7) == 0) {
         const char *args = strchr(cmd, ' ');
         handleRegionCommand(args ? args + 1 : "", replyMsg, sizeof(replyMsg));
+    } else if (strcasecmp(cmd, "VOLT") == 0 || strcasecmp(cmd, "VOLTAGE") == 0 || strncasecmp(cmd, "VOLT ", 5) == 0 ||
+               strncasecmp(cmd, "VOLTAGE ", 8) == 0) {
+        // /nexus VOLT [LIST|WAKE|<1..4> [...]]: voltage threshold rules (NexusMeshtacoreVolt.cpp).
+        handleVoltCommand(mp, replyId, cmd);
     } else if (strcasecmp(cmd, "RESCUE") == 0 || strcasecmp(cmd, "RESCUE SHOW") == 0) {
         // /nexus RESCUE [SHOW]: the copy restored after a factory reset or a wiped /prefs.
         NexusRescue::describe(replyMsg, sizeof(replyMsg));
