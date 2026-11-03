@@ -150,7 +150,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #error "MESHTASTIC_MESHCORE_PATH_COMMAND requires MESHTASTIC_ENABLE_MESHCORE_COMPANION"
 #endif
 
-// SX126x and LR11x0: receive with a hybrid sync word so one radio hears both Meshtastic (0x2B) and MeshCore (0x12)
+// SX126x, LR11x0 and LR20x0: receive with a hybrid sync word so one radio hears both Meshtastic (0x2B) and MeshCore (0x12)
 // frames, and transmit each protocol with its own sync word. Verified on air (SX126x 0x14B4, LR11x0 0x1B on a
 // T1000-E). On by default; -D...=0 opts out.
 #ifndef MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
@@ -169,6 +169,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 // 8-bit hybrid sync word for LR11x0 (high nibble 1 from MeshCore 0x12, low nibble B from Meshtastic 0x2B).
 #ifndef MESHTASTIC_LR11X0_MESHCORE_RX_SYNCWORD
 #define MESHTASTIC_LR11X0_MESHCORE_RX_SYNCWORD 0x1B
+#endif
+
+// 8-bit hybrid sync word for LR20x0 (high nibble 1 from MeshCore 0x12, low nibble B from Meshtastic 0x2B).
+#ifndef MESHTASTIC_LR20X0_MESHCORE_RX_SYNCWORD
+#define MESHTASTIC_LR20X0_MESHCORE_RX_SYNCWORD 0x1B
 #endif
 
 #if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC && !MESHTASTIC_ENABLE_MESHCORE_SNIFFER
