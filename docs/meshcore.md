@@ -30,7 +30,7 @@ Every MeshCore feature is compiled in by default; pass `-D<flag>=0` to opt out. 
 | `MESHTASTIC_ENABLE_MESHCORE_SNIFFER`     | Frame parsing and RX classification. Everything else requires it.          |
 | `MESHTASTIC_ENABLE_MESHCORE_RELAY`       | Flood and direct forwarding.                                               |
 | `MESHTASTIC_ENABLE_MESHCORE_COMPANION`   | `MC:` channel bridge, direct messages, contacts.                           |
-| `MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC` | The SX126x hybrid receive register.                                        |
+| `MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC` | The SX126x and LR11x0 hybrid receive sync word.                            |
 | `MESHTASTIC_MESHCORE_RX_SYNCWORD`        | Value written to the sync word register while receiving. Default `0x14B4`. |
 
 Dependencies are enforced with `#error` in `src/configuration.h`: relay, companion and hybrid sync all require the sniffer, and the companion requires the radio's raw TX path.
@@ -48,6 +48,10 @@ Meshtastic transmits with sync word `0x2B`; MeshCore uses RadioLib's private syn
 `0x14B4` was measured SX1262 to SX1262 and receives both networks. The mirror candidate `0x2424` received Meshtastic only. The hybrid register is therefore a bench-verified value, not a protocol guarantee: reception quality is expected to depend on the radio and the preset, and packet loss has not been measured yet.
 
 The register is written in `SX126xInterface::startReceive()`, immediately before the radio is armed for RX. `setSyncWordRegister()` performs the nibble split; it exists because RadioLib's public API only accepts a sync word plus control bits, not the raw register value.
+
+LR11x0 (LR1110, LR1120, LR1121) takes an 8-bit sync word instead of a register. Hybrid receive uses `0x1B` (`MESHTASTIC_LR11X0_MESHCORE_RX_SYNCWORD`): the high nibble `1` comes from MeshCore's `0x12` and the low nibble `B` from Meshtastic's `0x2B`. It was verified on a T1000-E (LR1110); the LR1120 and LR1121 share the driver and have not been measured. It is written in `LR11x0Interface::setRxSyncWord()`. SX128x and LR20x0 have no hybrid receive.
+
+`/nexus MESHCORE HYBRID OFF` puts the plain Meshtastic sync word back on SX126x and LR11x0 and re-arms RX. While it is off the radio does not hear MeshCore at all. The switch lives in RAM: a reboot turns hybrid receive on again.
 
 ### Transmit
 
@@ -114,7 +118,7 @@ Only payload types MeshCore itself floods are relayed: ACK, REQ, RESPONSE, TXT_M
 
 Additional bounds:
 
-- an ADVERT flood is dropped once its path holds 8 hops (`flood_max_advert`);
+- a flood is dropped once its path holds `flood_max` hops (64 by default), an unscoped flood (no region) once it holds `flood_max_unscoped` (64), and an ADVERT once it holds `flood_max_advert` (8); `/nexus MESHCORE FLOODMAX` changes the three;
 - any flood whose next path would exceed 64 bytes is dropped;
 - our own ADVERT coming back is dropped;
 - forwarding is disabled for a `CLIENT_MUTE` role or `rebroadcast_mode = NONE`, the same policy as Meshtastic's own relay.
@@ -338,6 +342,23 @@ An incoming `TXT_MSG` is ours when its destination hash equals the first byte of
 
 Text with a non-plain type is ignored.
 
+## Nexus commands
+
+`/nexus MESHCORE` (alias `MCORE`) reads and sets the MeshCore settings. A change is volatile until `/nexus SAVE`, which writes `/prefs/meshcore_config.bin`. With `REQ_SIG` off, any Nexus channel can change them and the reply says so.
+
+| Command                                         | Effect                                                                                                                        |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `INFO`                                          | Relay mode, node type, alias, ADVERT period and time to the next one, path hash size, flood limits and the hybrid sync state. |
+| `RELAY [ON\|OFF\|AUTO]`                         | Whether MeshCore floods are relayed. `AUTO` follows the Meshtastic role and rebroadcast policy.                               |
+| `ADVERT [1-168\|NOW]`                           | Flood ADVERT period in hours, or a flood ADVERT now (at most one every 10 minutes).                                           |
+| `PATHSIZE [1-3\|DEFAULT]`                       | Bytes of path hash that each repeater appends to a flood this node originates. Default 2.                                     |
+| `FLOODMAX [<any> <unscoped> <advert>\|DEFAULT]` | Hops a flood may have crossed before it is not relayed, each 1-64. Default `64 64 8`.                                         |
+| `IDENTITY` (alias `ID`)                         | Node id, type, name and public key; with a relay alias, its first four bytes.                                                 |
+| `HYBRID [ON\|OFF]`                              | Hybrid receive sync word on SX126x and LR11x0. RAM only; `OFF` does not hear MeshCore until reboot.                           |
+| `RESET`                                         | Relay `AUTO`, default ADVERT period, 2-byte path hash and default flood limits.                                               |
+
+`HELP` lists the rest: `STATS`, `NODES`, `CONTACTS`, `REPEATERS`, `NODE`, `PATH`, `TRACE`, `SEND`, `DROP`, `UNDROP`, `DROPS`, `REGION`, `VECINOS`, `KEY`, `PPING` and `PING`.
+
 ## Threads, timers and coexistence
 
 The radio notification slot is single and already carries Meshtastic RX/TX, so MeshCore work is isolated:
@@ -353,10 +374,11 @@ All time comparisons use `Throttle`, so deadlines survive the 32-bit `millis()` 
 
 ## Persistence
 
-| Path                           | Contents                                                         |
-| ------------------------------ | ---------------------------------------------------------------- |
-| `/prefs/meshcore_identity.bin` | 32-byte Ed25519 seed, written atomically with `SafeFile`.        |
-| `/prefs/meshcore_contacts.bin` | Magic `MCC`, version 1, count, then 16 records of key plus name. |
+| Path                           | Contents                                                                                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/prefs/meshcore_identity.bin` | 32-byte Ed25519 seed, written atomically with `SafeFile`.                                                                                   |
+| `/prefs/meshcore_contacts.bin` | Magic `MCC`, version 1, count, then 16 records of key plus name.                                                                            |
+| `/prefs/meshcore_config.bin`   | Magic `MCF`, version 2 (version 1 is still read): relay mode, ADVERT hours, path hash size and the three flood limits; zero is the default. |
 
 Contacts are saved at most every 10 minutes and only when a fingerprint over keys and names changes. LRU order is not part of the fingerprint, so an ordinary ADVERT does not cause a flash write. On restore, records are loaded oldest first so the newest ends up most recently used.
 
