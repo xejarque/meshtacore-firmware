@@ -114,10 +114,17 @@ def main():
     with open(prefs_file, "w", encoding="utf-8") as f:
         json.dump(custom_prefs, f, indent=2)
 
+    extra_flags_raw = str(config.get("extra_build_flags", "")).strip()
+    clean_flags = []
+    for token in extra_flags_raw.split():
+        if re.match(r"^-[DU][A-Za-z0-9_]+(=[A-Za-z0-9_\\\".-]+)?$", token):
+            clean_flags.append(token)
+
     write_output("valid", "true")
     write_output("target", target)
     write_output("owner_long_name", long_name)
     write_output("owner_short_name", short_name)
+    write_output("extra_build_flags", " ".join(clean_flags))
     write_output("prefs_file", str(prefs_file.resolve()))
 
 

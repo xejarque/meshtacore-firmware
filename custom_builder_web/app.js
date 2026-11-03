@@ -179,6 +179,20 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnBuildViaIssue = document.getElementById("btnBuildViaIssue");
   const issueStatus = document.getElementById("issueStatus");
 
+  // Preset Selector UI Elements
+  const presetCompanion = document.getElementById("presetCompanion");
+  const presetSolarRepeater = document.getElementById("presetSolarRepeater");
+  const presetCompanionLabel = document.getElementById("presetCompanionLabel");
+  const presetSolarRepeaterLabel = document.getElementById(
+    "presetSolarRepeaterLabel",
+  );
+  const solarRepeaterOptions = document.getElementById("solarRepeaterOptions");
+  const solarIncludeGps = document.getElementById("solarIncludeGps");
+  const solarRadioDriver = document.getElementById("solarRadioDriver");
+  const hasScreen = document.getElementById("hasScreen");
+  const enableBluetooth = document.getElementById("enableBluetooth");
+  const gpsMode = document.getElementById("gpsMode");
+
   // Timezone UI Elements
   const timezoneString = document.getElementById("timezoneString");
   const tzBadge = document.getElementById("tzBadge");
@@ -440,7 +454,99 @@ document.addEventListener("DOMContentLoaded", () => {
     } else {
       customTargetGroup.classList.add("hidden");
     }
+    if (boardTarget.value === "nrf52_promicro_diy_sx1262-noscreen") {
+      if (presetSolarRepeater) presetSolarRepeater.checked = true;
+      if (solarRadioDriver) solarRadioDriver.value = "sx1262";
+      updatePresetUI();
+    }
   });
+
+  // Preset Selector Logic (Companion vs Repetidor Solar / Azoteas & Montañas)
+  function updatePresetUI() {
+    const isSolar = presetSolarRepeater && presetSolarRepeater.checked;
+    if (isSolar) {
+      if (presetCompanionLabel) presetCompanionLabel.classList.remove("active");
+      if (presetSolarRepeaterLabel)
+        presetSolarRepeaterLabel.classList.add("active");
+      if (solarRepeaterOptions) solarRepeaterOptions.classList.remove("hidden");
+
+      // Auto-set optimal repeater settings
+      if (deviceRole && deviceRole.value !== "ROUTER") {
+        deviceRole.value = "REPEATER";
+        syncRoleRestrictions();
+      }
+      if (hasScreen) hasScreen.checked = false;
+
+      // Check GPS option
+      const incGps = solarIncludeGps ? solarIncludeGps.value : "no";
+      if (incGps === "no" && gpsMode) {
+        gpsMode.value = "NOT_PRESENT";
+      }
+
+      // Check Radio Driver for ProMicro
+      const rDriver = solarRadioDriver ? solarRadioDriver.value : "sx1262";
+      if (rDriver === "sx1262") {
+        if (
+          boardTarget.value === "nrf52_promicro_diy_tcxo" ||
+          boardTarget.value === "nrf52_promicro_diy_sx1262"
+        ) {
+          boardTarget.value = "nrf52_promicro_diy_sx1262-noscreen";
+        }
+      }
+    } else {
+      if (presetSolarRepeaterLabel)
+        presetSolarRepeaterLabel.classList.remove("active");
+      if (presetCompanionLabel) presetCompanionLabel.classList.add("active");
+      if (solarRepeaterOptions) solarRepeaterOptions.classList.add("hidden");
+
+      if (deviceRole && deviceRole.value === "REPEATER") {
+        deviceRole.value = "CLIENT";
+        syncRoleRestrictions();
+      }
+      if (hasScreen) hasScreen.checked = true;
+      if (gpsMode) gpsMode.value = "ENABLED";
+
+      if (boardTarget.value === "nrf52_promicro_diy_sx1262-noscreen") {
+        boardTarget.value = "nrf52_promicro_diy_tcxo";
+      }
+    }
+
+    if (typeof updateLivePreview === "function") updateLivePreview();
+  }
+
+  if (presetCompanion)
+    presetCompanion.addEventListener("change", updatePresetUI);
+  if (presetSolarRepeater)
+    presetSolarRepeater.addEventListener("change", updatePresetUI);
+
+  if (solarIncludeGps) {
+    solarIncludeGps.addEventListener("change", () => {
+      if (solarIncludeGps.value === "no" && gpsMode) {
+        gpsMode.value = "NOT_PRESENT";
+      } else if (solarIncludeGps.value === "yes" && gpsMode) {
+        gpsMode.value = "ENABLED";
+      }
+      if (typeof updateLivePreview === "function") updateLivePreview();
+    });
+  }
+
+  if (solarRadioDriver) {
+    solarRadioDriver.addEventListener("change", () => {
+      if (solarRadioDriver.value === "sx1262") {
+        if (
+          boardTarget.value === "nrf52_promicro_diy_tcxo" ||
+          boardTarget.value === "nrf52_promicro_diy_sx1262"
+        ) {
+          boardTarget.value = "nrf52_promicro_diy_sx1262-noscreen";
+        }
+      } else if (solarRadioDriver.value === "all") {
+        if (boardTarget.value === "nrf52_promicro_diy_sx1262-noscreen") {
+          boardTarget.value = "nrf52_promicro_diy_tcxo";
+        }
+      }
+      if (typeof updateLivePreview === "function") updateLivePreview();
+    });
+  }
 
   // Toggle Custom Master Key input
   nexusMasterKey.addEventListener("change", () => {
@@ -811,9 +917,37 @@ document.addEventListener("DOMContentLoaded", () => {
     const wifiSsid = document.getElementById("wifiSsid").value.trim();
     const wifiPassword = document.getElementById("wifiPassword").value.trim();
 
+    const isSolarPreset = presetSolarRepeater && presetSolarRepeater.checked;
+    const includeGps = solarIncludeGps ? solarIncludeGps.value : "no";
+    const radioDriver = solarRadioDriver ? solarRadioDriver.value : "sx1262";
+
+    let extraBuildFlags = [];
+    if (isSolarPreset) {
+      extraBuildFlags.push("-DMESHTASTIC_EXCLUDE_SCREEN=1");
+      extraBuildFlags.push("-DMESHTASTIC_EXCLUDE_DISPLAY=1");
+      extraBuildFlags.push("-DMESHTASTIC_EXCLUDE_CANNEDMESSAGES=1");
+      extraBuildFlags.push("-DMESHTASTIC_EXCLUDE_ATAK=1");
+      extraBuildFlags.push("-DMESHTASTIC_EXCLUDE_WAYPOINT=1");
+      extraBuildFlags.push("-DMESHTASTIC_EXCLUDE_RANGETEST=1");
+
+      if (includeGps === "no") {
+        extraBuildFlags.push("-DMESHTASTIC_EXCLUDE_GPS=1");
+      }
+    } else {
+      if (!hasScreen) {
+        extraBuildFlags.push("-DMESHTASTIC_EXCLUDE_SCREEN=1");
+        extraBuildFlags.push("-DMESHTASTIC_EXCLUDE_DISPLAY=1");
+      }
+    }
+    const extraFlagsStr = extraBuildFlags.join(" ");
+
     return {
       target: target,
       custom_target: customTarget,
+      node_preset: isSolarPreset ? "solar_repeater" : "companion",
+      solar_include_gps: includeGps,
+      solar_radio_driver: radioDriver,
+      extra_build_flags: extraFlagsStr,
       owner_long_name: longName.substring(0, 24),
       owner_short_name: shortName.substring(0, 4),
       has_screen: hasScreen,
@@ -862,7 +996,6 @@ document.addEventListener("DOMContentLoaded", () => {
       wifi_ssid: wifiSsid,
       wifi_password: wifiPassword,
       admin_key: "",
-      extra_build_flags: "",
     };
   }
 
@@ -877,6 +1010,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const configPayload = {
         target: data.target,
         custom_target: data.custom_target,
+        node_preset: data.node_preset,
         owner_long_name: data.owner_long_name,
         owner_short_name: data.owner_short_name,
         has_screen: data.has_screen,
@@ -885,15 +1019,23 @@ document.addEventListener("DOMContentLoaded", () => {
         lora_region: data.lora_region,
         lora_preset_mode: data.lora_preset_mode,
         timezone_string: data.timezone_string,
+        extra_build_flags: data.extra_build_flags,
         custom_userprefs: prefs,
       };
+
+      const presetLabel =
+        data.node_preset === "solar_repeater"
+          ? "🏔️ Repetidor Solar / Azoteas & Montañas (Ultra-ligero)"
+          : "📱 Companion / Personal (Estándar)";
 
       const issueBody = `### ⚙️ Solicitud de Compilación Automática de Firmware Meshtacore
 
 - **Placa Objetivo:** \`${data.target}\`
+- **Perfil de Nodo:** ${presetLabel}
 - **Nombre del Nodo:** \`${data.owner_long_name}\` (\`${data.owner_short_name}\`)
 - **Zona Horaria:** \`${data.timezone_string}\`
 - **Rol:** \`${data.device_role}\` | **Región LoRa:** \`${data.lora_region}\`
+- **Flags Extra de Optimización:** \`${data.extra_build_flags || "Ninguno (Estándar)"}\`
 
 \`\`\`json:meshtacore-build-config
 ${JSON.stringify(configPayload, null, 2)}

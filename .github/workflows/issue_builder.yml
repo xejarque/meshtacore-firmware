@@ -125,7 +125,7 @@ jobs:
       - name: Compile Custom Firmware
         if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
         env:
-          PLATFORMIO_BUILD_FLAGS: "-DHAS_NEXUS=1 -DAPP_REPO=\\\"meshtacore-firmware\\\""
+          PLATFORMIO_BUILD_FLAGS: "-DHAS_NEXUS=1 -DAPP_REPO=\\\"meshtacore-firmware\\\" ${{ steps.parse-step.outputs.extra_build_flags }}"
           PIP_BREAK_SYSTEM_PACKAGES: "1"
         run: |
           TARGET="${{ steps.parse-step.outputs.target }}"
