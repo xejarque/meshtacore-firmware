@@ -112,22 +112,9 @@ static bool isDirectNeighbor(const MeshCoreNode &n)
 }
 #endif
 
-static void cleanNeighborName(const char *src, char *out, size_t cap, size_t maxBytes)
+void NexusModule::cleanNeighborName(const char *src, char *out, size_t cap, size_t maxBytes)
 {
-    if (!src || !out || cap == 0) {
-        if (out && cap > 0)
-            out[0] = '\0';
-        return;
-    }
-    char cleaned[48];
-    cleanPathLabel(src, cleaned, sizeof(cleaned), sizeof(cleaned) - 1);
-    size_t len = strlen(cleaned);
-    if (len > maxBytes) {
-        const size_t keep = utf8PrefixLen(cleaned, maxBytes > 2 ? maxBytes - 2 : maxBytes);
-        snprintf(out, cap, "%.*s..", (int)keep, cleaned);
-    } else {
-        snprintf(out, cap, "%s", cleaned);
-    }
+    ::cleanNeighborName(src, out, cap, maxBytes);
 }
 
 NexusModule::DirectNeighborEntry NexusModule::neighborEntries[32];
@@ -1112,7 +1099,7 @@ bool NexusModule::formatMeshCorePingReply(const meshtastic_MeshPacket &mp, char 
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
     static char routeLine[200];
     routeLine[0] = '\0';
-    const float fErr = ping_freqerr ? mp.rx_frequency_error : 0.0f;
+    const float fErr = mp.rx_frequency_error;
     if (meshCoreCompanion.formatRouteForPacket(mp.id, routeLine, sizeof(routeLine), fErr)) {
         l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "%s", routeLine);
         return true;
@@ -1121,19 +1108,23 @@ bool NexusModule::formatMeshCorePingReply(const meshtastic_MeshPacket &mp, char 
 
     uint32_t hopsUsed = (mp.hop_start >= mp.hop_limit) ? (mp.hop_start - mp.hop_limit) : 0;
     if (hopsUsed == 0) {
-        l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "⚡ directo");
+        l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "⚡ directo\n");
+        if (mp.has_rx_rssi) {
+            l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "📶 SNR: %.1f dB · RSSI: %d dBm · 🔬 Δf %.0fHz",
+                          (double)mp.rx_snr, (int)mp.rx_rssi, (double)mp.rx_frequency_error);
+        } else {
+            l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "📶 SNR: %.1f dB · 🔬 Δf %.0fHz", (double)mp.rx_snr,
+                          (double)mp.rx_frequency_error);
+        }
     } else {
-        const char *glyph = hopGlyph(hopsUsed);
-        if (glyph)
-            l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "%s", glyph);
-        else
-            l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "%u saltos", (unsigned)hopsUsed);
-    }
-    char sig[64];
-    formatSignal(sig, sizeof(sig), mp.rx_snr, mp.has_rx_rssi, mp.rx_rssi);
-    l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "%s", sig);
-    if (ping_freqerr && mp.rx_frequency_error != 0.0f) {
-        l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, " · Δf %.0fHz", (double)mp.rx_frequency_error);
+        l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "%u🦘:\n", (unsigned)hopsUsed);
+        if (mp.has_rx_rssi) {
+            l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "SNR: %.1f dB · RSSI: %d dBm · Δf %.0fHz",
+                          (double)mp.rx_snr, (int)mp.rx_rssi, (double)mp.rx_frequency_error);
+        } else {
+            l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "SNR: %.1f dB · Δf %.0fHz", (double)mp.rx_snr,
+                          (double)mp.rx_frequency_error);
+        }
     }
     return true;
 }

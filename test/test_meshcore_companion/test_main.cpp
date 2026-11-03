@@ -1972,6 +1972,38 @@ void test_unified_vecinos_formatting(void)
     TEST_ASSERT_NOT_NULL(strstr(line, "📶 *-3.5dB*"));
 }
 
+/**
+ * Pins MeshCore PPING formatting:
+ * Guards against regression of newline separators per hop, kangaroo emoji for hop count,
+ * direct bolt + emojis on direct pings, and delta frequency error reporting.
+ */
+void test_meshcore_ping_formatting(void)
+{
+    GroupSetup s;
+    MeshCoreCompanion::HeardPath directRoute;
+    directRoute.hopCount = 0;
+    directRoute.snr = 8.5f;
+    directRoute.rssi = -70;
+
+    char directOut[128];
+    TEST_ASSERT_TRUE(s.c.formatRouteLine(directRoute, directOut, sizeof(directOut), 50.0f));
+    TEST_ASSERT_NOT_NULL(strstr(directOut, "⚡ directo\n"));
+    TEST_ASSERT_NOT_NULL(strstr(directOut, "📶 SNR: 8.5 dB · RSSI: -70 dBm · 🔬 Δf 50Hz"));
+
+    MeshCoreCompanion::HeardPath hopRoute;
+    hopRoute.hopCount = 2;
+    hopRoute.hashSize = 1;
+    hopRoute.path[0] = 0xAA;
+    hopRoute.path[1] = 0xBB;
+    hopRoute.snr = -3.2f;
+    hopRoute.rssi = -88;
+
+    char hopOut[128];
+    TEST_ASSERT_TRUE(s.c.formatRouteLine(hopRoute, hopOut, sizeof(hopOut), -12.0f));
+    TEST_ASSERT_NOT_NULL(strstr(hopOut, "2🦘:\n"));
+    TEST_ASSERT_NOT_NULL(strstr(hopOut, "SNR: -3.2 dB · RSSI: -88 dBm · Δf -12Hz"));
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -2056,6 +2088,7 @@ void setup()
     RUN_TEST(test_meshcore_heard_find_by_from);
     RUN_TEST(test_meshcore_format_route_line_bounds);
     RUN_TEST(test_unified_vecinos_formatting);
+    RUN_TEST(test_meshcore_ping_formatting);
 #endif
     exit(UNITY_END());
 }

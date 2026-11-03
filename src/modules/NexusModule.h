@@ -196,6 +196,7 @@ public:
     // Shared scratch for both neighbour listings (static BSS keeps ~1.5 KB off the FreeRTOS stack). Not re-entrant: only
     // the Nexus command thread fills it, and each listing is rendered before the next one starts.
     static DirectNeighborEntry neighborEntries[32];
+    static void cleanNeighborName(const char *src, char *out, size_t cap, size_t maxBytes = 16);
     static size_t formatNeighborLine(const DirectNeighborEntry &entry, uint32_t now, char *out, size_t outLen);
     static void appendNeighborLines(const DirectNeighborEntry *entries, size_t count, uint32_t now, const char *header,
                                     char *reply, size_t replyLen);

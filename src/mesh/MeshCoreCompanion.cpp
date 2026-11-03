@@ -870,19 +870,17 @@ bool MeshCoreCompanion::formatRouteLine(const HeardPath &route, char *out, size_
 
     size_t len = 0;
     if (route.hopCount == 0) {
-        int n = snprintf(out, cap, "⚡ directo");
+        int n = snprintf(out, cap, "⚡ directo\n");
         if (n > 0)
             len = (size_t)n < cap ? (size_t)n : cap - 1;
+        int nSig = snprintf(out + len, cap - len, "📶 SNR: %.1f dB · RSSI: %d dBm · 🔬 Δf %.0fHz", (double)route.snr,
+                            (int)route.rssi, (double)freqErr);
+        if (nSig > 0)
+            len += (size_t)nSig < (cap - len) ? (size_t)nSig : (cap - len - 1);
     } else {
-        if (const char *glyph = hopGlyph(route.hopCount)) {
-            int n = snprintf(out, cap, "%s", glyph);
-            if (n > 0)
-                len = (size_t)n < cap ? (size_t)n : cap - 1;
-        } else {
-            int n = snprintf(out, cap, "%u saltos", (unsigned)route.hopCount);
-            if (n > 0)
-                len = (size_t)n < cap ? (size_t)n : cap - 1;
-        }
+        int n = snprintf(out, cap, "%u🦘:\n", (unsigned)route.hopCount);
+        if (n > 0)
+            len = (size_t)n < cap ? (size_t)n : cap - 1;
 
         const size_t stored = route.hashSize ? sizeof(route.path) / route.hashSize : 0;
         const size_t total = route.hopCount < stored ? route.hopCount : stored;
@@ -896,37 +894,32 @@ bool MeshCoreCompanion::formatRouteLine(const HeardPath &route, char *out, size_
             formatHopLabel(names, nameCount, one, sizeof(one));
             if (!one[0])
                 formatHopHex(hash, route.hashSize, one, sizeof(one));
-            int n = snprintf(out + len, cap - len, hop ? " › %s" : " %s", one);
-            if (n > 0) {
-                if ((size_t)n < cap - len)
-                    len += (size_t)n;
+            else {
+                char cleanOne[48];
+                cleanNeighborName(one, cleanOne, sizeof(cleanOne), 14);
+                strncpy(one, cleanOne, sizeof(one) - 1);
+                one[sizeof(one) - 1] = '\0';
+            }
+            int nHop = snprintf(out + len, cap - len, "%s\n", one);
+            if (nHop > 0) {
+                if ((size_t)nHop < cap - len)
+                    len += (size_t)nHop;
                 else {
                     len = cap - 1;
                     break;
                 }
             }
         }
-    }
 
-    if (len < cap - 1) {
-        char sig[64];
-        formatSignal(sig, sizeof(sig), route.snr, true, route.rssi);
-        int n = snprintf(out + len, cap - len, "%s", sig);
-        if (n > 0) {
-            if ((size_t)n < cap - len)
-                len += (size_t)n;
-            else
-                len = cap - 1;
-        }
-    }
-
-    if (freqErr != 0.0f && len < cap - 1) {
-        int n = snprintf(out + len, cap - len, " · Δf %.0fHz", (double)freqErr);
-        if (n > 0) {
-            if ((size_t)n < cap - len)
-                len += (size_t)n;
-            else
-                len = cap - 1;
+        if (len < cap - 1) {
+            int nSig = snprintf(out + len, cap - len, "SNR: %.1f dB · RSSI: %d dBm · Δf %.0fHz", (double)route.snr,
+                                (int)route.rssi, (double)freqErr);
+            if (nSig > 0) {
+                if ((size_t)nSig < cap - len)
+                    len += (size_t)nSig;
+                else
+                    len = cap - 1;
+            }
         }
     }
 
