@@ -1,5 +1,5 @@
 // Unit tests for MeshCoreConfig in src/mesh/MeshCoreConfig.h - the MeshCore settings Nexus changes at run time (relay
-// mode and ADVERT period) and their image in /prefs/meshcore_config.bin.
+// mode, ADVERT period, path hash size and flood depth limits) and their image in /prefs/meshcore_config.bin.
 //
 // Why it matters: these settings let an operator switch the MeshCore relay off or change how often the node floods its
 // ADVERT. Every node re-sends a flood, so a wrong period costs the whole mesh airtime. A corrupt or future file must
@@ -7,7 +7,8 @@
 //
 // Regressions guarded: a round trip that drops the relay mode or the period; a zero period that does not mean the 12 h
 // default; a period outside 1..168 h accepted; a relay mode outside the three known values accepted; a corrupt,
-// truncated or future-version image partly applied; an encode into a buffer too small writing past its end.
+// truncated or future-version image partly applied; an encode into a buffer too small writing past its end; a version 1
+// file from a node already in the field no longer loading; a path size or flood limit outside its range accepted.
 #include "mesh/MeshCoreConfig.h"
 
 // Declares setup() and loop() with C linkage, which the portduino main() calls. Without it this file's setup() gets C++
@@ -142,6 +143,81 @@ static void test_encode_refuses_a_small_buffer()
         TEST_ASSERT_EQUAL_UINT8(0xAA, image[i]);
 }
 
+static void test_path_size_and_flood_limits_round_trip()
+{
+    MeshCoreConfig in;
+    in.pathHashSize = 3;
+    in.floodMax = 12;
+    in.floodMaxUnscoped = 6;
+    in.floodMaxAdvert = 2;
+    uint8_t image[MeshCoreConfig::IMAGE_LEN];
+    TEST_ASSERT_EQUAL_UINT32(MeshCoreConfig::IMAGE_LEN, MeshCoreConfig::encode(in, image, sizeof(image)));
+
+    MeshCoreConfig out;
+    TEST_ASSERT_TRUE(MeshCoreConfig::decode(image, sizeof(image), &out));
+    TEST_ASSERT_EQUAL_UINT8(3, out.effectivePathHashSize());
+    TEST_ASSERT_EQUAL_UINT8(12, out.effectiveFloodMax());
+    TEST_ASSERT_EQUAL_UINT8(6, out.effectiveFloodMaxUnscoped());
+    TEST_ASSERT_EQUAL_UINT8(2, out.effectiveFloodMaxAdvert());
+}
+
+static void test_zero_path_size_and_flood_limits_mean_meshcore_defaults()
+{
+    // This fork has always originated floods with 2-byte path hashes, and MeshCore's own flood limits are 64/64/8:
+    // a config that sets nothing must keep both.
+    const MeshCoreConfig defaults;
+    TEST_ASSERT_EQUAL_UINT8(2, defaults.effectivePathHashSize());
+    TEST_ASSERT_EQUAL_UINT8(64, defaults.effectiveFloodMax());
+    TEST_ASSERT_EQUAL_UINT8(64, defaults.effectiveFloodMaxUnscoped());
+    TEST_ASSERT_EQUAL_UINT8(8, defaults.effectiveFloodMaxAdvert());
+}
+
+static void test_version_one_image_still_loads_with_default_path_size_and_limits()
+{
+    // Nodes already running have a version 1 file (relay and period only): it must keep working after the upgrade.
+    uint8_t v1[MeshCoreConfig::IMAGE_LEN_V1];
+    memcpy(v1, MeshCoreConfig::MAGIC, sizeof(MeshCoreConfig::MAGIC));
+    v1[3] = 1;
+    v1[4] = MeshCoreConfig::RELAY_OFF;
+    v1[5] = 24;
+    const uint32_t crc = crc32Buffer(v1, MeshCoreConfig::BODY_LEN_V1);
+    for (size_t i = 0; i < 4; i++)
+        v1[MeshCoreConfig::BODY_LEN_V1 + i] = (uint8_t)(crc >> (8 * i));
+
+    MeshCoreConfig out;
+    out.pathHashSize = 3;
+    TEST_ASSERT_TRUE(MeshCoreConfig::decode(v1, sizeof(v1), &out));
+    TEST_ASSERT_EQUAL_UINT8(MeshCoreConfig::RELAY_OFF, out.relay);
+    TEST_ASSERT_EQUAL_UINT8(24, out.advertHours);
+    TEST_ASSERT_EQUAL_UINT8(2, out.effectivePathHashSize());
+    TEST_ASSERT_EQUAL_UINT8(64, out.effectiveFloodMax());
+}
+
+static void test_out_of_range_path_size_or_flood_limit_loads_nothing()
+{
+    uint8_t image[MeshCoreConfig::IMAGE_LEN];
+    MeshCoreConfig out;
+    out.floodMax = 9;
+
+    MeshCoreConfig badPath;
+    badPath.pathHashSize = 4;
+    MeshCoreConfig::encode(badPath, image, sizeof(image));
+    TEST_ASSERT_FALSE(MeshCoreConfig::decode(image, sizeof(image), &out));
+
+    MeshCoreConfig badFlood;
+    badFlood.floodMaxAdvert = 65;
+    MeshCoreConfig::encode(badFlood, image, sizeof(image));
+    TEST_ASSERT_FALSE(MeshCoreConfig::decode(image, sizeof(image), &out));
+    TEST_ASSERT_EQUAL_UINT8(9, out.floodMax);
+
+    TEST_ASSERT_FALSE(MeshCoreConfig::validPathHashSize(0));
+    TEST_ASSERT_TRUE(MeshCoreConfig::validPathHashSize(1));
+    TEST_ASSERT_TRUE(MeshCoreConfig::validPathHashSize(3));
+    TEST_ASSERT_FALSE(MeshCoreConfig::validFloodMax(0));
+    TEST_ASSERT_TRUE(MeshCoreConfig::validFloodMax(64));
+    TEST_ASSERT_FALSE(MeshCoreConfig::validFloodMax(65));
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -155,6 +231,10 @@ void setup()
     RUN_TEST(test_truncated_or_padded_image_loads_nothing);
     RUN_TEST(test_out_of_range_values_load_nothing_even_with_a_valid_checksum);
     RUN_TEST(test_encode_refuses_a_small_buffer);
+    RUN_TEST(test_path_size_and_flood_limits_round_trip);
+    RUN_TEST(test_zero_path_size_and_flood_limits_mean_meshcore_defaults);
+    RUN_TEST(test_version_one_image_still_loads_with_default_path_size_and_limits);
+    RUN_TEST(test_out_of_range_path_size_or_flood_limit_loads_nothing);
     exit(UNITY_END());
 }
 

@@ -266,10 +266,8 @@ void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, float
     // A flood that never got its turn is worthless once its dupe window is over: free its slot.
     expireStale();
 
-    // MeshCore's flood_max_advert default (NodePrefs.h): ADVERT floods are not forwarded past 8
-    // hops. The general flood_max (64) is implied by the 6-bit hop count plus the path bound below.
-    if (info.payload_type == MC_PAYLOAD_TYPE_ADVERT && info.path_hash_count >= MAX_FLOOD_HOPS_ADVERT) {
-        LOG_DEBUG("MeshCore: advert flood past %u hops, drop", info.path_hash_count);
+    if (const char *tooDeep = floodDepthVerdict(info)) {
+        LOG_DEBUG("MeshCore: %s flood past its limit (%u hops), drop", tooDeep, info.path_hash_count);
         rxDropped++;
         return;
     }
@@ -572,6 +570,17 @@ bool MeshCoreRepeater::wasRecentlySeen(uint32_t hash) const
 void MeshCoreRepeater::rememberFrame(uint32_t hash)
 {
     dedup.remember(hash);
+}
+
+const char *MeshCoreRepeater::floodDepthVerdict(const FrameInfo &info) const
+{
+    if (info.path_hash_count >= floodMax)
+        return "general";
+    if (info.route_type == MC_ROUTE_FLOOD && info.path_hash_count >= floodMaxUnscoped)
+        return "unscoped";
+    if (info.payload_type == MC_PAYLOAD_TYPE_ADVERT && info.path_hash_count >= floodMaxAdvert)
+        return "advert";
+    return nullptr;
 }
 
 bool MeshCoreRepeater::isFloodForwardable(const FrameInfo &info)
@@ -1046,7 +1055,7 @@ size_t MeshCoreRepeater::buildAdvert(uint8_t *out, size_t outLen, const char *na
         out[i++] = 0; // Transport code 1
         out[i++] = 0;
     }
-    out[i++] = flood ? OWN_FLOOD_PATH_LEN_BYTE : 0x00;
+    out[i++] = flood ? ownFloodPathLenByte() : 0x00;
 
     const size_t payloadStart = i;
     memcpy(&out[i], pub, MC_PUB_KEY_SIZE);

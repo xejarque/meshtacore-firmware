@@ -186,18 +186,20 @@ template <typename T> int16_t SX128xInterface<T>::programAltModemFLRC()
 {
     const meshtastic::NexusModule::NexusAltModem &m = meshtastic::nexusModule->altModem;
     limitPower(SX128X_MAX_POWER);
-    uint8_t cr = (m.cr == 2) ? RADIOLIB_SX128X_FLRC_CR_1_2
-               : (m.cr == 3) ? RADIOLIB_SX128X_FLRC_CR_3_4
-                             : RADIOLIB_SX128X_FLRC_CR_1_0;
+    // beginFLRC()/setCodingRate() take the shorthand 2|3|4 and map it to the register value themselves; passing
+    // RADIOLIB_SX128X_FLRC_CR_* (0x00/0x02/0x04) made CR 1/2 an invalid 0 and turned CR 3/4 into 1/2
+    uint8_t cr = (m.cr == 2 || m.cr == 3) ? m.cr : 4;
     uint8_t shaping = (m.bt == 0) ? RADIOLIB_SHAPING_NONE
                     : (m.bt == 1) ? RADIOLIB_SHAPING_0_3
                                   : RADIOLIB_SHAPING_0_5;
     // beginFLRC(freq MHz, br kbps, cr selector, pwr dBm, preamble bits, shaping) —
     // explicit params so both sides of an SX128x pair always match (Phase 2 ruling).
-    int16_t err = lora.beginFLRC(getFreq(), (uint16_t)m.brKbps, cr, power, m.preambleBits, shaping);
+    // Bench (JenTastic 2.8.105): 16- and 24-bit preambles lost every packet at 650 kbps CR 1/2; 32 bits worked at 260/650/1300k.
+    uint16_t preambleBits = max(m.preambleBits, FLRC_MIN_PREAMBLE_BITS);
+    int16_t err = lora.beginFLRC(getFreq(), (uint16_t)m.brKbps, cr, power, preambleBits, shaping);
     if (err != RADIOLIB_ERR_NONE) {
         LOG_ERROR("SX128X beginFLRC(%.3fM/%.1fk/cr=%u/%d/%u) %s%d", getFreq(), m.brKbps, cr,
-                  power, m.preambleBits, radioLibErr, err);
+                  power, preambleBits, radioLibErr, err);
         return err;
     }
     err = lora.variablePacketLengthMode(RADIOLIB_SX128X_MAX_PACKET_LENGTH);
@@ -531,8 +533,9 @@ template <typename T> bool SX128xInterface<T>::isChannelActive()
     // drops getRSSI to the standby floor and makes channel activity detection blind.
     if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
         float rssi = lora.getRSSI(false); // instantaneous, not last-packet status
-        LOG_TRACE("SX128X alt-modem channel sniff RSSI=%.1f dBm", rssi);
-        if (rssi > -100.0f)
+        float threshold = max(altSensitivityDbm(), (float)getNoiseFloor()) + 10.0f;
+        LOG_TRACE("SX128X alt-modem channel sniff RSSI=%.1f dBm (busy above %.1f)", rssi, threshold);
+        if (rssi > threshold)
             return true;
         int16_t result = trySetStandby();
         if (result != RADIOLIB_ERR_NONE) {
@@ -606,4 +609,16 @@ template <typename T> int16_t SX128xInterface<T>::getCurrentRSSI()
     float rssi = lora.getRSSI(false);
     return (int16_t)round(rssi);
 }
+/// Approximate SX1280 sensitivity (datasheet tables) of the active GFSK/FLRC setting, for carrier sense
+template <typename T> float SX128xInterface<T>::altSensitivityDbm()
+{
+    const auto &m = meshtastic::nexusModule->altModem;
+    if (m.mode == 2) {
+        float s = m.brKbps >= 1300 ? -99 : m.brKbps >= 1000 ? -100 : m.brKbps >= 520 ? -104 : -106; // CR 1/2
+        return s + (m.cr == 3 ? 2 : m.cr == 4 ? 3 : 0);
+    }
+    return m.brKbps >= 2000 ? -83 : m.brKbps >= 1600 ? -85 : m.brKbps >= 1000 ? -87 : m.brKbps >= 800 ? -88
+           : m.brKbps >= 500 ? -90 : m.brKbps >= 250 ? -92 : -94;
+}
+
 #endif

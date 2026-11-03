@@ -178,8 +178,8 @@ size_t MeshCoreCompanion::encodeGroupText(const uint8_t *key, size_t keyLen, con
     if (!channelHash(key, keyLen, &hash))
         return 0;
 
-    out[0] = (0x05 << 2) | 0x01;                        // GRP_TXT, ROUTE_FLOOD
-    out[1] = MeshCoreRepeater::OWN_FLOOD_PATH_LEN_BYTE; // zero hops, 2-byte hashes
+    out[0] = (0x05 << 2) | 0x01;                      // GRP_TXT, ROUTE_FLOOD
+    out[1] = MeshCoreRepeater::ownFloodPathLenByte(); // zero hops, hashes of the configured size
     out[2] = hash;
 
     SHA256 hmac;
@@ -287,8 +287,8 @@ static size_t sealDatagram(const uint8_t secret[32], uint8_t payloadType, uint8_
     if (cipherLen == 0 || 6 + cipherLen > outCap)
         return 0;
 
-    out[0] = (payloadType << 2) | 0x01;                 // ROUTE_FLOOD
-    out[1] = MeshCoreRepeater::OWN_FLOOD_PATH_LEN_BYTE; // zero hops, 2-byte hashes
+    out[0] = (payloadType << 2) | 0x01;               // ROUTE_FLOOD
+    out[1] = MeshCoreRepeater::ownFloodPathLenByte(); // zero hops, hashes of the configured size
     out[2] = destHash;
     out[3] = srcHash;
 
@@ -424,7 +424,7 @@ size_t MeshCoreCompanion::encodeAck(uint32_t hash, uint8_t *out, size_t outCap)
     if (!out || outCap < 6)
         return 0;
     out[0] = (0x03 << 2) | 0x01; // ACK, ROUTE_FLOOD
-    out[1] = MeshCoreRepeater::OWN_FLOOD_PATH_LEN_BYTE;
+    out[1] = MeshCoreRepeater::ownFloodPathLenByte();
     writeLe32(&out[2], hash);
     return 6;
 }

@@ -402,9 +402,19 @@ void RadioLibInterface::reloadMeshCoreConfig()
         return;
     }
     meshCoreConfig = loaded;
+    applyMeshCoreConfig();
+    LOG_INFO("MeshCore config: relay %u, advert every %uh, path %u byte(s), flood max %u/%u/%u", (unsigned)meshCoreConfig.relay,
+             (unsigned)meshCoreConfig.effectiveAdvertHours(), (unsigned)meshCoreConfig.effectivePathHashSize(),
+             (unsigned)meshCoreConfig.effectiveFloodMax(), (unsigned)meshCoreConfig.effectiveFloodMaxUnscoped(),
+             (unsigned)meshCoreConfig.effectiveFloodMaxAdvert());
+}
+
+void RadioLibInterface::applyMeshCoreConfig()
+{
     meshCoreRepeater.setRelayMode(meshCoreConfig.relay);
-    LOG_INFO("MeshCore config: relay %u, advert every %uh", (unsigned)meshCoreConfig.relay,
-             (unsigned)meshCoreConfig.effectiveAdvertHours());
+    MeshCoreRepeater::setOwnPathHashSize(meshCoreConfig.effectivePathHashSize());
+    meshCoreRepeater.setFloodLimits(meshCoreConfig.effectiveFloodMax(), meshCoreConfig.effectiveFloodMaxUnscoped(),
+                                    meshCoreConfig.effectiveFloodMaxAdvert());
 }
 
 bool RadioLibInterface::saveMeshCoreConfig()
@@ -460,6 +470,47 @@ void RadioLibInterface::setMeshCoreAdvertHours(uint8_t hours)
 {
     ensureMeshCoreConfigLoaded();
     meshCoreConfig.advertHours = hours;
+}
+
+void RadioLibInterface::setMeshCorePathHashSize(uint8_t bytes)
+{
+    ensureMeshCoreConfigLoaded();
+    meshCoreConfig.pathHashSize = bytes;
+    applyMeshCoreConfig();
+}
+
+void RadioLibInterface::setMeshCoreFloodLimits(uint8_t general, uint8_t unscoped, uint8_t advert)
+{
+    ensureMeshCoreConfigLoaded();
+    meshCoreConfig.floodMax = general;
+    meshCoreConfig.floodMaxUnscoped = unscoped;
+    meshCoreConfig.floodMaxAdvert = advert;
+    applyMeshCoreConfig();
+}
+
+bool RadioLibInterface::setMeshCoreHybridSync(bool enabled)
+{
+#if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
+    if (!meshCoreTxSupported())
+        return false;
+    meshCoreHybridSync = enabled;
+    // A frame is on the air or being received: the next startReceive() (after it) picks the new sync word up.
+    if (!isSending() && !(isReceiving && isActivelyReceiving()))
+        startReceive();
+    return true;
+#else
+    (void)enabled;
+    return false;
+#endif
+}
+
+bool RadioLibInterface::isMeshCoreHybridSync() const
+{
+#if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
+    return meshCoreHybridSync;
+#else
+    return false;
+#endif
 }
 
 bool RadioLibInterface::requestMeshCoreAdvertNow()

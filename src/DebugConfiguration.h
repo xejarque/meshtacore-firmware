@@ -83,6 +83,13 @@ extern MemGet memGet;
 #define LOG_TRACE(...)
 #endif
 
+// nRF52 flash is nearly full, so its builds leave the LOG_DEBUG strings out (about 26 KB on thinknode_m1) unless the build
+// asks for them with -DMESHTASTIC_KEEP_DEBUG_LOG. Decided here, not with -U in a platformio.ini, because PlatformIO places
+// -U after -D and an inherited flag is then hard to undo.
+#if defined(ARCH_NRF52) && !defined(MESHTASTIC_KEEP_DEBUG_LOG)
+#define MESHTASTIC_EXCLUDE_DEBUG_LOG
+#endif
+
 // Drop only LOG_DEBUG format strings; INFO/WARN/ERROR still compile in. Saves ~28 KB
 // on nRF52 screen builds (measured 2026-10-28) without losing the serial console.
 #if defined(MESHTASTIC_EXCLUDE_DEBUG_LOG)

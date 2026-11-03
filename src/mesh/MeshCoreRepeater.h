@@ -34,10 +34,17 @@ class MeshCoreRepeater
     static constexpr size_t MAX_FRAME_LEN = 255; // MeshCore MAX_TRANS_UNIT
 
     /**
-     * path_len byte of a flood we originate: no hops yet, 2-byte path hashes (upper bits = hash size - 1). The sender
-     * picks the size and every repeater appends hashes of that size, so this is what clients show as the path width.
+     * path_len byte of a flood we originate: no hops yet, path hashes of the configured size (upper bits = hash size - 1).
+     * The sender picks the size and every repeater appends hashes of that size, so this is what clients show as the path
+     * width. Two bytes unless /nexus MESHCORE PATHSIZE says otherwise.
      */
-    static constexpr uint8_t OWN_FLOOD_PATH_LEN_BYTE = (2 - 1) << 6;
+    static uint8_t ownFloodPathLenByte() { return (uint8_t)((ownPathHashSize - 1) << 6); }
+    static uint8_t getOwnPathHashSize() { return ownPathHashSize; }
+    static void setOwnPathHashSize(uint8_t bytes)
+    {
+        if (MeshCoreConfig::validPathHashSize(bytes))
+            ownPathHashSize = bytes;
+    }
 
     /** MeshCore MAX_PATH_SIZE: the flood path budget in bytes, shared by every MeshCore node. */
     static constexpr size_t MAX_PATH_SIZE = 64;
@@ -170,6 +177,17 @@ class MeshCoreRepeater
     void setRelayMode(MeshCoreConfig::RelayMode mode) { relayMode = mode; }
     MeshCoreConfig::RelayMode getRelayMode() const { return relayMode; }
 
+    /// How many repeaters a flood may have crossed before we stop relaying it: any flood, an unscoped one (no region), an ADVERT.
+    void setFloodLimits(uint8_t general, uint8_t unscoped, uint8_t advert)
+    {
+        floodMax = general;
+        floodMaxUnscoped = unscoped;
+        floodMaxAdvert = advert;
+    }
+    uint8_t getFloodMax() const { return floodMax; }
+    uint8_t getFloodMaxUnscoped() const { return floodMaxUnscoped; }
+    uint8_t getFloodMaxAdvert() const { return floodMaxAdvert; }
+
     const MeshCoreRegionMap &getRegionMap() const { return regionMap; }
     MeshCoreRegionMap &getRegionMap() { return regionMap; }
 
@@ -211,10 +229,15 @@ class MeshCoreRepeater
     // many hops) must still be recognised, or it would be relayed a second time.
     static constexpr size_t DEDUP_ENTRIES = 160;
 
-    // MeshCore's flood_max_advert default (NodePrefs.h): ADVERT floods stop being forwarded
-    // after this many hops. flood_max itself (64) is implied by the 6-bit hop count plus the
-    // MAX_PATH_SIZE bound above.
-    static constexpr uint8_t MAX_FLOOD_HOPS_ADVERT = 8;
+    // MeshCore's flood_max, flood_max_unscoped and flood_max_advert (NodePrefs.h): a flood is not forwarded once it has crossed
+    // this many repeaters. The defaults are MeshCore's own; /nexus MESHCORE FLOODMAX changes them.
+    uint8_t floodMax = MeshCoreConfig::DEFAULT_FLOOD_MAX;
+    uint8_t floodMaxUnscoped = MeshCoreConfig::DEFAULT_FLOOD_MAX_UNSCOPED;
+    uint8_t floodMaxAdvert = MeshCoreConfig::DEFAULT_FLOOD_MAX_ADVERT;
+    /// Why a flood must not be relayed because of its depth, or nullptr when its depth is fine.
+    const char *floodDepthVerdict(const FrameInfo &info) const;
+
+    static inline uint8_t ownPathHashSize = MeshCoreConfig::DEFAULT_PATH_HASH_SIZE;
 
     // Adaptive relay delay (design follows ZephCore's ContentionTracker / computeAdaptiveFloodDelay,
     // MIT): jitter is 20ms + rand(0, 5 x airtime x factor), capped at 6 x airtime and 2000ms;

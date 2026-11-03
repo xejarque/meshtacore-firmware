@@ -354,7 +354,8 @@ template <typename T> int16_t LR20x0Interface<T>::programAltModemFLRC()
     uint8_t shaping = (m.bt == 0) ? RADIOLIB_SHAPING_NONE
                     : (m.bt == 1) ? RADIOLIB_SHAPING_0_3
                                   : RADIOLIB_SHAPING_0_5;
-    int16_t err = lora.beginFLRC(getFreq(), (uint16_t)m.brKbps, cr, power, m.preambleBits,
+    uint16_t preambleBits = max(m.preambleBits, (uint16_t)32);
+    int16_t err = lora.beginFLRC(getFreq(), (uint16_t)m.brKbps, cr, power, preambleBits,
                                  shaping, lora.tcxoVoltage);
     if (err != RADIOLIB_ERR_NONE) {
         LOG_ERROR("LR2021 beginFLRC(%.3fM/%.1fk/cr=%u/%d/%u) %s%d", getFreq(), m.brKbps, cr,
@@ -857,8 +858,9 @@ template <typename T> bool LR20x0Interface<T>::isChannelActive()
     // drops getRSSI to the standby floor and makes channel activity detection blind.
     if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
         float rssi = lora.getRSSI(false, true); // instantaneous, not last-packet status
-        LOG_TRACE("LR2021 alt-modem channel sniff RSSI=%.1f dBm", rssi);
-        if (rssi > -100.0f)
+        float threshold = max(altSensitivityDbm(), (float)getNoiseFloor()) + 10.0f;
+        LOG_TRACE("LR2021 alt-modem channel sniff RSSI=%.1f dBm (busy above %.1f)", rssi, threshold);
+        if (rssi > threshold)
             return true;
         int16_t result = trySetStandby();
         if (result != RADIOLIB_ERR_NONE) {
@@ -907,7 +909,7 @@ template <typename T> bool LR20x0Interface<T>::isActivelyReceiving()
 template <typename T> void LR20x0Interface<T>::resetAGC()
 {
     // Safety: don't reset mid-packet
-    if (sendingPacket != NULL || (isReceiving && isActivelyReceiving()))
+    if (isSending() || (isReceiving && isActivelyReceiving()))
         return;
 
     LOG_DEBUG("LR20x0 AGC reset: warm sleep + Calibrate(0x3F)");
@@ -986,4 +988,18 @@ template <typename T> bool LR20x0Interface<T>::recoverChipStateLoss()
 
 // Don't leak the alias into the files InterfacesTemplates.cpp includes after this one.
 #undef LR20x0
+/// Approximate LR2021 sensitivity (Semtech datasheet) of the active GFSK/FLRC setting
+template <typename T> float LR20x0Interface<T>::altSensitivityDbm()
+{
+    const auto &m = meshtastic::nexusModule->altModem;
+    if (m.mode == 2) {
+        float s = m.brKbps >= 1300 ? -99.0f : m.brKbps >= 1000 ? -100.0f : m.brKbps >= 520 ? -104.0f : -106.0f;
+        return s + (m.cr == 3 ? 2.0f : m.cr == 4 ? 3.0f : 0.0f);
+    }
+    if (getFreq() > 1000.0f) {
+        return m.brKbps >= 2000 ? -85.0f : m.brKbps >= 1000 ? -89.0f : m.brKbps >= 500 ? -92.0f : -95.0f;
+    }
+    return m.brKbps >= 250 ? -99.0f : m.brKbps >= 150 ? -103.0f : m.brKbps >= 50 ? -108.0f : m.brKbps >= 10 ? -114.0f : -118.0f;
+}
+
 #endif

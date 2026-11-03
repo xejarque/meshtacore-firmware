@@ -26,6 +26,7 @@ template <class T> class LR20x0Interface : public RadioLibInterface
     int16_t programAltModemFSK();
     int16_t programAltModemFLRC();
     uint8_t altModemCaps() const override { return 0x03; } // FSK + FLRC
+    float altSensitivityDbm();
 
     /// Prepare hardware for sleep.  Call this _only_ for deep sleep, not needed for light sleep.
     virtual bool sleep() override;

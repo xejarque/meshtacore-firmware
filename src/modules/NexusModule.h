@@ -206,7 +206,9 @@ public:
     virtual bool wantPacket(const meshtastic_MeshPacket *p) override;
     virtual ProcessMessage handleReceived(const meshtastic_MeshPacket &mp) override;
     ProcessMessage handleLocal(const meshtastic_MeshPacket &mp);
-    virtual void setup() override;
+    /// Init-time side effects that the module framework does not reach: it never calls MeshModule::setup(), so the
+    /// constructor calls this after loadVault().
+    void initOnce();
     virtual int32_t runOnce() override;
     virtual ~NexusModule() override;
 
@@ -749,8 +751,8 @@ public:
         G3_OFF      = 1,   // default on jumper-less boot
         G3_ON       = 2    // firmware actively drives the pin
     };
-    NexusG3PinState nexus_g3_pa_runtime  = G3_DISABLED; // set by boot-detect in setup()
-    NexusG3PinState nexus_g3_lna_runtime = G3_DISABLED; // set by boot-detect in setup()
+    NexusG3PinState nexus_g3_pa_runtime  = G3_DISABLED; // set by boot-detect in initOnce()
+    NexusG3PinState nexus_g3_lna_runtime = G3_DISABLED; // set by boot-detect in initOnce()
 
     // Dispatcher entry — called from NexusCommands.cpp when the operator types
     //   /nexus G3                  (bare, same as STATUS)

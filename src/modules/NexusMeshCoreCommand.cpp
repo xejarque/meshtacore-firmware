@@ -245,9 +245,15 @@ static void formatInfo(const RadioLibInterface &radio, char *reply, size_t reply
     snprintf(reply, replyLen, "JT MESHCORE: relay %s (%s), node %s, alias %s, advert %uh, next %um", relayName(settings.relay),
              relay.canRelay() ? "on" : "off", asRepeater ? "repeater" : "chat", relay.usesAlias() ? "on" : "off",
              (unsigned)settings.effectiveAdvertHours(), (unsigned)(radio.meshCoreAdvertDueInMs() / 60000UL));
+    size_t used = strlen(reply);
+    snprintf(reply + used, replyLen - used, ", path %uB, flood %u/%u/%u", (unsigned)MeshCoreRepeater::getOwnPathHashSize(),
+             (unsigned)relay.getFloodMax(), (unsigned)relay.getFloodMaxUnscoped(), (unsigned)relay.getFloodMaxAdvert());
 #if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
-    const size_t used = strlen(reply);
-    snprintf(reply + used, replyLen - used, ", sync 0x%04X/0x12", (unsigned)MESHTASTIC_MESHCORE_RX_SYNCWORD);
+    used = strlen(reply);
+    if (radio.isMeshCoreHybridSync())
+        snprintf(reply + used, replyLen - used, ", sync 0x%04X/0x12", (unsigned)MESHTASTIC_MESHCORE_RX_SYNCWORD);
+    else
+        snprintf(reply + used, replyLen - used, ", hybrid sync OFF");
 #endif
 }
 
@@ -393,6 +399,126 @@ void NexusModule::formatMeshCoreNeighbors(char *reply, size_t replyLen)
     renderNeighbors(entries, count, header, "MeshCore Vecinos", reply, replyLen);
 #else
     snprintf(reply, replyLen, "JT MESHCORE: companion off");
+#endif
+}
+
+// Reads a whole decimal number from word. False for an empty word, letters or trailing text.
+static bool parseWholeNumber(const char *word, uint32_t *value)
+{
+    char *end = nullptr;
+    const long parsed = strtol(word, &end, 10);
+    if (end == word || *end != '\0' || parsed < 0)
+        return false;
+    *value = (uint32_t)parsed;
+    return true;
+}
+
+static void setPathSize(RadioLibInterface &radio, const char *arg, bool signatureRequired, char *reply, size_t replyLen)
+{
+    char word[10];
+    takeWord(arg, word, sizeof(word));
+    if (word[0] == '\0') {
+        snprintf(reply, replyLen, "JT MESHCORE: the floods we originate carry %u-byte path hashes",
+                 (unsigned)MeshCoreRepeater::getOwnPathHashSize());
+        return;
+    }
+    uint32_t bytes = 0;
+    if (strcasecmp(word, "DEFAULT") == 0) {
+        radio.setMeshCorePathHashSize(0);
+    } else if (parseWholeNumber(word, &bytes) && MeshCoreConfig::validPathHashSize(bytes)) {
+        radio.setMeshCorePathHashSize((uint8_t)bytes);
+    } else {
+        snprintf(reply, replyLen, "JT MESHCORE: PATHSIZE takes 1, 2 or 3 (bytes per repeater in the path), DEFAULT, or nothing");
+        return;
+    }
+    snprintf(reply, replyLen, "JT MESHCORE: %u-byte path hashes from the next flood we originate",
+             (unsigned)MeshCoreRepeater::getOwnPathHashSize());
+    warnIfUnsigned(signatureRequired, reply, replyLen);
+}
+
+static void setFloodMax(RadioLibInterface &radio, const char *arg, bool signatureRequired, char *reply, size_t replyLen)
+{
+    const MeshCoreRepeater &relay = radio.getMeshCoreRepeater();
+    // Up to four words are read so that a stray fourth one is refused instead of ignored.
+    char words[4][10];
+    const char *rest = arg;
+    for (auto &word : words)
+        rest = takeWord(rest, word, sizeof(word));
+
+    if (words[0][0] == '\0') {
+        snprintf(reply, replyLen, "JT MESHCORE: flood max %u, unscoped %u, advert %u", (unsigned)relay.getFloodMax(),
+                 (unsigned)relay.getFloodMaxUnscoped(), (unsigned)relay.getFloodMaxAdvert());
+        return;
+    }
+    if (strcasecmp(words[0], "DEFAULT") == 0) {
+        radio.setMeshCoreFloodLimits(0, 0, 0);
+    } else {
+        uint32_t limits[3] = {};
+        bool valid = words[3][0] == '\0';
+        for (size_t i = 0; i < 3; i++)
+            valid = valid && parseWholeNumber(words[i], &limits[i]) && MeshCoreConfig::validFloodMax(limits[i]);
+        if (!valid) {
+            snprintf(reply, replyLen,
+                     "JT MESHCORE: FLOODMAX <1-64 any flood> <1-64 unscoped> <1-64 advert>, DEFAULT, or nothing");
+            return;
+        }
+        radio.setMeshCoreFloodLimits((uint8_t)limits[0], (uint8_t)limits[1], (uint8_t)limits[2]);
+    }
+    snprintf(reply, replyLen, "JT MESHCORE: flood max %u, unscoped %u, advert %u", (unsigned)relay.getFloodMax(),
+             (unsigned)relay.getFloodMaxUnscoped(), (unsigned)relay.getFloodMaxAdvert());
+    warnIfUnsigned(signatureRequired, reply, replyLen);
+}
+
+static void formatIdentity(const RadioLibInterface &radio, char *reply, size_t replyLen)
+{
+    const MeshCoreRepeater &relay = radio.getMeshCoreRepeater();
+    if (!relay.hasIdentity()) {
+        snprintf(reply, replyLen, "JT MESHCORE: no identity yet (it is created with the first ADVERT)");
+        return;
+    }
+    const uint8_t *pub = relay.getIdentityPub();
+    char hex[2 * 32 + 1];
+    for (size_t i = 0; i < 32; i++)
+        snprintf(&hex[i * 2], 3, "%02x", pub[i]);
+    snprintf(reply, replyLen, "JT MESHCORE: id=%02x%02x%02x%02x type=%u name=%s\npub=%s", pub[0], pub[1], pub[2], pub[3],
+             (unsigned)relay.getNodeType(), owner.long_name[0] ? owner.long_name : "(none)", hex);
+    if (relay.usesAlias()) {
+        const uint8_t *alias = relay.getAliasPub();
+        const size_t used = strlen(reply);
+        if (used < replyLen)
+            snprintf(reply + used, replyLen - used, "\nrelay alias=%02x%02x%02x%02x", alias[0], alias[1], alias[2], alias[3]);
+    }
+}
+
+static void setHybrid(RadioLibInterface &radio, const char *arg, bool signatureRequired, char *reply, size_t replyLen)
+{
+#if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
+    if (!radio.supportsMeshCoreHybridSync()) {
+        snprintf(reply, replyLen, "JT MESHCORE: this radio has no hybrid sync word");
+        return;
+    }
+    char word[8];
+    takeWord(arg, word, sizeof(word));
+    if (word[0] == '\0') {
+        snprintf(reply, replyLen, "JT MESHCORE: hybrid sync %s",
+                 radio.isMeshCoreHybridSync() ? "ON (Meshtastic and MeshCore heard)" : "OFF (Meshtastic only)");
+        return;
+    }
+    const bool on = strcasecmp(word, "ON") == 0 || strcmp(word, "1") == 0;
+    const bool off = strcasecmp(word, "OFF") == 0 || strcmp(word, "0") == 0;
+    if (!on && !off) {
+        snprintf(reply, replyLen, "JT MESHCORE: HYBRID takes ON, OFF, or nothing");
+        return;
+    }
+    radio.setMeshCoreHybridSync(on);
+    snprintf(reply, replyLen, "JT MESHCORE: hybrid sync %s%s", on ? "ON" : "OFF, MeshCore is not heard",
+             on ? "" : " until reboot");
+    warnIfUnsigned(signatureRequired, reply, replyLen);
+#else
+    (void)radio;
+    (void)arg;
+    (void)signatureRequired;
+    snprintf(reply, replyLen, "JT MESHCORE: hybrid sync is not compiled in");
 #endif
 }
 
@@ -871,7 +997,9 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
         snprintf(reply, replyLen,
                  "JT MESHCORE: INFO, STATS [FULL], NODES, CONTACTS, REPEATERS, NODE <id>, PATH <target>, TRACE <target>, SEND "
                  "<target> <msg>, DROP [hex|CLEAR], UNDROP <hex>, DROPS, RELAY [ON|OFF|AUTO], ADVERT [1-168|NOW], REGION [...], "
-                 "VECINOS, KEY <hex>, PPING [...], PING <target>, RESET. SAVE keeps them.");
+                 "VECINOS, IDENTITY, KEY <hex>, PATHSIZE [1-3], FLOODMAX [g u a], HYBRID [ON|OFF], PPING [...], PING <target>, "
+                 "RESET. SAVE "
+                 "keeps them.");
     } else if (strcasecmp(word, "INFO") == 0) {
         formatInfo(*radio, reply, replyLen);
     } else if (strcasecmp(word, "STATS") == 0) {
@@ -906,6 +1034,14 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
         formatMeshCoreNeighbors(reply, replyLen);
     } else if (strcasecmp(word, "KEY") == 0) {
         formatKey(rest, reply, replyLen);
+    } else if (strcasecmp(word, "PATHSIZE") == 0) {
+        setPathSize(*radio, rest, signatureRequired, reply, replyLen);
+    } else if (strcasecmp(word, "FLOODMAX") == 0) {
+        setFloodMax(*radio, rest, signatureRequired, reply, replyLen);
+    } else if (strcasecmp(word, "IDENTITY") == 0 || strcasecmp(word, "ID") == 0) {
+        formatIdentity(*radio, reply, replyLen);
+    } else if (strcasecmp(word, "HYBRID") == 0) {
+        setHybrid(*radio, rest, signatureRequired, reply, replyLen);
     } else if (strcasecmp(word, "PPING") == 0) {
         handleMeshCorePpingCommand(rest, reply, replyLen);
     } else if (strcasecmp(word, "PING") == 0) {
@@ -913,7 +1049,10 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
     } else if (strcasecmp(word, "RESET") == 0) {
         radio->setMeshCoreRelayMode(MeshCoreConfig::RELAY_AUTO);
         radio->setMeshCoreAdvertHours(0);
-        snprintf(reply, replyLen, "JT MESHCORE: relay AUTO, advert %uh", (unsigned)MeshCoreConfig::DEFAULT_ADVERT_HOURS);
+        radio->setMeshCorePathHashSize(0);
+        radio->setMeshCoreFloodLimits(0, 0, 0);
+        snprintf(reply, replyLen, "JT MESHCORE: relay AUTO, advert %uh, %u-byte paths, default flood limits",
+                 (unsigned)MeshCoreConfig::DEFAULT_ADVERT_HOURS, (unsigned)MeshCoreConfig::DEFAULT_PATH_HASH_SIZE);
         warnIfUnsigned(signatureRequired, reply, replyLen);
     } else {
         snprintf(reply, replyLen, "JT MESHCORE: unknown '%s', try HELP", word);

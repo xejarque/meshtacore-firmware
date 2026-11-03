@@ -89,6 +89,8 @@ NRF52 PRO MICRO PIN ASSIGNMENT (E28 Variant)
 
 #define PIN_GPS_EN (0 + 24) // P0.24
 #define GPS_UBLOX
+// Most of these boards have no GNSS; probing an absent module blocks the main loop for up to 1 s at a time
+#define GPS_DEFAULT_NOT_PRESENT 1
 // define GPS_DEBUG
 
 // UART interfaces
@@ -115,18 +117,18 @@ NRF52 PRO MICRO PIN ASSIGNMENT (E28 Variant)
 
 // SX1280 CONFIG
 #ifdef USE_SX1280
-#define SX128X_CS LORA_CS        // P1.13
-#define SX128X_DIO1 (0 + 10)     // P0.10
-#define SX128X_BUSY (0 + 29)     // P0.29
-#define SX128X_RESET (0 + 9)     // P0.09
-#define SX128X_RXEN (0 + 17)     // P0.17
-#define SX128X_TXEN (32 + 6)     // P1.06 (board-specific change)
+#define SX128X_CS LORA_CS    // P1.13
+#define SX128X_DIO1 (0 + 10) // P0.10
+#define SX128X_BUSY (0 + 29) // P0.29
+#define SX128X_RESET (0 + 9) // P0.09
+#define SX128X_RXEN (0 + 17) // P0.17
+#define SX128X_TXEN (32 + 6) // P1.06 (board-specific change)
 #define SX128X_MAX_POWER 3
 #endif
 
 // Core compatibility defines (required by main.cpp when TCXO_OPTIONAL is set)
 #define SX126X_DIO3_TCXO_VOLTAGE 1.8
-#define TCXO_OPTIONAL 
+#define TCXO_OPTIONAL
 
 // E-Ink DIY
 #define PIN_EINK_CS (32 + 7)

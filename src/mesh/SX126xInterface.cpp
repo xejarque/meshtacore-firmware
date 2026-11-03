@@ -628,8 +628,16 @@ template <typename T> void SX126xInterface<T>::startReceive()
     setTransmitEnable(false);
 
 #if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
-    if (!altModemActive())
-        setSyncWordRegister(MESHTASTIC_MESHCORE_RX_SYNCWORD);
+    if (!altModemActive()) {
+        if (meshCoreHybridSync) {
+            setSyncWordRegister(MESHTASTIC_MESHCORE_RX_SYNCWORD);
+        } else {
+            // /nexus MESHCORE HYBRID OFF: plain Meshtastic sync word, so MeshCore is not heard.
+            const int err = lora.setSyncWord(syncWord);
+            if (err != RADIOLIB_ERR_NONE)
+                LOG_ERROR("SX126X setSyncWord %s%d", radioLibErr, err);
+        }
+    }
 #endif
 #if MESHTASTIC_ENABLE_MESHCORE_SNIFFER
     // Back to our preamble after a MeshCore frame: the RX duty cycle below is sized from it, and Meshtastic TX uses it.
@@ -713,8 +721,9 @@ template <typename T> bool SX126xInterface<T>::isChannelActive()
     // and rendering channel activity detection completely blind.
     if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode == 1) {
         float rssi = lora.getRSSI(false);
-        LOG_TRACE("SX126X FSK channel sniff RSSI=%.1f dBm", rssi);
-        if (rssi > -100.0f)
+        float threshold = max(altSensitivityDbm(), (float)getNoiseFloor()) + 10.0f;
+        LOG_TRACE("SX126X FSK channel sniff RSSI=%.1f dBm (busy above %.1f)", rssi, threshold);
+        if (rssi > threshold)
             return true;
         setTransmitEnable(false);
         int16_t result = trySetStandby();
@@ -799,7 +808,7 @@ template <typename T> bool SX126xInterface<T>::sleep()
 template <typename T> void SX126xInterface<T>::resetAGC()
 {
     // Safety: don't reset mid-packet
-    if (sendingPacket != NULL || (isReceiving && isActivelyReceiving()))
+    if (isSending() || (isReceiving && isActivelyReceiving()))
         return;
 
     LOG_DEBUG("SX126x AGC reset: warm sleep + Calibrate(0x7F)");
@@ -907,6 +916,13 @@ template <typename T> void SX126xInterface<T>::setTransmitEnable(bool txon)
         loraFEMInterface.setRxModeEnable();
     }
 #endif
+}
+
+/// Approximate SX126x sensitivity (Semtech datasheet table 13-3) of the active FSK setting
+template <typename T> float SX126xInterface<T>::altSensitivityDbm()
+{
+    const auto &m = meshtastic::nexusModule->altModem;
+    return m.brKbps >= 250 ? -99.0f : m.brKbps >= 150 ? -103.0f : m.brKbps >= 50 ? -108.0f : m.brKbps >= 10 ? -114.0f : -118.0f;
 }
 
 #endif

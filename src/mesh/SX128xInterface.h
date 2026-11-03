@@ -86,6 +86,8 @@ template <class T> class SX128xInterface : public RadioLibInterface
     int16_t programAltModemFSK();
     int16_t programAltModemFLRC();
     uint8_t altModemCaps() const override { return 0x03; } // FSK + FLRC
+    float altSensitivityDbm();
+    static constexpr uint16_t FLRC_MIN_PREAMBLE_BITS = 32;
 
     /** begin() and chip-side setup, shared by init() and by reconfigure()'s recovery of a chip that lost its state */
     /** @param fromInit true only for the boot-time call, which may adjust region and reboot on a

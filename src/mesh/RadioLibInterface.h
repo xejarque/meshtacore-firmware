@@ -150,6 +150,11 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     /** MeshCore's sync word (RADIOLIB_SX126X_SYNC_WORD_PRIVATE), used to transmit relayed MeshCore frames. */
     const uint8_t meshCoreSyncWord = 0x12;
 
+#if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
+    /** True while RX listens on the hybrid sync word (Meshtastic and MeshCore); /nexus MESHCORE HYBRID OFF turns it off until reboot. */
+    bool meshCoreHybridSync = true;
+#endif
+
     float currentLimit = 100; // 100mA OCP - Should be acceptable for RFM95/SX127x chipset.
 
 #if !defined(USE_STM32WLx)
@@ -507,6 +512,20 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     /// Set the flood ADVERT period in hours, 0 for the built-in default. The next scheduled flood uses it.
     void setMeshCoreAdvertHours(uint8_t hours);
 
+    /// Set the path hash size in bytes (1..3) of the floods this node originates, 0 for the default.
+    void setMeshCorePathHashSize(uint8_t bytes);
+
+    /// Set how many repeaters a flood may have crossed before it is not relayed: any flood, an unscoped one, an ADVERT.
+    /// 0 keeps a limit's default.
+    void setMeshCoreFloodLimits(uint8_t general, uint8_t unscoped, uint8_t advert);
+
+    /// Turn the hybrid RX sync word on or off and re-arm RX at once. False when this radio has no hybrid sync word. A diagnostic
+    /// switch, not saved: with it off the radio does not hear MeshCore, and a reboot turns it on again.
+    bool setMeshCoreHybridSync(bool enabled);
+    bool isMeshCoreHybridSync() const;
+    /// True when the driver has a hybrid sync word to switch (SX126x, LR11x0).
+    bool supportsMeshCoreHybridSync() const { return meshCoreTxSupported(); }
+
     /// Queue a flood ADVERT now. False while the last one asked for this way is less than MESHCORE_ADVERT_NOW_MIN_MS old.
     bool requestMeshCoreAdvertNow();
 
@@ -528,6 +547,8 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     MeshCoreConfig meshCoreConfig;
     bool meshCoreConfigLoaded = false;
     void ensureMeshCoreConfigLoaded();
+    /// Push the loaded settings into the repeater.
+    void applyMeshCoreConfig();
     // The last ADVERT asked for by Nexus: a request again within MESHCORE_ADVERT_NOW_MIN_MS is refused.
     bool meshCoreAdvertNowSent = false;
     uint32_t lastMeshCoreAdvertNowMs = 0;

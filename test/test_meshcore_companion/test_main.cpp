@@ -441,7 +441,7 @@ void test_ack_frame_layout(void)
     uint8_t frame[8];
     TEST_ASSERT_EQUAL(6, MeshCoreCompanion::encodeAck(0x44332211, frame, sizeof(frame)));
     TEST_ASSERT_EQUAL_HEX8(0x0D, frame[0]); // ACK, flood
-    TEST_ASSERT_EQUAL_HEX8(MeshCoreRepeater::OWN_FLOOD_PATH_LEN_BYTE, frame[1]);
+    TEST_ASSERT_EQUAL_HEX8(MeshCoreRepeater::ownFloodPathLenByte(), frame[1]);
     TEST_ASSERT_EQUAL_HEX8(0x11, frame[2]);
     TEST_ASSERT_EQUAL_HEX8(0x44, frame[5]);
     TEST_ASSERT_EQUAL(0, MeshCoreCompanion::encodeAck(1, frame, 5));

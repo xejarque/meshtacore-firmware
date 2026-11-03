@@ -369,15 +369,17 @@ NexusModule::NexusModule()
     applyZeroHopRoleDefaults(vaultVersionLoaded >= 68);
     readyAnnouncePending = wokeFromBatteryWake();
     seedHibernatingFromRtc();
+
+    // The module framework never calls MeshModule::setup(), so the init-time side effects (unexpected-reboot counter,
+    // STATION_G3 PA/LNA boot detect) run from here, after loadVault().
+    initOnce();
 }
 
 NexusModule::~NexusModule() {
     delete inputEventObserver;
 }
 
-void NexusModule::setup() {
-    MeshModule::setup();
-
+void NexusModule::initOnce() {
 #ifdef ARCH_ESP32
     Preferences preferences;
     preferences.begin("meshtastic", false);
@@ -411,7 +413,7 @@ void NexusModule::setup() {
 #ifdef STATION_G3
     // Nexus-28005 (2026-09-15): /nexus G3 boot-detect + vault apply.
     //
-    // Runs after initOnce() (which calls loadVault()), so nexusVariantBits is
+    // Runs from the constructor after loadVault(), so nexusVariantBits is
     // already populated from disk when we get here. The boot-detect sequence is:
     //
     //   1. Put each pin into INPUT mode with PULLS DISABLED before reading.
@@ -440,7 +442,7 @@ void NexusModule::setup() {
     //      re-issuing the command.
     //
     // Runtime state (nexus_g3_pa_runtime / nexus_g3_lna_runtime) is the
-    // source of truth after setup() returns. nexusVariantBits is only what
+    // source of truth after initOnce() returns. nexusVariantBits is only what
     // gets persisted on the next SAVE.
     //
     // Hardware constants (B&Q BQ35LORA900V1M PA module, station-g3 variant):
