@@ -466,11 +466,11 @@ void MeshCoreCompanion::announceUser(uint32_t nodeNum, const meshtastic_User &us
 
 void MeshCoreCompanion::announceIfNeeded(uint32_t nodeNum, const meshtastic_User &user, const MeshCoreRx &rx)
 {
-    if (nodeDB && needsAnnounce(nodeDB->getMeshNode(nodeNum), user, getValidTime(RTCQualityFromNet)))
+    if (nodeDB && needsAnnounce(nodeDB->getMeshNode(nodeNum), user, getValidTime(RTCQualityFromNet), &rx))
         announceUser(nodeNum, user, rx);
 }
 
-void MeshCoreCompanion::announcePosition(uint32_t nodeNum, int32_t latitudeI, int32_t longitudeI)
+void MeshCoreCompanion::announcePosition(uint32_t nodeNum, int32_t latitudeI, int32_t longitudeI, const MeshCoreRx &rx)
 {
     if (!router)
         return;
@@ -496,16 +496,21 @@ void MeshCoreCompanion::announcePosition(uint32_t nodeNum, int32_t latitudeI, in
         pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), &meshtastic_Position_msg, &pos);
     p->decoded.has_bitfield = true;
     p->decoded.bitfield = 0;
-    hopFields(1, &p->hop_start, &p->hop_limit);
+    hopFields(rx.pathHashCount, &p->hop_start, &p->hop_limit);
     const uint8_t ourRelay = nodeDB->getLastByteOfNodeNum(nodeDB->getNodeNum());
     p->next_hop = (uint8_t)(ourRelay + 1);
     if (p->next_hop == NO_NEXT_HOP_PREFERENCE)
         p->next_hop = 1;
     p->transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
+    if (rx.pathHashCount == 0) {
+        p->rx_snr = rx.snr;
+        p->has_rx_rssi = true;
+        p->rx_rssi = rx.rssi;
+    }
     router->enqueueReceivedMessage(p);
 }
 
-void MeshCoreCompanion::updatePosition(uint32_t nodeNum, int32_t latMicro, int32_t lonMicro)
+void MeshCoreCompanion::updatePosition(uint32_t nodeNum, int32_t latMicro, int32_t lonMicro, const MeshCoreRx &rx)
 {
     if (!nodeDB || (latMicro == 0 && lonMicro == 0))
         return;
@@ -514,7 +519,7 @@ void MeshCoreCompanion::updatePosition(uint32_t nodeNum, int32_t latMicro, int32
     meshtastic_PositionLite known;
     if (nodeDB->copyNodePosition(nodeNum, known) && known.latitude_i == latI && known.longitude_i == lonI)
         return; // adverts repeat every few minutes: only a move is news
-    announcePosition(nodeNum, latI, lonI);
+    announcePosition(nodeNum, latI, lonI, rx);
 }
 
 void MeshCoreCompanion::ensurePseudoNode()
@@ -580,7 +585,8 @@ meshtastic_User MeshCoreCompanion::senderUser(const char *name, bool messagable,
     return user;
 }
 
-bool MeshCoreCompanion::needsAnnounce(const meshtastic_NodeInfoLite *lite, const meshtastic_User &user, uint32_t now)
+bool MeshCoreCompanion::needsAnnounce(const meshtastic_NodeInfoLite *lite, const meshtastic_User &user, uint32_t now,
+                                      const MeshCoreRx *rx)
 {
     // Only a packet makes a node heard, so one that is missing or was never heard over the radio gets that packet.
     if (!lite || !nodeInfoLiteHasUser(lite) || !nodeInfoLiteHasRfHear(lite))
@@ -590,6 +596,12 @@ bool MeshCoreCompanion::needsAnnounce(const meshtastic_NodeInfoLite *lite, const
         lite->public_key.size != user.public_key.size ||
         memcmp(lite->public_key.bytes, user.public_key.bytes, user.public_key.size) != 0)
         return true;
+    if (rx) {
+        if (!lite->has_hops_away || lite->hops_away != rx->pathHashCount)
+            return true;
+        if (rx->pathHashCount == 0 && (!nodeInfoLiteHasSnr(lite) || (int8_t)lite->snr != (int8_t)rx->snr))
+            return true;
+    }
     // Like any packet from a Meshtastic node, a frame moves its last-heard on; spaced out so repeated adverts do not flood the
     // client.
     return now > lite->last_heard && lite->last_heard != 0 && now - lite->last_heard >= HEARD_REFRESH_SECS;
@@ -2083,7 +2095,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
         MeshCoreNode *n = learnRepeater(payload, name);
         noteAdvert(n, advertTime, latMicro, lonMicro, snr, rssi, info.path_hash_count);
         ensureSenderNode(n->nodeNum, n->name, false, n->pub, meshtastic_Config_DeviceConfig_Role_REPEATER, rx);
-        updatePosition(n->nodeNum, latMicro, lonMicro);
+        updatePosition(n->nodeNum, latMicro, lonMicro, rx);
         return;
     }
 
@@ -2094,7 +2106,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
         noteAdvert(known, advertTime, latMicro, lonMicro, snr, rssi, info.path_hash_count);
         // Brings a node made before keys were set up along.
         ensureSenderNode(known->nodeNum, known->name, true, known->pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
-        updatePosition(known->nodeNum, latMicro, lonMicro);
+        updatePosition(known->nodeNum, latMicro, lonMicro, rx);
         return;
     }
     if (!MeshCoreRepeater::verifyAdvert(payload, info.payload_len))
@@ -2107,7 +2119,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
     ensureSenderNode(c->nodeNum, c->name, true, c->pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
     retireGroupNode(c->name);
     retireKeyedNode(c->pub, c->nodeNum);
-    updatePosition(c->nodeNum, latMicro, lonMicro);
+    updatePosition(c->nodeNum, latMicro, lonMicro, rx);
 }
 
 void MeshCoreCompanion::retireGroupNode(const char *name)
@@ -2477,7 +2489,10 @@ size_t MeshCoreCompanion::importContacts(const uint8_t *buf, size_t len)
             return;
         if (n.nodeNum == 0) // migrated from the contacts file, which kept no numbers
             nodes.assignNodeNum(&n, MeshCoreNodeStore<1>::nodeNumForName(n.name), PSEUDO_NODE_NUM);
-        ensureSenderNode(n.nodeNum, n.name, true, n.pub);
+        const MeshCoreRx rx = (n.hops != 0xFF) ? MeshCoreRx(n.hops, n.snr, n.rssi)
+                              : n.hasOutPath() ? MeshCoreRx(n.outPathLen, 0, 0)
+                                               : MeshCoreRx();
+        ensureSenderNode(n.nodeNum, n.name, true, n.pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
         retireGroupNode(n.name);
         retireKeyedNode(n.pub, n.nodeNum);
     });

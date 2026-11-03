@@ -249,9 +249,10 @@ class MeshCoreCompanion
                                       meshtastic_Config_DeviceConfig_Role role);
 
     /// Whether a frame from the node behind lite (null if unknown) is worth announcing: the node is new, was never heard over
-    /// the radio, differs from user, or was last heard HEARD_REFRESH_SECS ago (now is epoch seconds, 0 when the clock is
-    /// untrusted).
-    static bool needsAnnounce(const meshtastic_NodeInfoLite *lite, const meshtastic_User &user, uint32_t now);
+    /// the radio, differs from user, hops or signal changed, or was last heard HEARD_REFRESH_SECS ago (now is epoch seconds, 0
+    /// when the clock is untrusted).
+    static bool needsAnnounce(const meshtastic_NodeInfoLite *lite, const meshtastic_User &user, uint32_t now,
+                              const MeshCoreRx *rx = nullptr);
 
     /// Announce a bridged sender to the router when needsAnnounce says so. The node is born and updated by that packet, as
     /// any Meshtastic node is by the ones it sends; nothing is written to the node DB here. rx is how the frame was heard.
@@ -261,7 +262,7 @@ class MeshCoreCompanion
 
     /// Record a node's position from an ADVERT (degrees x 1e6, as MeshCore sends it) and tell the client. Nothing is done
     /// for 0,0 (no position) or a position the node DB already holds.
-    void updatePosition(uint32_t nodeNum, int32_t latMicro, int32_t lonMicro);
+    void updatePosition(uint32_t nodeNum, int32_t latMicro, int32_t lonMicro, const MeshCoreRx &rx = MeshCoreRx());
 
     /// Remember who wrote a bridged channel text (by the packet id the client sees), so a reply to it can name them.
     void noteRecentText(uint32_t packetId, const char *sender);
@@ -441,7 +442,7 @@ class MeshCoreCompanion
     PendingAck *addPending(uint32_t ackHash, uint32_t packetId, uint32_t contactNum, bool group = false);
     /// A repeater re-flooded the channel text with this frame hash: report it delivered.
     void settleEcho(uint32_t hash);
-    void announcePosition(uint32_t nodeNum, int32_t latitudeI, int32_t longitudeI);
+    void announcePosition(uint32_t nodeNum, int32_t latitudeI, int32_t longitudeI, const MeshCoreRx &rx);
 
     struct RecentText {
         uint32_t packetId = 0;
