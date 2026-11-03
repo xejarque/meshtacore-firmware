@@ -329,33 +329,18 @@
                   <td><code>MTC: Paging help categories...</code></td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><span class="cmd-badge">INFO</span></td>
-                  <td><code>INFO</code></td>
                   <td>
-                    Muestra ID hexadecimal, nombre corto, versión de firmware,
-                    rol activo y dirección MAC.
+                    <span class="cmd-badge">INFO</span> / <code>COMP</code>
+                  </td>
+                  <td><code>INFO</code> / <code>COMPILATION</code></td>
+                  <td>
+                    Muestra ID hexadecimal, nombre corto, versión de firmware y
+                    entorno de placa (target), rol activo y dirección MAC.
                   </td>
                   <td>
                     <code
-                      >MTC INFO: !3f2a89c1 [MTC1] Ver:2.8.104 Role:ROUTER
-                      MAC:aa:bb:cc:dd:ee:ff</code
-                    >
-                  </td>
-                </tr>
-                <tr class="cmd-row">
-                  <td>
-                    <span class="cmd-badge">COMPILATION</span> /
-                    <code>COMP</code>
-                  </td>
-                  <td><code>COMPILATION</code></td>
-                  <td>
-                    Muestra la plataforma de destino, arquitectura, repositorio
-                    fuente y flags de compilación.
-                  </td>
-                  <td>
-                    <code
-                      >MTC COMPILATION: Tgt:heltec_v3 Built:Nov 02
-                      Flags:MESHCORE,NEXUS</code
+                      >MTC INFO: !3f2a89c1 [MTC1] Ver:2.8.104 (rak4631)
+                      Role:ROUTER MAC:aa:bb:cc:dd:ee:ff</code
                     >
                   </td>
                 </tr>
@@ -1600,16 +1585,19 @@
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><span class="cmd-badge">STARWARS</span></td>
-                  <td><code>STARWARS</code> / <code>BELL</code></td>
                   <td>
-                    Reproduce la Marcha Imperial o un tono de campana en el
+                    <span class="cmd-badge">PLAY</span> / <code>BELL</code>
+                  </td>
+                  <td><code>PLAY [BELL|&lt;rtttl&gt;]</code></td>
+                  <td>
+                    Reproduce una melodía RTTTL personalizada o un tono de
+                    campana (<code>PLAY BELL</code> o <code>BELL</code>) en el
                     zumbador del hardware.
                   </td>
                 </tr>
                 <tr class="cmd-row">
                   <td>
-                    <span class="cmd-badge">BUENASPRACTICAS</span> /
+                    <span class="cmd-badge">GOODPRACTICES</span> /
                     <code>GP</code>
                   </td>
                   <td><code>GOODPRACTICES</code></td>
@@ -1902,12 +1890,7 @@
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><code>BELL</code></td>
-                  <td>§14 Mensajería</td>
-                  <td>Generación de tono sonoro de alerta en hardware</td>
-                </tr>
-                <tr class="cmd-row">
-                  <td><code>BUENASPRACTICAS / GP</code></td>
+                  <td><code>GOODPRACTICES / GP</code></td>
                   <td>§14 Mensajería</td>
                   <td>
                     Ajuste automático de buenas prácticas de red españolas
@@ -2395,13 +2378,6 @@
                   <td>§12 Canales</td>
                   <td>
                     Gestión de claves públicas de administración revocables
-                  </td>
-                </tr>
-                <tr class="cmd-row">
-                  <td><code>STARWARS</code></td>
-                  <td>§14 Mensajería</td>
-                  <td>
-                    Reproducción sonora de la Marcha Imperial en el buzzer
                   </td>
                 </tr>
                 <tr class="cmd-row">

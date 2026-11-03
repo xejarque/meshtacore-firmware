@@ -438,6 +438,185 @@ static void sendNexusStatusMessage(const char *text, uint8_t channel = 0)
     service->sendToMesh(p);
 }
 
+static const char *const s_nexusPortNames[32] = {
+    "TEXT", "POS", "INFO", "TELE", "NEIG", "ADM", "TRCE", "S&F",
+    "RPLY", "REHW", "ATAK", "WAYP", "TUNN", "DETC", "PAX", "UNK",
+    "AUDI", "RNGE", "RNST", "SERL", "ALRT", "KEYV", "SF++", "NSTA",
+    "TAK2", "MAPR", "PSTR", "LWAB", "CAYN", "U29",  "U30",  "U31"
+};
+
+struct DropRuleDef {
+    const char *tag;
+    const char *name;
+    const char *alias;
+    const char *alias2;
+    bool NexusModule::*flag;
+};
+
+static const DropRuleDef s_dropRules[] = {
+    {"NI", "NODEINFO", "NI", nullptr, &NexusModule::drop_nodeinfo},
+    {"PO", "POSITION", "PO", nullptr, &NexusModule::drop_position},
+    {"POM", "POS_MANUAL", "PM", "POM", &NexusModule::drop_pos_manual},
+    {"POG", "POS_GPS", "PG", "POG", &NexusModule::drop_pos_gps},
+    {"POO", "POS_OTHER", "POO", nullptr, &NexusModule::drop_pos_other},
+    {"TL", "TELEMETRY", "TL", nullptr, &NexusModule::drop_telemetry},
+    {"TLD", "TELE_DEVICE", "TD", "TLD", &NexusModule::drop_tele_device},
+    {"TLP", "TELE_POWER", "TP", "TLP", &NexusModule::drop_tele_power},
+    {"TLE", "TELE_ENV", "TE", "TLE", &NexusModule::drop_tele_env},
+    {"TO", "TELE_OTHER", "TO", nullptr, &NexusModule::drop_tele_other},
+    {"NB", "NEIGHBOR", "NB", nullptr, &NexusModule::drop_neighbor},
+    {"TR", "TRACEROUTE", "TR", nullptr, &NexusModule::drop_traceroute},
+    {"RTR", "TRACEROUTE_REMOTE", "TRR", "RTR", &NexusModule::drop_traceroute_remote},
+    {"LTR", "TRACEROUTE_LOCAL", "TRL", "LTR", &NexusModule::drop_traceroute_local},
+    {"PV", "PRIVATE", "PR", "PV", &NexusModule::drop_private},
+    {"H6", "HOP6", "H6", nullptr, &NexusModule::drop_hop6},
+    {"H7", "HOP7", "H7", nullptr, &NexusModule::drop_hop7},
+    {"AK", "ACKS", "AK", nullptr, &NexusModule::drop_acks},
+    {"FB", "FAV_BYPASS", "FB", nullptr, &NexusModule::fav_bypass},
+    {"PK", "PKI", "PK", nullptr, &NexusModule::drop_pki},
+    {"PKR", "PKI_REMOTE", "PKR", nullptr, &NexusModule::drop_pki_remote},
+    {"PKL", "PKI_LOCAL", "PKL", nullptr, &NexusModule::drop_pki_local},
+    {"PH", "PREHOP", "PH", nullptr, &NexusModule::drop_prehop},
+    {"SF", "STORE_FORWARD", "SF", nullptr, &NexusModule::drop_store_forward},
+    {"AD", "ADMIN", "AD", nullptr, &NexusModule::drop_admin},
+    {"TX", "TEXT", "TX", nullptr, &NexusModule::drop_text},
+    {"KV", "KEYVER", "KV", nullptr, &NexusModule::drop_keyver},
+    {"AL", "ALERT", "AL", nullptr, &NexusModule::drop_alert},
+    {"WP", "WAYPOINT", "WP", nullptr, &NexusModule::drop_waypoint},
+    {"TD", "TRACEROUTE_DIRECT", "TRD", "TR_DIRECT", &NexusModule::drop_traceroute_direct},
+    {"TDR", "TRACEROUTE_DIRECT_REMOTE", "TRDR", "TR_DIRECT_REMOTE", &NexusModule::drop_traceroute_direct_remote},
+    {"TDL", "TRACEROUTE_DIRECT_LOCAL", "TRDL", "TR_DIRECT_LOCAL", &NexusModule::drop_traceroute_direct_local},
+    {"SS", "SKIP_SKIP", "SS", nullptr, &NexusModule::skip_skip_handle},
+    {"NM", "NO_MQTT", "NM", nullptr, &NexusModule::drop_no_mqtt},
+    {"RLTX", "RL_TEXT", "RLTX", nullptr, &NexusModule::drop_rl_text},
+    {"RLTR", "RL_TRACE", "RLTR", nullptr, &NexusModule::drop_rl_trace},
+    {"RLOT", "RL_OTHER", "RLOT", nullptr, &NexusModule::drop_rl_other},
+    {"RLNI", "RL_NODEINFO", "RLNI", nullptr, &NexusModule::drop_rl_nodeinfo},
+    {"RLPO", "RL_POSITION", "RLPO", nullptr, &NexusModule::drop_rl_position},
+    {"RLTL", "RL_TELEMETRY", "RLTL", nullptr, &NexusModule::drop_rl_telemetry},
+    {"RLPR", "RL_PRIVATE", "RLPR", nullptr, &NexusModule::drop_rl_private},
+    {"RNI", "REQ_NODEINFO", "RNI", nullptr, &NexusModule::drop_req_nodeinfo},
+    {"RTL", "REQ_TELEMETRY", "RTL", nullptr, &NexusModule::drop_req_telemetry},
+    {"RPO", "REQ_POSITION", "RPO", nullptr, &NexusModule::drop_req_position},
+    {"BRNI", "BR_NODEINFO", "BRNI", nullptr, &NexusModule::drop_br_nodeinfo},
+    {"BRTL", "BR_TELEMETRY", "BRTL", nullptr, &NexusModule::drop_br_telemetry},
+    {"BRPO", "BR_POSITION", "BRPO", nullptr, &NexusModule::drop_br_position},
+};
+
+static inline bool matchDropRule(const DropRuleDef &r, const char *s) {
+    if (strcasecmp(s, r.tag) == 0) return true;
+    if (r.name && strcasecmp(s, r.name) == 0) return true;
+    if (r.alias && strcasecmp(s, r.alias) == 0) return true;
+    if (r.alias2 && strcasecmp(s, r.alias2) == 0) return true;
+    return false;
+}
+
+struct OutDropRuleDef {
+    const char *tag;
+    const char *name;
+    const char *alias;
+    bool NexusModule::*flag;
+};
+
+static const OutDropRuleDef s_outDropRules[] = {
+    {"NI", "NODEINFO", "NI", &NexusModule::drop_out_nodeinfo},
+    {"PO", "POSITION", "PO", &NexusModule::drop_out_position},
+    {"TL", "TELEMETRY", "TL", &NexusModule::drop_out_telemetry},
+    {"TR", "TRACEROUTE", "TR", &NexusModule::drop_out_traceroute},
+    {"AD", "ADMIN", "AD", &NexusModule::drop_out_admin},
+    {"RO", "ROUTING", "RO", &NexusModule::drop_out_routing},
+};
+
+static bool presetMatch(const char *input, const char *target) {
+    if (!target) return false;
+    while (*input || *target) {
+        while (*input == '-' || *input == '_') input++;
+        while (*target == '-' || *target == '_') target++;
+        if (tolower((unsigned char)*input) != tolower((unsigned char)*target)) return false;
+        if (*input) { input++; target++; }
+    }
+    return true;
+}
+
+static const char *const s_stdPresets[] = {
+    "LF", "LONGFAST", "MS", "MEDSLOW", "MF", "MEDFAST",
+    "SS", "SHORTSLOW", "SF", "SHORTFAST", "LM", "LONGMODERATE",
+    "LS", "LONGSLOW", "ST", "SHORTTURBO", "LT", "LONGTURBO"
+};
+
+struct LoRaPresetDef {
+    const char *names[3];
+    uint8_t sf;
+    uint16_t bw;
+    uint8_t cr;
+    float freq;
+    meshtastic_Config_LoRaConfig_RegionCode region;
+};
+
+static const LoRaPresetDef s_loraPresets[] = {
+    // 1. Madrid24 & 2.4 GHz Presets (LORA_24)
+    {{"MADRID24", nullptr, nullptr}, 9, 400, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24},
+    {{"LF24", "LONGFAST24", nullptr}, 11, 800, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24},
+    {{"MS24", "MEDSLOW24", nullptr}, 10, 800, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24},
+    {{"MF24", "MEDFAST24", nullptr}, 9, 800, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24},
+    {{"SS24", "SHORTSLOW24", nullptr}, 8, 800, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24},
+    {{"SF24", "SHORTFAST24", nullptr}, 7, 800, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24},
+    {{"LM24", "LONGMODERATE24", nullptr}, 11, 400, 8, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24},
+    {{"LS24", "LONGSLOW24", nullptr}, 12, 400, 8, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24},
+    {{"ST24", "SHORTTURBO24", nullptr}, 7, 1600, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24},
+    {{"LT24", "LONGTURBO24", nullptr}, 11, 1600, 8, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24},
+
+    // 2. Explicit EU_868 variants
+    {{"LF868", "LONGFAST868", nullptr}, 11, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868},
+    {{"MS868", "MEDSLOW868", nullptr}, 10, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868},
+    {{"MF868", "MEDFAST868", nullptr}, 9, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868},
+    {{"SS868", "SHORTSLOW868", nullptr}, 8, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868},
+    {{"SF868", "SHORTFAST868", nullptr}, 7, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868},
+    {{"LM868", "LONGMODERATE868", nullptr}, 11, 125, 8, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868},
+    {{"LS868", "LONGSLOW868", nullptr}, 12, 125, 8, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868},
+    {{"ST868", "SHORTTURBO868", nullptr}, 7, 500, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868},
+    {{"LT868", "LONGTURBO868", nullptr}, 11, 500, 8, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868},
+
+    // 3. Upstream Narrow Presets (EU_N_868)
+    {{"NF", "NARROWFAST", "NARF"}, 7, 62, 6, 869.4417f, meshtastic_Config_LoRaConfig_RegionCode_EU_N_868},
+    {{"NS", "NARROWSLOW", "NARS"}, 8, 62, 6, 869.4417f, meshtastic_Config_LoRaConfig_RegionCode_EU_N_868},
+
+    // 4. Upstream Lite Presets (EU_866)
+    {{"LITEFAST", "LITEF", nullptr}, 9, 125, 5, 866.3000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+    {{"LITESLOW", "LITES", nullptr}, 10, 125, 5, 865.7000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+
+    // 5. Nexus Tactical Presets (EU_868)
+    {{"P1", "SFNARROW", nullptr}, 7, 62, 5, 869.6180f, meshtastic_Config_LoRaConfig_RegionCode_EU_868},
+    {{"P7", "NARROWPLUS", nullptr}, 6, 62, 5, 869.6180f, meshtastic_Config_LoRaConfig_RegionCode_EU_868},
+    {{"NARROWPROMAX", "NARROWPREMIUM", nullptr}, 5, 62, 5, 869.6180f, meshtastic_Config_LoRaConfig_RegionCode_EU_868},
+    {{"SP", "SHORTPLUS", nullptr}, 6, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868},
+    {{"SPM", "SHORTPROMAX", nullptr}, 5, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868},
+
+    // 6. NAP Series (EU_866)
+    {{"NAP1", nullptr, nullptr}, 7, 125, 5, 865.7000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+    {{"NAP2", nullptr, nullptr}, 7, 125, 5, 866.3000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+    {{"NAP3", nullptr, nullptr}, 7, 125, 5, 866.9000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+    {{"NAP4", nullptr, nullptr}, 7, 125, 5, 867.5000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+    {{"NAP5", nullptr, nullptr}, 7, 125, 5, 871.0000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+
+    // 7. NAPN Series (EU_866)
+    {{"NAPN1", nullptr, nullptr}, 7, 62, 5, 865.7000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+    {{"NAPN2", nullptr, nullptr}, 7, 62, 5, 866.3000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+    {{"NAPN3", nullptr, nullptr}, 7, 62, 5, 866.9000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+    {{"NAPN4", nullptr, nullptr}, 7, 62, 5, 867.5000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+    {{"NAPN5", nullptr, nullptr}, 7, 62, 5, 871.0000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+
+    // 8. Mini / Micro Series (EU_866)
+    {{"MINI1", "MICRO1", nullptr}, 6, 31, 5, 865.6188f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+    {{"MINI2", "MICRO2", nullptr}, 6, 31, 5, 865.7812f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+    {{"MINI3", "MICRO3", nullptr}, 6, 31, 5, 866.2188f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+    {{"MINI4", "MICRO4", nullptr}, 6, 31, 5, 866.3812f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+    {{"MINI5", "MICRO5", nullptr}, 6, 31, 5, 866.8188f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+    {{"MINI6", "MICRO6", nullptr}, 6, 31, 5, 866.9812f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+    {{"MINI7", "MICRO7", nullptr}, 6, 31, 5, 867.4188f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+    {{"MINI8", "MICRO8", nullptr}, 6, 31, 5, 867.5812f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
+};
+
 // === END FILE-SCOPE HELPERS ===
 
 // === BEGIN handleNexusCommand (from NexusModule.cpp:1651-8873) ===
@@ -844,56 +1023,15 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     else if (strncasecmp(cmd, "DROP ", 5) == 0 || strncasecmp(cmd, "UNDROP ", 7) == 0) {
         bool setDrop = strncasecmp(cmd, "DROP ", 5) == 0;
         const char *portStr = skipToken(cmd);
-        bool handled = true;
+        bool handled = false;
 
-        if (strcasecmp(portStr, "NODEINFO") == 0 || strcasecmp(portStr, "NI") == 0) drop_nodeinfo = setDrop;
-        else if (strcasecmp(portStr, "POSITION") == 0 || strcasecmp(portStr, "PO") == 0) drop_position = setDrop;
-        else if (strcasecmp(portStr, "TELEMETRY") == 0 || strcasecmp(portStr, "TL") == 0) drop_telemetry = setDrop;
-        else if (strcasecmp(portStr, "NEIGHBOR") == 0 || strcasecmp(portStr, "NB") == 0) drop_neighbor = setDrop;
-        else if (strcasecmp(portStr, "TRACEROUTE") == 0 || strcasecmp(portStr, "TR") == 0) drop_traceroute = setDrop;
-        else if (strcasecmp(portStr, "TRACEROUTE_REMOTE") == 0 || strcasecmp(portStr, "TRR") == 0) drop_traceroute_remote = setDrop;
-        else if (strcasecmp(portStr, "TRACEROUTE_LOCAL") == 0 || strcasecmp(portStr, "TRL") == 0) drop_traceroute_local = setDrop;
-        else if (strcasecmp(portStr, "PRIVATE") == 0 || strcasecmp(portStr, "PR") == 0) drop_private = setDrop;
-        else if (strcasecmp(portStr, "HOP6") == 0 || strcasecmp(portStr, "H6") == 0) drop_hop6 = setDrop;
-        else if (strcasecmp(portStr, "HOP7") == 0 || strcasecmp(portStr, "H7") == 0) drop_hop7 = setDrop;
-        else if (strcasecmp(portStr, "REQ_NODEINFO") == 0 || strcasecmp(portStr, "RNI") == 0) drop_req_nodeinfo = setDrop;
-        else if (strcasecmp(portStr, "REQ_TELEMETRY") == 0 || strcasecmp(portStr, "RTL") == 0) drop_req_telemetry = setDrop;
-        else if (strcasecmp(portStr, "REQ_POSITION") == 0 || strcasecmp(portStr, "RPO") == 0) drop_req_position = setDrop;
-        else if (strcasecmp(portStr, "BR_NODEINFO") == 0 || strcasecmp(portStr, "BRNI") == 0) drop_br_nodeinfo = setDrop;
-        else if (strcasecmp(portStr, "BR_TELEMETRY") == 0 || strcasecmp(portStr, "BRTL") == 0) drop_br_telemetry = setDrop;
-        else if (strcasecmp(portStr, "BR_POSITION") == 0 || strcasecmp(portStr, "BRPO") == 0) drop_br_position = setDrop;
-        else if (strcasecmp(portStr, "ACKS") == 0 || strcasecmp(portStr, "AK") == 0) drop_acks = setDrop;
-        else if (strcasecmp(portStr, "PKI") == 0 || strcasecmp(portStr, "PK") == 0) drop_pki = setDrop;
-        else if (strcasecmp(portStr, "PKI_REMOTE") == 0 || strcasecmp(portStr, "PKR") == 0) drop_pki_remote = setDrop;
-        else if (strcasecmp(portStr, "PKI_LOCAL") == 0 || strcasecmp(portStr, "PKL") == 0) drop_pki_local = setDrop;
-        else if (strcasecmp(portStr, "FAV_BYPASS") == 0 || strcasecmp(portStr, "FB") == 0) fav_bypass = setDrop;
-        else if (strcasecmp(portStr, "PREHOP") == 0 || strcasecmp(portStr, "PH") == 0) drop_prehop = setDrop;
-        else if (strcasecmp(portStr, "STORE_FORWARD") == 0 || strcasecmp(portStr, "SF") == 0) drop_store_forward = setDrop;
-        else if (strcasecmp(portStr, "ADMIN") == 0 || strcasecmp(portStr, "AD") == 0) drop_admin = setDrop;
-        else if (strcasecmp(portStr, "TEXT") == 0 || strcasecmp(portStr, "TX") == 0) drop_text = setDrop;
-        else if (strcasecmp(portStr, "KEYVER") == 0 || strcasecmp(portStr, "KV") == 0) drop_keyver = setDrop;
-        else if (strcasecmp(portStr, "ALERT") == 0 || strcasecmp(portStr, "AL") == 0) drop_alert = setDrop;
-        else if (strcasecmp(portStr, "WAYPOINT") == 0 || strcasecmp(portStr, "WP") == 0) drop_waypoint = setDrop;
-        else if (strcasecmp(portStr, "TRACEROUTE_DIRECT") == 0 || strcasecmp(portStr, "TRD") == 0 || strcasecmp(portStr, "TR_DIRECT") == 0) drop_traceroute_direct = setDrop;
-        else if (strcasecmp(portStr, "TRACEROUTE_DIRECT_REMOTE") == 0 || strcasecmp(portStr, "TRDR") == 0 || strcasecmp(portStr, "TR_DIRECT_REMOTE") == 0) drop_traceroute_direct_remote = setDrop;
-        else if (strcasecmp(portStr, "TRACEROUTE_DIRECT_LOCAL") == 0 || strcasecmp(portStr, "TRDL") == 0 || strcasecmp(portStr, "TR_DIRECT_LOCAL") == 0) drop_traceroute_direct_local = setDrop;
-        else if (strcasecmp(portStr, "SKIP_SKIP") == 0 || strcasecmp(portStr, "SS") == 0) skip_skip_handle = setDrop;
-        else if (strcasecmp(portStr, "RL_TEXT") == 0 || strcasecmp(portStr, "RLTX") == 0) drop_rl_text = setDrop;
-        else if (strcasecmp(portStr, "RL_TRACE") == 0 || strcasecmp(portStr, "RLTR") == 0) drop_rl_trace = setDrop;
-        else if (strcasecmp(portStr, "RL_OTHER") == 0 || strcasecmp(portStr, "RLOT") == 0) drop_rl_other = setDrop;
-        else if (strcasecmp(portStr, "RL_NODEINFO") == 0 || strcasecmp(portStr, "RLNI") == 0) drop_rl_nodeinfo = setDrop;
-        else if (strcasecmp(portStr, "RL_POSITION") == 0 || strcasecmp(portStr, "RLPO") == 0) drop_rl_position = setDrop;
-        else if (strcasecmp(portStr, "RL_TELEMETRY") == 0 || strcasecmp(portStr, "RLTL") == 0) drop_rl_telemetry = setDrop;
-        else if (strcasecmp(portStr, "RL_PRIVATE") == 0 || strcasecmp(portStr, "RLPR") == 0) drop_rl_private = setDrop;
-        else if (strcasecmp(portStr, "TELE_DEVICE") == 0 || strcasecmp(portStr, "TD") == 0) drop_tele_device = setDrop;
-        else if (strcasecmp(portStr, "TELE_POWER") == 0 || strcasecmp(portStr, "TP") == 0) drop_tele_power = setDrop;
-        else if (strcasecmp(portStr, "TELE_ENV") == 0 || strcasecmp(portStr, "TE") == 0) drop_tele_env = setDrop;
-        else if (strcasecmp(portStr, "TELE_OTHER") == 0 || strcasecmp(portStr, "TO") == 0) drop_tele_other = setDrop;
-        else if (strcasecmp(portStr, "NO_MQTT") == 0 || strcasecmp(portStr, "NM") == 0) drop_no_mqtt = setDrop;
-        else if (strcasecmp(portStr, "POS_MANUAL") == 0 || strcasecmp(portStr, "PM") == 0) drop_pos_manual = setDrop;
-        else if (strcasecmp(portStr, "POS_GPS") == 0 || strcasecmp(portStr, "PG") == 0) drop_pos_gps = setDrop;
-        else if (strcasecmp(portStr, "POS_OTHER") == 0 || strcasecmp(portStr, "POO") == 0) drop_pos_other = setDrop;
-        else handled = false;
+        for (const auto &r : s_dropRules) {
+            if (matchDropRule(r, portStr)) {
+                this->*r.flag = setDrop;
+                handled = true;
+                break;
+            }
+        }
 
         if (handled) {
             snprintf(replyMsg, sizeof(replyMsg), "MTC: %s filter %s", portStr, setDrop ? "ACTIVE" : "DISABLED");
@@ -903,15 +1041,15 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     } else if (strncasecmp(cmd, "OUTDROP ", 8) == 0 || strncasecmp(cmd, "UNOUTDROP ", 10) == 0) {
         bool setDrop = (strncasecmp(cmd, "OUTDROP ", 8) == 0);
         const char *portStr = skipToken(cmd);
-        bool handled = true;
+        bool handled = false;
 
-        if (strcasecmp(portStr, "NODEINFO") == 0 || strcasecmp(portStr, "NI") == 0) drop_out_nodeinfo = setDrop;
-        else if (strcasecmp(portStr, "POSITION") == 0 || strcasecmp(portStr, "PO") == 0) drop_out_position = setDrop;
-        else if (strcasecmp(portStr, "TELEMETRY") == 0 || strcasecmp(portStr, "TL") == 0) drop_out_telemetry = setDrop;
-        else if (strcasecmp(portStr, "TRACEROUTE") == 0 || strcasecmp(portStr, "TR") == 0) drop_out_traceroute = setDrop;
-        else if (strcasecmp(portStr, "ADMIN") == 0 || strcasecmp(portStr, "AD") == 0) drop_out_admin = setDrop;
-        else if (strcasecmp(portStr, "ROUTING") == 0 || strcasecmp(portStr, "RO") == 0) drop_out_routing = setDrop;
-        else handled = false;
+        for (const auto &r : s_outDropRules) {
+            if (strcasecmp(portStr, r.tag) == 0 || (r.name && strcasecmp(portStr, r.name) == 0) || (r.alias && strcasecmp(portStr, r.alias) == 0)) {
+                this->*r.flag = setDrop;
+                handled = true;
+                break;
+            }
+        }
 
         if (handled) {
             snprintf(replyMsg, sizeof(replyMsg), "MTC Output: %s filter %s", portStr, setDrop ? "ACTIVE" : "DISABLED");
@@ -1172,18 +1310,6 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 maskCount(zero_hop_auto_router_mask),
                 isZeroHopAutoClientEnabled() ? "ON" : "OFF",
                 maskCount(zero_hop_auto_client_mask));
-        }
-    }
-    else if (strcasecmp(cmd, "PSRAM") == 0) {
-        uint32_t total = memGet.getPsramSize();
-        if (total == 0) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: No PSRAM detected");
-        } else {
-            uint32_t free = memGet.getFreePsram();
-            uint32_t used = total - free;
-            float pUsed = (float)used / total * 100.0f;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC PSRAM: %u/%u KB (%.1f%% used, %u KB free)",
-                (unsigned int)(used / 1024), (unsigned int)(total / 1024), pUsed, (unsigned int)(free / 1024));
         }
     }
     else if (strncasecmp(cmd, "GPIO ", 5) == 0 || strcasecmp(cmd, "GPIO") == 0) {
@@ -1937,43 +2063,12 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
             // === DROPS (active flags + WL/BL) ===
             appendPaging("== DROPS ==");
-#define FW_APPEND_DROP(name, var)                                                                                                \
-    if (var) {                                                                                                                   \
-        appendPaging(name " ");                                                                                                  \
-    }
-            FW_APPEND_DROP("NI", drop_nodeinfo);
-            FW_APPEND_DROP("PO", drop_position);
-            FW_APPEND_DROP("POM", drop_pos_manual);
-            FW_APPEND_DROP("POG", drop_pos_gps);
-            FW_APPEND_DROP("POO", drop_pos_other);
-            FW_APPEND_DROP("TL", drop_telemetry);
-            FW_APPEND_DROP("TLD", drop_tele_device);
-            FW_APPEND_DROP("TLP", drop_tele_power);
-            FW_APPEND_DROP("TLE", drop_tele_env);
-            FW_APPEND_DROP("NB", drop_neighbor);
-            FW_APPEND_DROP("TR", drop_traceroute);
-            FW_APPEND_DROP("RTR", drop_traceroute_remote);
-            FW_APPEND_DROP("LTR", drop_traceroute_local);
-            FW_APPEND_DROP("PV", drop_private);
-            FW_APPEND_DROP("H6", drop_hop6);
-            FW_APPEND_DROP("H7", drop_hop7);
-            FW_APPEND_DROP("AK", drop_acks);
-            FW_APPEND_DROP("FB", fav_bypass);
-            FW_APPEND_DROP("PK", drop_pki);
-            FW_APPEND_DROP("PKR", drop_pki_remote);
-            FW_APPEND_DROP("PKL", drop_pki_local);
-            FW_APPEND_DROP("PH", drop_prehop);
-            FW_APPEND_DROP("SF", drop_store_forward);
-            FW_APPEND_DROP("AD", drop_admin);
-            FW_APPEND_DROP("TX", drop_text);
-            FW_APPEND_DROP("KV", drop_keyver);
-            FW_APPEND_DROP("AL", drop_alert);
-            FW_APPEND_DROP("WP", drop_waypoint);
-            FW_APPEND_DROP("TD", drop_traceroute_direct);
-            FW_APPEND_DROP("TDR", drop_traceroute_direct_remote);
-            FW_APPEND_DROP("TDL", drop_traceroute_direct_local);
-            FW_APPEND_DROP("SS", skip_skip_handle);
-#undef FW_APPEND_DROP
+            for (const auto &r : s_dropRules) {
+                if (this->*r.flag) {
+                    appendPaging(r.tag);
+                    appendPaging(" ");
+                }
+            }
             appendPaging("\n");
 
             // White/Black channel lists (compact)
@@ -2005,18 +2100,15 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
             // === OUTDROPS ===
             appendPaging("== OUTDROPS ==");
-#define FW_APPEND_OUT(name, var)                                                                                                 \
-    if (var) {                                                                                                                   \
-        appendPaging(name " ");                                                                                                  \
-    }
-            FW_APPEND_OUT("NI", drop_out_nodeinfo);
-            FW_APPEND_OUT("PO", drop_out_position);
-            FW_APPEND_OUT("TL", drop_out_telemetry);
-            FW_APPEND_OUT("TR", drop_out_traceroute);
-            FW_APPEND_OUT("AD", drop_out_admin);
-            FW_APPEND_OUT("RO", drop_out_routing);
-            FW_APPEND_OUT("FB", fav_bypass);
-#undef FW_APPEND_OUT
+            for (const auto &r : s_outDropRules) {
+                if (this->*r.flag) {
+                    appendPaging(r.tag);
+                    appendPaging(" ");
+                }
+            }
+            if (fav_bypass) {
+                appendPaging("FB ");
+            }
             appendPaging("\n\n");
 
             // === HEXDROPS / HEXOUTDROPS ===
@@ -2295,67 +2387,16 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     else if (strcasecmp(cmd, "DROPS") == 0) {
         int l = snprintf(replyMsg, sizeof(replyMsg), "MTC ACTIVE DROPS:\n");
 
-        // Bounded appends: remaining space is checked before each write so a
-        // long active-tag list truncates cleanly instead of underflowing the
-        // size arithmetic (A12 in the audit; complete tag set incl. TO/NM/RL_*).
-        #define APPEND_IF_DROP(name, var) if(var && l >= 0 && (size_t)l < sizeof(replyMsg) - 8) { l += snprintf(replyMsg + l, sizeof(replyMsg) - l, "%s ", name); }
-        #define APPEND_IF_INV(name, var) if(!var && l >= 0 && (size_t)l < sizeof(replyMsg) - 8) { l += snprintf(replyMsg + l, sizeof(replyMsg) - l, "%s ", name); }
-
-        APPEND_IF_DROP("NI", drop_nodeinfo);
-        APPEND_IF_DROP("PO", drop_position);
-        APPEND_IF_DROP("POM", drop_pos_manual);
-        APPEND_IF_DROP("POG", drop_pos_gps);
-        APPEND_IF_DROP("POO", drop_pos_other);
-        APPEND_IF_DROP("TL", drop_telemetry);
-        APPEND_IF_DROP("TLD", drop_tele_device);
-        APPEND_IF_DROP("TLP", drop_tele_power);
-        APPEND_IF_DROP("TLE", drop_tele_env);
-        APPEND_IF_DROP("TO", drop_tele_other);
-        APPEND_IF_DROP("NB", drop_neighbor);
-        APPEND_IF_DROP("TR", drop_traceroute);
-        APPEND_IF_DROP("RTR", drop_traceroute_remote);
-        APPEND_IF_DROP("LTR", drop_traceroute_local);
-        APPEND_IF_DROP("PV", drop_private);
-        APPEND_IF_DROP("H6", drop_hop6);
-        APPEND_IF_DROP("H7", drop_hop7);
-        APPEND_IF_DROP("AK", drop_acks);
-        APPEND_IF_DROP("FB", fav_bypass);
-        APPEND_IF_DROP("PK", drop_pki);
-        APPEND_IF_DROP("PKR", drop_pki_remote);
-        APPEND_IF_DROP("PKL", drop_pki_local);
-        APPEND_IF_DROP("PH", drop_prehop);
-        APPEND_IF_DROP("SF", drop_store_forward);
-        APPEND_IF_DROP("AD", drop_admin);
-        APPEND_IF_DROP("TX", drop_text);
-        APPEND_IF_DROP("KV", drop_keyver);
-        APPEND_IF_DROP("AL", drop_alert);
-        APPEND_IF_DROP("WP", drop_waypoint);
-        APPEND_IF_DROP("TD", drop_traceroute_direct);
-        APPEND_IF_DROP("TDR", drop_traceroute_direct_remote);
-        APPEND_IF_DROP("TDL", drop_traceroute_direct_local);
-        APPEND_IF_DROP("SS", skip_skip_handle);
-        APPEND_IF_DROP("NM", drop_no_mqtt);
-        APPEND_IF_DROP("RLTX", drop_rl_text);
-        APPEND_IF_DROP("RLTR", drop_rl_trace);
-        APPEND_IF_DROP("RLOT", drop_rl_other);
-        APPEND_IF_DROP("RLNI", drop_rl_nodeinfo);
-        APPEND_IF_DROP("RLPO", drop_rl_position);
-        APPEND_IF_DROP("RLTL", drop_rl_telemetry);
-        APPEND_IF_DROP("RLPR", drop_rl_private);
-        if(trace_alert && l >= 0 && (size_t)l < sizeof(replyMsg) - 8) { l += snprintf(replyMsg + l, sizeof(replyMsg) - l, "TA:%d ", trace_alert_mode); }
-        if(meta_alert && l >= 0 && (size_t)l < sizeof(replyMsg) - 8) { l += snprintf(replyMsg + l, sizeof(replyMsg) - l, "MA:%d ", meta_alert_mode); }
-        APPEND_IF_DROP("RNI", drop_req_nodeinfo);
-        APPEND_IF_DROP("RTL", drop_req_telemetry);
-        APPEND_IF_DROP("RPO", drop_req_position);
-        APPEND_IF_DROP("BRNI", drop_br_nodeinfo);
-        APPEND_IF_DROP("BRTL", drop_br_telemetry);
-        APPEND_IF_DROP("BRPO", drop_br_position);
-        APPEND_IF_DROP("ZH", isZeroHopEnabled());
-        APPEND_IF_INV("P_OFF", shouldPreservePosition());
-        APPEND_IF_INV("T_OFF", shouldPreserveTelemetry());
-
-        #undef APPEND_IF_DROP
-        #undef APPEND_IF_INV
+        for (const auto &r : s_dropRules) {
+            if (this->*r.flag && l >= 0 && (size_t)l < sizeof(replyMsg) - 8) {
+                l += snprintf(replyMsg + l, sizeof(replyMsg) - l, "%s ", r.tag);
+            }
+        }
+        if (trace_alert && l >= 0 && (size_t)l < sizeof(replyMsg) - 8) { l += snprintf(replyMsg + l, sizeof(replyMsg) - l, "TA:%d ", trace_alert_mode); }
+        if (meta_alert && l >= 0 && (size_t)l < sizeof(replyMsg) - 8) { l += snprintf(replyMsg + l, sizeof(replyMsg) - l, "MA:%d ", meta_alert_mode); }
+        if (isZeroHopEnabled() && l >= 0 && (size_t)l < sizeof(replyMsg) - 8) { l += snprintf(replyMsg + l, sizeof(replyMsg) - l, "ZH "); }
+        if (!shouldPreservePosition() && l >= 0 && (size_t)l < sizeof(replyMsg) - 8) { l += snprintf(replyMsg + l, sizeof(replyMsg) - l, "P_OFF "); }
+        if (!shouldPreserveTelemetry() && l >= 0 && (size_t)l < sizeof(replyMsg) - 8) { l += snprintf(replyMsg + l, sizeof(replyMsg) - l, "T_OFF "); }
 
         if (l < 0 || (size_t)l >= sizeof(replyMsg)) l = sizeof(replyMsg) - 1;
 
@@ -2386,15 +2427,14 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     } else if (strcasecmp(cmd, "OUTDROPS") == 0) {
         int l = snprintf(replyMsg, sizeof(replyMsg), "MTC ACTIVE OUTDROPS:\n");
-        #define APPEND_IF_OUT(name, var) if(var) { l += snprintf(replyMsg + l, sizeof(replyMsg) - l, "%s ", name); }
-        APPEND_IF_OUT("NI", drop_out_nodeinfo);
-        APPEND_IF_OUT("PO", drop_out_position);
-        APPEND_IF_OUT("TL", drop_out_telemetry);
-        APPEND_IF_OUT("TR", drop_out_traceroute);
-        APPEND_IF_OUT("AD", drop_out_admin);
-        APPEND_IF_OUT("RO", drop_out_routing);
-        APPEND_IF_OUT("FB", fav_bypass);
-        #undef APPEND_IF_OUT
+        for (const auto &r : s_outDropRules) {
+            if (this->*r.flag && l >= 0 && (size_t)l < sizeof(replyMsg) - 8) {
+                l += snprintf(replyMsg + l, sizeof(replyMsg) - l, "%s ", r.tag);
+            }
+        }
+        if (fav_bypass && l >= 0 && (size_t)l < sizeof(replyMsg) - 8) {
+            l += snprintf(replyMsg + l, sizeof(replyMsg) - l, "FB ");
+        }
     } else if (strcasecmp(cmd, "HEXDROPS") == 0) {
         uint64_t dr = getNexusDropHex();
         snprintf(replyMsg, sizeof(replyMsg), "MTC HEXDROPS: 0x%08lX%08lX",
@@ -2414,42 +2454,35 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         snprintf(replyMsg, sizeof(replyMsg), "MTC: Output Drops updated to 0x%08lX%08lX",
                  (unsigned long)(h >> 32), (unsigned long)(h & 0xFFFFFFFFu));
     }
-    else if (strcasecmp(cmd, "UTIL") == 0) {
-        float chUtil = (airTime != NULL) ? airTime->channelUtilizationPercent() : 0.0f;
-        float txUtil = (airTime != NULL) ? airTime->utilizationTXPercent() : 0.0f;
-        snprintf(replyMsg, sizeof(replyMsg), "MTC UTIL:\nChUtil: %.2f%%\nTxUtil: %.2f%%", chUtil, txUtil);
-    }
-    else if (strcasecmp(cmd, "SYS") == 0) {
-        float temp = getDieTemp();
-        const char* reason = getResetReason();
-        uint32_t freeHeap = memGet.getFreeHeap();
-        uint32_t totalHeap = memGet.getHeapSize();
-        uint32_t unexp = getUnexpectedRebootCount();
-
-        if (unexp > 0) {
-            snprintf(replyMsg, sizeof(replyMsg),
-                     "MTC SYS:\nDieTemp: %.1fC\nBoot: %s (x%u, %u unexp)\nHeap: %u/%u",
-                     temp, reason, (unsigned)myNodeInfo.reboot_count, (unsigned)unexp, freeHeap, totalHeap);
+    else if (strncasecmp(cmd, "SAVE", 4) == 0 || strcasecmp(cmd, "BSAVE") == 0) {
+        const char *p = skipToken(cmd);
+        if (strcasecmp(cmd, "BSAVE") == 0 || strcasecmp(p, "BACKUP") == 0) {
+            bool ok = nodeDB->backupPreferences(meshtastic_AdminMessage_BackupLocation_FLASH);
+            snprintf(replyMsg, sizeof(replyMsg), ok ? "MTC: Config snapshot saved to Flash." : "MTC: Backup save failed.");
         } else {
+            const bool saved = saveVault();
+            if (saved) saveMeshCoreSettings();
             snprintf(replyMsg, sizeof(replyMsg),
-                     "MTC SYS:\nDieTemp: %.1fC\nBoot: %s (x%u)\nHeap: %u/%u",
-                     temp, reason, (unsigned)myNodeInfo.reboot_count, freeHeap, totalHeap);
+                     saved ? "MTC: Nexus vault saved and verified." : "MTC: SAVE failed. Previous vault preserved.");
         }
     }
-    else if (strcasecmp(cmd, "SAVE") == 0) {
-        const bool saved = saveVault();
-        if (saved)
-            saveMeshCoreSettings();
-        snprintf(replyMsg, sizeof(replyMsg),
-                 saved ? "MTC: Nexus vault saved and verified." : "MTC: SAVE failed. Previous vault preserved.");
-    }
-    else if (strcasecmp(cmd, "LOAD") == 0) {
-        const bool loaded = loadVault();
-        if (loaded)
-            loadMeshCoreSettings();
-        snprintf(replyMsg, sizeof(replyMsg),
-                 loaded ? "MTC: Nexus vault loaded and validated."
-                        : "MTC: LOAD failed. RAM unchanged; check vault CRC, size and version.");
+    else if (strncasecmp(cmd, "LOAD", 4) == 0 || strcasecmp(cmd, "BLOAD") == 0) {
+        const char *p = skipToken(cmd);
+        if (strcasecmp(cmd, "BLOAD") == 0 || strcasecmp(p, "BACKUP") == 0) {
+            if (nodeDB->restorePreferences(meshtastic_AdminMessage_BackupLocation_FLASH,
+                                           SEGMENT_DEVICESTATE | SEGMENT_CONFIG | SEGMENT_MODULECONFIG | SEGMENT_CHANNELS)) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Config restored. Rebooting...");
+                if (adminModule) adminModule->reboot(5);
+            } else {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: BLOAD Error - Backup not found or invalid.");
+            }
+        } else {
+            const bool loaded = loadVault();
+            if (loaded) loadMeshCoreSettings();
+            snprintf(replyMsg, sizeof(replyMsg),
+                     loaded ? "MTC: Nexus vault loaded and validated."
+                            : "MTC: LOAD failed. RAM unchanged; check vault CRC, size and version.");
+        }
     }
     else if (strncasecmp(cmd, "BD ", 3) == 0 || strcasecmp(cmd, "BD") == 0) {
         // /nexus BD SET <1..300>   -> set broadcast reply / paging max delay (s)
@@ -2580,48 +2613,30 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         snprintf(replyMsg, sizeof(replyMsg), "MTC FS: N/A");
 #endif
     }
-    else if (strcasecmp(cmd, "FAVS") == 0) {
-        startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Favorites");
+    else if (strcasecmp(cmd, "FAVS") == 0 || strcasecmp(cmd, "IGNORED") == 0 || strcasecmp(cmd, "ADMINS") == 0) {
+        bool isFavs = (strcasecmp(cmd, "FAVS") == 0);
+        bool isIgn = (strcasecmp(cmd, "IGNORED") == 0);
+        const char *tag = isFavs ? "Favorites" : (isIgn ? "Ignored" : "Admins");
+        startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, tag);
+        char entry[40];
         for (size_t i = 0; i < nodeDB->getNumMeshNodes(); i++) {
             auto n = nodeDB->getMeshNodeByIndex(i);
-            if (n && nexus_is_favorite(n)) {
-                char entry[40];
-                snprintf(entry, sizeof(entry), "!%08x:%.4s ", (unsigned int)n->num, n->short_name);
-                appendPaging(entry);
-            }
-        }
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging favorites to mesh...");
-    }
-    else if (strcasecmp(cmd, "IGNORED") == 0) {
-        startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Ignored");
-        for (size_t i = 0; i < nodeDB->getNumMeshNodes(); i++) {
-            auto n = nodeDB->getMeshNodeByIndex(i);
-            if (n && nexus_is_ignored(n)) {
-                char entry[40];
-                snprintf(entry, sizeof(entry), "!%08x:%.4s ", (unsigned int)n->num, n->short_name);
-                appendPaging(entry);
-            }
-        }
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging ignored to mesh...");
-    }
-    else if (strcasecmp(cmd, "ADMINS") == 0) {
-        startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Admins");
-        for (size_t i = 0; i < nodeDB->getNumMeshNodes(); i++) {
-            auto n = nodeDB->getMeshNodeByIndex(i);
-            if (n && nexus_has_user(n)) {
-                bool isAdmin = false;
-                for(int j=0; j<3; j++) {
+            if (!n) continue;
+            bool match = false;
+            if (isFavs) match = nexus_is_favorite(n);
+            else if (isIgn) match = nexus_is_ignored(n);
+            else if (nexus_has_user(n)) {
+                for (int j = 0; j < 3 && !match; j++) {
                     if (config.security.admin_key[j].size == 32 && memcmp(n->public_key.bytes, config.security.admin_key[j].bytes, 32) == 0)
-                        isAdmin = true;
-                }
-                if (isAdmin) {
-                    char entry[40];
-                    snprintf(entry, sizeof(entry), "!%08x:%.4s ", (unsigned int)n->num, n->short_name);
-                    appendPaging(entry);
+                        match = true;
                 }
             }
+            if (match) {
+                snprintf(entry, sizeof(entry), "!%08x:%.4s ", (unsigned int)n->num, n->short_name);
+                appendPaging(entry);
+            }
         }
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging admins to mesh...");
+        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging %s to mesh...", tag);
     }
     else if (strcasecmp(cmd, "NEIGHBORS") == 0 || strcasecmp(cmd, "NEIGHBOURS") == 0 || strcasecmp(cmd, "VECINOS") == 0 ||
              strcasecmp(cmd, "DIRECT") == 0) {
@@ -3658,24 +3673,6 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Node %08x not found", targetNum);
         }
     }
-    else if (strcasecmp(cmd, "BSAVE") == 0) {
-        if (nodeDB->backupPreferences(meshtastic_AdminMessage_BackupLocation_FLASH)) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Config snapshot saved to Flash.");
-        } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: BSAVE Error - Flash write failed.");
-        }
-    }
-    else if (strcasecmp(cmd, "BLOAD") == 0) {
-        if (nodeDB->restorePreferences(meshtastic_AdminMessage_BackupLocation_FLASH,
-                                       SEGMENT_DEVICESTATE | SEGMENT_CONFIG | SEGMENT_MODULECONFIG | SEGMENT_CHANNELS)) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Config restored. Rebooting...");
-            // AdminModule::reboot() takes SECONDS (was reboot(1000) = 16.7 min,
-            // A2 in the audit). 5s leaves time for the reply to flush.
-            if (adminModule) adminModule->reboot(5);
-        } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: BLOAD Error - Backup not found or invalid.");
-        }
-    }
     else if (strcasecmp(cmd, "REBOOT") == 0) {
         LOG_INFO("Nexus: Reboot triggered");
         snprintf(replyMsg, sizeof(replyMsg), "MTC: Rebooting in 20s...");
@@ -3729,19 +3726,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
     }
-    else if (strcasecmp(cmd, "HEAP") == 0) {
-        uint32_t free = memGet.getFreeHeap();
-        uint32_t total = memGet.getHeapSize();
-        uint32_t used = (total > free) ? (total - free) : 0;
-        uint32_t maxBlock = memGet.getMinFreeBlock();
-
-        int usedPerc = (total > 0) ? (int)(used * 100 / total) : 0;
-        int fragPerc = (free > 0) ? (int)(maxBlock * 100 / free) : 100;
-
-        snprintf(replyMsg, sizeof(replyMsg), "MTC HEAP:\nU:%u(%d%%) F:%u\nMaxBlk:%u\nFrag:%d%% (Contig)",
-                 used, usedPerc, free, maxBlock, fragPerc);
-    }
-    else if (strcasecmp(cmd, "RAM") == 0 || strcasecmp(cmd, "MEM") == 0) {
+    else if (strcasecmp(cmd, "RAM") == 0 || strcasecmp(cmd, "MEM") == 0 || strcasecmp(cmd, "HEAP") == 0 || strcasecmp(cmd, "PSRAM") == 0) {
         // Compact one-message diagnostic. All values in bytes except PSRAM
 // (bytes-only too) and uxTaskGetStackHighWaterMark (FreeRTOS words).
 // Target: single reply under 200 B (NEXUS_MAX_REPLY).
@@ -3887,53 +3872,66 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                  this->rx_sig_valid_count, this->rx_sig_valid_bytes, okPct,
                  total, totalBytes);
     }
-    else if (strcasecmp(cmd, "UPTIME") == 0 || strcasecmp(cmd, "UP") == 0) {
-        // Use Time::getMillisMonotonic() (uint64_t) so the display never rolls over at the
-        // 49.7-day Time::getMillis() boundary. Seconds fit in uint32_t (~136 years to overflow days).
-        uint64_t ms = Time::getMillisMonotonic();
-        uint32_t s  = (uint32_t)(ms / 1000ULL);
-        uint32_t d  = s / 86400; s %= 86400;
-        uint32_t h  = s / 3600;  s %= 3600;
-        uint32_t m  = s / 60;    s %= 60;
-        snprintf(replyMsg, sizeof(replyMsg), "MTC UPTIME: %ud %uh %um %us", d, h, m, s);
-    }
-    else if (strcasecmp(cmd, "ROLE") == 0) {
-        snprintf(replyMsg, sizeof(replyMsg), "MTC ROLE: %s (%u)", getRoleName(config.device.role), (uint32_t)config.device.role);
-    }
-    else if (strncasecmp(cmd, "SETROLE ", 8) == 0) {
-        const char *roleStr = cmd + 8;
-        while (*roleStr == ' ') roleStr++;
-
-        int role = -1;
-        if (strcasecmp(roleStr, "CLIENT") == 0) role = meshtastic_Config_DeviceConfig_Role_CLIENT;
-        else if (strcasecmp(roleStr, "SENS") == 0 || strcasecmp(roleStr, "SENSOR") == 0) role = meshtastic_Config_DeviceConfig_Role_SENSOR;
-        else if (strcasecmp(roleStr, "RTR") == 0 || strcasecmp(roleStr, "ROUTER") == 0) role = meshtastic_Config_DeviceConfig_Role_ROUTER;
-        else if (strcasecmp(roleStr, "RTR_CLIENT") == 0) role = meshtastic_Config_DeviceConfig_Role_ROUTER_CLIENT;
-        else if (strcasecmp(roleStr, "BASE") == 0 || strcasecmp(roleStr, "CLIENT_BASE") == 0) role = meshtastic_Config_DeviceConfig_Role_CLIENT_BASE;
-        else if (strcasecmp(roleStr, "MUTE") == 0 || strcasecmp(roleStr, "CLIENT_MUTE") == 0) role = meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE;
-        else if (strcasecmp(roleStr, "HIDDEN") == 0 || strcasecmp(roleStr, "CLIENT_HIDDEN") == 0) role = meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN;
-        else if (strcasecmp(roleStr, "LOST") == 0 || strcasecmp(roleStr, "LOST_AND_FOUND") == 0) role = meshtastic_Config_DeviceConfig_Role_LOST_AND_FOUND;
-        else if (strcasecmp(roleStr, "TAK") == 0) role = meshtastic_Config_DeviceConfig_Role_TAK;
-        else if (strcasecmp(roleStr, "TAK_TRACKER") == 0) role = meshtastic_Config_DeviceConfig_Role_TAK_TRACKER;
-        else if (isdigit(roleStr[0])) role = atoi(roleStr);
-
-        if (role >= 0 && role <= 13) {
-            static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
-            c.which_payload_variant = meshtastic_Config_device_tag;
-            c.payload_variant.device = config.device;
-            c.payload_variant.device.role = (meshtastic_Config_DeviceConfig_Role)role;
-
-            if (adminModule) adminModule->handleSetConfig(c, false);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Role updated to %s (%d).", roleStr, role);
+    else if (strncasecmp(cmd, "SETROLE", 7) == 0 || strncasecmp(cmd, "ROLE", 4) == 0) {
+        const char *roleStr = skipToken(cmd);
+        if (*roleStr == '\0') {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC ROLE: %s (%u)", getRoleName(config.device.role), (uint32_t)config.device.role);
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid role '%s'", roleStr);
+            int role = -1;
+            if (strcasecmp(roleStr, "CLIENT") == 0) role = meshtastic_Config_DeviceConfig_Role_CLIENT;
+            else if (strcasecmp(roleStr, "SENS") == 0 || strcasecmp(roleStr, "SENSOR") == 0) role = meshtastic_Config_DeviceConfig_Role_SENSOR;
+            else if (strcasecmp(roleStr, "RTR") == 0 || strcasecmp(roleStr, "ROUTER") == 0) role = meshtastic_Config_DeviceConfig_Role_ROUTER;
+            else if (strcasecmp(roleStr, "RTR_CLIENT") == 0) role = meshtastic_Config_DeviceConfig_Role_ROUTER_CLIENT;
+            else if (strcasecmp(roleStr, "BASE") == 0 || strcasecmp(roleStr, "CLIENT_BASE") == 0) role = meshtastic_Config_DeviceConfig_Role_CLIENT_BASE;
+            else if (strcasecmp(roleStr, "MUTE") == 0 || strcasecmp(roleStr, "CLIENT_MUTE") == 0) role = meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE;
+            else if (strcasecmp(roleStr, "HIDDEN") == 0 || strcasecmp(roleStr, "CLIENT_HIDDEN") == 0) role = meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN;
+            else if (strcasecmp(roleStr, "LOST") == 0 || strcasecmp(roleStr, "LOST_AND_FOUND") == 0) role = meshtastic_Config_DeviceConfig_Role_LOST_AND_FOUND;
+            else if (strcasecmp(roleStr, "TAK") == 0) role = meshtastic_Config_DeviceConfig_Role_TAK;
+            else if (strcasecmp(roleStr, "TAK_TRACKER") == 0) role = meshtastic_Config_DeviceConfig_Role_TAK_TRACKER;
+            else if (isdigit((unsigned char)roleStr[0])) role = atoi(roleStr);
+
+            if (role >= 0 && role <= 13) {
+                static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default;
+                c.which_payload_variant = meshtastic_Config_device_tag;
+                c.payload_variant.device = config.device;
+                c.payload_variant.device.role = (meshtastic_Config_DeviceConfig_Role)role;
+
+                if (adminModule) adminModule->handleSetConfig(c, false);
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Role updated to %s (%d).", roleStr, role);
+            } else {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid role '%s'", roleStr);
+            }
         }
     }
-    else if (strcasecmp(cmd, "LNA") == 0) {
+    else if (strncasecmp(cmd, "SETLNA", 6) == 0 || strncasecmp(cmd, "LNA", 3) == 0) {
 #if HAS_LORA_FEM
         if (loraFEMInterface.isLnaCanControl()) {
-            bool lnaEnabled = (config.lora.fem_lna_mode == meshtastic_Config_LoRaConfig_FEM_LNA_Mode_ENABLED);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC LNA: %s", lnaEnabled ? "ENABLED" : "BYPASS");
+            const char *p = skipToken(cmd);
+            if (*p == '\0') {
+                bool lnaEnabled = (config.lora.fem_lna_mode == meshtastic_Config_LoRaConfig_FEM_LNA_Mode_ENABLED);
+                snprintf(replyMsg, sizeof(replyMsg), "MTC LNA: %s", lnaEnabled ? "ENABLED" : "BYPASS");
+            } else {
+                bool enable = false, valid = false;
+                if (strcasecmp(p, "ON") == 0 || strcasecmp(p, "ENABLED") == 0 || strcasecmp(p, "1") == 0) {
+                    enable = true; valid = true;
+                } else if (strcasecmp(p, "OFF") == 0 || strcasecmp(p, "BYPASS") == 0 || strcasecmp(p, "0") == 0) {
+                    enable = false; valid = true;
+                }
+                if (valid) {
+                    static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default;
+                    c.which_payload_variant = meshtastic_Config_lora_tag;
+                    c.payload_variant.lora = config.lora;
+                    c.payload_variant.lora.fem_lna_mode = enable ? meshtastic_Config_LoRaConfig_FEM_LNA_Mode_ENABLED : meshtastic_Config_LoRaConfig_FEM_LNA_Mode_DISABLED;
+                    if (adminModule) {
+                        adminModule->handleSetConfig(c, false);
+                        snprintf(replyMsg, sizeof(replyMsg), "MTC: LNA set to %s", enable ? "ENABLED" : "BYPASS");
+                    } else {
+                        snprintf(replyMsg, sizeof(replyMsg), "MTC: Error - adminModule NULL");
+                    }
+                } else {
+                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid LNA param (ON|OFF|BYPASS)");
+                }
+            }
         } else {
             snprintf(replyMsg, sizeof(replyMsg), "MTC LNA: Hardware does not support LNA control");
         }
@@ -3941,63 +3939,29 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         snprintf(replyMsg, sizeof(replyMsg), "MTC LNA: NO_FEM");
 #endif
     }
-    else if (strncasecmp(cmd, "SETLNA ", 7) == 0) {
-#if HAS_LORA_FEM
-        if (loraFEMInterface.isLnaCanControl()) {
-            const char *p = cmd + 7;
-            bool enable = false;
-            bool valid = false;
-            if (strcasecmp(p, "ON") == 0 || strcasecmp(p, "ENABLED") == 0 || strcasecmp(p, "1") == 0) {
-                enable = true;
-                valid = true;
-            } else if (strcasecmp(p, "OFF") == 0 || strcasecmp(p, "BYPASS") == 0 || strcasecmp(p, "0") == 0) {
-                enable = false;
-                valid = true;
-            }
-
-            if (valid) {
-                static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
+    else if (strncasecmp(cmd, "SETPOWER", 8) == 0 || strncasecmp(cmd, "SETTXPOWER", 10) == 0 ||
+             strncasecmp(cmd, "SETPWR", 6) == 0 || strcasecmp(cmd, "GETTXPOWER") == 0 ||
+             strcasecmp(cmd, "TXPOWER") == 0 || strncasecmp(cmd, "TXPOWER ", 8) == 0) {
+        const char *p = skipToken(cmd);
+        if (*p == '\0') {
+            int activePwr = (int)config.lora.tx_power;
+            int sxPwr = (int)getChipPower(activePwr);
+            snprintf(replyMsg, sizeof(replyMsg), "MTC TX Power:\nActive: %d dBm\nChip: %d dBm",
+                     activePwr, sxPwr);
+        } else {
+            int8_t pwr = atoi(p);
+            if (pwr >= -9 && pwr <= 31) {
+                static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default;
                 c.which_payload_variant = meshtastic_Config_lora_tag;
                 c.payload_variant.lora = config.lora;
-                c.payload_variant.lora.fem_lna_mode = enable ? meshtastic_Config_LoRaConfig_FEM_LNA_Mode_ENABLED : meshtastic_Config_LoRaConfig_FEM_LNA_Mode_DISABLED;
+                c.payload_variant.lora.tx_power = pwr;
 
-                if (adminModule) {
-                    adminModule->handleSetConfig(c, false);
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: LNA set to %s", enable ? "ENABLED" : "BYPASS");
-                } else {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Error - adminModule NULL");
-                }
+                if (adminModule) adminModule->handleSetConfig(c, false);
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: TX Power set to %d dBm.", pwr);
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid LNA param (ON|OFF|BYPASS)");
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid Power (-9 to 31)");
             }
-        } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC LNA: Hardware does not support LNA control");
         }
-#else
-        snprintf(replyMsg, sizeof(replyMsg), "MTC LNA: NO_FEM");
-#endif
-    }
-    else if (strncasecmp(cmd, "SETPOWER ", 9) == 0 || strncasecmp(cmd, "SETTXPOWER ", 11) == 0 || strncasecmp(cmd, "SETPWR ", 7) == 0) {
-        const char *p = (strncasecmp(cmd, "SETPOWER ", 9) == 0) ? cmd + 9 :
-                        (strncasecmp(cmd, "SETTXPOWER ", 11) == 0) ? cmd + 11 : cmd + 7;
-        int8_t pwr = atoi(p);
-        if (pwr >= -9 && pwr <= 31) {
-            static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
-            c.which_payload_variant = meshtastic_Config_lora_tag;
-            c.payload_variant.lora = config.lora;
-            c.payload_variant.lora.tx_power = pwr;
-
-            if (adminModule) adminModule->handleSetConfig(c, false);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: TX Power set to %d dBm.", pwr);
-        } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid Power (-9 to 31)");
-        }
-    }
-    else if (strcasecmp(cmd, "GETTXPOWER") == 0) {
-        int activePwr = (int)config.lora.tx_power;
-        int sxPwr = (int)getChipPower(activePwr);
-        snprintf(replyMsg, sizeof(replyMsg), "MTC TX Power:\nActive: %d dBm\nChip: %d dBm",
-                 activePwr, sxPwr);
     }
     else if (handleMeshtacoreCommand(mp, replyId, cmd)) {
         // Meshtacore commands: NexusMeshtacoreCommands.cpp
@@ -5020,214 +4984,27 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 meshtastic_Config_LoRaConfig_RegionCode region;
             };
             LoRaParams target = {0, 0, 0, 0.0f, meshtastic_Config_LoRaConfig_RegionCode_UNSET};
-            bool found = true;
+            bool found = false;
             bool isCurrent24 = (config.lora.region == meshtastic_Config_LoRaConfig_RegionCode_LORA_24);
 
-            // 1. Madrid24 & 2.4 GHz Presets (LORA_24)
-            if (strcasecmp(p, "MADRID24") == 0 || strcasecmp(p, "MADRID-24") == 0 || strcasecmp(p, "MADRID_24") == 0) {
-                target = {9, 400, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24};
-            }
-            else if (strcasecmp(p, "LF24") == 0 || strcasecmp(p, "LONGFAST24") == 0 || strcasecmp(p, "LONGFAST_24") == 0) {
-                target = {11, 800, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24};
-            }
-            else if (strcasecmp(p, "MS24") == 0 || strcasecmp(p, "MEDSLOW24") == 0 || strcasecmp(p, "MEDSLOW_24") == 0) {
-                target = {10, 800, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24};
-            }
-            else if (strcasecmp(p, "MF24") == 0 || strcasecmp(p, "MEDFAST24") == 0 || strcasecmp(p, "MEDFAST_24") == 0) {
-                target = {9, 800, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24};
-            }
-            else if (strcasecmp(p, "SS24") == 0 || strcasecmp(p, "SHORTSLOW24") == 0 || strcasecmp(p, "SHORTSLOW_24") == 0) {
-                target = {8, 800, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24};
-            }
-            else if (strcasecmp(p, "SF24") == 0 || strcasecmp(p, "SHORTFAST24") == 0 || strcasecmp(p, "SHORTFAST_24") == 0) {
-                target = {7, 800, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24};
-            }
-            else if (strcasecmp(p, "LM24") == 0 || strcasecmp(p, "LONGMODERATE24") == 0 || strcasecmp(p, "LONGMODERATE_24") == 0) {
-                target = {11, 400, 8, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24};
-            }
-            else if (strcasecmp(p, "LS24") == 0 || strcasecmp(p, "LONGSLOW24") == 0 || strcasecmp(p, "LONGSLOW_24") == 0) {
-                target = {12, 400, 8, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24};
-            }
-            else if (strcasecmp(p, "ST24") == 0 || strcasecmp(p, "SHORTTURBO24") == 0 || strcasecmp(p, "SHORTTURBO_24") == 0) {
-                target = {7, 1600, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24};
-            }
-            else if (strcasecmp(p, "LT24") == 0 || strcasecmp(p, "LONGTURBO24") == 0 || strcasecmp(p, "LONGTURBO_24") == 0) {
-                target = {11, 1600, 8, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24};
+            char searchBuf[32];
+            const char *searchStr = p;
+            for (const char *stdName : s_stdPresets) {
+                if (presetMatch(p, stdName)) {
+                    snprintf(searchBuf, sizeof(searchBuf), "%s%s", p, isCurrent24 ? "24" : "868");
+                    searchStr = searchBuf;
+                    break;
+                }
             }
 
-            // 2. Explicit EU_868 variants
-            else if (strcasecmp(p, "LF868") == 0 || strcasecmp(p, "LONGFAST868") == 0 || strcasecmp(p, "LONGFAST_868") == 0) {
-                target = {11, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "MS868") == 0 || strcasecmp(p, "MEDSLOW868") == 0 || strcasecmp(p, "MEDSLOW_868") == 0) {
-                target = {10, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "MF868") == 0 || strcasecmp(p, "MEDFAST868") == 0 || strcasecmp(p, "MEDFAST_868") == 0) {
-                target = {9, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "SS868") == 0 || strcasecmp(p, "SHORTSLOW868") == 0 || strcasecmp(p, "SHORTSLOW_868") == 0) {
-                target = {8, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "SF868") == 0 || strcasecmp(p, "SHORTFAST868") == 0 || strcasecmp(p, "SHORTFAST_868") == 0) {
-                target = {7, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "LM868") == 0 || strcasecmp(p, "LONGMODERATE868") == 0 || strcasecmp(p, "LONGMODERATE_868") == 0) {
-                target = {11, 125, 8, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "LS868") == 0 || strcasecmp(p, "LONGSLOW868") == 0 || strcasecmp(p, "LONGSLOW_868") == 0) {
-                target = {12, 125, 8, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "ST868") == 0 || strcasecmp(p, "SHORTTURBO868") == 0 || strcasecmp(p, "SHORTTURBO_868") == 0) {
-                target = {7, 500, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "LT868") == 0 || strcasecmp(p, "LONGTURBO868") == 0 || strcasecmp(p, "LONGTURBO_868") == 0) {
-                target = {11, 500, 8, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-
-            // 3. Standard Aliases (Context-aware: LORA_24 when currently on 2.4G, otherwise EU_868)
-            else if (strcasecmp(p, "LF") == 0 || strcasecmp(p, "LONGFAST") == 0) {
-                target = isCurrent24 ? LoRaParams{11, 800, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24}
-                                     : LoRaParams{11, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "LT") == 0 || strcasecmp(p, "LONGTURBO") == 0) {
-                target = isCurrent24 ? LoRaParams{11, 1600, 8, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24}
-                                     : LoRaParams{11, 500, 8, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "LM") == 0 || strcasecmp(p, "LONGMODERATE") == 0) {
-                target = isCurrent24 ? LoRaParams{11, 400, 8, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24}
-                                     : LoRaParams{11, 125, 8, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "LS") == 0 || strcasecmp(p, "LONGSLOW") == 0) {
-                target = isCurrent24 ? LoRaParams{12, 400, 8, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24}
-                                     : LoRaParams{12, 125, 8, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "MF") == 0 || strcasecmp(p, "MEDFAST") == 0) {
-                target = isCurrent24 ? LoRaParams{9, 800, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24}
-                                     : LoRaParams{9, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "MS") == 0 || strcasecmp(p, "MEDSLOW") == 0) {
-                target = isCurrent24 ? LoRaParams{10, 800, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24}
-                                     : LoRaParams{10, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "SS") == 0 || strcasecmp(p, "SHORTSLOW") == 0) {
-                target = isCurrent24 ? LoRaParams{8, 800, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24}
-                                     : LoRaParams{8, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "SF") == 0 || strcasecmp(p, "SHORTFAST") == 0) {
-                target = isCurrent24 ? LoRaParams{7, 800, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24}
-                                     : LoRaParams{7, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "ST") == 0 || strcasecmp(p, "SHORTTURBO") == 0) {
-                target = isCurrent24 ? LoRaParams{7, 1600, 5, 2482.0000f, meshtastic_Config_LoRaConfig_RegionCode_LORA_24}
-                                     : LoRaParams{7, 500, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-
-            // 4. Upstream Narrow Presets (EU_N_868, BW 62.5 kHz, CR 4/6, Freq 869.4417 MHz)
-            else if (strcasecmp(p, "NF") == 0 || strcasecmp(p, "NARROWFAST") == 0 || strcasecmp(p, "NARF") == 0 ||
-                     strcasecmp(p, "NARROW_FAST") == 0 || strcasecmp(p, "NARROW-FAST") == 0) {
-                target = {7, 62, 6, 869.4417f, meshtastic_Config_LoRaConfig_RegionCode_EU_N_868};
-            }
-            else if (strcasecmp(p, "NS") == 0 || strcasecmp(p, "NARROWSLOW") == 0 || strcasecmp(p, "NARS") == 0 ||
-                     strcasecmp(p, "NARROW_SLOW") == 0 || strcasecmp(p, "NARROW-SLOW") == 0) {
-                target = {8, 62, 6, 869.4417f, meshtastic_Config_LoRaConfig_RegionCode_EU_N_868};
-            }
-
-            // 5. Upstream Lite Presets (EU_866, BW 125 kHz, CR 4/5)
-            else if (strcasecmp(p, "LITEFAST") == 0 || strcasecmp(p, "LITEF") == 0 ||
-                     strcasecmp(p, "LITE_FAST") == 0 || strcasecmp(p, "LITE-FAST") == 0) {
-                target = {9, 125, 5, 866.3000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-            else if (strcasecmp(p, "LITESLOW") == 0 || strcasecmp(p, "LITES") == 0 ||
-                     strcasecmp(p, "LITE_SLOW") == 0 || strcasecmp(p, "LITE-SLOW") == 0) {
-                target = {10, 125, 5, 865.7000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-
-            // 6. Nexus Tactical Presets (EU_868)
-            else if (strcasecmp(p, "P1") == 0 || strcasecmp(p, "SFNARROW") == 0) {
-                target = {7, 62, 5, 869.6180f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "P7") == 0 || strcasecmp(p, "NARROWPLUS") == 0) {
-                target = {6, 62, 5, 869.6180f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "NARROWPROMAX") == 0 || strcasecmp(p, "NARROWPREMIUM") == 0) {
-                target = {5, 62, 5, 869.6180f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "SP") == 0 || strcasecmp(p, "SHORTPLUS") == 0) {
-                target = {6, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-            else if (strcasecmp(p, "SPM") == 0 || strcasecmp(p, "SHORTPROMAX") == 0) {
-                target = {5, 250, 5, 869.5250f, meshtastic_Config_LoRaConfig_RegionCode_EU_868};
-            }
-
-            // 7. NAP Series (EU_866, BW 125 kHz, SF7, CR 4/5)
-            else if (strcasecmp(p, "NAP-1") == 0 || strcasecmp(p, "NAP1") == 0) {
-                target = {7, 125, 5, 865.7000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-            else if (strcasecmp(p, "NAP-2") == 0 || strcasecmp(p, "NAP2") == 0) {
-                target = {7, 125, 5, 866.3000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-            else if (strcasecmp(p, "NAP-3") == 0 || strcasecmp(p, "NAP3") == 0) {
-                target = {7, 125, 5, 866.9000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-            else if (strcasecmp(p, "NAP-4") == 0 || strcasecmp(p, "NAP4") == 0) {
-                target = {7, 125, 5, 867.5000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-            else if (strcasecmp(p, "NAP-5") == 0 || strcasecmp(p, "NAP5") == 0) {
-                target = {7, 125, 5, 871.0000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-
-            // 8. NAPN Series (EU_866, BW 62 kHz, SF7, CR 4/5)
-            else if (strcasecmp(p, "NAPN-1") == 0 || strcasecmp(p, "NAPN1") == 0) {
-                target = {7, 62, 5, 865.7000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-            else if (strcasecmp(p, "NAPN-2") == 0 || strcasecmp(p, "NAPN2") == 0) {
-                target = {7, 62, 5, 866.3000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-            else if (strcasecmp(p, "NAPN-3") == 0 || strcasecmp(p, "NAPN3") == 0) {
-                target = {7, 62, 5, 866.9000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-            else if (strcasecmp(p, "NAPN-4") == 0 || strcasecmp(p, "NAPN4") == 0) {
-                target = {7, 62, 5, 867.5000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-            else if (strcasecmp(p, "NAPN-5") == 0 || strcasecmp(p, "NAPN5") == 0) {
-                target = {7, 62, 5, 871.0000f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-
-            // 9. Mini Series (EU_866, BW 31 kHz, SF6, CR 4/5) - Left/Right guardbands around NAP channels
-            else if (strcasecmp(p, "MINI-1") == 0 || strcasecmp(p, "MINI1") == 0 ||
-                     strcasecmp(p, "MICRO-1") == 0 || strcasecmp(p, "MICRO1") == 0) {
-                target = {6, 31, 5, 865.6188f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-            else if (strcasecmp(p, "MINI-2") == 0 || strcasecmp(p, "MINI2") == 0 ||
-                     strcasecmp(p, "MICRO-2") == 0 || strcasecmp(p, "MICRO2") == 0) {
-                target = {6, 31, 5, 865.7812f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-            else if (strcasecmp(p, "MINI-3") == 0 || strcasecmp(p, "MINI3") == 0 ||
-                     strcasecmp(p, "MICRO-3") == 0 || strcasecmp(p, "MICRO3") == 0) {
-                target = {6, 31, 5, 866.2188f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-            else if (strcasecmp(p, "MINI-4") == 0 || strcasecmp(p, "MINI4") == 0 ||
-                     strcasecmp(p, "MICRO-4") == 0 || strcasecmp(p, "MICRO4") == 0) {
-                target = {6, 31, 5, 866.3812f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-            else if (strcasecmp(p, "MINI-5") == 0 || strcasecmp(p, "MINI5") == 0 ||
-                     strcasecmp(p, "MICRO-5") == 0 || strcasecmp(p, "MICRO5") == 0) {
-                target = {6, 31, 5, 866.8188f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-            else if (strcasecmp(p, "MINI-6") == 0 || strcasecmp(p, "MINI6") == 0 ||
-                     strcasecmp(p, "MICRO-6") == 0 || strcasecmp(p, "MICRO6") == 0) {
-                target = {6, 31, 5, 866.9812f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-            else if (strcasecmp(p, "MINI-7") == 0 || strcasecmp(p, "MINI7") == 0 ||
-                     strcasecmp(p, "MICRO-7") == 0 || strcasecmp(p, "MICRO7") == 0) {
-                target = {6, 31, 5, 867.4188f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-            else if (strcasecmp(p, "MINI-8") == 0 || strcasecmp(p, "MINI8") == 0 ||
-                     strcasecmp(p, "MICRO-8") == 0 || strcasecmp(p, "MICRO8") == 0) {
-                target = {6, 31, 5, 867.5812f, meshtastic_Config_LoRaConfig_RegionCode_EU_866};
-            }
-            else {
-                found = false;
+            for (const auto &entry : s_loraPresets) {
+                if (presetMatch(searchStr, entry.names[0]) ||
+                    presetMatch(searchStr, entry.names[1]) ||
+                    presetMatch(searchStr, entry.names[2])) {
+                    target = {entry.sf, entry.bw, entry.cr, entry.freq, entry.region};
+                    found = true;
+                    break;
+                }
             }
 
             if (!found) {
@@ -5917,83 +5694,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
         snprintf(replyMsg, sizeof(replyMsg), "%s", shared_buf);
     }
-    else if (strcasecmp(cmd, "PACKETSTATS") == 0 || strcasecmp(cmd, "PS") == 0) {
-        struct BytesFmt {
-            static const char* b(uint32_t bytes, char *out, size_t outSize) {
-                if (bytes < 1024) snprintf(out, outSize, "%uB", (unsigned int)bytes);
-                else if (bytes < 1024ULL * 1024ULL) snprintf(out, outSize, "%.1fKB", bytes / 1024.0f);
-                else snprintf(out, outSize, "%.2fMB", bytes / 1048576.0f);
-                return out;
-            }
-        };
-        static const char* portNames[] = {
-            "TEXT", "POS", "INFO", "TELE", "NEIG", "ADM", "TRCE", "S&F",
-            "RPLY", "REHW", "ATAK", "WAYP", "TUNN", "DETC", "PAX", "UNK",
-            "AUDI", "RNGE", "RNST", "SERL", "ALRT", "KEYV", "SF++", "NSTA",
-            "TAK2", "MAPR", "PSTR", "LWAB", "CAYN", "U29",  "U30",  "U31"
-        };
-        startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Packet Stats");
-        uint32_t total = 0;
-        for (int i = 0; i < 32; i++) total += nexus_port_stats[i];
-        uint32_t totalBytes = 0;
-        for (int i = 0; i < 32; i++) totalBytes += nexus_port_bytes[i];
-
-        // Static buffers (BSS, not stack) so loopTask pressure stays low.
-        // Sized to match the original members. Cleared at start AND end to
-        // prevent residual bytes from bleeding into the next call.
-        static char tLine[96];
-        static char bytesBuf[32];
-        static char pLine160[160];
-        memset(tLine, 0, sizeof(tLine));
-        memset(bytesBuf, 0, sizeof(bytesBuf));
-        snprintf(tLine, sizeof(tLine), "Total: %u pkts (%s)\n",
-                 (unsigned int)total, BytesFmt::b(totalBytes, bytesBuf, sizeof(bytesBuf)));
-        appendPaging(tLine);
-
-        for (int i = 0; i < 32; i++) {
-            if (nexus_port_stats[i] > 0) {
-                memset(pLine160, 0, sizeof(pLine160));
-                float pctP = (total > 0) ? (float)nexus_port_stats[i] * 100.0f / (float)total : 0.0f;
-                float pctB = (totalBytes > 0) ? (float)nexus_port_bytes[i] * 100.0f / (float)totalBytes : 0.0f;
-                int lLen = snprintf(pLine160, sizeof(pLine160), "%s: %u pkts (%.1f%%) %s (%.1f%%)",
-                                    portNames[i], (unsigned int)nexus_port_stats[i], pctP,
-                                    BytesFmt::b(nexus_port_bytes[i], bytesBuf, sizeof(bytesBuf)), pctB);
-
-                if (i == 3) { // TELEMETRY
-                    lLen += snprintf(pLine160 + lLen, sizeof(pLine160) - lLen, " [DEV:%u PWR:%u ENV:%u OTH:%u]",
-                        (unsigned int)nexus_tele_stats[0], (unsigned int)nexus_tele_stats[1],
-                        (unsigned int)nexus_tele_stats[2], (unsigned int)nexus_tele_stats[3]);
-                }
-                if (i == 1) { // POSITION
-                    lLen += snprintf(pLine160 + lLen, sizeof(pLine160) - lLen, " [MAN:%u GPS:%u OTH:%u]",
-                        (unsigned int)nexus_pos_stats[0], (unsigned int)nexus_pos_stats[1],
-                        (unsigned int)nexus_pos_stats[2]);
-                }
-                if (i == 2) { // NODEINFO
-                    lLen += snprintf(pLine160 + lLen, sizeof(pLine160) - lLen, " [BCAST:%u REQ:%u B_REQ:%u]",
-                        (unsigned int)nexus_nodeinfo_stats[0], (unsigned int)nexus_nodeinfo_stats[1],
-                        (unsigned int)nexus_nodeinfo_stats[2]);
-                }
-
-                strcat(pLine160, "\n");
-                appendPaging(pLine160);
-            }
-        }
-
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging packet stats...");
-        // Clean up static scratch buffers so the next call starts fresh.
-        memset(tLine, 0, sizeof(tLine));
-        memset(bytesBuf, 0, sizeof(bytesBuf));
-        memset(pLine160, 0, sizeof(pLine160));
-    }
-    else if (strncasecmp(cmd, "SORTEDPACKETSTATS ", 18) == 0 || strcasecmp(cmd, "SORTEDPACKETSTATS") == 0 ||
-             strncasecmp(cmd, "SPS ", 4) == 0 || strcasecmp(cmd, "SPS") == 0) {
-        static const char* spsPortNames[] = {
-            "TEXT", "POS", "INFO", "TELE", "NEIG", "ADM", "TRCE", "S&F",
-            "RPLY", "REHW", "ATAK", "WAYP", "TUNN", "DETC", "PAX", "UNK",
-            "AUDI", "RNGE", "RNST", "SERL", "ALRT", "KEYV", "SF++", "NSTA",
-            "TAK2", "MAPR", "PSTR", "LWAB", "CAYN", "U29",  "U30",  "U31"
-        };
+    else if (strncasecmp(cmd, "SORTEDPACKETSTATS", 17) == 0 || strcasecmp(cmd, "SORTEDPACKETSTATS") == 0 ||
+             strncasecmp(cmd, "PACKETSTATS", 11) == 0 || strcasecmp(cmd, "PACKETSTATS") == 0 ||
+             strncasecmp(cmd, "SPS", 3) == 0 || strcasecmp(cmd, "SPS") == 0 ||
+             strncasecmp(cmd, "PS", 2) == 0 || strcasecmp(cmd, "PS") == 0) {
         struct SPSBytesFmt {
             static const char* b(uint32_t bytes, char *out, size_t outSize) {
                 if (bytes < 1024) snprintf(out, outSize, "%uB", (unsigned int)bytes);
@@ -6002,16 +5706,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 return out;
             }
         };
-        startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Sorted Packet Stats");
+        startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Packet Stats");
 
-        // Optional tail = top N limit (SPS 20 = top 20).
-        //   /nexus SPS            -> all active ports, sorted
-        //   /nexus SPS 20         -> top 20
-        //   /nexus SPS 0          -> no rows (explicit top-0)
-        //   /nexus SPS <garbage>  -> atoi() == 0 -> no rows
-        int spsOff = (strncasecmp(cmd, "SPS", 3) == 0) ? 3 : 17;
-        const char *spsP = cmd + spsOff;
-        while (*spsP == ' ') spsP++;
+        const char *spsP = skipToken(cmd);
         int spsRequested = 0x7FFFFFFF; // default: show all non-zero
         if (*spsP != '\0') {
             int v = atoi(spsP);
@@ -6122,7 +5819,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     }
                     snprintf(rateBuf, sizeof(rateBuf), " | %.1f pph, %.0f bph", pph, bph);
                     int lLen = snprintf(pLine160, sizeof(pLine160), "%s: %u pkts (%.1f%%) %s (%.1f%%)%s",
-                                        spsPortNames[i], (unsigned int)entries[n].pkts, pctP,
+                                        s_nexusPortNames[i], (unsigned int)entries[n].pkts, pctP,
                                         SPSBytesFmt::b(entries[n].bytes, bytesBuf, sizeof(bytesBuf)), pctB,
                                         rateBuf);
 
@@ -6176,18 +5873,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     }
     else if (strncasecmp(cmd, "STATUSPS ", 9) == 0 || strcasecmp(cmd, "STATUSPS") == 0) {
-        // Nexus-28002 (2026-08-22): build the top-N SPS row (same data
-        // /nexus SPS reads) and send it as a Node Status message. Default N=5.
-        // Format (single-line, all on one status string, fits in 79 chars):
-        //   "PS:INFO:1234(37%) POS:567(17%) TL:345(10%) NI:200(6%) NI2:99(3%)"
-        // if more than ~5 active ports, only the top N fit; the rest are dropped.
-        // Port names mirror the SPS handler's spsPortNames[] index order.
-        static const char *spsPortNames[] = {
-            "TEXT", "POS", "INFO", "TELE", "NEIG", "ADM", "TRCE", "S&F",
-            "RPLY", "REHW", "ATAK", "WAYP", "TUNN", "DETC", "PAX", "UNK",
-            "AUDI", "RNGE", "RNST", "SERL", "ALRT", "KEYV", "SF++", "NSTA",
-            "TAK2", "MAPR", "PSTR", "LWAB", "CAYN", "U29",  "U30",  "U31"
-        };
+        // Build the top-N SPS row and send it as a Node Status message. Default N=5.
         int requested = 5; // default
         if (strncasecmp(cmd, "STATUSPS ", 9) == 0) {
             const char *sp = cmd + 9;
@@ -6250,7 +5936,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                               : 0;
                     int m = snprintf(smsg + off2, sizeof(smsg) - off2,
                                      " %s:%u(%d%%)",
-                                     spsPortNames[entries[k].id],
+                                     s_nexusPortNames[entries[k].id],
                                      (unsigned)entries[k].pkts, pct);
                     if (m <= 0) break;
                     // Stop if next row would overflow 79-char status cap
@@ -6518,56 +6204,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
         snprintf(replyMsg, sizeof(replyMsg), "MTC: All tactical stats cleared.");
     }
-    else if (strcasecmp(cmd, "CHANNELSTATS") == 0 || strcasecmp(cmd, "CHS") == 0) {
-        struct ChBytesFmt {
-            static const char* b(uint32_t bytes, char *out, size_t outSize) {
-                if (bytes < 1024) snprintf(out, outSize, "%uB", (unsigned int)bytes);
-                else if (bytes < 1024ULL * 1024ULL) snprintf(out, outSize, "%.1fKB", bytes / 1024.0f);
-                else snprintf(out, outSize, "%.2fMB", bytes / 1048576.0f);
-                return out;
-            }
-        };
-        startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Channel Stats");
-        uint32_t total = 0;
-        for (int i = 0; i < 256; i++) total += channel_stats[i];
-        uint32_t totalBytes = 0;
-        for (int i = 0; i < 256; i++) totalBytes += channel_bytes[i];
-
-        // Static buffers (BSS, not stack).
-        static char tLine[96];
-        static char bytesBuf[32];
-        static char pLine128[128];
-        memset(tLine, 0, sizeof(tLine));
-        memset(bytesBuf, 0, sizeof(bytesBuf));
-        snprintf(tLine, sizeof(tLine), "Total: %u pkts (%s)\n",
-                 (unsigned int)total, ChBytesFmt::b(totalBytes, bytesBuf, sizeof(bytesBuf)));
-        appendPaging(tLine);
-
-        for (int i = 0; i < 256; i++) {
-            if (channel_stats[i] > 0) {
-                memset(pLine128, 0, sizeof(pLine128));
-                float pctP = (total > 0) ? (float)channel_stats[i] * 100.0f / (float)total : 0.0f;
-                float pctB = (totalBytes > 0) ? (float)channel_bytes[i] * 100.0f / (float)totalBytes : 0.0f;
-                // Try to get channel name if it's one of ours (0-7)
-                const char* name = "??";
-                if (i < MAX_NUM_CHANNELS) {
-                    meshtastic_Channel *c = &channels.getByIndex(i);
-                    if (c->role != meshtastic_Channel_Role_DISABLED) name = c->settings.name;
-                }
-                snprintf(pLine128, sizeof(pLine128), "Ch%d(%s): %u pkts (%.1f%%) %s (%.1f%%)\n",
-                         i, name, (unsigned int)channel_stats[i], pctP,
-                         ChBytesFmt::b(channel_bytes[i], bytesBuf, sizeof(bytesBuf)), pctB);
-                appendPaging(pLine128);
-            }
-        }
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging channel stats...");
-        // Clean up static scratch buffers so the next call starts fresh.
-        memset(tLine, 0, sizeof(tLine));
-        memset(bytesBuf, 0, sizeof(bytesBuf));
-        memset(pLine128, 0, sizeof(pLine128));
-    }
-    else if (strncasecmp(cmd, "SORTEDCHANNELSTATS ", 19) == 0 || strcasecmp(cmd, "SORTEDCHANNELSTATS") == 0 ||
-             strncasecmp(cmd, "SCHS ", 5) == 0 || strcasecmp(cmd, "SCHS") == 0) {
+    else if (strncasecmp(cmd, "SORTEDCHANNELSTATS", 18) == 0 || strcasecmp(cmd, "SORTEDCHANNELSTATS") == 0 ||
+             strncasecmp(cmd, "CHANNELSTATS", 12) == 0 || strcasecmp(cmd, "CHANNELSTATS") == 0 ||
+             strncasecmp(cmd, "SCHS", 4) == 0 || strcasecmp(cmd, "SCHS") == 0 ||
+             strncasecmp(cmd, "CHS", 3) == 0 || strcasecmp(cmd, "CHS") == 0) {
         struct SCHSBytesFmt {
             static const char* b(uint32_t bytes, char *out, size_t outSize) {
                 if (bytes < 1024) snprintf(out, outSize, "%uB", (unsigned int)bytes);
@@ -6576,16 +6216,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 return out;
             }
         };
-        startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Sorted Channel Stats");
+        startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Channel Stats");
 
-        // Optional tail = top N limit (SCHS 10 = top 10).
-        //   /nexus SCHS            -> all active channels, sorted
-        //   /nexus SCHS 10         -> top 10
-        //   /nexus SCHS 0          -> no rows (explicit top-0)
-        //   /nexus SCHS <garbage>  -> atoi() == 0 -> no rows
-        int schsOff = (strncasecmp(cmd, "SCHS", 4) == 0) ? 4 : 18;
-        const char *schsP = cmd + schsOff;
-        while (*schsP == ' ') schsP++;
+        const char *schsP = skipToken(cmd);
         int schsRequested = 0x7FFFFFFF; // default: show all non-zero
         if (*schsP != '\0') {
             int v = atoi(schsP);
@@ -6880,53 +6513,20 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging firewall stats...");
         memset(line, 0, sizeof(line));
     }
-    else if (strncasecmp(cmd, "RELAYS ", 7) == 0 || strcasecmp(cmd, "RELAYS") == 0 ||
-             strncasecmp(cmd, "RY ", 3) == 0 || strcasecmp(cmd, "RY") == 0) {
-        int off = (strncasecmp(cmd, "RY", 2) == 0) ? 2 : 6;
-        const char *p = cmd + off;
-        while (*p == ' ') p++;
-
-        if (*p != '\0') {
-            // Specific ID requested
-            uint32_t rid = strtoul(p, NULL, 0) & 0xFF;
-
+    else if (strncasecmp(cmd, "RELAYS ", 7) == 0 || strncasecmp(cmd, "RY ", 3) == 0) {
+        const char *p = skipToken(cmd);
+        if (*p == '*' || (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) || (strlen(p) == 2 && !isdigit((unsigned char)p[0]))) {
+            uint32_t rid = strtoul((*p == '*') ? p + 1 : p, NULL, 16) & 0xFF;
             static char relayNames[64];
             memset(relayNames, 0, sizeof(relayNames));
             getRelayNames(relayNames, sizeof(relayNames), (uint8_t)rid);
-
             snprintf(replyMsg, sizeof(replyMsg), "Relay *%02x (%s) Stats:\nDirect: %u\nRelayed: %u\nTotal: %u",
                      (unsigned int)rid, relayNames[0] ? relayNames : "Unknown",
                      (unsigned int)relay_stats[rid].direct,
                      (unsigned int)relay_stats[rid].relayed,
                      (unsigned int)(relay_stats[rid].direct + relay_stats[rid].relayed));
             memset(relayNames, 0, sizeof(relayNames));
-        } else {
-            // Paginated list of non-zero relays
-            startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Relay Stats");
-            uint16_t totalNonZero = 0;
-            static char relayNames[32];
-            static char entry[72];
-            for (int i = 0; i < 256; i++) {
-                if (relay_stats[i].direct > 0 || relay_stats[i].relayed > 0) {
-                    memset(relayNames, 0, sizeof(relayNames));
-                    getRelayNames(relayNames, sizeof(relayNames), (uint8_t)i);
-
-                    memset(entry, 0, sizeof(entry));
-                    snprintf(entry, sizeof(entry), "*%02x (%s): D:%u R:%u T:%u\n",
-                             i, relayNames[0] ? relayNames : "??",
-                             (unsigned int)relay_stats[i].direct,
-                             (unsigned int)relay_stats[i].relayed,
-                             (unsigned int)(relay_stats[i].direct + relay_stats[i].relayed));
-                    appendPaging(entry);
-                    totalNonZero++;
-                }
-            }
-            memset(relayNames, 0, sizeof(relayNames));
-            memset(entry, 0, sizeof(entry));
-            if (totalNonZero == 0) {
-                appendPaging("No traffic recorded.");
-            }
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging RELAYS (%u active) to mesh...", totalNonZero);
+            return;
         }
     }
     else if (strcasecmp(cmd, "WIFIOTA") == 0 || strcasecmp(cmd, "OTA") == 0 ||
@@ -6974,17 +6574,12 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         appendPaging(cmdBuf.sensBuf);
         snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging sensors...");
     }
-    else if (strncasecmp(cmd, "SORTEDRELAYSTATS ", 17) == 0 || strcasecmp(cmd, "SORTEDRELAYSTATS") == 0 ||
-             strncasecmp(cmd, "SRY ", 4) == 0 || strcasecmp(cmd, "SRY") == 0) {
-        // Sorted counterpart of RY/RELAYS. Optional tail = top N limit.
-        //   /nexus SRY          -> all relays with D+R > 0, sorted by total desc
-        //   /nexus SRY 20       -> top 20 by total desc
-        //   /nexus SRY 0        -> no rows (explicit top-0)
-        //   /nexus SRY <garbage>-> atoi() == 0 -> no rows (matches "0" semantics)
-        int off = (strncasecmp(cmd, "SRY", 3) == 0) ? 3 : 16;
-        const char *p = cmd + off;
-        while (*p == ' ') p++;
-        int requestedLimit = 0x7FFFFFFF; // default: show all non-zero (avoid INT_MAX header dep)
+    else if (strncasecmp(cmd, "SORTEDRELAYSTATS", 16) == 0 || strcasecmp(cmd, "SORTEDRELAYSTATS") == 0 ||
+             strncasecmp(cmd, "RELAYS", 6) == 0 || strcasecmp(cmd, "RELAYS") == 0 ||
+             strncasecmp(cmd, "SRY", 3) == 0 || strcasecmp(cmd, "SRY") == 0 ||
+             strncasecmp(cmd, "RY", 2) == 0 || strcasecmp(cmd, "RY") == 0) {
+        const char *p = skipToken(cmd);
+        int requestedLimit = 0x7FFFFFFF; // default: show all non-zero
         if (*p != '\0') {
             int v = atoi(p);
             if (v <= 0) requestedLimit = 0;   // top-0 or unparseable -> 0 rows
@@ -7346,24 +6941,6 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
     }
-    else if (strcasecmp(cmd, "DMTEST") == 0) {
-        auto node = nodeDB->getMeshNode(mp.from);
-        if (node && node->public_key.size > 0) {
-            meshtastic_MeshPacket *dp = (router) ? router->allocForSending() : nullptr;
-            if (dp) {
-                dp->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
-                dp->to = mp.from; // Always reply to the sender specifically
-                dp->channel = 0;  // Explicitly use channel 0 for DM (or standard routing)
-                strncpy((char*)dp->decoded.payload.bytes, "MTC: Hello World (DM Test)", sizeof(dp->decoded.payload.bytes));
-                dp->decoded.payload.size = strlen("MTC: Hello World (DM Test)");
-                if (service) service->sendToMesh(dp);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: DM Test sent to !%08x", mp.from);
-            }
-        } else {
-            LOG_ERROR("Nexus: DMTEST Failed - !%08x has no Public Key in NodeDB", mp.from);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: DMTEST Error - !%08x Public Key missing", mp.from);
-        }
-    }
     else if (strcasecmp(cmd, "SENDPOS") == 0) {
         // Logic: Send a proper Position packet back to the commander.
         // If DM, send as PKI back to sender. If Channel, send to broadcast on that channel.
@@ -7465,42 +7042,28 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
     }
-    else if (strncasecmp(cmd, "NAME ", 5) == 0) {
-        const char *newName = cmd + 5;
-        LOG_INFO("Nexus: Name change to '%s'", newName);
-        memset(owner.long_name, 0, sizeof(owner.long_name));
-        strncpy(owner.long_name, newName, sizeof(owner.long_name) - 1);
-        nodeDB->pickNewNodeNum();
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Name set. New NodeNum assigned.");
-    }
-    else if (strncasecmp(cmd, "OWNER ", 6) == 0) {
-        // Syntax: /nexus OWNER <short> <long>
-        const char *p = cmd + 6;
-        while (*p == ' ') p++;
-
-        char shortName[16] = {0};
-        int i = 0;
-        while (*p && *p != ' ' && i < 4) { // Meshtastic limits short names to 4 chars
-            shortName[i++] = *p++;
-        }
-        shortName[i] = '\0';
-
-        while (*p == ' ') p++;
-        const char *longName = p;
-
-        if (strlen(shortName) > 0 && strlen(longName) > 0) {
-            LOG_INFO("Nexus: Owner change to %s / %s", shortName, longName);
-
+    else if (strncasecmp(cmd, "NAME ", 5) == 0 || strncasecmp(cmd, "OWNER ", 6) == 0) {
+        const char *p = skipToken(cmd);
+        const char *second = strchr(p, ' ');
+        if (second) {
+            char shortName[5] = {0};
+            int sLen = (int)(second - p);
+            if (sLen > 4) sLen = 4;
+            strncpy(shortName, p, sLen);
+            while (*second == ' ') second++;
             memset(owner.short_name, 0, sizeof(owner.short_name));
             strncpy(owner.short_name, shortName, sizeof(owner.short_name) - 1);
-
             memset(owner.long_name, 0, sizeof(owner.long_name));
-            strncpy(owner.long_name, longName, sizeof(owner.long_name) - 1);
-
+            strncpy(owner.long_name, second, sizeof(owner.long_name) - 1);
             nodeDB->pickNewNodeNum();
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Owner updated to %s / %s. New NodeNum assigned.", shortName, longName);
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Owner updated to %s / %s. New NodeNum.", shortName, second);
+        } else if (*p) {
+            memset(owner.long_name, 0, sizeof(owner.long_name));
+            strncpy(owner.long_name, p, sizeof(owner.long_name) - 1);
+            nodeDB->pickNewNodeNum();
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Name set to '%s'. New NodeNum.", p);
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - OWNER <short> <long>");
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - NAME <long> [short]");
         }
     }
     else if (strncasecmp(cmd, "TRACE ", 6) == 0 || strncasecmp(cmd, "TR ", 3) == 0) {
@@ -7753,11 +7316,11 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Global Help");
             appendPaging("STEALTH: REBROADCAST, BASETEXTS\n");
             appendPaging("FIREWALL: DROPS, DROP, OUTDROP, PRALLOW, PRBLOCK, SS, SETHEX, SETHEXOUT, RL, FSIG\n");
-            appendPaging("SIGINT: RSSILOG, NETSCAN, CLIENTSCAN, FREQSCAN, NOISE, PPING, CHASH, DBINFO, MODULES, INFRA, RELAYS, SRELAY, SEARCHKEY, HOPSTATS, TRANSSTATS, CHANNELSTATS, SORTEDCHANNELSTATS, SORTEDPACKETSTATS, LORACHIPSTATS\n");
+            appendPaging("SIGINT: RSSILOG (PL), NETSCAN, CLIENTSCAN, FREQSCAN, NOISE, PPING, CHASH, DBINFO, MODULES, INFRA, RY, SEARCHKEY, HOPSTATS, TRANSSTATS, CHS, PS, LCS\n");
             appendPaging("SEND: TEXTC, DM, REDIRECT (R), SENDPOS, SENDNODE\n");
-            appendPaging("ADMIN: SKEY, DM-FORWARD, SAVE, LOAD, BD, SETCHNAME, SETCHPSK, ADDCH, DELCH, SETROLE, SETPOWER, OKTOMQTT, BELL, PLAY, STARWARS, FULLCONFIGDUMP\n");
-            appendPaging("SYSTEM: HEALTH (SALUT), SYS, HW, TELEMETRY, POS, INFO, COMPILATION, VAULT, STATS, SS, VS, HEAP, NODES, FNODE, GROUP, TIME, UTIL, VECINOS, PHONE, PMGT, SMI, GPIO, WIFIOTA, MCUINFO, SENSORS\n");
-            appendPaging("MESHCORE: MESHCORE [INFO|STATS|RELAY|ADVERT|VECINOS|KEY <hex>|RESET] (alias MCORE); SAVE keeps the settings; ADDCH/SETCHPSK take the MeshCore hex key\n");
+            appendPaging("ADMIN: SKEY, DM-FORWARD, SAVE, LOAD, BD, SETCHNAME, SETCHPSK, ADDCH, DELCH, ROLE, POWER, OKTOMQTT, PLAY, FULLCONFIGDUMP\n");
+            appendPaging("SYSTEM: HEALTH (SYS/UPTIME/UTIL), HW, TELEMETRY, POS, INFO (COMP), VAULT, STATS, SS, VS, RAM (MEM/HEAP), NODES, FNODE, GROUP, TIME, VECINOS, PHONE, PMGT, SMI, GPIO, WIFIOTA, MCUINFO, SENSORS\n");
+            appendPaging("MESHCORE: MESHCORE [INFO|STATS|RELAY|ADVERT|VECINOS|KEY <hex>|RESET] (alias MCORE); SAVE keeps settings; ADDCH/SETCHPSK take hex key\n");
             appendPaging("TARGETS: FAV, UNFAV, IGNORE, UNIGNORE, NIGN\n");
             appendPaging("STORAGE: LS, RM, CAT, FS\n");
             appendPaging("Try: HELP <topic> (e.g. HELP DROP)");
@@ -7809,9 +7372,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging SIGINT help...");
         } else if (strcasecmp(sub, "ADMIN") == 0 || strcasecmp(sub, "SYSTEM") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help ADMIN/SYS");
-            appendPaging("SKEY [1|2] [Key]: Dynamic keys.\nSETROLE <role>.\nSETPOWER <dBm>.\n");
-            appendPaging("SETCHNAME <idx> <name>.\nSETCHPSK <idx> <psk>.\nADDCH <name> [psk].\nDELCH <idx>.\nSAVE/LOAD: Vault management.\n");
-            appendPaging("HEALTH: Node health & reboot report.\nSYS: Core health.\nHW: Radio/Clock info.\nTELEMETRY: Power/Env report.\nUTIL: Ch/TX airtime.\nWIFIOTA: ESP32 OTA loader info (project, version, IDF, SHA256, built).\nMCUINFO: MCU identity + runtime state (chip, flash, heap, MAC/DeviceID, up-time).\nSENSORS: I2C devices detected at boot + live power/env/values + GPS.");
+            appendPaging("SKEY [1|2] [Key]: Dynamic keys.\nROLE [role]: Get/set role.\nPOWER [dBm]: Get/set TX power.\n");
+            appendPaging("SETCHNAME <idx> <name>.\nSETCHPSK <idx> <psk>.\nADDCH <name> [psk].\nDELCH <idx>.\nSAVE/LOAD: Vault/backup.\n");
+            appendPaging("HEALTH: Full health report (Up/Boot/Bat/Heap/Temp/ChU/Noise).\nHW: Radio/Clock info.\nTELEMETRY: Power/Env report.\nINFO: Node/Firmware info.\nRAM: Heap and PSRAM info.\nWIFIOTA: ESP32 OTA loader info.\nMCUINFO: MCU identity + runtime state.\nSENSORS: Detected I2C/sensors + GPS.");
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging ADMIN/SYS help...");
         } else if (strcasecmp(sub, "BD") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help BD");
@@ -7915,159 +7478,70 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         snprintf(replyMsg, sizeof(replyMsg), "MTC TIME (%s):\nUTC: %u\nLOC: %s",
                  RtcName(q), (unsigned int)utc, timeStr);
     }
-    else if (strncasecmp(cmd, "SETTIME ", 8) == 0) {
-        uint32_t newTs = strtoul(cmd + 8, NULL, 10);
-        if (newTs < 1700000000) { // Safety check (before 2023)
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid timestamp");
+    else if (strncasecmp(cmd, "SETTIME", 7) == 0) {
+        const char *p = skipToken(cmd);
+        if (*p == '\0') {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage SETTIME <unix_ts>");
         } else {
-            struct timeval tv;
-            tv.tv_sec = newTs;
-            tv.tv_usec = 0;
-            perhapsSetRTC(RTCQualityNTP, &tv, true);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Time set to %u", (unsigned int)newTs);
+            uint32_t newTs = strtoul(p, NULL, 10);
+            if (newTs < 1700000000) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid timestamp");
+            } else {
+                struct timeval tv;
+                tv.tv_sec = newTs;
+                tv.tv_usec = 0;
+                perhapsSetRTC(RTCQualityNTP, &tv, true);
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Time set to %u", (unsigned int)newTs);
+            }
         }
     }
-    else if (strcasecmp(cmd, "INFO") == 0) {
+    else if (strcasecmp(cmd, "INFO") == 0 || strcasecmp(cmd, "COMPILATION") == 0 || strcasecmp(cmd, "COMP") == 0) {
         uint8_t realMac[6];
         getMacAddr(realMac);
         uint32_t activeID = myNodeInfo.my_node_num;
         if (activeID == 0) activeID = nodeDB->getNodeNum(); // Fallback to our own node num
 
         snprintf(replyMsg, sizeof(replyMsg),
-                 "MTC INFO:\n!%08x [%.8s]\nVer: %s\nRole: %s\nMAC: %02x:%02x:%02x:%02x:%02x:%02x",
+                 "MTC INFO:\n!%08x [%.8s]\nVer: %s (%s)\nRole: %s\nMAC: %02x:%02x:%02x:%02x:%02x:%02x",
                  (unsigned int)activeID, owner.short_name,
-                 optstr(APP_VERSION),
+                 optstr(APP_VERSION), optstr(APP_ENV),
                  getRoleName(config.device.role),
                  realMac[0], realMac[1], realMac[2], realMac[3], realMac[4], realMac[5]);
-    }
-    else if (strcasecmp(cmd, "COMPILATION") == 0 || strcasecmp(cmd, "COMP") == 0) {
-        // Resolve MCU arch from compile-time Arduino defines.
-#if defined(ARDUINO_ARCH_ESP32)
-        const char *mcuArch = "esp32";
-#elif defined(ARDUINO_ARCH_NRF52)
-        const char *mcuArch = "nrf52";
-#elif defined(ARDUINO_ARCH_RP2040)
-        const char *mcuArch = "rp2040";
-#elif defined(ARDUINO_ARCH_STM32)
-        const char *mcuArch = "stm32";
-#elif defined(ARDUINO_ARCH_PORTDUINO)
-        const char *mcuArch = "portduino";
-#else
-        const char *mcuArch = "unknown";
-#endif
-
-        // Build flag summary from compile-time Nexus defines. Order-stable
-        // (AIRTAG, ADV) for predictable diffs across rebuilds.
-        static char buildFlags[32];
-        buildFlags[0] = '\0';
-        size_t flagLen = 0;
-#if defined(NEXUS_ENABLE_AIRTAG)
-        if (flagLen > 0 && flagLen < sizeof(buildFlags) - 1) {
-            buildFlags[flagLen++] = '+';
-            buildFlags[flagLen] = '\0';
-        }
-        strncpy(buildFlags + flagLen, "AIRTAG", sizeof(buildFlags) - flagLen - 1);
-        flagLen = strlen(buildFlags);
-#endif
-#if defined(NEXUS_ENABLE_ADV)
-        if (flagLen > 0 && flagLen < sizeof(buildFlags) - 1) {
-            buildFlags[flagLen++] = '+';
-            buildFlags[flagLen] = '\0';
-        }
-        strncpy(buildFlags + flagLen, "ADV", sizeof(buildFlags) - flagLen - 1);
-#endif
-        (void)flagLen; // referenced only when AIRTAG/ADV are compiled in
-        if (buildFlags[0] == '\0') strncpy(buildFlags, "none", sizeof(buildFlags) - 1);
-
-        // Format build date from BUILD_EPOCH (Unix seconds, midnight UTC,
-        // injected by bin/platformio-custom.py). Fall back to "unknown"
-        // for test/native builds where the define may be absent.
-#ifdef BUILD_EPOCH
-        time_t be = (time_t)BUILD_EPOCH;
-        struct tm *btm = gmtime(&be);
-        char buildDate[16];
-        strftime(buildDate, sizeof(buildDate), "%Y-%m-%d", btm);
-#else
-        const char *buildDate = "unknown";
-#endif
-
-        snprintf(replyMsg, sizeof(replyMsg),
-                 "MTC COMPILATION:\nVer: %s\nTgt: %s (%s)\nRepo: %s\nBuilt: %s\nFlags: %s",
-                 optstr(APP_VERSION),
-                 optstr(APP_ENV), mcuArch,
-                 optstr(APP_REPO),
-                 buildDate,
-                 buildFlags);
     }
     // Nexus-28006 (2026-09-16) — code review 3.2 fix: a dead
     // duplicate RELAYS block used to sit here (the live handler earlier in
     // the chain always caught it first); the empty block was deleted.
-    else if (strcasecmp(cmd, "TX ON") == 0) {
-        LOG_INFO("Nexus: Enabling LoRa TX");
-        config.lora.tx_enabled = true;
-        nodeDB->saveToDisk(SEGMENT_CONFIG);
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: LoRa TX ENABLED");
+    else if (strncasecmp(cmd, "TX ", 3) == 0 || strcasecmp(cmd, "TX") == 0) {
+        const char *p = skipToken(cmd);
+        if (*p == '\0') {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: LoRa TX %s", config.lora.tx_enabled ? "ENABLED" : "DISABLED");
+        } else {
+            bool en = (strcasecmp(p, "ON") == 0 || strcasecmp(p, "1") == 0);
+            config.lora.tx_enabled = en;
+            nodeDB->saveToDisk(SEGMENT_CONFIG);
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: LoRa TX %s", en ? "ENABLED" : "DISABLED (Silent)");
+        }
     }
-    else if (strcasecmp(cmd, "TX OFF") == 0) {
-        LOG_INFO("Nexus: Disabling LoRa TX (Listen-Only)");
-        config.lora.tx_enabled = false;
-        nodeDB->saveToDisk(SEGMENT_CONFIG);
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: LoRa TX DISABLED (Silent)");
-    }
-    else if (strcasecmp(cmd, "GOODPRACTICES") == 0 ||
-             strcasecmp(cmd, "BUENASPRACTICAS") == 0 ||
-             strcasecmp(cmd, "GP") == 0 ||
-             strcasecmp(cmd, "BP") == 0) {
-        // /nexus GOODPRACTICES (aliases BUENASPRACTICAS, GP, BP)
-        // Applies airtime best practices:
-        // - NodeInfo broadcast interval: 72 hours (259200s)
-        // - Position broadcast interval: 72 hours (259200s)
-        // - Smart position: disabled (false)
-        // - Active telemetry intervals < 12h (43200s) bumped to 24h (86400s); disabled/0 left untouched.
+    else if (strcasecmp(cmd, "GOODPRACTICES") == 0 || strcasecmp(cmd, "GP") == 0) {
         config.device.node_info_broadcast_secs = 259200;
         config.position.position_broadcast_secs = 259200;
         config.position.position_broadcast_smart_enabled = false;
 
-        const uint32_t twelveHoursSecs = 43200;
-        const uint32_t twentyFourHoursSecs = 86400;
         int telemBumped = 0;
-
-        if (moduleConfig.telemetry.device_telemetry_enabled &&
-            moduleConfig.telemetry.device_update_interval > 0 &&
-            moduleConfig.telemetry.device_update_interval < twelveHoursSecs) {
-            moduleConfig.telemetry.device_update_interval = twentyFourHoursSecs;
-            telemBumped++;
-        }
-        if (moduleConfig.telemetry.environment_measurement_enabled &&
-            moduleConfig.telemetry.environment_update_interval > 0 &&
-            moduleConfig.telemetry.environment_update_interval < twelveHoursSecs) {
-            moduleConfig.telemetry.environment_update_interval = twentyFourHoursSecs;
-            telemBumped++;
-        }
-        if (moduleConfig.telemetry.air_quality_enabled &&
-            moduleConfig.telemetry.air_quality_interval > 0 &&
-            moduleConfig.telemetry.air_quality_interval < twelveHoursSecs) {
-            moduleConfig.telemetry.air_quality_interval = twentyFourHoursSecs;
-            telemBumped++;
-        }
-        if (moduleConfig.telemetry.power_measurement_enabled &&
-            moduleConfig.telemetry.power_update_interval > 0 &&
-            moduleConfig.telemetry.power_update_interval < twelveHoursSecs) {
-            moduleConfig.telemetry.power_update_interval = twentyFourHoursSecs;
-            telemBumped++;
-        }
-        if (moduleConfig.telemetry.health_measurement_enabled &&
-            moduleConfig.telemetry.health_update_interval > 0 &&
-            moduleConfig.telemetry.health_update_interval < twelveHoursSecs) {
-            moduleConfig.telemetry.health_update_interval = twentyFourHoursSecs;
-            telemBumped++;
-        }
+        auto bump = [&](bool enabled, uint32_t &iv) {
+            if (enabled && iv > 0 && iv < 43200) { iv = 86400; telemBumped++; }
+        };
+        bump(moduleConfig.telemetry.device_telemetry_enabled, moduleConfig.telemetry.device_update_interval);
+        bump(moduleConfig.telemetry.environment_measurement_enabled, moduleConfig.telemetry.environment_update_interval);
+        bump(moduleConfig.telemetry.air_quality_enabled, moduleConfig.telemetry.air_quality_interval);
+        bump(moduleConfig.telemetry.power_measurement_enabled, moduleConfig.telemetry.power_update_interval);
+        bump(moduleConfig.telemetry.health_measurement_enabled, moduleConfig.telemetry.health_update_interval);
 
         nodeDB->saveToDisk(SEGMENT_CONFIG | SEGMENT_MODULECONFIG);
         if (service) service->configChanged.notifyObservers(nullptr);
 
         snprintf(replyMsg, sizeof(replyMsg),
-                 "MTC: Good Practices applied: NI=72h, POS=72h, SmartPos=OFF, TelemBumped=%d (to 24h)", telemBumped);
+                 "MTC: GP applied: NI=72h, POS=72h, SmartPos=OFF, TelemBumped=%d", telemBumped);
     }
     else if (strcasecmp(cmd, "OKTOMQTT") == 0 ||
              strncasecmp(cmd, "OKTOMQTT ", 9) == 0 ||
@@ -8113,193 +7587,22 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 "MTC OKTOMQTT: unknown arg '%s'\nUsage: OKTOMQTT [ON|OFF|STATUS]", p);
         }
     }
-    else if (strcasecmp(cmd, "BELL") == 0) {
-        if (externalNotificationModule) {
+    else if (strncasecmp(cmd, "PLAY ", 5) == 0 || strcasecmp(cmd, "PLAY") == 0 || strcasecmp(cmd, "BELL") == 0) {
+        if (!externalNotificationModule) {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: ExtNotification unavailable");
+        } else if (strcasecmp(cmd, "BELL") == 0) {
             externalNotificationModule->triggerNexusBell();
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Local BELL triggered");
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: ExternalNotificationModule unavailable");
-        }
-    }
-    else if (strncasecmp(cmd, "PLAY ", 5) == 0) {
-        const char *melody = cmd + 5;
-        while (*melody == ' ') melody++;
-        if (externalNotificationModule) {
+            const char *melody = skipToken(cmd);
             externalNotificationModule->playRTTTL(melody);
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Playing custom RTTTL...");
-        } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: ExtNotification unavailable");
-        }
-    }
-    else if (strcasecmp(cmd, "STARWARS") == 0) {
-        const char *sw = "StarWars:d=4,o=5,b=45:32p,32f#,32f#,32f#,8b.,8f#.6,32e6,32d#6,32c#6,8b.6,16f#.6,32e6,32d#6,32c#6,8b.6,16f#.6,32e6,32d#6,32e6,8c#.6,32f#,32f#,32f#,8b.,8f#.6,32e6,32d#6,32c#6,8b.6,16f#.6,32e6,32d#6,32c#";
-        if (externalNotificationModule) {
-            externalNotificationModule->playRTTTL(sw);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: May the Force be with you...");
-        } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: ExtNotification unavailable");
         }
     }
     else if (strncasecmp(cmd, "PPING", 5) == 0) {
         const char *p = cmd + 5;
         while (*p == ' ') p++;
-
-        // Show status if no specific sub-command
-        if (*p == '\0') {
-            char chBuf[32] = {0};
-            int chLen = 0;
-            for(int i=0; i<8; i++) {
-                if (ping_channels[i]) chLen += snprintf(chBuf + chLen, sizeof(chBuf) - chLen, "%d ", i);
-            }
-            snprintf(replyMsg, sizeof(replyMsg), "MTC PPING:\nGlobal:%d RSSI:%d SNR:%d FE:%d Flags:%d DI:%d RI:%d DM:%d EM:%d\nChans:%s Custom:%d Cmd:%s",
-                     public_ping, ping_rssi, ping_snr, ping_freqerr, ping_bitmask, ping_ignore_direct, ping_ignore_remote, ping_allow_dm, ping_emoji_mode, chBuf, custom_pping_active, ping_trigger);
-        }
-        else if (strncasecmp(p, "CMD ", 4) == 0 || strncasecmp(p, "TRIGGER ", 8) == 0 || strcasecmp(p, "CMD") == 0 || strcasecmp(p, "TRIGGER") == 0) {
-            const char *c = (strncasecmp(p, "TRIGGER", 7) == 0) ? (p + 7) : (p + 3);
-            while (*c == ' ') c++;
-            if (*c == '\0') {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC PPING: Current command is '%s'", ping_trigger);
-            } else if (strcasecmp(c, "DEFAULT") == 0) {
-                strncpy(ping_trigger, "/ping", sizeof(ping_trigger) - 1);
-                ping_trigger[sizeof(ping_trigger) - 1] = '\0';
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping command reset to '/ping'");
-            } else {
-                size_t len = 0;
-                while (c[len] && !isspace((unsigned char)c[len]) && len < sizeof(ping_trigger) - 1) {
-                    ping_trigger[len] = c[len];
-                    len++;
-                }
-                ping_trigger[len] = '\0';
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping command set to '%s'", ping_trigger);
-            }
-        }
-        else if (strncasecmp(p, "HEADER ", 7) == 0) {
-            const char *h = p + 7;
-            while (*h == ' ') h++;
-            if (strcasecmp(h, "OFF") == 0) {
-                custom_pping_active = false;
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Custom PPING Header DISABLED.");
-            } else {
-                memset(pping_header, 0, sizeof(pping_header));
-                strncpy(pping_header, h, 63);
-                custom_pping_active = true;
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Custom PPING Header set to '%s'", pping_header);
-            }
-        }
-        else if (strncasecmp(p, "EMOJI ", 6) == 0) {
-            const char *e = p + 6;
-            while (*e == ' ') e++;
-            if (strcasecmp(e, "OFF") == 0) {
-                ping_emoji_mode = 0;
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping response in TEXT mode.");
-            } else if (strcasecmp(e, "INDIRECT") == 0 || strcasecmp(e, "INDR") == 0) {
-                ping_emoji_mode = 1;
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping response in EMOJI mode for INDIRECT pings.");
-            } else if (strcasecmp(e, "ALWAYS") == 0 || strcasecmp(e, "ALW") == 0) {
-                ping_emoji_mode = 2;
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping response in ALWAYS-EMOJI mode.");
-            } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: PPING EMOJI <OFF|INDIRECT|ALWAYS>");
-            }
-        }
-        else if (strcasecmp(p, "ON") == 0) {
-            public_ping = true;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Public Ping ENABLED");
-        } else if (strcasecmp(p, "OFF") == 0) {
-            public_ping = false;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Public Ping DISABLED");
-        } else if (strcasecmp(p, "RSSI ON") == 0) {
-            ping_rssi = true;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping RSSI reporting ENABLED");
-        } else if (strcasecmp(p, "RSSI OFF") == 0) {
-            ping_rssi = false;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping RSSI reporting DISABLED");
-        } else if (strcasecmp(p, "SNR ON") == 0) {
-            ping_snr = true;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping SNR reporting ENABLED");
-        } else if (strcasecmp(p, "SNR OFF") == 0) {
-            ping_snr = false;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping SNR reporting DISABLED");
-        } else if (strcasecmp(p, "FREQERR ON") == 0) {
-            ping_freqerr = true;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping FreqErr reporting ENABLED");
-        } else if (strcasecmp(p, "FREQERR OFF") == 0) {
-            ping_freqerr = false;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping FreqErr reporting DISABLED");
-        } else if (strcasecmp(p, "DIRECT IGNORE ON") == 0 || strcasecmp(p, "IGNORE DIRECT ON") == 0) {
-            ping_ignore_direct = true;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Public Ping Direct Ignore ENABLED");
-        } else if (strcasecmp(p, "DIRECT IGNORE OFF") == 0 || strcasecmp(p, "IGNORE DIRECT OFF") == 0) {
-            ping_ignore_direct = false;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Public Ping Direct Ignore DISABLED");
-        } else if (strcasecmp(p, "FLAGS ON") == 0) {
-            ping_bitmask = true;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping Flags reporting ENABLED");
-        } else if (strcasecmp(p, "FLAGS OFF") == 0) {
-            ping_bitmask = false;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping Flags reporting DISABLED");
-        } else if (strcasecmp(p, "ALLOWDM ON") == 0) {
-            ping_allow_dm = true;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping DM replies ENABLED");
-        } else if (strcasecmp(p, "ALLOWDM OFF") == 0) {
-            ping_allow_dm = false;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping DM replies DISABLED");
-        } else if (strcasecmp(p, "OM ON") == 0) {
-            ping_bitmask = true; // OM is part of flags
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping OM reporting ENABLED (via FLAGS)");
-        } else if (strcasecmp(p, "OM OFF") == 0) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Use 'PPING FLAGS OFF' to disable OM/MQTT reporting");
-        } else if (strncasecmp(p, "CHAN ", 5) == 0) {
-            const char *cPtr = p + 5;
-            bool enable = true;
-            if (strncasecmp(cPtr, "ON ", 3) == 0) { enable = true; cPtr += 3; }
-            else if (strncasecmp(cPtr, "OFF ", 4) == 0) { enable = false; cPtr += 4; }
-
-            int targetCh = findChannelByNameOrIndex(cPtr);
-
-            if (targetCh >= 0) {
-                ping_channels[targetCh] = enable;
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping on Ch %d (%s) set to %d", targetCh, channels.getByIndex(targetCh).settings.name, enable);
-            } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Channel '%s' not found", cPtr);
-            }
-        } else if (strcasecmp(p, "IGNORE REMOTE ON") == 0 || strcasecmp(p, "REMOTE IGNORE ON") == 0) {
-            ping_ignore_remote = true;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping IGNORE REMOTE ENABLED");
-        } else if (strcasecmp(p, "IGNORE REMOTE OFF") == 0 || strcasecmp(p, "REMOTE IGNORE OFF") == 0) {
-            ping_ignore_remote = false;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Ping IGNORE REMOTE DISABLED");
-        } else if (strncasecmp(p, "SETHEX ", 7) == 0) {
-            uint32_t h = strtoul(p + 7, NULL, 16);
-            public_ping = (h & (1 << 0));
-            ping_rssi = (h & (1 << 1));
-            ping_snr = (h & (1 << 2));
-            ping_freqerr = (h & (1 << 3));
-            ping_ignore_direct = (h & (1 << 4));
-            ping_ignore_remote = (h & (1 << 5));
-            ping_bitmask = (h & (1 << 6));
-            ping_allow_dm = (h & (1 << 15));
-            for (uint8_t i = 0; i < 8; i++) {
-                ping_channels[i] = (h & (1 << (i + 7)));
-            }
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: PPING hex updated to 0x%04X", (unsigned int)(h & 0xFFFF));
-        } else if (strcasecmp(p, "GETHEX") == 0) {
-            uint32_t h = 0;
-            if (public_ping) h |= (1 << 0);
-            if (ping_rssi) h |= (1 << 1);
-            if (ping_snr) h |= (1 << 2);
-            if (ping_freqerr) h |= (1 << 3);
-            if (ping_ignore_direct) h |= (1 << 4);
-            if (ping_ignore_remote) h |= (1 << 5);
-            if (ping_bitmask) h |= (1 << 6);
-            if (ping_allow_dm) h |= (1 << 15);
-            for (uint8_t i = 0; i < 8; i++) {
-                if (ping_channels[i]) h |= (1 << (i + 7));
-            }
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: PPING hex mask: 0x%04X", (unsigned int)(h & 0xFFFF));
-        } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC PPING: ON|OFF|CMD <cmd>|RSSI|SNR|FREQERR|FLAGS|OM|DIRECT IGNORE|IGNORE REMOTE|ALLOWDM|SETHEX|GETHEX");
-        }
+        handleMeshCorePpingCommand(p, replyMsg, sizeof(replyMsg));
     }
     else if (strncasecmp(cmd, "WATCH ", 6) == 0 || strcasecmp(cmd, "WATCH") == 0) {
         const char *sub = cmd + 6;
@@ -8702,17 +8005,6 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                          (unsigned int)stats.nodeinfo_cache_hits,
                          (unsigned int)stats.router_hops_preserved);
             }
-        } else if (strcasecmp(p, "RESET") == 0) {
-            // Nexus port (Nexus-28001, 2026-08-16): TrafficManagementModule::resetStats() was
-            // removed during the slim-NodeInfoLite cherry-pick (commit 18ff3a7fe) along with
-            // the cuckoo cache and tag system that upstream replaced with a flat-array + tiered
-            // eviction design. The /nexus TM RESET command would have zero meaningful effect
-            // anyway (no equivalent upstream API to reset the per-node stats). Commented out
-            // and reply updated to reflect that the RESET action is a no-op on modern firmware.
-            // if (trafficManagementModule) {
-            //     trafficManagementModule->resetStats();
-            // }
-            snprintf(replyMsg, sizeof(replyMsg), "MTC TM: RESET is a no-op (upstream removed resetStats).");
         } else if (strcasecmp(p, "CONFIG") == 0) {
             // Nexus port: upstream 2.8.0 slimmed the TrafficManagementConfig struct to just
             // the five runtime knobs (position dedup interval, direct-response max hops,
@@ -9210,9 +8502,6 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) mc.payload_variant.traffic_management
                  "  Trusted:  %s",
                  prefixEmoji, (unsigned)mp.decoded.xeddsa_signature.size,
                  upstreamEmoji, trustedLine);
-    }
-    else if (strcasecmp(cmd, "SETTIME") == 0) {
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage SETTIME <unix_ts>");
     }
     // Nexus-28005 (2026-09-15): /nexus G3 (alias: FRONTEND) — station-g3
     // PA / LNA GPIO control. Handler lives in NexusModule::nexusG3HandleCommand

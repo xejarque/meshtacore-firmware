@@ -82,7 +82,8 @@ bool NexusModule::handleMeshtacoreCommand(const meshtastic_MeshPacket &mp, uint3
         // seen after the battery divider. Persist with SAVE.
         handleVwakeCommand(cmd[5] ? cmd + 6 : "");
     } else if (strcasecmp(cmd, "HEALTH") == 0 || strncasecmp(cmd, "HEALTH ", 7) == 0 || strcasecmp(cmd, "SALUT") == 0 ||
-               strncasecmp(cmd, "SALUT ", 6) == 0) {
+               strncasecmp(cmd, "SALUT ", 6) == 0 || strcasecmp(cmd, "SYS") == 0 || strcasecmp(cmd, "UPTIME") == 0 ||
+               strcasecmp(cmd, "UP") == 0 || strcasecmp(cmd, "UTIL") == 0) {
         handleHealthCommand();
     } else {
         return false;
