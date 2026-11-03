@@ -1288,8 +1288,48 @@ void NexusModule::handleMeshCorePpingCommand(const char *args, char *reply, size
         } else {
             snprintf(reply, replyLen, "JT MESHCORE: Channel '%s' not found", cPtr);
         }
+    } else if (strcasecmp(args, "FLAGS ON") == 0) {
+        ping_bitmask = true;
+        snprintf(reply, replyLen, "JT MESHCORE: Ping Bitmask/Flags ENABLED");
+    } else if (strcasecmp(args, "FLAGS OFF") == 0) {
+        ping_bitmask = false;
+        snprintf(reply, replyLen, "JT MESHCORE: Ping Bitmask/Flags DISABLED");
+    } else if (strncasecmp(args, "SETHEX ", 7) == 0) {
+        uint16_t h = (uint16_t)strtoul(args + 7, NULL, 16);
+        ping_rssi = (h & (1 << 0)) != 0;
+        ping_snr = (h & (1 << 1)) != 0;
+        ping_freqerr = (h & (1 << 2)) != 0;
+        ping_ignore_direct = (h & (1 << 4)) != 0;
+        ping_ignore_remote = (h & (1 << 5)) != 0;
+        ping_bitmask = (h & (1 << 6)) != 0;
+        ping_allow_dm = (h & (1 << 15)) != 0;
+        for (uint8_t i = 0; i < 8; i++)
+            ping_channels[i] = (h & (1 << (i + 7))) != 0;
+        snprintf(reply, replyLen, "JT MESHCORE: PPING bitmask set from 0x%04X", (unsigned int)h);
+    } else if (strcasecmp(args, "GETHEX") == 0) {
+        uint16_t h = 0;
+        if (ping_rssi)
+            h |= (1 << 0);
+        if (ping_snr)
+            h |= (1 << 1);
+        if (ping_freqerr)
+            h |= (1 << 2);
+        if (ping_ignore_direct)
+            h |= (1 << 4);
+        if (ping_ignore_remote)
+            h |= (1 << 5);
+        if (ping_bitmask)
+            h |= (1 << 6);
+        if (ping_allow_dm)
+            h |= (1 << 15);
+        for (uint8_t i = 0; i < 8; i++) {
+            if (ping_channels[i])
+                h |= (1 << (i + 7));
+        }
+        snprintf(reply, replyLen, "JT MESHCORE: PPING hex mask: 0x%04X", (unsigned int)(h & 0xFFFF));
     } else {
-        snprintf(reply, replyLen, "JT MESHCORE: PPING ON|OFF|CMD <cmd>|RSSI|SNR|FREQERR|EMOJI|HEADER|ALLOWDM|CHAN");
+        snprintf(reply, replyLen,
+                 "JT MESHCORE: PPING ON|OFF|CMD <cmd>|RSSI|SNR|FREQERR|EMOJI|HEADER|ALLOWDM|CHAN|FLAGS|SETHEX|GETHEX");
     }
 }
 
