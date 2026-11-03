@@ -40,11 +40,18 @@ template <class T> class LR20x0Interface : public RadioLibInterface
     /** Nexus LCS: busy pin + software RX view (LRxxxx::getStatus is protected, Stat1 mode bits unconfirmed). */
     uint8_t readChipState() override;
 
+#if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
+    bool meshCoreTxSupported() const override { return true; }
+#endif
+
   protected:
     /**
      * Specific module instance
      */
     T lora;
+
+    /** Program the sync word used for RX: the hybrid one when enabled, else ours. */
+    int16_t setRxSyncWord();
 
     int16_t getCurrentRSSI() override;
 
