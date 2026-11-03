@@ -91,6 +91,115 @@
               <h2>Dispositivo & Placa Objetivo</h2>
             </div>
             <div class="card-body">
+              <!-- Selector de Perfil / Tipo de Nodo -->
+              <div class="form-group mb-3">
+                <label
+                  style="
+                    font-weight: 600;
+                    font-size: 0.95rem;
+                    margin-bottom: 6px;
+                    display: block;
+                  "
+                  >🎯 Perfil / Tipo de Nodo</label
+                >
+                <div class="preset-selector-grid">
+                  <label class="preset-card active" id="presetCompanionLabel">
+                    <input
+                      type="radio"
+                      name="nodePreset"
+                      id="presetCompanion"
+                      value="companion"
+                      checked
+                    />
+                    <div class="preset-content">
+                      <div class="preset-icon">📱</div>
+                      <div class="preset-details">
+                        <strong>Companion / Personal</strong>
+                        <small
+                          >Uso diario con smartphone, pantalla activa, BLE y
+                          sensores completos.</small
+                        >
+                      </div>
+                    </div>
+                  </label>
+                  <label class="preset-card" id="presetSolarRepeaterLabel">
+                    <input
+                      type="radio"
+                      name="nodePreset"
+                      id="presetSolarRepeater"
+                      value="solar_repeater"
+                    />
+                    <div class="preset-content">
+                      <div class="preset-icon">🏔️</div>
+                      <div class="preset-details">
+                        <strong>Repetidor Solar / Azoteas & Montañas</strong>
+                        <small
+                          >Resiliencia total, ultra-ligero en RAM y Flash, sin
+                          pantalla, telemetría de batería y administración
+                          remota LoRa.</small
+                        >
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Opciones contextuales de Repetidor Solar / Azoteas & Montañas -->
+              <div
+                id="solarRepeaterOptions"
+                class="solar-options-box hidden mb-3"
+              >
+                <div class="solar-options-header">
+                  <span class="badge badge-solar"
+                    >⚙️ Ajustes de Resiliencia para Azoteas & Montañas</span
+                  >
+                </div>
+
+                <div class="grid-2 mt-2">
+                  <!-- Pregunta GPS -->
+                  <div class="form-group">
+                    <label for="solarIncludeGps"
+                      >🛰️ ¿Incluir soporte para GPS físico?</label
+                    >
+                    <select id="solarIncludeGps" class="form-control">
+                      <option value="no" selected>
+                        ❌ No (Recomendado: Ahorra RAM/Flash con
+                        -DMESHTASTIC_EXCLUDE_GPS=1)
+                      </option>
+                      <option value="yes">
+                        📡 Sí (Mantener driver para antena/módulo GPS físico)
+                      </option>
+                    </select>
+                    <small class="helper-text"
+                      >Si eliges 'No', el stack GPS se excluye por completo del
+                      firmware. Puedes fijar las coordenadas del mástil en la
+                      Sección 6.</small
+                    >
+                  </div>
+
+                  <!-- Pregunta Radio Driver -->
+                  <div class="form-group">
+                    <label for="solarRadioDriver"
+                      >📻 Driver de Radio LoRa</label
+                    >
+                    <select id="solarRadioDriver" class="form-control">
+                      <option value="sx1262" selected>
+                        ⚡ Solo SX1262 (Recomendado para Ebyte E22 / HT-RA62 /
+                        Heltec)
+                      </option>
+                      <option value="all">
+                        🌐 Multi-Driver (Autodetección completa de varios chips)
+                      </option>
+                    </select>
+                    <small class="helper-text"
+                      >En placas DIY (ProMicro / E22), compilar solo SX1262
+                      ahorra decenas de KB de Flash descartando chips no
+                      presentes.</small
+                    >
+                  </div>
+                </div>
+              </div>
+
               <div class="form-group">
                 <label for="boardTarget"
                   >Selecciona tu Placa (70+ modelos soportados)</label
@@ -148,6 +257,9 @@
                     </option>
                     <option value="nrf52_promicro_diy_sx1262">
                       nRF52 ProMicro DIY SX1262
+                    </option>
+                    <option value="nrf52_promicro_diy_sx1262-noscreen">
+                      nRF52 ProMicro DIY SX1262 NoScreen (Ultra-ligero)
                     </option>
                   </optgroup>
                   <optgroup label="ESP32-S3 (Espressif)">
