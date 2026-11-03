@@ -1467,10 +1467,12 @@
                     INA3221. <code>HIGH</code> actúa al alcanzar o superar el
                     nivel y <code>LOW</code> al bajar de él.
                     <code>CMD</code> ejecuta el comando;
-                    <code>HIB</code> hiberna (sueño profundo de 60 s, comprueba
-                    el voltaje y vuelve a dormir hasta que se recupere) y
-                    <code>WAKE</code> cancela la hibernación. El voltaje se da
-                    en voltios (<code>3.7</code>) o milivoltios
+                    <code>HIB</code> hiberna: en ESP32 duerme 60 s, comprueba el
+                    voltaje y vuelve a dormir hasta que se recupere; en nRF52
+                    entra en System OFF sin temporizador y el nodo despierta con
+                    el nivel de batería de <code>VWAKE</code> o al pulsar el
+                    botón. <code>WAKE</code> cancela la hibernación. El voltaje
+                    se da en voltios (<code>3.7</code>) o milivoltios
                     (<code>3700</code>, de 500 a 30000). Una regla actúa tras
                     tres lecturas seguidas, cada 15 s, y se rearma con 50 mV de
                     histéresis. Se guarda con <code>/nexus SAVE</code>.

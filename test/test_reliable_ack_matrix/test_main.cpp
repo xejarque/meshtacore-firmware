@@ -262,8 +262,7 @@ static meshtastic_MeshPacket makeEncryptedToUs(uint8_t channel, bool wantAck)
     return p;
 }
 
-static meshtastic_MeshPacket makeOverheardOwnCopy(PacketId id, uint8_t relay,
-                                                  meshtastic_MeshPacket_TransportMechanism transport)
+static meshtastic_MeshPacket makeOverheardOwnCopy(PacketId id, uint8_t relay, meshtastic_MeshPacket_TransportMechanism transport)
 {
     meshtastic_MeshPacket p = meshtastic_MeshPacket_init_zero;
     p.from = kLocalNode;
@@ -845,6 +844,20 @@ void test_each_distinct_relay_gets_its_own_confirmation(void)
     }
 }
 
+void test_relays_beyond_the_tracking_cap_are_not_confirmed_again(void)
+{
+    // The table remembers NUM_RELAYERS distinct relays per packet. Past that it cannot tell a new relay from a repeat,
+    // so it must stop confirming, not send the phone another ACK for every later copy.
+    auto original = makeDecodedPacket(meshtastic_PortNum_TEXT_MESSAGE_APP, kLocalNode, kRemoteNode, 1, /*wantAck=*/true);
+    reliableShim->seedRetry(original, NextHopRouter::NUM_RELIABLE_UNICAST_ATTEMPTS);
+
+    for (uint8_t relay = 1; relay <= NUM_RELAYERS + 2; relay++) {
+        auto copy = makeOverheardOwnCopy(original.id, relay, meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA);
+        reliableShim->filterForTest(&copy);
+    }
+    TEST_ASSERT_EQUAL_UINT32(NUM_RELAYERS, mockRoutingModule->ackNaks.size());
+}
+
 void test_late_repeat_after_real_ack_still_reports(void)
 {
     // The cache is seeded in send(); a real ACK from the destination may clear the pending retry
@@ -1098,6 +1111,7 @@ void setup()
     printf("\n=== implicit ACK for our own overheard DM ===\n");
     RUN_TEST(test_overheard_own_dm_rebroadcast_mints_implicit_ack);
     RUN_TEST(test_each_distinct_relay_gets_its_own_confirmation);
+    RUN_TEST(test_relays_beyond_the_tracking_cap_are_not_confirmed_again);
     RUN_TEST(test_late_repeat_after_real_ack_still_reports);
     RUN_TEST(test_overheard_own_dm_via_mqtt_acks_but_keeps_retransmissions);
     RUN_TEST(test_overheard_foreign_packet_mints_no_implicit_ack);

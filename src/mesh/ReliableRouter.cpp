@@ -20,8 +20,7 @@ void ReliableRouter::rememberOwnTransmission(const meshtastic_MeshPacket *p)
     // Client-supplied packets carry from == 0; isFromUs() treats that as ours.
     if (!p || !isFromUs(p) || p->id == 0)
         return;
-    if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
-        p->decoded.portnum == meshtastic_PortNum_ROUTING_APP)
+    if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag && p->decoded.portnum == meshtastic_PortNum_ROUTING_APP)
         return; // never track an ack/nak of our own
 
     const uint32_t now = Time::getMillis();
@@ -73,8 +72,10 @@ bool ReliableRouter::noteOwnRelay(OwnTransmission *t, uint8_t relay)
     for (uint8_t i = 0; i < t->relayCount; i++)
         if (t->relays[i] == relay)
             return false;
-    if (t->relayCount < NUM_RELAYERS)
-        t->relays[t->relayCount++] = relay;
+    // A full list cannot tell a new relay from a repeat, so it stops reporting rather than confirm every later copy.
+    if (t->relayCount >= NUM_RELAYERS)
+        return false;
+    t->relays[t->relayCount++] = relay;
     return true;
 }
 

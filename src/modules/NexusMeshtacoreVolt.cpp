@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
-// /nexus VOLT: up to four voltage threshold rules that run a command, hibernate or wake the node when a battery or INA3221 channel
-// crosses a level. Ported from JenTastic 2.8.105 (NexusModule::runVoltageAutomations and the VOLT command) and split into small
-// functions. It lives here, not in NexusModule.cpp / NexusCommands.cpp, so a merge of the jentastic upstream does not collide with
-// it. In the JenTastic vault the rules are v68; in this fork's vault they are v70.
+// /nexus VOLT: up to four voltage threshold rules that run a command, hibernate or wake the node when a battery or INA3221
+// channel crosses a level. Ported from JenTastic 2.8.105 (NexusModule::runVoltageAutomations and the VOLT command) and split into
+// small functions. It lives here, not in NexusModule.cpp / NexusCommands.cpp, so a merge of the jentastic upstream does not
+// collide with it. In the JenTastic vault the rules are v68; in this fork's vault they are v70.
 
 #include "Power.h"
 #include "configuration.h"
@@ -382,7 +382,8 @@ void NexusModule::configureVoltRule(uint8_t slot, const char *args)
 
 static bool isClearToken(const char *text)
 {
-    return strcasecmp(text, "OFF") == 0 || strcasecmp(text, "CLEAR") == 0 || strcasecmp(text, "NONE") == 0 || strcmp(text, "0") == 0;
+    return strcasecmp(text, "OFF") == 0 || strcasecmp(text, "CLEAR") == 0 || strcasecmp(text, "NONE") == 0 ||
+           strcmp(text, "0") == 0;
 }
 
 void NexusModule::handleVoltCommand(const meshtastic_MeshPacket &mp, uint32_t replyId, const char *cmd)
@@ -400,7 +401,8 @@ void NexusModule::handleVoltCommand(const meshtastic_MeshPacket &mp, uint32_t re
         snprintf(replyMsg, sizeof(replyMsg), "JT: Hibernation cleared in RAM.");
         return;
     }
-    if (*args < '1' || *args > '4') {
+    // The slot is one digit followed by a space or the end: "VOLT 40" is not slot 4 plus a clear token.
+    if (*args < '1' || *args > '4' || (args[1] != '\0' && args[1] != ' ')) {
         snprintf(replyMsg, sizeof(replyMsg), "JT VOLT: Invalid slot '%s'. Use 1..4.", args);
         return;
     }
