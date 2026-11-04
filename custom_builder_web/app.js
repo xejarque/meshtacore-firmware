@@ -896,13 +896,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const blePinVal = fixedBlePin ? fixedBlePin.value.trim() : "";
     const nodeInfoSecsVal = nodeInfoBroadcastSecs
       ? nodeInfoBroadcastSecs.value.trim()
-      : "10800";
+      : "43200";
     const posSecsVal = positionBroadcastInterval
       ? positionBroadcastInterval.value.trim()
-      : "1800";
+      : "2147483647";
     const telemSecsVal = deviceTelemInterval
       ? deviceTelemInterval.value.trim()
-      : "900";
+      : "2147483647";
     const smartPosVal = smartPosition ? smartPosition.checked : false;
 
     const isMqttOn = mqttEnabled.checked;
