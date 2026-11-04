@@ -524,12 +524,13 @@
                       type="number"
                       id="nodeInfoBroadcastSecs"
                       class="form-control font-mono"
-                      value="10800"
+                      value="43200"
                       min="3600"
                       step="3600"
                     />
                     <small class="helper-text"
-                      >10800s = 3 horas (mínimo 3600s).</small
+                      >43200s = 12 horas (mínimo 3600s). Sale al arrancar y cada
+                      12 h.</small
                     >
                   </div>
                   <div class="form-group">
@@ -540,11 +541,14 @@
                       type="number"
                       id="positionBroadcastInterval"
                       class="form-control font-mono"
-                      value="1800"
+                      value="2147483647"
                       min="60"
                       step="60"
                     />
-                    <small class="helper-text">1800s = 30 minutos.</small>
+                    <small class="helper-text"
+                      >2147483647 = desactivada (por defecto). Ej.: 1800 = 30
+                      minutos.</small
+                    >
                   </div>
                   <div class="form-group">
                     <label for="deviceTelemInterval"
@@ -554,12 +558,13 @@
                       type="number"
                       id="deviceTelemInterval"
                       class="form-control font-mono"
-                      value="900"
+                      value="2147483647"
                       min="60"
                       step="60"
                     />
                     <small class="helper-text"
-                      >900s = 15 min (batería, voltaje).</small
+                      >2147483647 = desactivada (por defecto). Ej.: 900 = 15 min
+                      (batería, voltaje).</small
                     >
                   </div>
                 </div>
