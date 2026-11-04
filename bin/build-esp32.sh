@@ -25,7 +25,7 @@ if [ ! -f "$HOME/.platformio/appstate.json" ]; then
 fi
 
 # Ensure FortranCommon fallback exists in any installed SCons Tool directory
-for scons_tool_dir in $(find "$HOME/.platformio/packages" -maxdepth 3 -type d -name "Tool" 2>/dev/null); do
+for scons_tool_dir in $(find "$HOME/.platformio/packages" -type d -name "Tool" 2>/dev/null); do
   if [ -f "$scons_tool_dir/linkCommon/__init__.py" ] && [ ! -f "$scons_tool_dir/FortranCommon.py" ]; then
     printf '%s\n' \
       '"""Fallback shim for SCons FortranCommon to prevent link crashes"""' \
