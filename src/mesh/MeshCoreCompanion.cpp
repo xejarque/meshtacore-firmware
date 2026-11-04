@@ -20,6 +20,7 @@
 #include <Curve25519.h>
 #include <SHA256.h>
 #include <SHA512.h>
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -599,9 +600,8 @@ bool MeshCoreCompanion::needsAnnounce(const meshtastic_NodeInfoLite *lite, const
     if (rx) {
         if (!lite->has_hops_away || lite->hops_away != rx->pathHashCount)
             return true;
-        // A missing SNR is news. A changed one waits for the refresh below: a whole-dB comparison would let a fraction of a dB
-        // crossing a whole number announce the node again on every frame.
-        if (rx->pathHashCount == 0 && !nodeInfoLiteHasSnr(lite))
+        // A missing SNR is news; a changed one only past the jitter band, else a fraction of a dB would re-announce every frame.
+        if (rx->pathHashCount == 0 && (!nodeInfoLiteHasSnr(lite) || fabsf(lite->snr - rx->snr) >= SNR_ANNOUNCE_DELTA_DB))
             return true;
     }
     // Like any packet from a Meshtastic node, a frame moves its last-heard on; spaced out so repeated adverts do not flood the

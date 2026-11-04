@@ -15,6 +15,7 @@
 #include "main.h"
 #include "memGet.h"
 #include "mesh/generated/meshtastic/apponly.pb.h"
+#include "modules/NexusCommandParse.h"
 #include "modules/NexusModule.h"
 #include "modules/NexusRescue.h"
 #include "sleep.h"
@@ -252,8 +253,10 @@ void NexusModule::handleStormCommand(const char *arg)
                  (unsigned long)stormSleepMinutes);
         return;
     }
-    const long minutes = strtol(arg, nullptr, 10);
-    if (minutes < 1 || minutes > (long)STORM_MAX_MINUTES) {
+    uint32_t minutesU = 0;
+    const bool minutesOk = parseUInt(arg, minutesU, STORM_MAX_MINUTES);
+    const long minutes = (long)minutesU;
+    if (!minutesOk || minutes < 1) {
         snprintf(replyMsg, sizeof(replyMsg), "JT: STORM expects 1-%lu minutes or OFF", (unsigned long)STORM_MAX_MINUTES);
         return;
     }

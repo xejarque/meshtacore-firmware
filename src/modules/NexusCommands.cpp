@@ -24,6 +24,7 @@
 
 #include "UptimeClock.h"
 #include "mesh/Throttle.h"
+#include "modules/NexusCommandParse.h"
 #include "modules/NexusModule.h"
 // Decaf-split (Nexus-28006): NexusModule_private.h is only present
 // in private builds. Gate the include so public builds compile cleanly
@@ -289,7 +290,8 @@ int parseRole(const char *roleStr) {
     if (strcasecmp(roleStr, "TAK_TRACKER") == 0) return meshtastic_Config_DeviceConfig_Role_TAK_TRACKER;
     if (strcasecmp(roleStr, "ROUTER_LATE") == 0) return meshtastic_Config_DeviceConfig_Role_ROUTER_LATE;
     if (strcasecmp(roleStr, "BASE") == 0 || strcasecmp(roleStr, "CLIENT_BASE") == 0) return meshtastic_Config_DeviceConfig_Role_CLIENT_BASE;
-    if (isdigit(roleStr[0])) return atoi(roleStr);
+    uint32_t roleNum = 0;
+    if (parseUInt(roleStr, roleNum, meshtastic_Config_DeviceConfig_Role_CLIENT_BASE)) return (int)roleNum;
     return -1;
 }
 
@@ -617,20 +619,6 @@ static const LoRaPresetDef s_loraPresets[] = {
     {{"MINI8", "MICRO8", nullptr}, 6, 31, 5, 867.5812f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
 };
 
-// True when cmd is exactly `word` or `word` followed by arguments. Prefix-only matches such as SAVEX or LOADFOO are not commands.
-static bool isCommandWord(const char *cmd, const char *word)
-{
-    const size_t n = strlen(word);
-    return strncasecmp(cmd, word, n) == 0 && (cmd[n] == '\0' || cmd[n] == ' ');
-}
-
-// A /nexus RELAYS argument naming one relay by hex: `*AB`, `0xAB` or a bare two-character hex byte. Decimal counts and top-N
-// requests are left for the ordered stats handler.
-static bool isRelayIdArg(const char *p)
-{
-    return *p == '*' || (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) || (strlen(p) == 2 && !isdigit((unsigned char)p[0]));
-}
-
 // === END FILE-SCOPE HELPERS ===
 
 // === BEGIN handleNexusCommand (from NexusModule.cpp:1651-8873) ===
@@ -875,12 +863,12 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             // saveVault();
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Hop Masking DISABLED.");
         } else {
-            int start = atoi(p);
-            while (*p && *p != ' ') p++;
-            while (*p == ' ') p++;
-            int limit = atoi(p);
+            uint32_t startU = 0, limitU = 0;
+            const char *hp = p;
+            const bool hopOk = takeUInt(hp, startU, 7) && takeUInt(hp, limitU, 7) && *hp == '\0';
+            const int start = (int)startU, limit = (int)limitU;
 
-            if (start >= 0 && start <= 7 && limit >= 0 && limit <= 7) {
+            if (hopOk) {
                 hop_mask_active = true;
                 hop_mask_start = (uint8_t)start;
                 hop_mask_limit = (uint8_t)limit;
@@ -905,10 +893,11 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 nexus_per_ch_hopmask[ch].active = 0;
                 snprintf(replyMsg, sizeof(replyMsg), "MTC: Ch %d (%s) Hopmask DISABLED", ch, channels.getByIndex(ch).settings.name);
             } else {
-                int start = atoi(next);
-                next = skipToken(next);
-                int limit = atoi(next);
-                if (start >= 0 && start <= 7 && limit >= 0 && limit <= 7) {
+                uint32_t startU = 0, limitU = 0;
+                const char *hp = next;
+                const bool hopOk = takeUInt(hp, startU, 7) && takeUInt(hp, limitU, 7) && *hp == '\0';
+                const int start = (int)startU, limit = (int)limitU;
+                if (hopOk) {
                     nexus_per_ch_hopmask[ch].active = 1;
                     nexus_per_ch_hopmask[ch].start = (uint8_t)start;
                     nexus_per_ch_hopmask[ch].limit = (uint8_t)limit;
@@ -950,10 +939,11 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 nexus_per_port_hopmask[portIdx].active = 0;
                 snprintf(replyMsg, sizeof(replyMsg), "MTC: Port %s Hopmask DISABLED", portStr);
             } else {
-                int start = atoi(p);
-                const char *next = skipToken(p);
-                int limit = atoi(next);
-                if (start >= 0 && start <= 7 && limit >= 0 && limit <= 7) {
+                uint32_t startU = 0, limitU = 0;
+                const char *hp = p;
+                const bool hopOk = takeUInt(hp, startU, 7) && takeUInt(hp, limitU, 7) && *hp == '\0';
+                const int start = (int)startU, limit = (int)limitU;
+                if (hopOk) {
                     nexus_per_port_hopmask[portIdx].active = 1;
                     nexus_per_port_hopmask[portIdx].start = (uint8_t)start;
                     nexus_per_port_hopmask[portIdx].limit = (uint8_t)limit;
@@ -986,8 +976,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         while (*p == ' ') p++;
 
         if (strncasecmp(p, "ADD ", 4) == 0) {
-            uint32_t ch = (uint32_t)strtoul(p + 4, NULL, 0);
-            if (ch < 8) {
+            uint32_t ch = 0;
+            if (!parseUIntAuto(p + 4, ch)) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - %s ADD <channel hash>", isWhite ? "PRWHITELIST" : "PRBLACKLIST");
+            } else if (ch < 8) {
                 snprintf(replyMsg, sizeof(replyMsg), "MTC: %s - Only Ch 8+ allowed", isWhite ? "Whitelist" : "Blacklist");
             } else {
                 uint32_t *list = isWhite ? nexus_ch_whitelist : nexus_ch_blacklist;
@@ -1006,13 +998,16 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
         else if (strncasecmp(p, "REM ", 4) == 0) {
-            uint32_t ch = (uint32_t)strtoul(p + 4, NULL, 0);
+            uint32_t ch = 0;
+            const bool chOk = parseUIntAuto(p + 4, ch) && ch != 0;
             uint32_t *list = isWhite ? nexus_ch_whitelist : nexus_ch_blacklist;
             bool found = false;
-            for(int i=0; i<16; i++) {
+            for(int i=0; chOk && i<16; i++) {
                 if (list[i] == ch) { list[i] = 0; found = true; break; }
             }
-            if (found) {
+            if (!chOk) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - %s REM <channel hash>", isWhite ? "PRWHITELIST" : "PRBLACKLIST");
+            } else if (found) {
                 // saveVault();
                 snprintf(replyMsg, sizeof(replyMsg), "MTC: Ch %u (0x%X) removed from %s", (unsigned int)ch, (unsigned int)ch, isWhite ? "Whitelist" : "Blacklist");
             } else {
@@ -1074,38 +1069,47 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     else if (strncasecmp(cmd, "ZH ", 3) == 0 || strcasecmp(cmd, "ZH") == 0) {
         const char *p = skipToken(cmd);
 
-        if (strcasecmp(p, "ON") == 0) zero_hop_config |= 0x01;
-        else if (strcasecmp(p, "OFF") == 0) zero_hop_config &= ~0x01;
-        else if (strncasecmp(p, "POS ", 4) == 0) {
-            if (strcasecmp(p+4, "ON") == 0) zero_hop_config |= 0x04;
-            else if (strcasecmp(p+4, "OFF") == 0) zero_hop_config &= ~0x04;
-        }
-        else if (strncasecmp(p, "TELE ", 5) == 0) {
-            if (strcasecmp(p+5, "ON") == 0) zero_hop_config |= 0x02;
-            else if (strcasecmp(p+5, "OFF") == 0) zero_hop_config &= ~0x02;
-        }
+        // Applies an ON/OFF verb to one zero_hop_config bit; anything else changes nothing and says so.
+        auto zhFlag = [&](const char *verb, uint8_t bit) {
+            bool on = false;
+            if (!parseOnOff(verb, on)) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - ZH [POS|TELE|ROUTER|CLIENT] <ON|OFF>");
+                return;
+            }
+            if (on) zero_hop_config |= bit; else zero_hop_config &= ~bit;
+        };
+
+        if (strcasecmp(p, "ON") == 0 || strcasecmp(p, "OFF") == 0) zhFlag(p, 0x01);
+        else if (strncasecmp(p, "POS ", 4) == 0) zhFlag(p + 4, 0x04);
+        else if (strncasecmp(p, "TELE ", 5) == 0) zhFlag(p + 5, 0x02);
         else if (strncasecmp(p, "ROUTER ", 7) == 0 || strncasecmp(p, "RT ", 3) == 0) {
             // Auto-router mask consultation toggle (zero_hop_config bit 3).
             const char *verb = skipToken(p);
-            if (strcasecmp(verb, "ON") == 0) zero_hop_config |= 0x08;
-            else if (strcasecmp(verb, "OFF") == 0) zero_hop_config &= ~0x08;
+            zhFlag(verb, 0x08);
         }
         else if (strncasecmp(p, "CLIENT ", 7) == 0 || strncasecmp(p, "CLIENT_BASE ", 13) == 0 ||
                  strncasecmp(p, "CB ", 3) == 0) {
             // Auto client_base mask consultation toggle (zero_hop_config bit 4).
             const char *verb = skipToken(p);
-            if (strcasecmp(verb, "ON") == 0) zero_hop_config |= 0x10;
-            else if (strcasecmp(verb, "OFF") == 0) zero_hop_config &= ~0x10;
+            zhFlag(verb, 0x10);
         }
         else if (strncasecmp(p, "ADD ", 4) == 0) {
-            uint8_t id = (uint8_t)strtoul(p+4, NULL, 16);
-            setZeroHopNode(id, true);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH ID 0x%02X ADDED", id);
+            uint8_t id = 0;
+            if (!parseHexByte(p + 4, id)) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - ZH ADD <hex id>");
+            } else {
+                setZeroHopNode(id, true);
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH ID 0x%02X ADDED", id);
+            }
         }
         else if (strncasecmp(p, "DEL ", 4) == 0) {
-            uint8_t id = (uint8_t)strtoul(p+4, NULL, 16);
-            setZeroHopNode(id, false);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH ID 0x%02X REMOVED", id);
+            uint8_t id = 0;
+            if (!parseHexByte(p + 4, id)) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - ZH DEL <hex id>");
+            } else {
+                setZeroHopNode(id, false);
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH ID 0x%02X REMOVED", id);
+            }
         }
         else if (strcasecmp(p, "SYNC") == 0) {
             int count = 0;
@@ -1336,7 +1340,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                         gpio_watch_mask = 0;
                         snprintf(replyMsg, sizeof(replyMsg), "MTC: GPIO Watching DISABLED");
                     } else {
-                        int pin = atoi(sub);
+                        int pin = tokenInt(sub);
                         if (pin >= 0 && pin <= 63) {
                             if (gpio_watch_mask & (1ULL << pin)) {
                                 gpio_watch_mask &= ~(1ULL << pin);
@@ -1359,15 +1363,21 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 char op = toupper(*p);
                 p = skipToken(p);
                 if (*p) {
-                    int pin = atoi(p);
+                    int pin = tokenInt(p);
                     if (pin >= 0 && pin <= 128) {
                         if (op == 'W') {
                             p = skipToken(p);
                             if (*p) {
-                                int val = (strcasecmp(p, "H") == 0 || strcasecmp(p, "HIGH") == 0 || atoi(p) > 0) ? 1 : 0;
-                                pinMode(pin, OUTPUT);
-                                digitalWrite(pin, val);
-                                snprintf(replyMsg, sizeof(replyMsg), "MTC: GPIO %d set to %s", pin, val ? "HIGH" : "LOW");
+                                int val = -1;
+                                if (strcasecmp(p, "H") == 0 || strcasecmp(p, "HIGH") == 0 || tokenInt(p) > 0) val = 1;
+                                else if (strcasecmp(p, "L") == 0 || strcasecmp(p, "LOW") == 0 || strcmp(p, "0") == 0) val = 0;
+                                if (val < 0) {
+                                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage: GPIO W <pin> <H|L>");
+                                } else {
+                                    pinMode(pin, OUTPUT);
+                                    digitalWrite(pin, val);
+                                    snprintf(replyMsg, sizeof(replyMsg), "MTC: GPIO %d set to %s", pin, val ? "HIGH" : "LOW");
+                                }
                             } else snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage: GPIO W <pin> <H|L>");
                         } else if (op == 'R') {
                             pinMode(pin, INPUT_PULLUP);
@@ -1403,6 +1413,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     else if (strncasecmp(cmd, "TA ", 3) == 0 || strcasecmp(cmd, "TA") == 0 ||
              strncasecmp(cmd, "TR_ALERT ", 9) == 0 || strcasecmp(cmd, "TR_ALERT") == 0) {
         const char *p = skipToken(cmd);
+        bool badArg = false;
 
         if (*p) {
             char val[16] = {0};
@@ -1410,14 +1421,21 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             while(p[i] && p[i] != ' ' && i < 15) { val[i] = p[i]; i++; }
             val[i] = '\0';
 
-            if (strcasecmp(val, "ON") == 0) trace_alert = true;
-            else if (strcasecmp(val, "OFF") == 0) trace_alert = false;
-
+            bool enable = trace_alert;
+            uint32_t mode = trace_alert_mode;
             const char *m = p + i;
             while(*m == ' ') m++;
-            if (*m) trace_alert_mode = atoi(m);
+            if (!parseOnOff(val, enable) || (*m && !parseUInt(m, mode, 2))) {
+                badArg = true;
+            } else {
+                trace_alert = enable;
+                trace_alert_mode = (uint8_t)mode;
+            }
         }
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Trace Alert %s (Mode: %u)", trace_alert ? "ON" : "OFF", (unsigned int)trace_alert_mode);
+        if (badArg)
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - TA [ON|OFF] [mode 0-2]");
+        else
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Trace Alert %s (Mode: %u)", trace_alert ? "ON" : "OFF", (unsigned int)trace_alert_mode);
     }
     else if (strncasecmp(cmd, "TRUSTED ", 8) == 0 || strcasecmp(cmd, "TRUSTED") == 0) {
         const char* slotStr = (cmd[7] == ' ') ? cmd + 8 : nullptr;
@@ -1435,7 +1453,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             while(*nameStr == ' ') nameStr++;
             if (*nameStr == '\0') nameStr = nullptr;
 
-            int slot = atoi(slotBuf);
+            int slot = tokenInt(slotBuf);
             if (slot >= 0 && slot < 2) {
                 if (nameStr) {
                     if (strcasecmp(nameStr, "OFF") == 0) {
@@ -1463,6 +1481,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     else if (strcasecmp(cmd, "META_ALERT") == 0 || strcasecmp(cmd, "MA") == 0 ||
              strncasecmp(cmd, "META_ALERT ", 11) == 0 || strncasecmp(cmd, "MA ", 3) == 0) {
         const char *p = skipToken(cmd);
+        bool badArg = false;
 
         if (*p) {
             char val[16] = {0};
@@ -1470,19 +1489,26 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             while(p[i] && p[i] != ' ' && i < 15) { val[i] = p[i]; i++; }
             val[i] = '\0';
 
-            if (strcasecmp(val, "ON") == 0) meta_alert = true;
-            else if (strcasecmp(val, "OFF") == 0) meta_alert = false;
-
+            bool enable = meta_alert;
+            uint32_t mode = meta_alert_mode;
             const char *m = p + i;
             while(*m == ' ') m++;
-            if (*m) meta_alert_mode = atoi(m);
+            if (!parseOnOff(val, enable) || (*m && !parseUInt(m, mode, 2))) {
+                badArg = true;
+            } else {
+                meta_alert = enable;
+                meta_alert_mode = (uint8_t)mode;
+            }
         }
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Meta Alert %s (Mode: %u)", meta_alert ? "ON" : "OFF", (unsigned int)meta_alert_mode);
+        if (badArg)
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - MA [ON|OFF] [mode 0-2]");
+        else
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Meta Alert %s (Mode: %u)", meta_alert ? "ON" : "OFF", (unsigned int)meta_alert_mode);
     }
     else if (strcasecmp(cmd, "SETPREAMBLE") == 0 || strcasecmp(cmd, "SETPRE") == 0 || strncasecmp(cmd, "SETPREAMBLE ", 12) == 0 || strncasecmp(cmd, "SETPRE ", 7) == 0) {
         const char *p = skipToken(cmd);
         if (*p != '\0') {
-            int val = atoi(p);
+            int val = tokenInt(p);
             if (val >= 6 && val <= 1024) {
                 preamble_override = (uint16_t)val;
                 snprintf(replyMsg, sizeof(replyMsg), "MTC: Preamble Length set to %d. Applying in 5s...", val);
@@ -1875,7 +1901,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         else if (strncasecmp(p, "SET ", 4) == 0) {
             const char *args = p + 4;
             while (*args == ' ') args++;
-            int slot = atoi(args);
+            int slot = tokenInt(args);
             if (slot < 1 || slot > 8) {
                 snprintf(replyMsg, sizeof(replyMsg), "MTC: Slot must be 1-8.");
             } else {
@@ -1904,7 +1930,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
         else if (strncasecmp(p, "OFF ", 4) == 0) {
-            int slot = atoi(p + 4);
+            int slot = tokenInt(p + 4);
             if (slot < 1 || slot > 8) {
                 snprintf(replyMsg, sizeof(replyMsg), "MTC: Slot must be 1-8.");
             } else {
@@ -2458,15 +2484,23 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         snprintf(replyMsg, sizeof(replyMsg), "MTC HEXOUTDROPS: 0x%08lX%08lX",
                  (unsigned long)(odr >> 32), (unsigned long)(odr & 0xFFFFFFFFu));
     } else if (strncasecmp(cmd, "SETHEX ", 7) == 0) {
-        uint64_t h = strtoull(cmd + 7, NULL, 16);
-        setNexusDropHex(h);
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Drops updated to 0x%08lX%08lX",
-                 (unsigned long)(h >> 32), (unsigned long)(h & 0xFFFFFFFFu));
+        uint64_t h = 0;
+        if (!parseHex64(cmd + 7, h)) {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - SETHEX <hex mask, up to 16 digits>");
+        } else {
+            setNexusDropHex(h);
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Drops updated to 0x%08lX%08lX",
+                     (unsigned long)(h >> 32), (unsigned long)(h & 0xFFFFFFFFu));
+        }
     } else if (strncasecmp(cmd, "SETHEXOUT ", 10) == 0) {
-        uint64_t h = strtoull(cmd + 10, NULL, 16);
-        setNexusOutDropHex(h);
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Output Drops updated to 0x%08lX%08lX",
-                 (unsigned long)(h >> 32), (unsigned long)(h & 0xFFFFFFFFu));
+        uint64_t h = 0;
+        if (!parseHex64(cmd + 10, h)) {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - SETHEXOUT <hex mask, up to 16 digits>");
+        } else {
+            setNexusOutDropHex(h);
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Output Drops updated to 0x%08lX%08lX",
+                     (unsigned long)(h >> 32), (unsigned long)(h & 0xFFFFFFFFu));
+        }
     }
     else if (isCommandWord(cmd, "SAVE") || strcasecmp(cmd, "BSAVE") == 0) {
         const char *p = skipToken(cmd);
@@ -2788,9 +2822,13 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (*p == '\0') {
             snprintf(replyMsg, sizeof(replyMsg), "MTC INA Legacy Math: %s", ina_legacy_math ? "ON" : "OFF");
         } else {
-            bool enable = (strcasecmp(p, "ON") == 0 || strcasecmp(p, "1") == 0);
-            ina_legacy_math = enable;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: INA Legacy Math set to %s.", enable ? "ON" : "OFF");
+            bool enable = false;
+            if (!parseOnOff(p, enable)) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - INALM [ON|OFF]");
+            } else {
+                ina_legacy_math = enable;
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: INA Legacy Math set to %s.", enable ? "ON" : "OFF");
+            }
         }
     }
     else if (strncasecmp(cmd, "DU ", 3) == 0 || strncasecmp(cmd, "DECODEURL ", 10) == 0 ||
@@ -2887,19 +2925,25 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             snprintf(replyMsg, sizeof(replyMsg), "%s", cmdBuf.lBuf);
             memset(cmdBuf.lBuf, 0, sizeof(cmdBuf.lBuf));
         } else {
-            if (*p == '*') p++; // accept the "*A4" display form
-            uint8_t id = (uint8_t)strtoul(p, NULL, 16);
-            setIgnoreDupeRelay(id, true);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Relay *%02X added to IDR", id);
+            uint8_t id = 0;
+            if (!parseHexByte(p, id)) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - IDR [LIST|CLEAR|<hex id>]");
+            } else {
+                setIgnoreDupeRelay(id, true);
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Relay *%02X added to IDR", id);
+            }
         }
     }
     else if (strncasecmp(cmd, "UNIDR ", 6) == 0) {
         const char *p = cmd + 6;
         while (*p == ' ') p++;
-        if (*p == '*') p++; // accept the "*A4" display form
-        uint8_t id = (uint8_t)strtoul(p, NULL, 16);
-        setIgnoreDupeRelay(id, false);
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Relay *%02X removed from IDR", id);
+        uint8_t id = 0;
+        if (!parseHexByte(p, id)) {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - UNIDR <hex id>");
+        } else {
+            setIgnoreDupeRelay(id, false);
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Relay *%02X removed from IDR", id);
+        }
     }
     else if (strcasecmp(cmd, "CONFIG") == 0) {
         // Return key configuration values
@@ -2933,6 +2977,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         bool valid = true;
         bool setBase = false;
         bool setModule = false;
+        uint32_t num = 0;
+        bool onOff = false;
+        const bool numOk = parseUInt(valStr, num);
+        const bool onOffOk = parseOnOff(valStr, onOff);
 
         static meshtastic_Config pc; pc = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
         static meshtastic_ModuleConfig mc; mc = meshtastic_ModuleConfig meshtastic_ModuleConfig_init_default; // static: keeps the recursive frame small
@@ -2940,57 +2988,70 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (strncasecmp(p, "NI", 2) == 0) {
             pc.which_payload_variant = meshtastic_Config_device_tag;
             pc.payload_variant.device = config.device;
-            pc.payload_variant.device.node_info_broadcast_secs = atoi(valStr);
+            pc.payload_variant.device.node_info_broadcast_secs = num;
+            if (!numOk) valid = false;
             setBase = true;
         }
         else if (strncasecmp(p, "TEL_D", 5) == 0) {
             mc.which_payload_variant = meshtastic_ModuleConfig_telemetry_tag;
             mc.payload_variant.telemetry = moduleConfig.telemetry;
-            mc.payload_variant.telemetry.device_update_interval = atoi(valStr);
+            mc.payload_variant.telemetry.device_update_interval = num;
+            if (!numOk) valid = false;
             setModule = true;
         }
         else if (strncasecmp(p, "TEL_E", 5) == 0) {
             mc.which_payload_variant = meshtastic_ModuleConfig_telemetry_tag;
             mc.payload_variant.telemetry = moduleConfig.telemetry;
-            mc.payload_variant.telemetry.environment_update_interval = atoi(valStr);
+            mc.payload_variant.telemetry.environment_update_interval = num;
+            if (!numOk) valid = false;
             setModule = true;
         }
         else if (strncasecmp(p, "TEL_P", 5) == 0) {
             mc.which_payload_variant = meshtastic_ModuleConfig_telemetry_tag;
             mc.payload_variant.telemetry = moduleConfig.telemetry;
-            mc.payload_variant.telemetry.power_update_interval = atoi(valStr);
+            mc.payload_variant.telemetry.power_update_interval = num;
+            if (!numOk) valid = false;
             setModule = true;
         }
         else if (strncasecmp(p, "POS", 3) == 0) {
             pc.which_payload_variant = meshtastic_Config_position_tag;
             pc.payload_variant.position = config.position;
-            pc.payload_variant.position.position_broadcast_secs = atoi(valStr);
+            pc.payload_variant.position.position_broadcast_secs = num;
+            if (!numOk) valid = false;
             setBase = true;
         }
         else if (strncasecmp(p, "SMART", 5) == 0) {
             pc.which_payload_variant = meshtastic_Config_position_tag;
             pc.payload_variant.position = config.position;
-            pc.payload_variant.position.position_broadcast_smart_enabled = (strcasecmp(valStr, "ON") == 0);
+            pc.payload_variant.position.position_broadcast_smart_enabled = onOff;
+            if (!onOffOk) valid = false;
             setBase = true;
         }
         else if (strncasecmp(p, "FIXED", 5) == 0) {
             pc.which_payload_variant = meshtastic_Config_position_tag;
             pc.payload_variant.position = config.position;
-            pc.payload_variant.position.fixed_position = (strcasecmp(valStr, "ON") == 0);
+            pc.payload_variant.position.fixed_position = onOff;
+            if (!onOffOk) valid = false;
             setBase = true;
         }
         else if (strncasecmp(p, "GPS", 3) == 0) {
             pc.which_payload_variant = meshtastic_Config_position_tag;
             pc.payload_variant.position = config.position;
-            pc.payload_variant.position.gps_enabled = (strcasecmp(valStr, "ON") == 0);
+            pc.payload_variant.position.gps_enabled = onOff;
+            if (!onOffOk) valid = false;
             setBase = true;
         }
         else if (strncasecmp(p, "LOC", 3) == 0) {
             const char *comma = strchr(valStr, ',');
             if (comma) {
-                float lat = atof(valStr);
-                float lon = atof(comma + 1);
-                if (adminModule) {
+                float lat = 0, lon = 0;
+                char latStr[24] = {0};
+                size_t latLen = (size_t)(comma - valStr);
+                if (latLen >= sizeof(latStr)) latLen = sizeof(latStr) - 1;
+                memcpy(latStr, valStr, latLen);
+                if (!parseFloat(latStr, lat, -90.0f, 90.0f) || !parseFloat(comma + 1, lon, -180.0f, 180.0f)) {
+                    valid = false;
+                } else if (adminModule) {
                     static meshtastic_AdminMessage am; am = meshtastic_AdminMessage meshtastic_AdminMessage_init_default; // static: keeps the recursive frame small
                     am.which_payload_variant = meshtastic_AdminMessage_set_fixed_position_tag;
                     am.set_fixed_position.latitude_i = (int32_t)(lat * 1e7);
@@ -3317,20 +3378,31 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             pc.payload_variant.power = config.power;
             bool valid = true;
 
-            if (strncasecmp(p, "SAVING ", 7) == 0) pc.payload_variant.power.is_power_saving = (strcasecmp(p + 7, "ON") == 0);
-            else if (strncasecmp(p, "SHUTDOWN ", 9) == 0) pc.payload_variant.power.on_battery_shutdown_after_secs = atoi(p + 9);
-            else if (strncasecmp(p, "BT_WAIT ", 8) == 0) pc.payload_variant.power.wait_bluetooth_secs = atoi(p + 8);
-            else if (strncasecmp(p, "SDS ", 4) == 0) pc.payload_variant.power.sds_secs = atoi(p + 4);
-            else if (strncasecmp(p, "LS ", 3) == 0) pc.payload_variant.power.ls_secs = atoi(p + 3);
-            else if (strncasecmp(p, "MIN_WAKE ", 9) == 0) pc.payload_variant.power.min_wake_secs = atoi(p + 9);
-            else if (strncasecmp(p, "ADC ", 4) == 0) pc.payload_variant.power.adc_multiplier_override = atof(p + 4);
-            else valid = false;
+            const char *arg = skipToken(p);
+            uint32_t n = 0;
+            bool flag = false;
+            float adc = 0;
+            if (strncasecmp(p, "SAVING ", 7) == 0) {
+                valid = parseOnOff(arg, flag);
+                pc.payload_variant.power.is_power_saving = flag;
+            } else if (strncasecmp(p, "ADC ", 4) == 0) {
+                valid = parseFloat(arg, adc, 0.0f, 100.0f);
+                pc.payload_variant.power.adc_multiplier_override = adc;
+            } else if (strncasecmp(p, "SHUTDOWN ", 9) == 0 || strncasecmp(p, "BT_WAIT ", 8) == 0 || strncasecmp(p, "SDS ", 4) == 0 ||
+                       strncasecmp(p, "LS ", 3) == 0 || strncasecmp(p, "MIN_WAKE ", 9) == 0) {
+                valid = parseUInt(arg, n);
+                if (strncasecmp(p, "SHUTDOWN ", 9) == 0) pc.payload_variant.power.on_battery_shutdown_after_secs = n;
+                else if (strncasecmp(p, "BT_WAIT ", 8) == 0) pc.payload_variant.power.wait_bluetooth_secs = n;
+                else if (strncasecmp(p, "SDS ", 4) == 0) pc.payload_variant.power.sds_secs = n;
+                else if (strncasecmp(p, "LS ", 3) == 0) pc.payload_variant.power.ls_secs = n;
+                else pc.payload_variant.power.min_wake_secs = n;
+            } else valid = false;
 
             if (valid && adminModule) {
                 adminModule->handleSetConfig(pc, false);
                 snprintf(replyMsg, sizeof(replyMsg), "MTC: Power Config Updated.");
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC PMGT: Unknown sub-command.");
+                snprintf(replyMsg, sizeof(replyMsg), "MTC PMGT: Unknown sub-command or invalid value.");
             }
         }
     }
@@ -3902,7 +3974,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             else if (strcasecmp(roleStr, "LOST") == 0 || strcasecmp(roleStr, "LOST_AND_FOUND") == 0) role = meshtastic_Config_DeviceConfig_Role_LOST_AND_FOUND;
             else if (strcasecmp(roleStr, "TAK") == 0) role = meshtastic_Config_DeviceConfig_Role_TAK;
             else if (strcasecmp(roleStr, "TAK_TRACKER") == 0) role = meshtastic_Config_DeviceConfig_Role_TAK_TRACKER;
-            else if (isdigit((unsigned char)roleStr[0])) role = atoi(roleStr);
+            else if (isdigit((unsigned char)roleStr[0])) role = tokenInt(roleStr);
 
             if (role >= 0 && role <= 13) {
                 static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default;
@@ -3963,8 +4035,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             snprintf(replyMsg, sizeof(replyMsg), "MTC TX Power:\nActive: %d dBm\nChip: %d dBm",
                      activePwr, sxPwr);
         } else {
-            int8_t pwr = atoi(p);
-            if (pwr >= -9 && pwr <= 31) {
+            const int pwrI = tokenInt(p, INT_MIN);
+            const int8_t pwr = (int8_t)pwrI;
+            if (pwrI >= -9 && pwrI <= 31) {
                 static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default;
                 c.which_payload_variant = meshtastic_Config_lora_tag;
                 c.payload_variant.lora = config.lora;
@@ -3987,10 +4060,14 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (*p == '\0') {
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Client Always is %s", client_always ? "ON" : "OFF");
         } else {
-            bool enable = (strcasecmp(p, "ON") == 0 || strcasecmp(p, "1") == 0);
-            client_always = enable;
-            // saveVault();
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Client Always set to %s", enable ? "ON" : "OFF");
+            bool enable = false;
+            if (!parseOnOff(p, enable)) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - CLIENTALWAYS [ON|OFF]");
+            } else {
+                client_always = enable;
+                // saveVault();
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Client Always set to %s", enable ? "ON" : "OFF");
+            }
         }
     }
     else if (strncasecmp(cmd, "BASETEXTS ", 10) == 0 || strcasecmp(cmd, "BASETEXTS") == 0) {
@@ -4000,10 +4077,14 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (*p == '\0') {
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Base Texts is %s", base_texts ? "ON" : "OFF");
         } else {
-            bool enable = (strcasecmp(p, "ON") == 0 || strcasecmp(p, "1") == 0);
-            base_texts = enable;
-            // saveVault();
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Base Texts set to %s", enable ? "ON" : "OFF");
+            bool enable = false;
+            if (!parseOnOff(p, enable)) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - BASETEXTS [ON|OFF]");
+            } else {
+                base_texts = enable;
+                // saveVault();
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Base Texts set to %s", enable ? "ON" : "OFF");
+            }
         }
     }
     else if (strcasecmp(cmd, "SETTINGS") == 0 || strcasecmp(cmd, "ST") == 0) {
@@ -4942,14 +5023,18 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (*p == '\0') {
             snprintf(replyMsg, sizeof(replyMsg), "MTC: LoRa Ignore MQTT is %s", config.lora.ignore_mqtt ? "ON" : "OFF");
         } else {
-            bool enable = (strcasecmp(p, "ON") == 0 || strcasecmp(p, "1") == 0);
-            static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
-            c.which_payload_variant = meshtastic_Config_lora_tag;
-            c.payload_variant.lora = config.lora;
-            c.payload_variant.lora.ignore_mqtt = enable;
+            bool enable = false;
+            if (!parseOnOff(p, enable)) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - IGNOREMQTT [ON|OFF]");
+            } else {
+                static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
+                c.which_payload_variant = meshtastic_Config_lora_tag;
+                c.payload_variant.lora = config.lora;
+                c.payload_variant.lora.ignore_mqtt = enable;
 
-            if (adminModule) adminModule->handleSetConfig(c, false);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: LoRa Ignore MQTT set to %s", enable ? "ON" : "OFF");
+                if (adminModule) adminModule->handleSetConfig(c, false);
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: LoRa Ignore MQTT set to %s", enable ? "ON" : "OFF");
+            }
         }
     }
     else if (strncasecmp(cmd, "SETREBROADCAST ", 15) == 0 || strcasecmp(cmd, "REBROADCAST") == 0) {
@@ -4967,7 +5052,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             else if (strcasecmp(p, "KNOWN") == 0 || strcasecmp(p, "KNOWN_ONLY") == 0) mode = meshtastic_Config_DeviceConfig_RebroadcastMode_KNOWN_ONLY;
             else if (strcasecmp(p, "NONE") == 0) mode = meshtastic_Config_DeviceConfig_RebroadcastMode_NONE;
             else if (strcasecmp(p, "CORE") == 0 || strcasecmp(p, "CORE_ONLY") == 0) mode = meshtastic_Config_DeviceConfig_RebroadcastMode_CORE_PORTNUMS_ONLY;
-            else if (isdigit(p[0])) mode = atoi(p);
+            else if (isdigit(p[0])) mode = tokenInt(p);
 
             if (mode >= 0 && mode <= 5) {
                 static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
@@ -5082,10 +5167,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         // sibling radio-reconfig commands and made CLI/serial debugging painful.
         // Format: SETLORA <SF> <BW> <CR> <FREQ_OVERRIDE>
         const char *p = cmd + 8;
-        int sf = atoi(p); while (*p && *p != ' ') p++; while (*p == ' ') p++;
-        int bw = atoi(p); while (*p && *p != ' ') p++; while (*p == ' ') p++;
-        int cr = atoi(p); while (*p && *p != ' ') p++; while (*p == ' ') p++;
-        float freq = atof(p);
+        int sf = tokenInt(p); while (*p && *p != ' ') p++; while (*p == ' ') p++;
+        int bw = tokenInt(p); while (*p && *p != ' ') p++; while (*p == ' ') p++;
+        int cr = tokenInt(p); while (*p && *p != ' ') p++; while (*p == ' ') p++;
+        float freq = tokenFloat(p);
 
         // Hardware Bounds Checks (Crash Prevention)
         bool sfOk = (sf >= 5 && sf <= 12);
@@ -5170,10 +5255,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 // sub-GHz LR2021 (X1) pairs talk to LR2021 peers — params are explicit so both
                 // sides of a pair always match (Jenny ruling 2026-10-14: whatever it takes).
                 const char *p = sub;
-                float br = atof(p); while (*p && *p != ' ') p++; while (*p == ' ') p++;
-                int crc = (*p) ? atoi(p) : 0; while (*p && *p != ' ') p++; while (*p == ' ') p++;
-                int bt = (*p) ? atoi(p) : 2; while (*p && *p != ' ') p++; while (*p == ' ') p++;
-                int pre = (*p) ? atoi(p) : 16;
+                float br = tokenFloat(p); while (*p && *p != ' ') p++; while (*p == ' ') p++;
+                int crc = (*p) ? tokenInt(p) : 0; while (*p && *p != ' ') p++; while (*p == ' ') p++;
+                int bt = (*p) ? tokenInt(p) : 2; while (*p && *p != ' ') p++; while (*p == ' ') p++;
+                int pre = (*p) ? tokenInt(p) : 16;
                 bool brOk = (br >= 1.0f && br <= 2600.0f); // broad — chip's beginFLRC range-checks
                 bool crOk = (crc == 2 || crc == 3 || crc == 4);
                 bool btOk = (bt >= 0 && bt <= 2);
@@ -5233,20 +5318,20 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 // (RadioLib modulation-index table); the sub-GHz ranges below would cap it at 300 kbps
                 const bool sx128x = (radioType == SX1280_RADIO);
                 const bool lr2021 = (radioType == LR2021_RADIO);
-                float br = atof(p);
+                float br = tokenFloat(p);
                 while (*p && *p != ' ') p++;
                 while (*p == ' ') p++;
-                float dev = (*p) ? atof(p)
+                float dev = (*p) ? tokenFloat(p)
                                  : sx128x ? max(br * 0.25f, 62.5f) // modulation index 0.5
                                           : ((br >= 3.0f && (lr2021 ? br <= 2000.0f : br <= 300.0f)) ? (br * 0.5f) : 25.0f);
                 if (!sx128x && !lr2021 && dev > 200.0f) dev = 200.0f;
                 else if (lr2021 && dev > 500.0f) dev = 500.0f;
                 while (*p && *p != ' ') p++;
                 while (*p == ' ') p++;
-                float rbw = (*p) ? atof(p) : 0.0f;
+                float rbw = (*p) ? tokenFloat(p) : 0.0f;
                 while (*p && *p != ' ') p++;
                 while (*p == ' ') p++;
-                int pre = (*p) ? atoi(p) : 16;
+                int pre = (*p) ? tokenInt(p) : 16;
                 float carsonMinBw = br + 2.0f * dev;
                 if (rbw < carsonMinBw) {
                     static const float kSteps[] = {
@@ -5511,9 +5596,15 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         int i = 0;
         while(*p && *p != ' ' && i < 15) target[i++] = *p++;
         while(*p == ' ') p++;
-        uint16_t val = (uint16_t)atoi(p);
+        uint32_t valU = 0;
+        const bool valOk = parseUInt(p, valU, 65535);
+        const uint16_t val = (uint16_t)valU;
+        const bool needsValue = target[0] != '\0' && strcasecmp(target, "STATUS") != 0 && strcasecmp(target, "STAT") != 0 &&
+                                strcasecmp(target, "BUCKETS") != 0;
 
-        if (strcasecmp(target, "TEXT") == 0) {
+        if (needsValue && !valOk) {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - RL <TEXT|TRACE|OTHER|NI|PO|TL|PR> <0-65535>");
+        } else if (strcasecmp(target, "TEXT") == 0) {
             rl_text_limit = val;
             rl_tokens[0] = (float)val;
             snprintf(replyMsg, sizeof(replyMsg), "MTC: RL TEXT set to %u pkts/hr", val);
@@ -6688,7 +6779,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                              ((strlen(cmd) > 3) ? cmd + 3 : "") :
                              ((strlen(cmd) > 8) ? cmd + 8 : "");
         while (*pCount == ' ') pCount++;
-        if (*pCount != '\0') requestedCount = atoi(pCount);
+        if (*pCount != '\0') {
+            uint32_t n = 0;
+            if (parseUInt(pCount, n, 32)) requestedCount = (int)n;
+        }
         if (requestedCount > 32) requestedCount = 32;
         if (requestedCount > nexus_sigint_count) requestedCount = nexus_sigint_count;
 
@@ -7009,12 +7103,13 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
         int hopLim = 3, hopStart = 3;
         if (customHops) {
-            hopLim = atoi(cmdPtr);
-            while (*cmdPtr && *cmdPtr != ' ') cmdPtr++;
-            while (*cmdPtr == ' ') cmdPtr++;
-            hopStart = atoi(cmdPtr);
-            while (*cmdPtr && *cmdPtr != ' ') cmdPtr++;
-            while (*cmdPtr == ' ') cmdPtr++;
+            uint32_t hl = 0, hs = 0;
+            if (!takeUInt(cmdPtr, hl, 7) || !takeUInt(cmdPtr, hs, 7)) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid hops (limit and start, 0-7)");
+                return;
+            }
+            hopLim = (int)hl;
+            hopStart = (int)hs;
         }
 
         uint32_t targetId = isMyNode ? myNodeInfo.my_node_num : findNodeByShortNameOrHex(cmdPtr);
@@ -7055,10 +7150,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     }
     else if (strncasecmp(cmd, "NAME ", 5) == 0 || strncasecmp(cmd, "OWNER ", 6) == 0) {
-        // NAME <long_name> changes only the long name and keeps the short one. OWNER <short> <long> takes the short name first.
-        const bool isOwner = strncasecmp(cmd, "OWNER", 5) == 0;
         const char *p = skipToken(cmd);
-        const char *second = isOwner ? strchr(p, ' ') : nullptr;
+        const char *second = strchr(p, ' ');
         if (second) {
             char shortName[5] = {0};
             int sLen = (int)(second - p);
@@ -7077,7 +7170,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             nodeDB->pickNewNodeNum();
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Name set to '%s'. New NodeNum.", p);
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), isOwner ? "MTC: Usage - OWNER <short> <long>" : "MTC: Usage - NAME <long_name>");
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - NAME <long> [short]");
         }
     }
     else if (strncasecmp(cmd, "TRACE ", 6) == 0 || strncasecmp(cmd, "TR ", 3) == 0) {
@@ -7251,7 +7344,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
         else if (strncasecmp(p, "REM ", 4) == 0) {
-            int id = atoi(p + 4);
+            int id = tokenInt(p + 4);
             if (id >= 0 && id < 8) {
                 cron_table[id].active = 0;
                 snprintf(replyMsg, sizeof(replyMsg), "MTC: CRON Job %d REMOVED.", id);
@@ -7530,9 +7623,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (*p == '\0') {
             snprintf(replyMsg, sizeof(replyMsg), "MTC: LoRa TX %s", config.lora.tx_enabled ? "ENABLED" : "DISABLED");
         } else {
-            const bool on = (strcasecmp(p, "ON") == 0 || strcasecmp(p, "1") == 0);
-            const bool off = (strcasecmp(p, "OFF") == 0 || strcasecmp(p, "0") == 0);
-            if (!on && !off) {
+            bool on = false;
+            if (!parseOnOff(p, on)) {
                 snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - TX [ON|OFF]");
             } else {
                 config.lora.tx_enabled = on;
@@ -7855,7 +7947,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             uint32_t duration = 100; // Default 100s
             bool valid = true;
             if (*p != '\0') {
-                int d = atoi(p);
+                int d = tokenInt(p);
                 if (d < 1 || d > 600) {
                     valid = false;
                 } else {
@@ -7943,10 +8035,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         } else {
             // Syntax: FREQSCAN <freq_mhz> <bw_khz>
             const char *p = cmd + 9;
-            float targetFreq = atof(p);
+            float targetFreq = tokenFloat(p);
             while (*p && *p != ' ') p++;
             while (*p == ' ') p++;
-            int targetBw = atoi(p);
+            int targetBw = tokenInt(p);
 
             bool freqOk = (targetFreq >= 100.0f && targetFreq <= 2500.0f);
             bool bwOk = (targetBw == 31 || targetBw == 62 || targetBw == 125 || targetBw == 250 || targetBw == 500);
@@ -8040,6 +8132,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             mc.which_payload_variant = meshtastic_ModuleConfig_traffic_management_tag;
             mc.payload_variant.traffic_management = moduleConfig.traffic_management;
             bool valid = true;
+            uint32_t tmNum = 0;
 
             // Nexus port: upstream 2.8.0 dropped most Nexus-specific TM fields (enabled,
 // position_dedup_enabled, position_precision_bits, rate_limit_enabled, drop_unknown_enabled,
@@ -8049,11 +8142,11 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 // DEDUP_INT (position_min_interval_secs), CACHE_HOPS (nodeinfo_direct_response_max_hops),
 // RATELIMIT_WIN (rate_limit_window_secs), RATELIMIT_MAX (rate_limit_max_packets),
 // UNKNOWN_TH (unknown_packet_threshold).
-if (strncasecmp(p, "DEDUP_INT ", 10) == 0) mc.payload_variant.traffic_management.position_min_interval_secs = atoi(p + 10);
-            else if (strncasecmp(p, "CACHE_HOPS ", 11) == 0) mc.payload_variant.traffic_management.nodeinfo_direct_response_max_hops = atoi(p + 11);
-            else if (strncasecmp(p, "RATELIMIT_WIN ", 14) == 0) mc.payload_variant.traffic_management.rate_limit_window_secs = atoi(p + 14);
-            else if (strncasecmp(p, "RATELIMIT_MAX ", 14) == 0) mc.payload_variant.traffic_management.rate_limit_max_packets = atoi(p + 14);
-            else if (strncasecmp(p, "UNKNOWN_TH ", 11) == 0) mc.payload_variant.traffic_management.unknown_packet_threshold = atoi(p + 11);
+if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum, 65535); mc.payload_variant.traffic_management.position_min_interval_secs = tmNum; }
+            else if (strncasecmp(p, "CACHE_HOPS ", 11) == 0) { valid = parseUInt(p + 11, tmNum, 65535); mc.payload_variant.traffic_management.nodeinfo_direct_response_max_hops = tmNum; }
+            else if (strncasecmp(p, "RATELIMIT_WIN ", 14) == 0) { valid = parseUInt(p + 14, tmNum, 65535); mc.payload_variant.traffic_management.rate_limit_window_secs = tmNum; }
+            else if (strncasecmp(p, "RATELIMIT_MAX ", 14) == 0) { valid = parseUInt(p + 14, tmNum, 65535); mc.payload_variant.traffic_management.rate_limit_max_packets = tmNum; }
+            else if (strncasecmp(p, "UNKNOWN_TH ", 11) == 0) { valid = parseUInt(p + 11, tmNum, 65535); mc.payload_variant.traffic_management.unknown_packet_threshold = tmNum; }
             else valid = false;
 
             if (valid && adminModule) {
@@ -8070,7 +8163,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) mc.payload_variant.traffic_management
     else if (strncasecmp(cmd, "SKEY ", 5) == 0) {
         const char *p = cmd + 5;
         while (*p == ' ') p++;
-        int idx = atoi(p);
+        int idx = tokenInt(p);
         while (*p && *p != ' ') p++;
         while (*p == ' ') p++;
 
@@ -8088,7 +8181,9 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) mc.payload_variant.traffic_management
             size_t len = strlen(input);
             bool success = false;
 
-            if (len == 64) {
+            if (len == 64 && !isAllHex(input, 64)) {
+                success = false;
+            } else if (len == 64) {
                 // Hex path
                 for (int i = 0; i < 32; i++) {
                     char byteStr[3] = { input[i*2], input[i*2+1], '\0' };
@@ -8122,9 +8217,14 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) mc.payload_variant.traffic_management
         if (*p == '\0') {
             snprintf(replyMsg, sizeof(replyMsg), "MTC DM Forwarding: %s", dm_forward ? "ENABLED" : "DISABLED");
         } else {
-            dm_forward = (strcasecmp(p, "ON") == 0);
-            // saveVault();
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: DM Forwarding set to %s", dm_forward ? "ON" : "OFF");
+            bool enable = false;
+            if (!parseOnOff(p, enable)) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - DMF [ON|OFF]");
+            } else {
+                dm_forward = enable;
+                // saveVault();
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: DM Forwarding set to %s", dm_forward ? "ON" : "OFF");
+            }
         }
     }
     else if (strncasecmp(cmd, "DM ", 3) == 0) {

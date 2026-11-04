@@ -672,8 +672,15 @@ void test_a_node_is_announced_until_heard_and_again_when_it_changes_or_goes_stal
     lite.snr = 10.0f;
     TEST_ASSERT_FALSE(MeshCoreCompanion::needsAnnounce(&lite, user, now + 60, &rx0));
     TEST_ASSERT_TRUE(MeshCoreCompanion::needsAnnounce(&lite, user, now + 60, &rx2));
-    lite.snr = 9.0f; // a changed SNR waits for the refresh interval like any other repeat
+    lite.snr = 8.0f; // jitter inside the band waits for the refresh interval like any other repeat
     TEST_ASSERT_FALSE(MeshCoreCompanion::needsAnnounce(&lite, user, now + 60, &rx0));
+    lite.snr = 6.5f; // a real link change is announced at once
+    TEST_ASSERT_TRUE(MeshCoreCompanion::needsAnnounce(&lite, user, now + 60, &rx0));
+    lite.snr = 12.9f;
+    TEST_ASSERT_FALSE(MeshCoreCompanion::needsAnnounce(&lite, user, now + 60, &rx0));
+    lite.snr = 13.0f;
+    TEST_ASSERT_TRUE(MeshCoreCompanion::needsAnnounce(&lite, user, now + 60, &rx0));
+    lite.snr = 8.0f;
     TEST_ASSERT_TRUE(MeshCoreCompanion::needsAnnounce(&lite, user, now + MeshCoreCompanion::HEARD_REFRESH_SECS, &rx0));
 }
 

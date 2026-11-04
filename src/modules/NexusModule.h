@@ -368,8 +368,8 @@ public:
 
     // Public state for visibility
     bool public_ping = false;
-    bool ping_rssi = false;
-    bool ping_snr = false;
+    bool ping_rssi = true;
+    bool ping_snr = true;
     bool ping_freqerr = true;
     bool ping_bitmask = true;
     bool ping_ignore_direct = false;

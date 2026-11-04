@@ -239,6 +239,8 @@ class MeshCoreCompanion
 
     /// How long a heard node keeps its last-heard before the next frame from it is announced again.
     static constexpr uint32_t HEARD_REFRESH_SECS = 10 * 60;
+    /// A direct node is announced again once its SNR moves this far (dB); smaller moves are jitter.
+    static constexpr float SNR_ANNOUNCE_DELTA_DB = 3.0f;
 
     /// The user a bridged sender is announced with: long name is the name plus " (MC)", short name its first 4 bytes
     /// (never splitting a UTF-8 character).
