@@ -7,27 +7,31 @@
 // Keep it up while in use and power it down after a short idle period instead.
 static const uint32_t CRYPTOCELL_IDLE_MSEC = 2000;
 static uint32_t cryptoCellLastUse;
-static bool cryptoCellActive;
+// Hint only: set on use, cleared by the idle sweep. Other code (EncryptedStorage) still pairs nRFCrypto.begin()/end() on its own,
+// so this can be stale; that is why Acquire always calls begin(), which does nothing when CryptoCell is already up.
+static volatile bool cryptoCellMaybeUp;
 
 void nrf52CryptoCellAcquire()
 {
-    if (!cryptoCellActive) {
-        nRFCrypto.begin();
-        cryptoCellActive = true;
-    }
+    nRFCrypto.begin();
     cryptoCellLastUse = millis();
+    cryptoCellMaybeUp = true;
 }
 
 void nrf52CryptoCellIdleCheck()
 {
+    // Called from the main loop on every pass: stay out of cryptLock unless the idle time has really elapsed, or the BLE task
+    // holding it for a DH operation would stall the loop.
+    if (!cryptoCellMaybeUp || (uint32_t)(millis() - cryptoCellLastUse) <= CRYPTOCELL_IDLE_MSEC)
+        return;
     // cryptLock is non-recursive and already held by every crypto-engine call path that touches
     // CryptoCell (Router::perhapsEncode/perhapsDecode, KeyVerificationModule, AdminModule, ...),
     // including the BLE SoftDevice task via onToRadioWrite. Taking it here keeps this background
     // sweep from calling end() while one of those is mid-operation.
     concurrency::LockGuard g(cryptLock);
-    if (cryptoCellActive && (uint32_t)(millis() - cryptoCellLastUse) > CRYPTOCELL_IDLE_MSEC) {
-        nRFCrypto.end();
-        cryptoCellActive = false;
+    if ((uint32_t)(millis() - cryptoCellLastUse) > CRYPTOCELL_IDLE_MSEC) {
+        nRFCrypto.end(); // no-op if something else already ended it
+        cryptoCellMaybeUp = false;
     }
 }
 
