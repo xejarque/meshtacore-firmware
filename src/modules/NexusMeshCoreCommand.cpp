@@ -1106,26 +1106,30 @@ bool NexusModule::formatMeshCorePingReply(const meshtastic_MeshPacket &mp, char 
     }
 #endif
 
+    // Each metric is printed only while its PPING toggle is on (SNR, RSSI, FREQERR), joined by " · ". Direct frames lead
+    // with the signal icon; a metric that is off leaves no separator behind.
     uint32_t hopsUsed = (mp.hop_start >= mp.hop_limit) ? (mp.hop_start - mp.hop_limit) : 0;
-    if (hopsUsed == 0) {
-        l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "⚡ directo\n");
-        if (mp.has_rx_rssi) {
-            l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "📶 SNR: %.1f dB · RSSI: %d dBm · 🔬 Δf %.0fHz",
-                          (double)mp.rx_snr, (int)mp.rx_rssi, (double)mp.rx_frequency_error);
-        } else {
-            l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "📶 SNR: %.1f dB · 🔬 Δf %.0fHz", (double)mp.rx_snr,
-                          (double)mp.rx_frequency_error);
-        }
-    } else {
-        l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "%u hops:\n", (unsigned)hopsUsed);
-        if (mp.has_rx_rssi) {
-            l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "SNR: %.1f dB · RSSI: %d dBm · Δf %.0fHz",
-                          (double)mp.rx_snr, (int)mp.rx_rssi, (double)mp.rx_frequency_error);
-        } else {
-            l += snprintf(rMsg + l, rMsgLen > (size_t)l ? rMsgLen - l : 0, "SNR: %.1f dB · Δf %.0fHz", (double)mp.rx_snr,
-                          (double)mp.rx_frequency_error);
-        }
+    const bool direct = hopsUsed == 0;
+    auto room = [&]() { return rMsgLen > (size_t)l ? rMsgLen - l : (size_t)0; };
+    if (direct)
+        l += snprintf(rMsg + l, room(), "⚡ directo\n");
+    else
+        l += snprintf(rMsg + l, room(), "%u hops:\n", (unsigned)hopsUsed);
+
+    const char *lead = direct ? "📶 " : "";
+    const char *sep = "";
+    if (ping_snr) {
+        l += snprintf(rMsg + l, room(), "%s%sSNR: %.1f dB", sep, lead, (double)mp.rx_snr);
+        lead = "";
+        sep = " · ";
     }
+    if (ping_rssi && mp.has_rx_rssi) {
+        l += snprintf(rMsg + l, room(), "%s%sRSSI: %d dBm", sep, lead, (int)mp.rx_rssi);
+        lead = "";
+        sep = " · ";
+    }
+    if (ping_freqerr)
+        l += snprintf(rMsg + l, room(), "%s%s%sΔf %.0fHz", sep, lead, direct ? "🔬 " : "", (double)mp.rx_frequency_error);
     return true;
 }
 
@@ -1159,6 +1163,7 @@ void NexusModule::handleMeshCorePpingCommand(const char *args, char *reply, size
             snprintf(reply, replyLen, "JT MESHCORE: PPING ON (MC:#bot channel not configured)");
         }
     } else if (strcasecmp(args, "OFF") == 0) {
+        public_ping = false;
         for (ChannelIndex i = 0; i < MAX_NUM_CHANNELS; i++) {
             if (channels.isMeshCoreChannel(i))
                 ping_channels[i] = false;
@@ -1286,10 +1291,22 @@ void NexusModule::handleMeshCorePpingCommand(const char *args, char *reply, size
         ping_bitmask = false;
         snprintf(reply, replyLen, "JT MESHCORE: Ping Bitmask/Flags DISABLED");
     } else if (strncasecmp(args, "SETHEX ", 7) == 0) {
-        uint16_t h = (uint16_t)strtoul(args + 7, NULL, 16);
+        // Bit map: 0 RSSI, 1 SNR, 2 FREQERR, 3 public ping (global), 4 ignore direct, 5 ignore remote, 6 flags,
+        // 7-14 MeshCore channels 0-7, 15 allow DM. Anything that is not a 16-bit hex number is refused, not read as zero.
+        const char *hexArg = args + 7;
+        char *end = nullptr;
+        const unsigned long parsed = strtoul(hexArg, &end, 16);
+        while (end && *end == ' ')
+            end++;
+        if (end == hexArg || !end || *end != '\0' || parsed > 0xFFFFUL) {
+            snprintf(reply, replyLen, "JT MESHCORE: PPING SETHEX takes a 16-bit hex mask, e.g. SETHEX 0x0001");
+            return;
+        }
+        const uint16_t h = (uint16_t)parsed;
         ping_rssi = (h & (1 << 0)) != 0;
         ping_snr = (h & (1 << 1)) != 0;
         ping_freqerr = (h & (1 << 2)) != 0;
+        public_ping = (h & (1 << 3)) != 0;
         ping_ignore_direct = (h & (1 << 4)) != 0;
         ping_ignore_remote = (h & (1 << 5)) != 0;
         ping_bitmask = (h & (1 << 6)) != 0;
@@ -1305,6 +1322,8 @@ void NexusModule::handleMeshCorePpingCommand(const char *args, char *reply, size
             h |= (1 << 1);
         if (ping_freqerr)
             h |= (1 << 2);
+        if (public_ping)
+            h |= (1 << 3);
         if (ping_ignore_direct)
             h |= (1 << 4);
         if (ping_ignore_remote)

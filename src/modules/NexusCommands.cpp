@@ -617,6 +617,20 @@ static const LoRaPresetDef s_loraPresets[] = {
     {{"MINI8", "MICRO8", nullptr}, 6, 31, 5, 867.5812f, meshtastic_Config_LoRaConfig_RegionCode_EU_866},
 };
 
+// True when cmd is exactly `word` or `word` followed by arguments. Prefix-only matches such as SAVEX or LOADFOO are not commands.
+static bool isCommandWord(const char *cmd, const char *word)
+{
+    const size_t n = strlen(word);
+    return strncasecmp(cmd, word, n) == 0 && (cmd[n] == '\0' || cmd[n] == ' ');
+}
+
+// A /nexus RELAYS argument naming one relay by hex: `*AB`, `0xAB` or a bare two-character hex byte. Decimal counts and top-N
+// requests are left for the ordered stats handler.
+static bool isRelayIdArg(const char *p)
+{
+    return *p == '*' || (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) || (strlen(p) == 2 && !isdigit((unsigned char)p[0]));
+}
+
 // === END FILE-SCOPE HELPERS ===
 
 // === BEGIN handleNexusCommand (from NexusModule.cpp:1651-8873) ===
@@ -2454,7 +2468,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         snprintf(replyMsg, sizeof(replyMsg), "MTC: Output Drops updated to 0x%08lX%08lX",
                  (unsigned long)(h >> 32), (unsigned long)(h & 0xFFFFFFFFu));
     }
-    else if (strncasecmp(cmd, "SAVE", 4) == 0 || strcasecmp(cmd, "BSAVE") == 0) {
+    else if (isCommandWord(cmd, "SAVE") || strcasecmp(cmd, "BSAVE") == 0) {
         const char *p = skipToken(cmd);
         if (strcasecmp(cmd, "BSAVE") == 0 || strcasecmp(p, "BACKUP") == 0) {
             bool ok = nodeDB->backupPreferences(meshtastic_AdminMessage_BackupLocation_FLASH);
@@ -2466,7 +2480,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                      saved ? "MTC: Nexus vault saved and verified." : "MTC: SAVE failed. Previous vault preserved.");
         }
     }
-    else if (strncasecmp(cmd, "LOAD", 4) == 0 || strcasecmp(cmd, "BLOAD") == 0) {
+    else if (isCommandWord(cmd, "LOAD") || strcasecmp(cmd, "BLOAD") == 0) {
         const char *p = skipToken(cmd);
         if (strcasecmp(cmd, "BLOAD") == 0 || strcasecmp(p, "BACKUP") == 0) {
             if (nodeDB->restorePreferences(meshtastic_AdminMessage_BackupLocation_FLASH,
@@ -6513,21 +6527,19 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging firewall stats...");
         memset(line, 0, sizeof(line));
     }
-    else if (strncasecmp(cmd, "RELAYS ", 7) == 0 || strncasecmp(cmd, "RY ", 3) == 0) {
+    else if ((strncasecmp(cmd, "RELAYS ", 7) == 0 || strncasecmp(cmd, "RY ", 3) == 0) && isRelayIdArg(skipToken(cmd))) {
         const char *p = skipToken(cmd);
-        if (*p == '*' || (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) || (strlen(p) == 2 && !isdigit((unsigned char)p[0]))) {
-            uint32_t rid = strtoul((*p == '*') ? p + 1 : p, NULL, 16) & 0xFF;
-            static char relayNames[64];
-            memset(relayNames, 0, sizeof(relayNames));
-            getRelayNames(relayNames, sizeof(relayNames), (uint8_t)rid);
-            snprintf(replyMsg, sizeof(replyMsg), "Relay *%02x (%s) Stats:\nDirect: %u\nRelayed: %u\nTotal: %u",
-                     (unsigned int)rid, relayNames[0] ? relayNames : "Unknown",
-                     (unsigned int)relay_stats[rid].direct,
-                     (unsigned int)relay_stats[rid].relayed,
-                     (unsigned int)(relay_stats[rid].direct + relay_stats[rid].relayed));
-            memset(relayNames, 0, sizeof(relayNames));
-            return;
-        }
+        uint32_t rid = strtoul((*p == '*') ? p + 1 : p, NULL, 16) & 0xFF;
+        static char relayNames[64];
+        memset(relayNames, 0, sizeof(relayNames));
+        getRelayNames(relayNames, sizeof(relayNames), (uint8_t)rid);
+        snprintf(replyMsg, sizeof(replyMsg), "Relay *%02x (%s) Stats:\nDirect: %u\nRelayed: %u\nTotal: %u",
+                 (unsigned int)rid, relayNames[0] ? relayNames : "Unknown",
+                 (unsigned int)relay_stats[rid].direct,
+                 (unsigned int)relay_stats[rid].relayed,
+                 (unsigned int)(relay_stats[rid].direct + relay_stats[rid].relayed));
+        memset(relayNames, 0, sizeof(relayNames));
+        return;
     }
     else if (strcasecmp(cmd, "WIFIOTA") == 0 || strcasecmp(cmd, "OTA") == 0 ||
              strcasecmp(cmd, "OTAINFO") == 0) {
@@ -7043,8 +7055,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     }
     else if (strncasecmp(cmd, "NAME ", 5) == 0 || strncasecmp(cmd, "OWNER ", 6) == 0) {
+        // NAME <long_name> changes only the long name and keeps the short one. OWNER <short> <long> takes the short name first.
+        const bool isOwner = strncasecmp(cmd, "OWNER", 5) == 0;
         const char *p = skipToken(cmd);
-        const char *second = strchr(p, ' ');
+        const char *second = isOwner ? strchr(p, ' ') : nullptr;
         if (second) {
             char shortName[5] = {0};
             int sLen = (int)(second - p);
@@ -7063,7 +7077,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             nodeDB->pickNewNodeNum();
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Name set to '%s'. New NodeNum.", p);
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - NAME <long> [short]");
+            snprintf(replyMsg, sizeof(replyMsg), isOwner ? "MTC: Usage - OWNER <short> <long>" : "MTC: Usage - NAME <long_name>");
         }
     }
     else if (strncasecmp(cmd, "TRACE ", 6) == 0 || strncasecmp(cmd, "TR ", 3) == 0) {
@@ -7516,10 +7530,15 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (*p == '\0') {
             snprintf(replyMsg, sizeof(replyMsg), "MTC: LoRa TX %s", config.lora.tx_enabled ? "ENABLED" : "DISABLED");
         } else {
-            bool en = (strcasecmp(p, "ON") == 0 || strcasecmp(p, "1") == 0);
-            config.lora.tx_enabled = en;
-            nodeDB->saveToDisk(SEGMENT_CONFIG);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: LoRa TX %s", en ? "ENABLED" : "DISABLED (Silent)");
+            const bool on = (strcasecmp(p, "ON") == 0 || strcasecmp(p, "1") == 0);
+            const bool off = (strcasecmp(p, "OFF") == 0 || strcasecmp(p, "0") == 0);
+            if (!on && !off) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - TX [ON|OFF]");
+            } else {
+                config.lora.tx_enabled = on;
+                nodeDB->saveToDisk(SEGMENT_CONFIG);
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: LoRa TX %s", on ? "ENABLED" : "DISABLED (Silent)");
+            }
         }
     }
     else if (strcasecmp(cmd, "GOODPRACTICES") == 0 || strcasecmp(cmd, "GP") == 0) {
@@ -7605,8 +7624,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         handleMeshCorePpingCommand(p, replyMsg, sizeof(replyMsg));
     }
     else if (strncasecmp(cmd, "WATCH ", 6) == 0 || strcasecmp(cmd, "WATCH") == 0) {
-        const char *sub = cmd + 6;
-        while (*sub == ' ') sub++;
+        const char *sub = skipToken(cmd);
 
         if (strncasecmp(sub, "ADD ", 4) == 0) {
             uint32_t targetId = findNodeByShortNameOrHex(sub + 4);
