@@ -247,10 +247,20 @@ static bool loadOrCreateMeshCoreSeed(uint8_t seed[MESHCORE_SEED_LEN], bool force
         concurrency::LockGuard g(spiLock);
         auto f = FSCom.open(path, FILE_O_READ);
         if (f) {
-            bool ok = f.size() == MESHCORE_SEED_LEN && f.read(seed, MESHCORE_SEED_LEN) == MESHCORE_SEED_LEN;
+            const bool sizeOk = f.size() == MESHCORE_SEED_LEN;
+            bool ok = sizeOk && f.read(seed, MESHCORE_SEED_LEN) == MESHCORE_SEED_LEN;
+            if (sizeOk && !ok) { // a full-size file that read short: try once more before doubting it
+                f.seek(0);
+                ok = f.read(seed, MESHCORE_SEED_LEN) == MESHCORE_SEED_LEN;
+            }
             f.close();
             if (ok)
                 return true;
+            if (sizeOk) {
+                // Never replace a well-formed key because of a read error: the node would change identity for good.
+                LOG_ERROR("MeshCore identity: could not read %s, keeping it", path);
+                return false;
+            }
             LOG_WARN("MeshCore identity: %s is corrupt, creating a new key", path);
         }
     }

@@ -22,9 +22,18 @@ struct MeshCoreRx {
     uint8_t pathHashCount = 1;
     float snr = 0;
     int32_t rssi = 0;
+    // False when snr/rssi were not measured (a stored or inferred route): a 0 dB / 0 dBm reading would be invented.
+    bool hasSignal = true;
 
     MeshCoreRx() = default;
     MeshCoreRx(uint8_t hops, float snrDb, int32_t rssiDbm) : pathHashCount(hops), snr(snrDb), rssi(rssiDbm) {}
+    /// A route of `hops` repeaters whose signal was never measured.
+    static MeshCoreRx unmeasured(uint8_t hops)
+    {
+        MeshCoreRx rx(hops, 0, 0);
+        rx.hasSignal = false;
+        return rx;
+    }
 };
 
 /**
@@ -194,11 +203,15 @@ class MeshCoreCompanion
     /// Look up the most recent heard route entry for a given sender node number.
     const HeardPath *heardFindByFrom(uint32_t fromNum) const;
 
-    /// Format a single route line, unified across .path and MeshCore PPING replies.
-    bool formatRouteLine(const HeardPath &route, char *out, size_t cap, float freqErr = 0.0f) const;
+    /// Which signal metrics a route line prints (formatRouteLine's last argument).
+    enum : uint8_t { SIGNAL_SNR = 1, SIGNAL_RSSI = 2, SIGNAL_FREQERR = 4, SIGNAL_ALL = 7 };
+
+    /// Format a single route line, unified across .path and MeshCore PPING replies. signal picks the metrics shown, so PPING
+    /// can honour its SNR/RSSI/FREQERR toggles and .path can omit the frequency error it does not have.
+    bool formatRouteLine(const HeardPath &route, char *out, size_t cap, float freqErr = 0.0f, uint8_t signal = SIGNAL_ALL) const;
 
     /// Format route for a given packet id into out. Returns true on success.
-    bool formatRouteForPacket(uint32_t packetId, char *out, size_t cap, float freqErr = 0.0f) const;
+    bool formatRouteForPacket(uint32_t packetId, char *out, size_t cap, float freqErr = 0.0f, uint8_t signal = SIGNAL_ALL) const;
 
     /// Find contact by name, prefix, or !hex number.
     const MeshCoreNode *findContact(const char *nameOrHex) const;

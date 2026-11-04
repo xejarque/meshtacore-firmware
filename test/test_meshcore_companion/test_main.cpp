@@ -684,6 +684,48 @@ void test_a_node_is_announced_until_heard_and_again_when_it_changes_or_goes_stal
     TEST_ASSERT_TRUE(MeshCoreCompanion::needsAnnounce(&lite, user, now + MeshCoreCompanion::HEARD_REFRESH_SECS, &rx0));
 }
 
+// A MeshCore path can be far longer than Meshtastic's 3-bit hop fields. The NodeDB keeps the capped value, so a frame that
+// crossed 20 repeaters must not look like news every time it is heard.
+void test_a_path_longer_than_the_hop_fields_does_not_reannounce_every_frame(void)
+{
+    uint8_t pub[32];
+    fillPub(pub, 0x23, 6);
+    const meshtastic_User user = MeshCoreCompanion::senderUser("Far", false, pub, meshtastic_Config_DeviceConfig_Role_REPEATER);
+    const uint32_t now = 1000000;
+
+    meshtastic_NodeInfoLite lite = meshtastic_NodeInfoLite_init_zero;
+    TypeConversions::CopyUserToNodeInfoLite(&lite, user);
+    lite.last_heard = now;
+    nodeInfoLiteSetHeardSlot(&lite, 1);
+    lite.has_hops_away = true;
+    lite.hops_away = MeshCoreCompanion::HOP_START; // what hopFields stores for any longer path
+
+    const MeshCoreRx farAway(20, 0, 0);
+    TEST_ASSERT_FALSE(MeshCoreCompanion::needsAnnounce(&lite, user, now + 60, &farAway));
+    const MeshCoreRx nearer(3, 0, 0);
+    TEST_ASSERT_TRUE(MeshCoreCompanion::needsAnnounce(&lite, user, now + 60, &nearer)); // a real change still announces
+}
+
+// A route whose signal was never measured must not announce a made-up 0 dB reading.
+void test_an_unmeasured_direct_route_has_no_signal_to_announce(void)
+{
+    uint8_t pub[32];
+    fillPub(pub, 0x24, 7);
+    const meshtastic_User user = MeshCoreCompanion::senderUser("Imp", true, pub, meshtastic_Config_DeviceConfig_Role_CLIENT);
+    const uint32_t now = 1000000;
+
+    meshtastic_NodeInfoLite lite = meshtastic_NodeInfoLite_init_zero;
+    TypeConversions::CopyUserToNodeInfoLite(&lite, user);
+    lite.last_heard = now;
+    nodeInfoLiteSetHeardSlot(&lite, 1);
+    lite.has_hops_away = true;
+    lite.hops_away = 0;
+
+    const MeshCoreRx unmeasured = MeshCoreRx::unmeasured(0);
+    TEST_ASSERT_FALSE(unmeasured.hasSignal);
+    TEST_ASSERT_FALSE(MeshCoreCompanion::needsAnnounce(&lite, user, now + 60, &unmeasured)); // no SNR is not news here
+}
+
 void test_contacts_find_a_name_only_when_unique(void)
 {
     MeshCoreCompanion comp;
@@ -2146,6 +2188,58 @@ void test_meshcore_ping_formatting(void)
     TEST_ASSERT_NOT_NULL(strstr(hopOut, "SNR: -3.2 dB · RSSI: -88 dBm · Δf -12Hz"));
 }
 
+// PPING's SNR / RSSI / FREQERR toggles choose which metrics the route line prints.
+void test_route_line_prints_only_the_requested_metrics(void)
+{
+    GroupSetup s;
+    MeshCoreCompanion::HeardPath direct;
+    direct.hopCount = 0;
+    direct.snr = 8.5f;
+    direct.rssi = -70;
+    char out[128];
+
+    TEST_ASSERT_TRUE(s.c.formatRouteLine(direct, out, sizeof(out), 50.0f, MeshCoreCompanion::SIGNAL_SNR));
+    TEST_ASSERT_NOT_NULL(strstr(out, "SNR: 8.5 dB"));
+    TEST_ASSERT_NULL(strstr(out, "RSSI"));
+    TEST_ASSERT_NULL(strstr(out, "Δf"));
+
+    TEST_ASSERT_TRUE(
+        s.c.formatRouteLine(direct, out, sizeof(out), 50.0f, MeshCoreCompanion::SIGNAL_RSSI | MeshCoreCompanion::SIGNAL_FREQERR));
+    TEST_ASSERT_NULL(strstr(out, "SNR"));
+    TEST_ASSERT_NOT_NULL(strstr(out, "RSSI: -70 dBm · 🔬 Δf 50Hz"));
+
+    MeshCoreCompanion::HeardPath hops;
+    hops.hopCount = 2;
+    hops.hashSize = 1;
+    hops.path[0] = 0xAA;
+    hops.path[1] = 0xBB;
+    hops.snr = -3.2f;
+    hops.rssi = -88;
+    TEST_ASSERT_TRUE(
+        s.c.formatRouteLine(hops, out, sizeof(out), 0.0f, MeshCoreCompanion::SIGNAL_SNR | MeshCoreCompanion::SIGNAL_RSSI));
+    TEST_ASSERT_NOT_NULL(strstr(out, "SNR: -3.2 dB · RSSI: -88 dBm"));
+    TEST_ASSERT_NULL(strstr(out, "Δf"));
+}
+
+// On a long route the signal line is kept and the hop names give way, not the other way round.
+void test_a_long_route_keeps_its_signal_line(void)
+{
+    GroupSetup s;
+    MeshCoreCompanion::HeardPath route;
+    route.hopCount = 8;
+    route.hashSize = 1;
+    for (size_t i = 0; i < 8; i++)
+        route.path[i] = (uint8_t)(0x10 + i);
+    route.snr = 9.5f;
+    route.rssi = -75;
+
+    char out[60];
+    TEST_ASSERT_TRUE(s.c.formatRouteLine(route, out, sizeof(out), 125.0f));
+    TEST_ASSERT_NOT_NULL(strstr(out, "8 hops:"));
+    TEST_ASSERT_NOT_NULL(strstr(out, "SNR: 9.5 dB · RSSI: -75 dBm · Δf 125Hz"));
+    TEST_ASSERT_LESS_THAN(sizeof(out), strlen(out)); // fits, NUL included
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -2229,6 +2323,10 @@ void setup()
     RUN_TEST(test_meshcore_node_listing);
     RUN_TEST(test_meshcore_heard_find_by_from);
     RUN_TEST(test_meshcore_format_route_line_bounds);
+    RUN_TEST(test_a_path_longer_than_the_hop_fields_does_not_reannounce_every_frame);
+    RUN_TEST(test_an_unmeasured_direct_route_has_no_signal_to_announce);
+    RUN_TEST(test_route_line_prints_only_the_requested_metrics);
+    RUN_TEST(test_a_long_route_keeps_its_signal_line);
     RUN_TEST(test_advert_with_position_announces_real_hops);
     RUN_TEST(test_unified_vecinos_formatting);
     RUN_TEST(test_meshcore_ping_formatting);
