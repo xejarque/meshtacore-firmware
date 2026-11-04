@@ -340,9 +340,10 @@ void NexusModule::handleHealthCommand()
         snprintf(bootBuf, sizeof(bootBuf), "%s (x%u)", reason, (unsigned)rbt);
 
     float chUtil = (airTime != NULL) ? airTime->channelUtilizationPercent() : 0.0f;
+    float txUtil = (airTime != NULL) ? airTime->utilizationTXPercent() : 0.0f;
     int32_t noise = (RadioLibInterface::instance) ? RadioLibInterface::instance->getAverageNoiseFloor() : -120;
 
     snprintf(replyMsg, sizeof(replyMsg),
-             "MTC HEALTH:\nUp: %s\nBoot: %s\nBat: %s\nHeap: %s\nTemp: %.1fC\nChU: %.1f%% Noise: %ddBm", upBuf, bootBuf, batBuf,
-             heapBuf, temp, chUtil, (int)noise);
+             "MTC HEALTH:\nUp: %s\nBoot: %s\nBat: %s\nHeap: %s\nTemp: %.1fC\nChU: %.1f%% TxU: %.1f%% Noise: %ddBm", upBuf,
+             bootBuf, batBuf, heapBuf, temp, chUtil, txUtil, (int)noise);
 }

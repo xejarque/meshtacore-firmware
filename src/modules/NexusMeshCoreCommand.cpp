@@ -766,7 +766,8 @@ static void handleMeshCorePathCommand(const char *arg, char *reply, size_t reply
     char *end = nullptr;
     unsigned long id = strtoul(arg, &end, 0);
     if (id != 0 && end && *end == '\0') {
-        if (meshCoreCompanion.formatRouteForPacket(id, reply, replyLen))
+        if (meshCoreCompanion.formatRouteForPacket(id, reply, replyLen, 0.0f,
+                                                   MeshCoreCompanion::SIGNAL_SNR | MeshCoreCompanion::SIGNAL_RSSI))
             return;
     }
     const MeshCoreNode *contact = meshCoreCompanion.findContact(arg);
@@ -780,7 +781,8 @@ static void handleMeshCorePathCommand(const char *arg, char *reply, size_t reply
         return;
     }
     static char line[200];
-    if (meshCoreCompanion.formatRouteLine(*route, line, sizeof(line))) {
+    if (meshCoreCompanion.formatRouteLine(*route, line, sizeof(line), 0.0f,
+                                          MeshCoreCompanion::SIGNAL_SNR | MeshCoreCompanion::SIGNAL_RSSI)) {
         snprintf(reply, replyLen, "JT MESHCORE: %s › %s", contact->name, line);
     } else {
         snprintf(reply, replyLen, "JT MESHCORE: route format failed for %s", contact->name);
@@ -1110,7 +1112,9 @@ bool NexusModule::formatMeshCorePingReply(const meshtastic_MeshPacket &mp, char 
     static char routeLine[200];
     routeLine[0] = '\0';
     const float fErr = mp.rx_frequency_error;
-    if (meshCoreCompanion.formatRouteForPacket(mp.id, routeLine, sizeof(routeLine), fErr)) {
+    const uint8_t signal = (ping_snr ? MeshCoreCompanion::SIGNAL_SNR : 0) | (ping_rssi ? MeshCoreCompanion::SIGNAL_RSSI : 0) |
+                           (ping_freqerr ? MeshCoreCompanion::SIGNAL_FREQERR : 0);
+    if (meshCoreCompanion.formatRouteForPacket(mp.id, routeLine, sizeof(routeLine), fErr, signal)) {
         grew(snprintf(rMsg + l, room(), "%s", routeLine));
         return true;
     }
@@ -1155,7 +1159,7 @@ void NexusModule::handleMeshCorePpingCommand(const char *args, char *reply, size
         }
     }
 
-    if (*args == '\0') {
+    if (*args == '\0' || strcasecmp(args, "STATUS") == 0) {
         char botStatus[32] = "not found";
         if (botCh >= 0) {
             snprintf(botStatus, sizeof(botStatus), "Ch %d (%s)", botCh, ping_channels[botCh] ? "ON" : "OFF");
@@ -1164,7 +1168,7 @@ void NexusModule::handleMeshCorePpingCommand(const char *args, char *reply, size
                  public_ping ? 1 : 0, botStatus, ping_rssi ? 1 : 0, ping_snr ? 1 : 0, ping_freqerr ? 1 : 0, (int)ping_emoji_mode,
                  ping_allow_dm ? 1 : 0, custom_pping_active ? 1 : 0, ping_trigger);
     } else if (strcasecmp(args, "ON") == 0) {
-        public_ping = true;
+        // Only the MeshCore side: /nexus PPING owns public_ping.
         if (botCh >= 0) {
             ping_channels[botCh] = true;
             snprintf(reply, replyLen, "JT MESHCORE: PPING ON (MC:#bot on Ch %d)", botCh);
@@ -1177,170 +1181,8 @@ void NexusModule::handleMeshCorePpingCommand(const char *args, char *reply, size
                 ping_channels[i] = false;
         }
         snprintf(reply, replyLen, "JT MESHCORE: PPING OFF on MeshCore channels");
-    } else if (strncasecmp(args, "CMD ", 4) == 0 || strncasecmp(args, "TRIGGER ", 8) == 0 || strcasecmp(args, "CMD") == 0 ||
-               strcasecmp(args, "TRIGGER") == 0) {
-        const char *c = (strncasecmp(args, "TRIGGER", 7) == 0) ? (args + 7) : (args + 3);
-        while (*c == ' ')
-            c++;
-        if (*c == '\0') {
-            snprintf(reply, replyLen, "JT MESHCORE: Ping command is '%s'", ping_trigger);
-        } else if (strcasecmp(c, "DEFAULT") == 0) {
-            strncpy(ping_trigger, "/ping", sizeof(ping_trigger) - 1);
-            ping_trigger[sizeof(ping_trigger) - 1] = '\0';
-            snprintf(reply, replyLen, "JT MESHCORE: Ping command reset to '/ping'");
-        } else {
-            size_t len = 0;
-            while (c[len] && !isspace((unsigned char)c[len]) && len < sizeof(ping_trigger) - 1) {
-                ping_trigger[len] = c[len];
-                len++;
-            }
-            ping_trigger[len] = '\0';
-            snprintf(reply, replyLen, "JT MESHCORE: Ping command set to '%s'", ping_trigger);
-        }
-    } else if (strncasecmp(args, "HEADER ", 7) == 0) {
-        const char *h = args + 7;
-        while (*h == ' ')
-            h++;
-        if (strcasecmp(h, "OFF") == 0) {
-            custom_pping_active = false;
-            snprintf(reply, replyLen, "JT MESHCORE: Custom Header DISABLED");
-        } else {
-            memset(pping_header, 0, sizeof(pping_header));
-            strncpy(pping_header, h, 63);
-            custom_pping_active = true;
-            snprintf(reply, replyLen, "JT MESHCORE: Custom Header set to '%s'", pping_header);
-        }
-    } else if (strncasecmp(args, "EMOJI ", 6) == 0) {
-        const char *e = args + 6;
-        while (*e == ' ')
-            e++;
-        if (strcasecmp(e, "OFF") == 0) {
-            ping_emoji_mode = 0;
-            snprintf(reply, replyLen, "JT MESHCORE: Ping response in TEXT mode");
-        } else if (strcasecmp(e, "INDIRECT") == 0 || strcasecmp(e, "INDR") == 0) {
-            ping_emoji_mode = 1;
-            snprintf(reply, replyLen, "JT MESHCORE: Ping response in EMOJI for indirect");
-        } else if (strcasecmp(e, "ALWAYS") == 0 || strcasecmp(e, "ALW") == 0) {
-            ping_emoji_mode = 2;
-            snprintf(reply, replyLen, "JT MESHCORE: Ping response in ALWAYS-EMOJI mode");
-        } else {
-            snprintf(reply, replyLen, "JT MESHCORE: PPING EMOJI <OFF|INDIRECT|ALWAYS>");
-        }
-    } else if (strcasecmp(args, "RSSI ON") == 0) {
-        ping_rssi = true;
-        snprintf(reply, replyLen, "JT MESHCORE: Ping RSSI reporting ENABLED");
-    } else if (strcasecmp(args, "RSSI OFF") == 0) {
-        ping_rssi = false;
-        snprintf(reply, replyLen, "JT MESHCORE: Ping RSSI reporting DISABLED");
-    } else if (strcasecmp(args, "SNR ON") == 0) {
-        ping_snr = true;
-        snprintf(reply, replyLen, "JT MESHCORE: Ping SNR reporting ENABLED");
-    } else if (strcasecmp(args, "SNR OFF") == 0) {
-        ping_snr = false;
-        snprintf(reply, replyLen, "JT MESHCORE: Ping SNR reporting DISABLED");
-    } else if (strcasecmp(args, "FREQERR ON") == 0) {
-        ping_freqerr = true;
-        snprintf(reply, replyLen, "JT MESHCORE: Ping FreqErr reporting ENABLED");
-    } else if (strcasecmp(args, "FREQERR OFF") == 0) {
-        ping_freqerr = false;
-        snprintf(reply, replyLen, "JT MESHCORE: Ping FreqErr reporting DISABLED");
-    } else if (strcasecmp(args, "ALLOWDM ON") == 0) {
-        ping_allow_dm = true;
-        snprintf(reply, replyLen, "JT MESHCORE: Ping DM replies ENABLED");
-    } else if (strcasecmp(args, "ALLOWDM OFF") == 0) {
-        ping_allow_dm = false;
-        snprintf(reply, replyLen, "JT MESHCORE: Ping DM replies DISABLED");
-    } else if (strcasecmp(args, "DIRECT IGNORE ON") == 0 || strcasecmp(args, "IGNORE DIRECT ON") == 0) {
-        ping_ignore_direct = true;
-        snprintf(reply, replyLen, "JT MESHCORE: Direct Ignore ENABLED");
-    } else if (strcasecmp(args, "DIRECT IGNORE OFF") == 0 || strcasecmp(args, "IGNORE DIRECT OFF") == 0) {
-        ping_ignore_direct = false;
-        snprintf(reply, replyLen, "JT MESHCORE: Direct Ignore DISABLED");
-    } else if (strcasecmp(args, "IGNORE REMOTE ON") == 0 || strcasecmp(args, "REMOTE IGNORE ON") == 0) {
-        ping_ignore_remote = true;
-        snprintf(reply, replyLen, "JT MESHCORE: Remote Ignore ENABLED");
-    } else if (strcasecmp(args, "IGNORE REMOTE OFF") == 0 || strcasecmp(args, "REMOTE IGNORE OFF") == 0) {
-        ping_ignore_remote = false;
-        snprintf(reply, replyLen, "JT MESHCORE: Remote Ignore DISABLED");
-    } else if (strncasecmp(args, "CHAN ", 5) == 0) {
-        const char *cPtr = args + 5;
-        bool enable = true;
-        if (strncasecmp(cPtr, "ON ", 3) == 0) {
-            enable = true;
-            cPtr += 3;
-        } else if (strncasecmp(cPtr, "OFF ", 4) == 0) {
-            enable = false;
-            cPtr += 4;
-        }
-        while (*cPtr == ' ')
-            cPtr++;
-        int targetCh = -1;
-        if (isdigit((unsigned char)*cPtr) && *(cPtr + 1) == '\0') {
-            targetCh = *cPtr - '0';
-        } else {
-            for (ChannelIndex i = 0; i < MAX_NUM_CHANNELS; i++) {
-                const char *name = channels.getName(i);
-                if (name && strcasecmp(name, cPtr) == 0) {
-                    targetCh = (int)i;
-                    break;
-                }
-            }
-        }
-        if (targetCh >= 0 && (size_t)targetCh < MAX_NUM_CHANNELS) {
-            ping_channels[targetCh] = enable;
-            snprintf(reply, replyLen, "JT MESHCORE: Ping on Ch %d (%s) set to %d", targetCh, channels.getName(targetCh), enable);
-        } else {
-            snprintf(reply, replyLen, "JT MESHCORE: Channel '%s' not found", cPtr);
-        }
-    } else if (strcasecmp(args, "FLAGS ON") == 0) {
-        ping_bitmask = true;
-        snprintf(reply, replyLen, "JT MESHCORE: Ping Bitmask/Flags ENABLED");
-    } else if (strcasecmp(args, "FLAGS OFF") == 0) {
-        ping_bitmask = false;
-        snprintf(reply, replyLen, "JT MESHCORE: Ping Bitmask/Flags DISABLED");
-    } else if (strncasecmp(args, "SETHEX ", 7) == 0) {
-        // Anything that is not a 16-bit hex number is refused instead of being read as zero.
-        const char *hexArg = args + 7;
-        char *end = nullptr;
-        const unsigned long parsed = strtoul(hexArg, &end, 16);
-        while (end && *end == ' ')
-            end++;
-        if (end == hexArg || !end || *end != '\0' || parsed > 0xFFFFUL) {
-            snprintf(reply, replyLen, "JT MESHCORE: PPING SETHEX takes a 16-bit hex mask, e.g. SETHEX 0x0001");
-            return;
-        }
-        const uint16_t h = (uint16_t)parsed;
-        ping_rssi = (h & (1 << 0)) != 0;
-        ping_snr = (h & (1 << 1)) != 0;
-        ping_freqerr = (h & (1 << 2)) != 0;
-        ping_ignore_direct = (h & (1 << 4)) != 0;
-        ping_ignore_remote = (h & (1 << 5)) != 0;
-        ping_bitmask = (h & (1 << 6)) != 0;
-        ping_allow_dm = (h & (1 << 15)) != 0;
-        for (uint8_t i = 0; i < 8; i++)
-            ping_channels[i] = (h & (1 << (i + 7))) != 0;
-        snprintf(reply, replyLen, "JT MESHCORE: PPING bitmask set from 0x%04X", (unsigned int)h);
-    } else if (strcasecmp(args, "GETHEX") == 0) {
-        uint16_t h = 0;
-        if (ping_rssi)
-            h |= (1 << 0);
-        if (ping_snr)
-            h |= (1 << 1);
-        if (ping_freqerr)
-            h |= (1 << 2);
-        if (ping_ignore_direct)
-            h |= (1 << 4);
-        if (ping_ignore_remote)
-            h |= (1 << 5);
-        if (ping_bitmask)
-            h |= (1 << 6);
-        if (ping_allow_dm)
-            h |= (1 << 15);
-        for (uint8_t i = 0; i < 8; i++) {
-            if (ping_channels[i])
-                h |= (1 << (i + 7));
-        }
-        snprintf(reply, replyLen, "JT MESHCORE: PPING hex mask: 0x%04X", (unsigned int)(h & 0xFFFF));
+    } else if (applyPpingSetting(args, "JT MESHCORE", reply, replyLen)) {
+        // Shared reporting settings: see NexusCommands.cpp.
     } else {
         snprintf(reply, replyLen,
                  "JT MESHCORE: PPING ON|OFF|CMD <cmd>|RSSI|SNR|FREQERR|EMOJI|HEADER|ALLOWDM|CHAN|FLAGS|SETHEX|GETHEX");
@@ -1352,10 +1194,18 @@ void NexusModule::handleMeshCorePingSend(const char *target, char *reply, size_t
     while (*target == ' ')
         target++;
 
-    if (*target == '\0' || strcasecmp(target, "STATUS") == 0 || strcasecmp(target, "ON") == 0 || strcasecmp(target, "OFF") == 0 ||
-        strncasecmp(target, "CMD", 3) == 0 || strncasecmp(target, "TRIGGER", 7) == 0 || strncasecmp(target, "HEADER", 6) == 0 ||
-        strncasecmp(target, "EMOJI", 5) == 0 || strncasecmp(target, "RSSI", 4) == 0 || strncasecmp(target, "SNR", 3) == 0 ||
-        strncasecmp(target, "FREQERR", 7) == 0 || strncasecmp(target, "ALLOWDM", 7) == 0 || strncasecmp(target, "CHAN", 4) == 0) {
+    // A contact called "Cmdr" must still be pinged, so a PPING word only counts when it is the whole first token.
+    auto isPpingWord = [&](const char *word) {
+        const size_t n = strlen(word);
+        return strncasecmp(target, word, n) == 0 && (target[n] == '\0' || target[n] == ' ');
+    };
+    static const char *const ppingWords[] = {"STATUS", "ON",     "OFF",     "CMD",     "TRIGGER", "HEADER", "EMOJI",
+                                             "RSSI",   "SNR",    "FREQERR", "ALLOWDM", "CHAN",    "FLAGS",  "OM",
+                                             "SETHEX", "GETHEX", "DIRECT",  "IGNORE",  "REMOTE"};
+    bool isPpingSetting = *target == '\0';
+    for (const char *word : ppingWords)
+        isPpingSetting = isPpingSetting || isPpingWord(word);
+    if (isPpingSetting) {
         handleMeshCorePpingCommand(target, reply, replyLen);
         return;
     }

@@ -2325,15 +2325,17 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                              name);
                 } else {
                     bool turnOn = true;
+                    bool verbOk = true;
                     if (verb && *verb) {
                         if (strcasecmp(verb, "ON") == 0) turnOn = true;
                         else if (strcasecmp(verb, "OFF") == 0) turnOn = false;
                         else {
                             snprintf(replyMsg, sizeof(replyMsg),
                                      "MTC FEATURES: bad verb '%s' (ON|OFF)", verb);
-                            return;
+                            verbOk = false;
                         }
                     }
+                    if (verbOk) {
                     uint64_t m = getNexusFeaturesHex();
                     if (turnOn) m |= bit; else m &= ~bit;
                     setNexusFeaturesHex(m);
@@ -2345,6 +2347,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                              displayName, turnOn ? "ON" : "off",
                              (unsigned long)(m >> 32),
                              (unsigned long)(m & 0xFFFFFFFFu));
+                    }
                 }
             }
         }
@@ -2693,6 +2696,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         else
             formatNeighbors(replyMsg, sizeof(replyMsg));
     }
+    else if (strncasecmp(cmd, "FNODE", 5) == 0 && *skipSpaces(cmd + 5) == '\0') {
+        snprintf(replyMsg, sizeof(replyMsg), "MTC: Use FNODE <search/!id>");
+    }
     else if ((strncasecmp(cmd, "NODES", 5) == 0 && (cmd[5] == '\0' || cmd[5] == ' '))
              || strncasecmp(cmd, "FNODE", 5) == 0) {
         bool isFull = (strncasecmp(cmd, "FNODE", 5) == 0);
@@ -2700,11 +2706,6 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         while (*searchStr == ' ') searchStr++;
         bool hasSearch = (strlen(searchStr) > 0);
         bool longSearch = (strlen(searchStr) > 4);
-
-        if (isFull && !hasSearch) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Use FNODE <search/!id>");
-            return;
-        }
 
         startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId,
                     isFull ? "Node Detail" : "NodeDB");
@@ -2896,10 +2897,13 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             snprintf(replyMsg, sizeof(replyMsg), "%s", cmdBuf.lBuf);
             memset(cmdBuf.lBuf, 0, sizeof(cmdBuf.lBuf));
         } else {
-            if (*p == '*') p++; // accept the "*A4" display form
-            uint8_t id = (uint8_t)strtoul(p, NULL, 16);
-            setRelayDropped(id, setDrop);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Relay *%02X %s", id, setDrop ? "DROPPED" : "ALLOWED");
+            uint8_t id = 0;
+            if (!parseHexByte(p, id)) {
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - RDROP <*hex>|LIST|CLEAR");
+            } else {
+                setRelayDropped(id, setDrop);
+                snprintf(replyMsg, sizeof(replyMsg), "MTC: Relay *%02X %s", id, setDrop ? "DROPPED" : "ALLOWED");
+            }
         }
     }
     else if (strncasecmp(cmd, "IDR ", 4) == 0 || strncasecmp(cmd, "IGNORE-DUPE-RELAY ", 18) == 0 || strcasecmp(cmd, "IDR") == 0) {
@@ -3738,10 +3742,14 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     }
     else if (strncasecmp(cmd, "METRICS ", 8) == 0) {
-        const char *idPtr = cmd + 8;
-        uint32_t targetNum = strtoul(idPtr + (idPtr[0] == '!' ? 1 : 0), NULL, 16);
-        auto node = nodeDB->getMeshNode(targetNum);
-        if (node) {
+        const char *idPtr = skipSpaces(cmd + 8);
+        uint64_t parsedNum = 0;
+        const bool idOk = parseHex64(idPtr + (idPtr[0] == '!' ? 1 : 0), parsedNum) && parsedNum <= UINT32_MAX;
+        uint32_t targetNum = (uint32_t)parsedNum;
+        auto node = idOk ? nodeDB->getMeshNode(targetNum) : nullptr;
+        if (!idOk) {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - METRICS <!hex node id>");
+        } else if (node) {
             memset(cmdBuf.mBuf, 0, sizeof(cmdBuf.mBuf));
             int mLen = 0;
             if (nexus_has_device_metrics(node)) {
@@ -3822,9 +3830,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         uint32_t hBlk   = memGet.getMinFreeBlock();
         uint32_t pFree  = memGet.getFreePsram();
         uint32_t pTotal = memGet.getPsramSize();
-
-        // hBlk is intentionally read for completeness but not exposed in the
-        // compact output (user feedback: 'W' field was confusing).
+        // What HEAP used to report: used share and how much of the free heap is one contiguous block.
+        const int hUsedPerc = (hTotal > 0) ? (int)(hUsed * 100 / hTotal) : 0;
+        const int hFragPerc = (hFree > 0) ? (int)(hBlk * 100 / hFree) : 100;
 
 #ifdef HAS_FREE_RTOS
         UBaseType_t hereFree = uxTaskGetStackHighWaterMark(NULL);
@@ -3844,23 +3852,23 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (pTotal > 0) {
             uint32_t pUsed = (pTotal > pFree) ? (pTotal - pFree) : 0;
             snprintf(replyMsg, sizeof(replyMsg),
-                     "HEAP U:%u F:%u T:%u MB:%u\n"
+                     "HEAP U:%u(%d%%) F:%u T:%u MB:%u Frag:%d%%\n"
                      "PSRAM U:%lu F:%lu T:%lu\n"
                      "NEXUS bss:%u\n"
                      "STACK %s free:%u words",
-                     (unsigned)hUsed, (unsigned)hFree, (unsigned)hTotal,
-                     (unsigned)hBlk,
+                     (unsigned)hUsed, hUsedPerc, (unsigned)hFree, (unsigned)hTotal,
+                     (unsigned)hBlk, hFragPerc,
                      (unsigned long)pUsed, (unsigned long)pFree, (unsigned long)pTotal,
                      (unsigned)sizeof(NexusModule),
                      tn, (unsigned)hereFree);
         } else {
             snprintf(replyMsg, sizeof(replyMsg),
-                     "HEAP U:%u F:%u T:%u MB:%u\n"
+                     "HEAP U:%u(%d%%) F:%u T:%u MB:%u Frag:%d%%\n"
                      "PSRAM n/a\n"
                      "NEXUS bss:%u\n"
                      "STACK %s free:%u words",
-                     (unsigned)hUsed, (unsigned)hFree, (unsigned)hTotal,
-                     (unsigned)hBlk,
+                     (unsigned)hUsed, hUsedPerc, (unsigned)hFree, (unsigned)hTotal,
+                     (unsigned)hBlk, hFragPerc,
                      (unsigned)sizeof(NexusModule),
                      tn, (unsigned)hereFree);
         }
@@ -3958,7 +3966,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                  this->rx_sig_valid_count, this->rx_sig_valid_bytes, okPct,
                  total, totalBytes);
     }
-    else if (strncasecmp(cmd, "SETROLE", 7) == 0 || strncasecmp(cmd, "ROLE", 4) == 0) {
+    else if (isCommandWord(cmd, "SETROLE") || isCommandWord(cmd, "ROLE")) {
         const char *roleStr = skipToken(cmd);
         if (*roleStr == '\0') {
             snprintf(replyMsg, sizeof(replyMsg), "MTC ROLE: %s (%u)", getRoleName(config.device.role), (uint32_t)config.device.role);
@@ -3976,7 +3984,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             else if (strcasecmp(roleStr, "TAK_TRACKER") == 0) role = meshtastic_Config_DeviceConfig_Role_TAK_TRACKER;
             else if (isdigit((unsigned char)roleStr[0])) role = tokenInt(roleStr);
 
-            if (role >= 0 && role <= 13) {
+            if (role >= 0 && role <= (int)_meshtastic_Config_DeviceConfig_Role_MAX) {
                 static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default;
                 c.which_payload_variant = meshtastic_Config_device_tag;
                 c.payload_variant.device = config.device;
@@ -3989,7 +3997,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
     }
-    else if (strncasecmp(cmd, "SETLNA", 6) == 0 || strncasecmp(cmd, "LNA", 3) == 0) {
+    else if (isCommandWord(cmd, "SETLNA") || isCommandWord(cmd, "LNA")) {
 #if HAS_LORA_FEM
         if (loraFEMInterface.isLnaCanControl()) {
             const char *p = skipToken(cmd);
@@ -4025,9 +4033,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         snprintf(replyMsg, sizeof(replyMsg), "MTC LNA: NO_FEM");
 #endif
     }
-    else if (strncasecmp(cmd, "SETPOWER", 8) == 0 || strncasecmp(cmd, "SETTXPOWER", 10) == 0 ||
-             strncasecmp(cmd, "SETPWR", 6) == 0 || strcasecmp(cmd, "GETTXPOWER") == 0 ||
-             strcasecmp(cmd, "TXPOWER") == 0 || strncasecmp(cmd, "TXPOWER ", 8) == 0) {
+    else if (isCommandWord(cmd, "SETPOWER") || isCommandWord(cmd, "SETTXPOWER") || isCommandWord(cmd, "SETPWR") ||
+             strcasecmp(cmd, "GETTXPOWER") == 0 || isCommandWord(cmd, "TXPOWER")) {
         const char *p = skipToken(cmd);
         if (*p == '\0') {
             int activePwr = (int)config.lora.tx_power;
@@ -5393,12 +5400,12 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     else if (strncasecmp(cmd, "SEARCHRELAY ", 12) == 0 || strncasecmp(cmd, "SRELAY ", 7) == 0) {
         const char *p = cmd + (strncasecmp(cmd, "SRELAY ", 7) == 0 ? 7 : 12);
         while (*p == ' ') p++;
-        if (*p == '*') p++; // accept the documented "*A4" display form
-        uint8_t suffix = (uint8_t)strtoul(p, NULL, 0);
+        uint8_t suffix = 0;
         static char names[64];
         memset(names, 0, sizeof(names));
-        getRelayNames(names, sizeof(names), suffix);
-        if (names[0] != '\0') {
+        if (!parseHexByte(p, suffix)) {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - SRELAY <*hex>");
+        } else if (getRelayNames(names, sizeof(names), suffix), names[0] != '\0') {
             snprintf(replyMsg, sizeof(replyMsg), "MTC Relay *%02x Matches:\n%s", suffix, names);
         } else {
             snprintf(replyMsg, sizeof(replyMsg), "MTC Relay *%02x: No matches in NodeDB", suffix);
@@ -6630,7 +6637,6 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                  (unsigned int)relay_stats[rid].relayed,
                  (unsigned int)(relay_stats[rid].direct + relay_stats[rid].relayed));
         memset(relayNames, 0, sizeof(relayNames));
-        return;
     }
     else if (strcasecmp(cmd, "WIFIOTA") == 0 || strcasecmp(cmd, "OTA") == 0 ||
              strcasecmp(cmd, "OTAINFO") == 0) {
@@ -7090,32 +7096,38 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
         while (*cmdPtr == ' ') cmdPtr++;
 
+        // A bad argument leaves its message in replyMsg and skips the send; returning here would drop the message.
+        bool argsOk = true;
         int targetCh = mp.channel;
         const char *next = nullptr;
         if (customChannel) {
             targetCh = findChannelByNameOrIndex(cmdPtr, &next);
             if (targetCh < 0) {
                 snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid channel");
-                return;
+                argsOk = false;
+            } else {
+                cmdPtr = next;
             }
-            cmdPtr = next;
         }
 
         int hopLim = 3, hopStart = 3;
-        if (customHops) {
+        if (argsOk && customHops) {
             uint32_t hl = 0, hs = 0;
             if (!takeUInt(cmdPtr, hl, 7) || !takeUInt(cmdPtr, hs, 7)) {
                 snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid hops (limit and start, 0-7)");
-                return;
+                argsOk = false;
+            } else {
+                hopLim = (int)hl;
+                hopStart = (int)hs;
             }
-            hopLim = (int)hl;
-            hopStart = (int)hs;
         }
 
-        uint32_t targetId = isMyNode ? myNodeInfo.my_node_num : findNodeByShortNameOrHex(cmdPtr);
+        uint32_t targetId = !argsOk ? 0 : isMyNode ? myNodeInfo.my_node_num : findNodeByShortNameOrHex(cmdPtr);
 
-        auto node = nodeDB->getMeshNode(targetId);
-        if (!node || node->long_name[0] == '\0') {
+        auto node = argsOk ? nodeDB->getMeshNode(targetId) : nullptr;
+        if (!argsOk) {
+            // replyMsg already explains what was wrong.
+        } else if (!node || node->long_name[0] == '\0') {
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Node %08x not in DB or invalid", targetId);
         } else {
             meshtastic_MeshPacket *np = (router) ? router->allocForSending() : nullptr;
@@ -7149,28 +7161,36 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
     }
-    else if (strncasecmp(cmd, "NAME ", 5) == 0 || strncasecmp(cmd, "OWNER ", 6) == 0) {
+    else if (strncasecmp(cmd, "NAME ", 5) == 0) {
+        // NAME <long_name>: everything after the command is the long name, spaces included.
+        const char *newName = skipToken(cmd);
+        if (*newName == '\0') {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - NAME <long_name>");
+        } else {
+            memset(owner.long_name, 0, sizeof(owner.long_name));
+            strncpy(owner.long_name, newName, sizeof(owner.long_name) - 1);
+            nodeDB->pickNewNodeNum();
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Name set to '%s'. New NodeNum.", owner.long_name);
+        }
+    }
+    else if (strncasecmp(cmd, "OWNER ", 6) == 0) {
+        // OWNER <short> <long>: both are required.
         const char *p = skipToken(cmd);
         const char *second = strchr(p, ' ');
-        if (second) {
+        while (second && *second == ' ') second++;
+        if (second && *second) {
             char shortName[5] = {0};
-            int sLen = (int)(second - p);
+            size_t sLen = (size_t)(strchr(p, ' ') - p);
             if (sLen > 4) sLen = 4;
-            strncpy(shortName, p, sLen);
-            while (*second == ' ') second++;
+            memcpy(shortName, p, sLen);
             memset(owner.short_name, 0, sizeof(owner.short_name));
             strncpy(owner.short_name, shortName, sizeof(owner.short_name) - 1);
             memset(owner.long_name, 0, sizeof(owner.long_name));
             strncpy(owner.long_name, second, sizeof(owner.long_name) - 1);
             nodeDB->pickNewNodeNum();
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Owner updated to %s / %s. New NodeNum.", shortName, second);
-        } else if (*p) {
-            memset(owner.long_name, 0, sizeof(owner.long_name));
-            strncpy(owner.long_name, p, sizeof(owner.long_name) - 1);
-            nodeDB->pickNewNodeNum();
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Name set to '%s'. New NodeNum.", p);
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Owner updated to %s / %s. New NodeNum.", owner.short_name, owner.long_name);
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - NAME <long> [short]");
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - OWNER <short> <long>");
         }
     }
     else if (strncasecmp(cmd, "TRACE ", 6) == 0 || strncasecmp(cmd, "TR ", 3) == 0) {
@@ -7479,7 +7499,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging SIGINT help...");
         } else if (strcasecmp(sub, "ADMIN") == 0 || strcasecmp(sub, "SYSTEM") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help ADMIN/SYS");
-            appendPaging("SKEY [1|2] [Key]: Dynamic keys.\nROLE [role]: Get/set role.\nPOWER [dBm]: Get/set TX power.\n");
+            appendPaging("SKEY [1|2] [Key]: Dynamic keys.\nROLE [role]: Get/set role.\nSETPOWER [dBm]: Get/set TX power.\n");
             appendPaging("SETCHNAME <idx> <name>.\nSETCHPSK <idx> <psk>.\nADDCH <name> [psk].\nDELCH <idx>.\nSAVE/LOAD: Vault/backup.\n");
             appendPaging("HEALTH: Full health report (Up/Boot/Bat/Heap/Temp/ChU/Noise).\nHW: Radio/Clock info.\nTELEMETRY: Power/Env report.\nINFO: Node/Firmware info.\nRAM: Heap and PSRAM info.\nWIFIOTA: ESP32 OTA loader info.\nMCUINFO: MCU identity + runtime state.\nSENSORS: Detected I2C/sensors + GPS.");
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging ADMIN/SYS help...");
@@ -7590,8 +7610,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (*p == '\0') {
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage SETTIME <unix_ts>");
         } else {
-            uint32_t newTs = strtoul(p, NULL, 10);
-            if (newTs < 1700000000) {
+            uint32_t newTs = 0;
+            if (!parseUInt(p, newTs) || newTs < 1700000000) {
                 snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid timestamp");
             } else {
                 struct timeval tv;
@@ -7603,17 +7623,56 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     }
     else if (strcasecmp(cmd, "INFO") == 0 || strcasecmp(cmd, "COMPILATION") == 0 || strcasecmp(cmd, "COMP") == 0) {
+        // Identity plus what COMPILATION used to report (MCU, repo, build date, Nexus flags). Too long for one 200 B
+        // reply, so it pages.
         uint8_t realMac[6];
         getMacAddr(realMac);
         uint32_t activeID = myNodeInfo.my_node_num;
         if (activeID == 0) activeID = nodeDB->getNodeNum(); // Fallback to our own node num
 
-        snprintf(replyMsg, sizeof(replyMsg),
-                 "MTC INFO:\n!%08x [%.8s]\nVer: %s (%s)\nRole: %s\nMAC: %02x:%02x:%02x:%02x:%02x:%02x",
-                 (unsigned int)activeID, owner.short_name,
-                 optstr(APP_VERSION), optstr(APP_ENV),
-                 getRoleName(config.device.role),
+#if defined(ARDUINO_ARCH_ESP32)
+        const char *mcuArch = "esp32";
+#elif defined(ARDUINO_ARCH_NRF52)
+        const char *mcuArch = "nrf52";
+#elif defined(ARDUINO_ARCH_RP2040)
+        const char *mcuArch = "rp2040";
+#elif defined(ARDUINO_ARCH_STM32)
+        const char *mcuArch = "stm32";
+#elif defined(ARDUINO_ARCH_PORTDUINO)
+        const char *mcuArch = "portduino";
+#else
+        const char *mcuArch = "unknown";
+#endif
+        const char *buildFlags =
+#if defined(NEXUS_ENABLE_AIRTAG) && defined(NEXUS_ENABLE_ADV)
+            "AIRTAG+ADV";
+#elif defined(NEXUS_ENABLE_AIRTAG)
+            "AIRTAG";
+#elif defined(NEXUS_ENABLE_ADV)
+            "ADV";
+#else
+            "none";
+#endif
+#ifdef BUILD_EPOCH
+        time_t be = (time_t)BUILD_EPOCH;
+        char buildDate[16] = "unknown";
+        if (struct tm *btm = gmtime(&be)) strftime(buildDate, sizeof(buildDate), "%Y-%m-%d", btm);
+#else
+        const char *buildDate = "unknown";
+#endif
+
+        static char infoLine[120];
+        startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Info");
+        snprintf(infoLine, sizeof(infoLine), "!%08x [%.8s] %s\nMAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
+                 (unsigned int)activeID, owner.short_name, getRoleName(config.device.role),
                  realMac[0], realMac[1], realMac[2], realMac[3], realMac[4], realMac[5]);
+        appendPaging(infoLine);
+        snprintf(infoLine, sizeof(infoLine), "Ver: %s\nTgt: %s (%s)\n", optstr(APP_VERSION), optstr(APP_ENV), mcuArch);
+        appendPaging(infoLine);
+        snprintf(infoLine, sizeof(infoLine), "Repo: %s\nBuilt: %s\nFlags: %s", optstr(APP_REPO), buildDate, buildFlags);
+        appendPaging(infoLine);
+        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging INFO...");
+        memset(infoLine, 0, sizeof(infoLine));
     }
     // Nexus-28006 (2026-09-16) — code review 3.2 fix: a dead
     // duplicate RELAYS block used to sit here (the live handler earlier in
@@ -7633,7 +7692,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
     }
-    else if (strcasecmp(cmd, "GOODPRACTICES") == 0 || strcasecmp(cmd, "GP") == 0) {
+    else if (strcasecmp(cmd, "GOODPRACTICES") == 0 || strcasecmp(cmd, "GP") == 0 || strcasecmp(cmd, "BP") == 0 ||
+             strcasecmp(cmd, "BUENASPRACTICAS") == 0) {
         config.device.node_info_broadcast_secs = 259200;
         config.position.position_broadcast_secs = 259200;
         config.position.position_broadcast_smart_enabled = false;
@@ -7701,9 +7761,12 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     else if (strncasecmp(cmd, "PLAY ", 5) == 0 || strcasecmp(cmd, "PLAY") == 0 || strcasecmp(cmd, "BELL") == 0) {
         if (!externalNotificationModule) {
             snprintf(replyMsg, sizeof(replyMsg), "MTC: ExtNotification unavailable");
-        } else if (strcasecmp(cmd, "BELL") == 0) {
+        } else if (strcasecmp(cmd, "BELL") == 0 || strcasecmp(skipToken(cmd), "BELL") == 0) {
+            // BELL and PLAY BELL both ring the bell; any other PLAY argument is an RTTTL melody.
             externalNotificationModule->triggerNexusBell();
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Local BELL triggered");
+        } else if (*skipToken(cmd) == '\0') {
+            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - PLAY [BELL|<rtttl melody>]");
         } else {
             const char *melody = skipToken(cmd);
             externalNotificationModule->playRTTTL(melody);
@@ -7711,9 +7774,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     }
     else if (strncasecmp(cmd, "PPING", 5) == 0) {
-        const char *p = cmd + 5;
-        while (*p == ' ') p++;
-        handleMeshCorePpingCommand(p, replyMsg, sizeof(replyMsg));
+        handlePpingCommand(cmd + 5, replyMsg, sizeof(replyMsg));
     }
     else if (strncasecmp(cmd, "WATCH ", 6) == 0 || strcasecmp(cmd, "WATCH") == 0) {
         const char *sub = skipToken(cmd);
@@ -8142,9 +8203,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 // DEDUP_INT (position_min_interval_secs), CACHE_HOPS (nodeinfo_direct_response_max_hops),
 // RATELIMIT_WIN (rate_limit_window_secs), RATELIMIT_MAX (rate_limit_max_packets),
 // UNKNOWN_TH (unknown_packet_threshold).
-if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum, 65535); mc.payload_variant.traffic_management.position_min_interval_secs = tmNum; }
-            else if (strncasecmp(p, "CACHE_HOPS ", 11) == 0) { valid = parseUInt(p + 11, tmNum, 65535); mc.payload_variant.traffic_management.nodeinfo_direct_response_max_hops = tmNum; }
-            else if (strncasecmp(p, "RATELIMIT_WIN ", 14) == 0) { valid = parseUInt(p + 14, tmNum, 65535); mc.payload_variant.traffic_management.rate_limit_window_secs = tmNum; }
+if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); mc.payload_variant.traffic_management.position_min_interval_secs = tmNum; }
+            else if (strncasecmp(p, "CACHE_HOPS ", 11) == 0) { valid = parseUInt(p + 11, tmNum, 7); mc.payload_variant.traffic_management.nodeinfo_direct_response_max_hops = tmNum; }
+            else if (strncasecmp(p, "RATELIMIT_WIN ", 14) == 0) { valid = parseUInt(p + 14, tmNum); mc.payload_variant.traffic_management.rate_limit_window_secs = tmNum; }
             else if (strncasecmp(p, "RATELIMIT_MAX ", 14) == 0) { valid = parseUInt(p + 14, tmNum, 65535); mc.payload_variant.traffic_management.rate_limit_max_packets = tmNum; }
             else if (strncasecmp(p, "UNKNOWN_TH ", 11) == 0) { valid = parseUInt(p + 11, tmNum, 65535); mc.payload_variant.traffic_management.unknown_packet_threshold = tmNum; }
             else valid = false;
@@ -8744,5 +8805,222 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum, 65
         // The mutation that staged pendingConfig owns its deadline.
         LOG_INFO("Nexus: LoRa shift scheduled in 5000ms");
         setIntervalFromNow(50);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// PPING. /nexus PPING drives the Meshtastic public ping (public_ping); /nexus MESHCORE PPING drives the MeshCore channels.
+// The reporting settings (RSSI, SNR, FREQERR, header, emoji...) are one set shared by both.
+// ---------------------------------------------------------------------------------------------------------------------
+
+// "<name> ON|OFF" -> sets value and returns true.
+static bool ppingMatchToggle(const char *args, const char *name, bool &value)
+{
+    const size_t n = strlen(name);
+    if (strncasecmp(args, name, n) != 0 || args[n] != ' ')
+        return false;
+    const char *v = args + n + 1;
+    while (*v == ' ')
+        v++;
+    if (strcasecmp(v, "ON") == 0) {
+        value = true;
+        return true;
+    }
+    if (strcasecmp(v, "OFF") == 0) {
+        value = false;
+        return true;
+    }
+    return false;
+}
+
+// Mask layout (unchanged since the first release): bit0 public_ping, 1 rssi, 2 snr, 3 freqerr, 4 ignore direct,
+// 5 ignore remote, 6 flags, 7..14 channels 0..7, 15 allow DM.
+bool NexusModule::applyPpingSetting(const char *args, const char *prefix, char *reply, size_t replyLen)
+{
+    struct Toggle {
+        const char *name;
+        bool *flag;
+        const char *label;
+    };
+    const Toggle toggles[] = {
+        {"RSSI", &ping_rssi, "Ping RSSI reporting"},
+        {"SNR", &ping_snr, "Ping SNR reporting"},
+        {"FREQERR", &ping_freqerr, "Ping FreqErr reporting"},
+        {"ALLOWDM", &ping_allow_dm, "Ping DM replies"},
+        {"FLAGS", &ping_bitmask, "Ping Flags reporting"},
+        {"DIRECT IGNORE", &ping_ignore_direct, "Direct Ignore"},
+        {"IGNORE DIRECT", &ping_ignore_direct, "Direct Ignore"},
+        {"IGNORE REMOTE", &ping_ignore_remote, "Remote Ignore"},
+        {"REMOTE IGNORE", &ping_ignore_remote, "Remote Ignore"},
+    };
+    for (const Toggle &t : toggles) {
+        bool value = false;
+        if (ppingMatchToggle(args, t.name, value)) {
+            *t.flag = value;
+            snprintf(reply, replyLen, "%s: %s %s", prefix, t.label, value ? "ENABLED" : "DISABLED");
+            return true;
+        }
+    }
+
+    if (strcasecmp(args, "OM ON") == 0) {
+        ping_bitmask = true; // OM is part of the flags line
+        snprintf(reply, replyLen, "%s: Ping OM reporting ENABLED (via FLAGS)", prefix);
+    } else if (strcasecmp(args, "OM OFF") == 0) {
+        snprintf(reply, replyLen, "%s: Use 'PPING FLAGS OFF' to disable OM/MQTT reporting", prefix);
+    } else if (strncasecmp(args, "HEADER ", 7) == 0) {
+        const char *h = args + 7;
+        while (*h == ' ')
+            h++;
+        if (strcasecmp(h, "OFF") == 0) {
+            custom_pping_active = false;
+            snprintf(reply, replyLen, "%s: Custom Header DISABLED", prefix);
+        } else {
+            memset(pping_header, 0, sizeof(pping_header));
+            strncpy(pping_header, h, sizeof(pping_header) - 1);
+            custom_pping_active = true;
+            snprintf(reply, replyLen, "%s: Custom Header set to '%s'", prefix, pping_header);
+        }
+    } else if (strncasecmp(args, "EMOJI ", 6) == 0) {
+        const char *e = args + 6;
+        while (*e == ' ')
+            e++;
+        if (strcasecmp(e, "OFF") == 0) {
+            ping_emoji_mode = 0;
+            snprintf(reply, replyLen, "%s: Ping response in TEXT mode", prefix);
+        } else if (strcasecmp(e, "INDIRECT") == 0 || strcasecmp(e, "INDR") == 0) {
+            ping_emoji_mode = 1;
+            snprintf(reply, replyLen, "%s: Ping response in EMOJI for indirect", prefix);
+        } else if (strcasecmp(e, "ALWAYS") == 0 || strcasecmp(e, "ALW") == 0) {
+            ping_emoji_mode = 2;
+            snprintf(reply, replyLen, "%s: Ping response in ALWAYS-EMOJI mode", prefix);
+        } else {
+            snprintf(reply, replyLen, "%s: PPING EMOJI <OFF|INDIRECT|ALWAYS>", prefix);
+        }
+    } else if (strcasecmp(args, "CMD") == 0 || strcasecmp(args, "TRIGGER") == 0 || strncasecmp(args, "CMD ", 4) == 0 ||
+               strncasecmp(args, "TRIGGER ", 8) == 0) {
+        const char *c = (strncasecmp(args, "TRIGGER", 7) == 0) ? (args + 7) : (args + 3);
+        while (*c == ' ')
+            c++;
+        if (*c == '\0') {
+            snprintf(reply, replyLen, "%s: Ping command is '%s'", prefix, ping_trigger);
+        } else if (strcasecmp(c, "DEFAULT") == 0) {
+            strncpy(ping_trigger, "/ping", sizeof(ping_trigger) - 1);
+            ping_trigger[sizeof(ping_trigger) - 1] = '\0';
+            snprintf(reply, replyLen, "%s: Ping command reset to '/ping'", prefix);
+        } else {
+            size_t len = 0;
+            while (c[len] && !isspace((unsigned char)c[len]) && len < sizeof(ping_trigger) - 1) {
+                ping_trigger[len] = c[len];
+                len++;
+            }
+            ping_trigger[len] = '\0';
+            snprintf(reply, replyLen, "%s: Ping command set to '%s'", prefix, ping_trigger);
+        }
+    } else if (strncasecmp(args, "CHAN ", 5) == 0) {
+        const char *cPtr = args + 5;
+        bool enable = true;
+        if (strncasecmp(cPtr, "ON ", 3) == 0) {
+            cPtr += 3;
+        } else if (strncasecmp(cPtr, "OFF ", 4) == 0) {
+            enable = false;
+            cPtr += 4;
+        }
+        while (*cPtr == ' ')
+            cPtr++;
+        int targetCh = -1;
+        if (isdigit((unsigned char)*cPtr) && *(cPtr + 1) == '\0') {
+            targetCh = *cPtr - '0';
+        } else {
+            for (ChannelIndex i = 0; i < MAX_NUM_CHANNELS; i++) {
+                const char *name = channels.getName(i);
+                if (name && strcasecmp(name, cPtr) == 0) {
+                    targetCh = (int)i;
+                    break;
+                }
+            }
+        }
+        if (targetCh >= 0 && (size_t)targetCh < MAX_NUM_CHANNELS) {
+            ping_channels[targetCh] = enable;
+            snprintf(reply, replyLen, "%s: Ping on Ch %d (%s) set to %d", prefix, targetCh, channels.getName(targetCh), enable);
+        } else {
+            snprintf(reply, replyLen, "%s: Channel '%s' not found", prefix, cPtr);
+        }
+    } else if (strncasecmp(args, "SETHEX ", 7) == 0) {
+        // Anything that is not a 16-bit hex number is refused instead of being read as zero.
+        const char *hexArg = args + 7;
+        char *end = nullptr;
+        const unsigned long parsed = strtoul(hexArg, &end, 16);
+        while (end && *end == ' ')
+            end++;
+        if (end == hexArg || !end || *end != '\0' || parsed > 0xFFFFUL) {
+            snprintf(reply, replyLen, "%s: PPING SETHEX takes a 16-bit hex mask, e.g. SETHEX 0x0001", prefix);
+            return true;
+        }
+        const uint16_t h = (uint16_t)parsed;
+        public_ping = (h & (1 << 0)) != 0;
+        ping_rssi = (h & (1 << 1)) != 0;
+        ping_snr = (h & (1 << 2)) != 0;
+        ping_freqerr = (h & (1 << 3)) != 0;
+        ping_ignore_direct = (h & (1 << 4)) != 0;
+        ping_ignore_remote = (h & (1 << 5)) != 0;
+        ping_bitmask = (h & (1 << 6)) != 0;
+        ping_allow_dm = (h & (1 << 15)) != 0;
+        for (uint8_t i = 0; i < 8; i++)
+            ping_channels[i] = (h & (1 << (i + 7))) != 0;
+        snprintf(reply, replyLen, "%s: PPING hex updated to 0x%04X", prefix, (unsigned int)h);
+    } else if (strcasecmp(args, "GETHEX") == 0) {
+        uint16_t h = 0;
+        if (public_ping)
+            h |= (1 << 0);
+        if (ping_rssi)
+            h |= (1 << 1);
+        if (ping_snr)
+            h |= (1 << 2);
+        if (ping_freqerr)
+            h |= (1 << 3);
+        if (ping_ignore_direct)
+            h |= (1 << 4);
+        if (ping_ignore_remote)
+            h |= (1 << 5);
+        if (ping_bitmask)
+            h |= (1 << 6);
+        if (ping_allow_dm)
+            h |= (1 << 15);
+        for (uint8_t i = 0; i < 8; i++) {
+            if (ping_channels[i])
+                h |= (1 << (i + 7));
+        }
+        snprintf(reply, replyLen, "%s: PPING hex mask: 0x%04X", prefix, (unsigned int)h);
+    } else {
+        return false;
+    }
+    return true;
+}
+
+void NexusModule::handlePpingCommand(const char *args, char *reply, size_t replyLen)
+{
+    while (*args == ' ')
+        args++;
+
+    if (*args == '\0') {
+        char chBuf[32] = {0};
+        size_t chLen = 0;
+        for (int i = 0; i < 8 && chLen < sizeof(chBuf) - 3; i++) {
+            if (ping_channels[i])
+                chLen += snprintf(chBuf + chLen, sizeof(chBuf) - chLen, "%d ", i);
+        }
+        snprintf(reply, replyLen,
+                 "MTC PPING:\nGlobal:%d RSSI:%d SNR:%d FE:%d Flags:%d DI:%d RI:%d DM:%d EM:%d\nChans:%s Custom:%d Cmd:%s",
+                 public_ping, ping_rssi, ping_snr, ping_freqerr, ping_bitmask, ping_ignore_direct, ping_ignore_remote,
+                 ping_allow_dm, ping_emoji_mode, chBuf, custom_pping_active, ping_trigger);
+    } else if (strcasecmp(args, "ON") == 0) {
+        public_ping = true;
+        snprintf(reply, replyLen, "MTC: Public Ping ENABLED");
+    } else if (strcasecmp(args, "OFF") == 0) {
+        public_ping = false;
+        snprintf(reply, replyLen, "MTC: Public Ping DISABLED");
+    } else if (!applyPpingSetting(args, "MTC", reply, replyLen)) {
+        snprintf(reply, replyLen,
+                 "MTC PPING: ON|OFF|RSSI|SNR|FREQERR|FLAGS|OM|CMD|HEADER|EMOJI|CHAN|DIRECT IGNORE|IGNORE REMOTE|ALLOWDM|SETHEX|GETHEX");
     }
 }

@@ -151,6 +151,10 @@ public:
     // wins. An older vault (v65-v67) predates the defaults: they are applied once and saved as v68. With no vault they
     // apply in RAM until the first SAVE.
     void applyZeroHopRoleDefaults(bool vaultHasV68);
+    // /nexus PPING (NexusCommands.cpp): the Meshtastic public ping. Independent from /nexus MESHCORE PPING, which only
+    // switches the MeshCore channels; both share the reporting settings through applyPpingSetting.
+    void handlePpingCommand(const char *args, char *reply, size_t replyLen);
+    bool applyPpingSetting(const char *args, const char *prefix, char *reply, size_t replyLen);
     uint32_t vaultVersionLoaded = 0; // 0 = no vault was loaded
 private:
     // Meshtacore commands (NexusMeshtacoreCommands.cpp): false when `cmd` is not one of them.

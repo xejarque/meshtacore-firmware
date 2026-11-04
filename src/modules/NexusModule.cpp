@@ -66,6 +66,27 @@
 #include "TypeConversions.h"
 #include "freertosinc.h"  // For uxTaskGetStackHighWaterMark / uxTaskGetSystemState (RAM command)
 
+#include <stdarg.h>
+
+// Appends a formatted string at buf[len], never writing past cap. snprintf returns the
+// length it WOULD have written, so a plain `len += snprintf(...)` can push len past cap
+// and make the next `cap - len` underflow. Returns the new length, always < cap.
+static int appendClamped(char *buf, size_t cap, int len, const char *fmt, ...) __attribute__((format(printf, 4, 5)));
+static int appendClamped(char *buf, size_t cap, int len, const char *fmt, ...)
+{
+    if (len < 0 || (size_t)len >= cap)
+        return cap ? (int)cap - 1 : 0;
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf + len, cap - len, fmt, ap);
+    va_end(ap);
+    if (n < 0)
+        return len;
+    if ((size_t)n >= cap - len)
+        return (int)cap - 1;
+    return len + n;
+}
+
 #if !MESHTASTIC_EXCLUDE_MQTT
 #include "mqtt/MQTT.h"
 #endif
@@ -2195,7 +2216,9 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
             }
         }
 
-        if (public_ping) {
+        // public_ping is the Meshtastic switch (/nexus PPING). MeshCore pings follow only their own channel flags
+        // (/nexus MESHCORE PPING), so the two can be turned on and off independently.
+        if (public_ping || isMeshCorePing(mp, mp.to == myNodeInfo.my_node_num)) {
             if (ping_trigger[0] != '\0' && strcasecmp(cmdBuf, ping_trigger) == 0) {
                 // (SELF-ECHO GUARD 2026-08-02) Same rationale as the /nexus RSSI guard:
                 // a loopback / MQTT-echo / retransmission has uninitialized rx_rssi/SNR,
@@ -2270,13 +2293,13 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                 } else {
 #endif
                 if (custom_pping_active && pping_header[0] != '\0') {
-                    l = snprintf(rMsg, sizeof(rMsg), "%s\n", pping_header);
+                    l = appendClamped(rMsg, sizeof(rMsg), 0, "%s\n", pping_header);
                 } else {
-                    l = snprintf(rMsg, sizeof(rMsg), "🤖Derpy Ping🤖\n");
+                    l = appendClamped(rMsg, sizeof(rMsg), 0, "🤖Derpy Ping🤖\n");
                 }
 
                 if (hopsUsed == 0) {
-                    l += snprintf(rMsg + l, sizeof(rMsg) - l, "⚡ *directo* · 📡 *0/%u*\n", mp.hop_start);
+                    l = appendClamped(rMsg, sizeof(rMsg), l, "⚡ *directo* · 📡 *0/%u*\n", mp.hop_start);
                 } else {
                     static char relayNames[64];
                     memset(relayNames, 0, sizeof(relayNames));
@@ -2286,35 +2309,37 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                     if (relayNames[0] != '\0') {
                         char cleanRelay[64];
                         NexusModule::cleanNeighborName(relayNames, cleanRelay, sizeof(cleanRelay), sizeof(cleanRelay) - 1);
-                        l += snprintf(rMsg + l, sizeof(rMsg) - l, "📡 **Hops**: *%u/%u* · 🔄 **%s** (*%02x*)\n",
+                        l = appendClamped(rMsg, sizeof(rMsg), l, "📡 **Hops**: *%u/%u* · 🔄 **%s** (*%02x*)\n",
                                       hopsUsed, mp.hop_start, cleanRelay, targetSuffix);
                     } else {
-                        l += snprintf(rMsg + l, sizeof(rMsg) - l, "📡 **Hops**: *%u/%u* · 🔄 (*%02x*)\n",
+                        l = appendClamped(rMsg, sizeof(rMsg), l, "📡 **Hops**: *%u/%u* · 🔄 (*%02x*)\n",
                                       hopsUsed, mp.hop_start, targetSuffix);
                     }
                     memset(relayNames, 0, sizeof(relayNames));
                 }
 
                 if (ping_rssi || ping_snr) {
-                    l += snprintf(rMsg + l, sizeof(rMsg) - l, "📶 ");
+                    l = appendClamped(rMsg, sizeof(rMsg), l, "📶 ");
                     if (ping_snr && ping_rssi) {
-                        l += snprintf(rMsg + l, sizeof(rMsg) - l, "**%.1fdB** · *%ddBm*\n", mp.rx_snr, (int)mp.rx_rssi);
+                        l = appendClamped(rMsg, sizeof(rMsg), l, "**%.1fdB** · *%ddBm*\n", mp.rx_snr, (int)mp.rx_rssi);
                     } else if (ping_snr) {
-                        l += snprintf(rMsg + l, sizeof(rMsg) - l, "**%.1fdB**\n", mp.rx_snr);
+                        l = appendClamped(rMsg, sizeof(rMsg), l, "**%.1fdB**\n", mp.rx_snr);
                     } else {
-                        l += snprintf(rMsg + l, sizeof(rMsg) - l, "*%ddBm*\n", (int)mp.rx_rssi);
+                        l = appendClamped(rMsg, sizeof(rMsg), l, "*%ddBm*\n", (int)mp.rx_rssi);
                     }
                 }
 
-                l += snprintf(rMsg + l, sizeof(rMsg) - l, "🔬 *Δf %.0fHz* · *CR %d*\n",
-                              mp.rx_frequency_error, nexusCRDisplay(mp.rx_coding_rate));
+                if (ping_freqerr) {
+                    l = appendClamped(rMsg, sizeof(rMsg), l, "🔬 *Δf %.0fHz* · *CR %d*\n",
+                                      mp.rx_frequency_error, nexusCRDisplay(mp.rx_coding_rate));
+                }
 
                 if (ping_bitmask) {
                     if (l < 0 || (size_t)l >= sizeof(rMsg)) l = sizeof(rMsg) - 1;
                     bool om = (mp.decoded.has_bitfield && (mp.decoded.bitfield & BITFIELD_OK_TO_MQTT_MASK));
                     bool mqtt = mp.via_mqtt;
 
-                    l += snprintf(rMsg + l, sizeof(rMsg) - l, "🌐 OM:%d%s MQTT:%d%s UDP:%d",
+                    l = appendClamped(rMsg, sizeof(rMsg), l, "🌐 OM:%d%s MQTT:%d%s UDP:%d",
                                  om ? 1 : 0, !om ? "⚠️" : "",
                                  mqtt ? 1 : 0, mqtt ? "⚠️" : "",
                                  (mp.transport_mechanism == meshtastic_MeshPacket_TransportMechanism_TRANSPORT_MULTICAST_UDP) ? 1 : 0);
@@ -2335,7 +2360,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                     } else {
                         sigEmoji = "🟢"; // F0 9F 9F A2 — signed & verified
                     }
-                    l += snprintf(rMsg + l, sizeof(rMsg) - l, " S:%s", sigEmoji);
+                    l = appendClamped(rMsg, sizeof(rMsg), l, " S:%s", sigEmoji);
                 }
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
                 }

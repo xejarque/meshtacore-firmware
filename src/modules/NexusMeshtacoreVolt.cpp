@@ -8,6 +8,7 @@
 #include "Power.h"
 #include "configuration.h"
 #include "main.h"
+#include "modules/NexusCommandParse.h"
 #include "modules/NexusModule.h"
 #include "sleep.h"
 #include <stdlib.h>
@@ -79,11 +80,13 @@ bool hasRearmed(const NexusModule::NexusVoltRule &rule, uint16_t currentMv)
 uint16_t parseMillivolts(const char *token)
 {
     if (strchr(token, '.') != nullptr) {
-        const float volts = atof(token);
-        return volts > 0 ? (uint16_t)(volts * 1000.0f + 0.5f) : 0;
+        float volts = 0;
+        if (!parseFloat(token, volts, 0.001f, 30.0f))
+            return 0;
+        return (uint16_t)(volts * 1000.0f + 0.5f);
     }
-    const int value = atoi(token);
-    if (value <= 0)
+    uint32_t value = 0;
+    if (!parseUInt(token, value, 30000) || value == 0)
         return 0;
     return value <= 30 ? (uint16_t)(value * 1000) : (uint16_t)value;
 }
