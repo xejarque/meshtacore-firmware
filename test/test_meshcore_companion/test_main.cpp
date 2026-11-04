@@ -672,6 +672,9 @@ void test_a_node_is_announced_until_heard_and_again_when_it_changes_or_goes_stal
     lite.snr = 10.0f;
     TEST_ASSERT_FALSE(MeshCoreCompanion::needsAnnounce(&lite, user, now + 60, &rx0));
     TEST_ASSERT_TRUE(MeshCoreCompanion::needsAnnounce(&lite, user, now + 60, &rx2));
+    lite.snr = 9.0f; // a changed SNR waits for the refresh interval like any other repeat
+    TEST_ASSERT_FALSE(MeshCoreCompanion::needsAnnounce(&lite, user, now + 60, &rx0));
+    TEST_ASSERT_TRUE(MeshCoreCompanion::needsAnnounce(&lite, user, now + MeshCoreCompanion::HEARD_REFRESH_SECS, &rx0));
 }
 
 void test_contacts_find_a_name_only_when_unique(void)

@@ -599,7 +599,9 @@ bool MeshCoreCompanion::needsAnnounce(const meshtastic_NodeInfoLite *lite, const
     if (rx) {
         if (!lite->has_hops_away || lite->hops_away != rx->pathHashCount)
             return true;
-        if (rx->pathHashCount == 0 && (!nodeInfoLiteHasSnr(lite) || (int8_t)lite->snr != (int8_t)rx->snr))
+        // A missing SNR is news. A changed one waits for the refresh below: a whole-dB comparison would let a fraction of a dB
+        // crossing a whole number announce the node again on every frame.
+        if (rx->pathHashCount == 0 && !nodeInfoLiteHasSnr(lite))
             return true;
     }
     // Like any packet from a Meshtastic node, a frame moves its last-heard on; spaced out so repeated adverts do not flood the
