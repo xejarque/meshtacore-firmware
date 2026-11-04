@@ -28,7 +28,7 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Check Rate Limit (Max 3 builds/user per 24 hours)
+      - name: Check Rate Limit (Max 6 builds/user per 24 hours)
         id: rate-limit
         run: |
           ACTOR="${{ github.actor }}"
@@ -40,9 +40,9 @@ jobs:
           COUNT=$(gh issue list --repo "$REPO" --author "$ACTOR" --state all --limit 30 --json createdAt,number | jq --arg D "$ONE_DAY_AGO" '[.[] | select(.number != ('"$ISSUE_NUM"') and .createdAt >= $D)] | length')
           echo "Recent issues in last 24h: $COUNT"
 
-          if [ "$COUNT" -ge 3 ]; then
+          if [ "$COUNT" -ge 6 ]; then
             echo "limit_exceeded=true" >> "$GITHUB_OUTPUT"
-            gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "⚠️ Hola @$ACTOR, has alcanzado el límite de 3 compilaciones en las últimas 24 horas para preservar los recursos de CI de la comunidad. Por favor, vuelve a intentarlo mañana."
+            gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "⚠️ Hola @$ACTOR, has alcanzado el límite de 6 compilaciones en las últimas 24 horas para preservar los recursos de CI de la comunidad. Por favor, vuelve a intentarlo mañana."
             gh issue edit "$ISSUE_NUM" --repo "$REPO" --add-label "rate-limited"
             gh issue close "$ISSUE_NUM" --repo "$REPO" --reason "not_planned"
             exit 0
