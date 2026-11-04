@@ -31,11 +31,24 @@ inline size_t cleanPathLabel(const char *src, char *out, size_t cap, size_t maxB
     if (!src || !out || cap == 0)
         return 0;
     size_t o = 0;
-    for (const char *p = src; *p && o + 1 < cap; p++) {
+    const char *p = src;
+    for (; *p && o + 1 < cap; p++) {
         const char c = *p;
         if ((uint8_t)c < 0x20 || c == '*' || c == '_' || c == '~' || c == '`' || c == '[' || c == ']')
             continue;
         out[o++] = c;
+    }
+    if (*p && o > 0) {
+        // The copy ran out of room: the last character may be only partly there. Drop its lead byte and any tail bytes.
+        size_t lead = o;
+        while (lead > 0 && ((uint8_t)out[lead - 1] & 0xC0) == 0x80)
+            lead--;
+        if (lead > 0) {
+            const uint8_t b = (uint8_t)out[lead - 1];
+            const size_t need = b >= 0xF0 ? 4 : b >= 0xE0 ? 3 : b >= 0xC0 ? 2 : 1;
+            if (need > o - (lead - 1))
+                o = lead - 1;
+        }
     }
     out[o] = 0;
     const size_t keep = utf8PrefixLen(out, maxBytes);

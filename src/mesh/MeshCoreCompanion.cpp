@@ -457,7 +457,7 @@ void MeshCoreCompanion::announceUser(uint32_t nodeNum, const meshtastic_User &us
         p->next_hop = 1;
     p->transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
     // Clients show signal strength only for a direct frame; a relayed one shows its hop count.
-    if (rx.pathHashCount == 0) {
+    if (rx.pathHashCount == 0 && rx.hasSignal) {
         p->rx_snr = rx.snr;
         p->has_rx_rssi = true;
         p->rx_rssi = rx.rssi;
@@ -503,7 +503,7 @@ void MeshCoreCompanion::announcePosition(uint32_t nodeNum, int32_t latitudeI, in
     if (p->next_hop == NO_NEXT_HOP_PREFERENCE)
         p->next_hop = 1;
     p->transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
-    if (rx.pathHashCount == 0) {
+    if (rx.pathHashCount == 0 && rx.hasSignal) {
         p->rx_snr = rx.snr;
         p->has_rx_rssi = true;
         p->rx_rssi = rx.rssi;
@@ -598,10 +598,14 @@ bool MeshCoreCompanion::needsAnnounce(const meshtastic_NodeInfoLite *lite, const
         memcmp(lite->public_key.bytes, user.public_key.bytes, user.public_key.size) != 0)
         return true;
     if (rx) {
-        if (!lite->has_hops_away || lite->hops_away != rx->pathHashCount)
+        // The NodeDB keeps hops_away as hop_start - hop_limit (3-bit Meshtastic fields), so it tops out at HOP_START while a
+        // MeshCore path can be much longer. Compare what hopFields stores, or every frame past HOP_START hops re-announces.
+        const uint8_t storedHops = rx->pathHashCount < HOP_START ? rx->pathHashCount : HOP_START;
+        if (!lite->has_hops_away || lite->hops_away != storedHops)
             return true;
         // A missing SNR is news; a changed one only past the jitter band, else a fraction of a dB would re-announce every frame.
-        if (rx->pathHashCount == 0 && (!nodeInfoLiteHasSnr(lite) || fabsf(lite->snr - rx->snr) >= SNR_ANNOUNCE_DELTA_DB))
+        if (rx->pathHashCount == 0 && rx->hasSignal &&
+            (!nodeInfoLiteHasSnr(lite) || fabsf(lite->snr - rx->snr) >= SNR_ANNOUNCE_DELTA_DB))
             return true;
     }
     // Like any packet from a Meshtastic node, a frame moves its last-heard on; spaced out so repeated adverts do not flood the
@@ -877,29 +881,59 @@ struct ReportWriter {
     }
 };
 
-bool MeshCoreCompanion::formatRouteLine(const HeardPath &route, char *out, size_t cap, float freqErr) const
+bool MeshCoreCompanion::formatRouteLine(const HeardPath &route, char *out, size_t cap, float freqErr, uint8_t signal) const
 {
     if (!out || cap == 0)
         return false;
+
+    // Metrics joined by " · "; a direct route leads with the signal icon and tags the frequency error.
+    auto formatSignal = [&](char *dst, size_t dstCap, bool direct) {
+        size_t n = 0;
+        const char *sep = direct ? "📶 " : "";
+        auto add = [&](const char *fmt, auto... args) {
+            if (n >= dstCap - 1)
+                return;
+            int w = snprintf(dst + n, dstCap - n, fmt, args...);
+            if (w > 0)
+                n += (size_t)w < dstCap - n ? (size_t)w : dstCap - n - 1;
+        };
+        if (signal & SIGNAL_SNR) {
+            add("%sSNR: %.1f dB", sep, (double)route.snr);
+            sep = " · ";
+        }
+        if (signal & SIGNAL_RSSI) {
+            add("%sRSSI: %d dBm", sep, (int)route.rssi);
+            sep = " · ";
+        }
+        if (signal & SIGNAL_FREQERR)
+            add("%s%sΔf %.0fHz", sep, direct ? "🔬 " : "", (double)freqErr);
+        dst[n < dstCap ? n : dstCap - 1] = '\0';
+        return n;
+    };
 
     size_t len = 0;
     if (route.hopCount == 0) {
         int n = snprintf(out, cap, "⚡ directo\n");
         if (n > 0)
             len = (size_t)n < cap ? (size_t)n : cap - 1;
-        int nSig = snprintf(out + len, cap - len, "📶 SNR: %.1f dB · RSSI: %d dBm · 🔬 Δf %.0fHz", (double)route.snr,
-                            (int)route.rssi, (double)freqErr);
-        if (nSig > 0)
-            len += (size_t)nSig < (cap - len) ? (size_t)nSig : (cap - len - 1);
+        if (cap - len > 1)
+            len += formatSignal(out + len, cap - len, true);
     } else {
         int n = snprintf(out, cap, "%u hops:\n", (unsigned)route.hopCount);
         if (n > 0)
             len = (size_t)n < cap ? (size_t)n : cap - 1;
 
+        // The signal line goes last, so a long route must not push it out: set its room aside before the hop names, which are
+        // dropped whole (never cut mid-name) once they no longer fit.
+        char sig[80];
+        const size_t sigLen = formatSignal(sig, sizeof(sig), false);
+        const size_t reserve = (sigLen > 0 && sigLen + 16 < cap) ? sigLen : 0;
+        const size_t hopCap = cap - reserve;
+
         const size_t stored = route.hashSize ? sizeof(route.path) / route.hashSize : 0;
         const size_t total = route.hopCount < stored ? route.hopCount : stored;
         for (size_t hop = 0; hop < total; hop++) {
-            if (len >= cap - 1)
+            if (len >= hopCap - 1)
                 break;
             const uint8_t *hash = &route.path[hop * route.hashSize];
             const char *names[PATH_HOP_NAMES_MAX];
@@ -914,26 +948,22 @@ bool MeshCoreCompanion::formatRouteLine(const HeardPath &route, char *out, size_
                 strncpy(one, cleanOne, sizeof(one) - 1);
                 one[sizeof(one) - 1] = '\0';
             }
-            int nHop = snprintf(out + len, cap - len, "%s\n", one);
+            int nHop = snprintf(out + len, hopCap - len, "%s\n", one);
             if (nHop > 0) {
-                if ((size_t)nHop < cap - len)
+                if ((size_t)nHop < hopCap - len)
                     len += (size_t)nHop;
                 else {
-                    len = cap - 1;
+                    out[len] = '\0'; // this name does not fit: drop it whole
                     break;
                 }
             }
         }
 
-        if (len < cap - 1) {
-            int nSig = snprintf(out + len, cap - len, "SNR: %.1f dB · RSSI: %d dBm · Δf %.0fHz", (double)route.snr,
-                                (int)route.rssi, (double)freqErr);
-            if (nSig > 0) {
-                if ((size_t)nSig < cap - len)
-                    len += (size_t)nSig;
-                else
-                    len = cap - 1;
-            }
+        if (reserve > 0) {
+            memcpy(out + len, sig, sigLen + 1);
+            len += sigLen;
+        } else if (len < cap - 1) {
+            len += formatSignal(out + len, cap - len, false);
         }
     }
 
@@ -956,12 +986,12 @@ bool MeshCoreCompanion::formatRouteLine(const HeardPath &route, char *out, size_
     return len > 0 && len < cap;
 }
 
-bool MeshCoreCompanion::formatRouteForPacket(uint32_t packetId, char *out, size_t cap, float freqErr) const
+bool MeshCoreCompanion::formatRouteForPacket(uint32_t packetId, char *out, size_t cap, float freqErr, uint8_t signal) const
 {
     const HeardPath *entry = heardFind(packetId);
     if (!entry)
         return false;
-    return formatRouteLine(*entry, out, cap, freqErr);
+    return formatRouteLine(*entry, out, cap, freqErr, signal);
 }
 
 size_t MeshCoreCompanion::formatPathReport(const HeardPath *const *routes, size_t count, const char *sender, ReportSink sink,
@@ -1078,7 +1108,7 @@ bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool d
         if (!c)
             return true; // the contact is gone; the command still must not go out
         ensureSenderNode(c->nodeNum, c->name, true, c->pub, meshtastic_Config_DeviceConfig_Role_CLIENT,
-                         MeshCoreRx(best ? best->hopCount : 0, best ? best->snr : 0, best ? best->rssi : 0));
+                         best ? MeshCoreRx(best->hopCount, best->snr, best->rssi) : MeshCoreRx::unmeasured(0));
     } else {
         ensurePseudoNode();
     }
@@ -2080,9 +2110,16 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
 
     const MeshCoreRx rx(info.path_hash_count, snr, rssi);
     const uint32_t advertTime = readLe32(&payload[32]);
+    // The same advert flood reaches us once per route. A copy that is no closer than the one already taken adds nothing, and
+    // would overwrite the better hops/SNR, re-announce the node and repeat the signature check.
+    auto isWorseCopy = [&](const MeshCoreNode *heard) {
+        return heard && advertTime != 0 && heard->lastAdvert == advertTime && info.path_hash_count >= heard->hops;
+    };
     if (repeater) {
         // A repeater is not someone to message: numbered from its key, and announced unmessagable.
         const MeshCoreNode *known = nodes.find(payload);
+        if (isWorseCopy(known))
+            return;
         const bool trusted =
             known && known->type == MeshCoreNode::REPEATER && strncmp(known->name, name, MeshCoreNode::NAME_LEN - 1) == 0;
         if (!trusted && !MeshCoreRepeater::verifyAdvert(payload, info.payload_len))
@@ -2096,6 +2133,8 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
 
     // A contact we already trust under the same name only needs its LRU stamp refreshed: skip the signature check.
     MeshCoreNode *known = contactByPub(payload);
+    if (isWorseCopy(known))
+        return;
     if (known && strncmp(known->name, name, MeshCoreNode::NAME_LEN - 1) == 0) {
         nodes.touch(known);
         noteAdvert(known, advertTime, latMicro, lonMicro, snr, rssi, info.path_hash_count);
@@ -2485,7 +2524,7 @@ size_t MeshCoreCompanion::importContacts(const uint8_t *buf, size_t len)
         if (n.nodeNum == 0) // migrated from the contacts file, which kept no numbers
             nodes.assignNodeNum(&n, MeshCoreNodeStore<1>::nodeNumForName(n.name), PSEUDO_NODE_NUM);
         const MeshCoreRx rx = (n.hops != 0xFF) ? MeshCoreRx(n.hops, n.snr, n.rssi)
-                              : n.hasOutPath() ? MeshCoreRx(n.outPathLen, 0, 0)
+                              : n.hasOutPath() ? MeshCoreRx::unmeasured(n.outPathLen)
                                                : MeshCoreRx();
         ensureSenderNode(n.nodeNum, n.name, true, n.pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
         retireGroupNode(n.name);

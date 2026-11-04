@@ -162,6 +162,9 @@ void ReliableRouter::perhapsGenerateImplicitAckForOwnOverheard(const meshtastic_
 
     if (tracked && !noteOwnRelay(tracked, p->relay_node)) {
         LOG_DEBUG("Implicit ack already reported relay 0x%02x", p->relay_node);
+        // A relay already counted (say, from an MQTT copy) must not keep the retransmission alive when its LoRa copy arrives.
+        if (old && p->transport_mechanism == meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA)
+            stopRetransmission(key);
         return;
     }
 

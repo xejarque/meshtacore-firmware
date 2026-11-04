@@ -720,6 +720,9 @@ void RadioLibInterface::handleReceiveInterrupt()
             LOG_INFO("MeshCore frame: len=%u route=%u type=0x%02x path=%u/%u payload=%u snr=%g rssi=%d", (unsigned)length,
                      mcInfo.route_type, mcInfo.payload_type, mcInfo.path_hash_count, mcInfo.path_hash_size, mcInfo.payload_len,
                      iface->getSNR(), (int)lround(iface->getRSSI()));
+            // The saved settings (path hash size, flood limits, relay mode) normally load on the first service tick, a few
+            // seconds after boot. A frame heard before that must already be handled with them.
+            ensureMeshCoreConfigLoaded();
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
             meshCoreCompanion.handleFrame((const uint8_t *)&radioBuffer, length, iface->getSNR(),
                                           (int32_t)lround(iface->getRSSI()));
