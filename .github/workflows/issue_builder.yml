@@ -162,6 +162,30 @@ jobs:
             --output userPrefs.jsonc \
             --custom-userprefs-json "$(cat requested_userprefs.json)"
 
+      - name: Setup ccache
+        if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
+        run: |
+          # Opt-in wrapper (.github/scripts/pio_ccache.py): userPrefs -D flags only reach src/, and
+          # CCACHE_NODIRECT hashes the preprocessed output, so framework, libs and most of src/ are reused.
+          command -v ccache >/dev/null || sudo apt-get install -y -qq ccache
+          {
+            echo "CCACHE_DIR=$HOME/.ccache"
+            echo "CCACHE_NODIRECT=1"
+            echo "CCACHE_COMPILERCHECK=content"
+            echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
+            echo "CCACHE_MAXSIZE=600M"
+            echo "PLATFORMIO_EXTRA_SCRIPTS=post:.github/scripts/pio_ccache.py"
+          } >> "$GITHUB_ENV"
+
+      - name: Restore ccache
+        if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ steps.arch-step.outputs.arch }}-${{ steps.parse-step.outputs.target }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ steps.arch-step.outputs.arch }}-${{ steps.parse-step.outputs.target }}-
+
       - name: Compile Custom Firmware
         if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
         env:
@@ -183,6 +207,23 @@ jobs:
           esac
           echo "Compilando $TARGET con $SCRIPT..."
           bash "$SCRIPT" "$TARGET"
+
+      - name: ccache stats
+        id: ccache-stats
+        if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
+        run: |
+          ccache -s || true
+          MISSES="$(ccache --print-stats 2>/dev/null | awk -F'\t' '$1=="cache_miss"{print $2}')"
+          echo "ccache misses: ${MISSES:-unknown}"
+          # Only store a new cache entry when this run compiled a meaningful amount of new code.
+          if [ "${MISSES:-0}" -gt 25 ]; then echo "save=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Save ccache
+        if: steps.ccache-stats.outputs.save == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ steps.arch-step.outputs.arch }}-${{ steps.parse-step.outputs.target }}-${{ github.run_id }}
 
       - name: Prepare Release Bundle
         if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
