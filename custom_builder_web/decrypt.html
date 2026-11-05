@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="es" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Meshtacore - Descifrar firmware</title>
+    <link rel="icon" type="image/svg+xml" href="logo.svg" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="theme.js"></script>
+  </head>
+  <body>
+    <header class="site-nav">
+      <div class="nav-content">
+        <a href="index.html" class="brand-logo">
+          <img
+            src="logo.svg"
+            alt="Meshtacore Logo"
+            class="brand-logo-img"
+            width="28"
+            height="28"
+          />
+          <span>Meshtacore</span>
+        </a>
+        <nav>
+          <ul class="nav-links">
+            <li>
+              <a href="builder.html" class="nav-cta-btn">🚀 Web Builder</a>
+            </li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main style="max-width: 640px; margin: 2rem auto; padding: 0 1rem">
+      <div class="card">
+        <div class="card-header"><h2>🔓 Descifrar firmware</h2></div>
+        <div class="card-body">
+          <p>
+            Tu firmware lleva claves y contraseñas, por eso se publica
+            <strong>cifrado</strong>. Solo el navegador desde el que hiciste la
+            solicitud tiene la clave para abrirlo. Todo ocurre en local: el
+            archivo no sale de tu equipo.
+          </p>
+
+          <label for="encFile"
+            ><strong>Archivo descargado (<code>.zip.enc</code>)</strong></label
+          >
+          <input type="file" id="encFile" accept=".enc" class="mt-2" />
+
+          <button id="btnDecrypt" type="button" class="btn btn-primary mt-3">
+            Descifrar y descargar ZIP
+          </button>
+          <div id="decryptStatus" class="status-msg hidden mt-2"></div>
+        </div>
+      </div>
+
+      <div class="card mt-3">
+        <div class="card-header">
+          <h3>🔑 Copia de seguridad de la clave</h3>
+        </div>
+        <div class="card-body">
+          <p>
+            Si borras los datos del navegador o cambias de equipo perderás la
+            clave y tendrás que repetir la compilación. Exporta una copia
+            (<strong>guárdala como una contraseña</strong>) e impórtala donde la
+            necesites.
+          </p>
+          <button
+            id="btnExportKey"
+            type="button"
+            class="btn btn-secondary btn-sm"
+          >
+            Exportar clave
+          </button>
+          <label class="btn btn-outline btn-sm" for="importKeyFile"
+            >Importar clave</label
+          >
+          <input type="file" id="importKeyFile" accept=".json" class="hidden" />
+        </div>
+      </div>
+    </main>
+
+    <script src="crypto.js"></script>
+    <script>
+      const statusBox = document.getElementById("decryptStatus");
+
+      function showStatus(kind, text) {
+        statusBox.className = `status-msg status-${kind}`;
+        statusBox.textContent = text;
+      }
+
+      function download(bytes, filename, type) {
+        const url = URL.createObjectURL(new Blob([bytes], { type }));
+        const a = Object.assign(document.createElement("a"), {
+          href: url,
+          download: filename,
+        });
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      }
+
+      document
+        .getElementById("btnDecrypt")
+        .addEventListener("click", async () => {
+          const file = document.getElementById("encFile").files[0];
+          if (!file)
+            return showStatus(
+              "error",
+              "Selecciona primero el archivo .enc descargado.",
+            );
+          showStatus("loading", "Descifrando...");
+          try {
+            const zip = await BuildCrypto.decryptBundle(
+              await file.arrayBuffer(),
+            );
+            download(zip, file.name.replace(/\.enc$/, ""), "application/zip");
+            showStatus(
+              "success",
+              "✅ Listo. Descomprime el ZIP y flashea tu nodo.",
+            );
+          } catch (err) {
+            showStatus(
+              "error",
+              "No se pudo descifrar: este navegador no tiene la clave de esa compilación " +
+                "(¿otro navegador o datos borrados?). Importa la copia de seguridad de la clave e inténtalo de nuevo.",
+            );
+          }
+        });
+
+      document
+        .getElementById("btnExportKey")
+        .addEventListener("click", async () => {
+          download(
+            await BuildCrypto.exportUserKeys(),
+            "meshtacore-build-key.json",
+            "application/json",
+          );
+        });
+
+      document
+        .getElementById("importKeyFile")
+        .addEventListener("change", async (e) => {
+          try {
+            await BuildCrypto.importUserKeys(await e.target.files[0].text());
+            showStatus("success", "✅ Clave importada.");
+          } catch (err) {
+            showStatus("error", `No se pudo importar la clave: ${err.message}`);
+          }
+        });
+    </script>
+  </body>
+</html>

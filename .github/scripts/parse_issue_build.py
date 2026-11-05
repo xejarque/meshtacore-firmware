@@ -7,6 +7,8 @@ import re
 import sys
 from pathlib import Path
 
+from build_crypto import decrypt_request, mask_secrets
+
 
 def load_valid_targets() -> set:
     targets = set()
@@ -36,9 +38,9 @@ def main():
         )
         sys.exit(1)
 
-    # Match JSON block in markdown
+    # The request is encrypted in the browser with the repo public key: issues are public.
     match = re.search(
-        r"```(?:json:meshtacore-build-config|json)?\s*(\{.*?\})\s*```",
+        r"```meshtacore-build-config-enc\s*([A-Za-z0-9_\-=\s]+?)\s*```",
         body,
         re.DOTALL,
     )
@@ -55,16 +57,22 @@ def main():
         write_output("valid", "false")
         write_output(
             "error_message",
-            "No se encontró el bloque de configuración JSON `json:meshtacore-build-config` en el cuerpo del Issue.",
+            "No se encontró el bloque cifrado meshtacore-build-config-enc. "
+            "Genera la solicitud desde el Web Builder (las solicitudes en texto plano ya no se aceptan).",
         )
         return
 
     try:
-        config = json.loads(match.group(1))
+        request = decrypt_request(match.group(1), os.environ["BUILD_PRIVATE_KEY"])
+        config = request["config"]
+        Path("user_public_key.b64").write_text(
+            request["user_public_key"], encoding="utf-8"
+        )
     except Exception as e:
         write_output("valid", "false")
         write_output(
-            "error_message", f"El bloque JSON contiene errores de sintaxis: {e}"
+            "error_message",
+            f"No se pudo descifrar la solicitud ({type(e).__name__}). Vuelve a generarla desde el Web Builder.",
         )
         return
 
@@ -108,6 +116,8 @@ def main():
 
     if not isinstance(custom_prefs, dict):
         custom_prefs = {}
+
+    mask_secrets(custom_prefs)
 
     # Save to file for generate_custom_userprefs.py
     prefs_file = Path("requested_userprefs.json")

@@ -64,7 +64,9 @@ jobs:
         if: steps.rate-limit.outputs.limit_exceeded != 'true'
         env:
           ISSUE_BODY: ${{ github.event.issue.body }}
+          BUILD_PRIVATE_KEY: ${{ secrets.BUILD_PRIVATE_KEY }}
         run: |
+          pip install --quiet cryptography
           python3 .github/scripts/parse_issue_build.py
 
       - name: Handle Invalid Configuration
@@ -222,6 +224,15 @@ jobs:
           zip -9 -r "../$ZIP_NAME" ./*
           cd ..
 
+      - name: Encrypt Bundle for the Requester
+        if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
+        run: |
+          # The firmware embeds PSKs/passwords and releases/artifacts are public: only the
+          # browser that created the request holds the key able to open the bundle.
+          python3 .github/scripts/build_crypto.py encrypt-file --in "$ZIP_NAME" --out "$ZIP_NAME.enc"
+          rm -f "$ZIP_NAME"
+          echo "ZIP_NAME=$ZIP_NAME.enc" >> "$GITHUB_ENV"
+
       - name: Upload Firmware to Artifacts
         if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
         uses: actions/upload-artifact@v4
@@ -253,24 +264,25 @@ jobs:
           gh release upload custom-builds "$ZIP_NAME" --repo "$REPO" --clobber
           DOWNLOAD_URL="https://github.com/$REPO/releases/download/custom-builds/$ZIP_NAME"
 
+          OWNER="${REPO%%/*}"
+          DECRYPT_URL="https://${OWNER,,}.github.io/${REPO#*/}/decrypt.html"
+
           # Post reply comment on issue
           gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "### 🎉 ¡Tu Firmware Meshtacore está listo!
 
           - **Placa Objetivo:** \`$TARGET\` (\`$ARCH\`)
           - **Nombre del Nodo:** \`$LONG_NAME\` (\`$SHORT_NAME\`)
-          - **Archivo:** \`$ZIP_NAME\`
+          - **Archivo (cifrado):** \`$ZIP_NAME\`
 
-          📥 **[Descargar Firmware Personalizado (ZIP)]($DOWNLOAD_URL)**
+          🔒 El firmware lleva tus claves y contraseñas, así que está **cifrado**: solo el navegador desde el que hiciste la solicitud puede abrirlo.
 
-          ---
+          1. 📥 **[Descargar el archivo cifrado]($DOWNLOAD_URL)**
+          2. 🔓 **[Abrir el descifrador]($DECRYPT_URL)** (en ese mismo navegador) y seleccionar el archivo descargado.
+          3. Descomprime el \`.zip\` obtenido y flashéalo en [flasher.meshtastic.org](https://flasher.meshtastic.org) (o copia el \`.uf2\` si tu placa es nRF52).
 
-          #### 📲 Cómo flashearlo en tu nodo:
-          1. Descomprime el archivo \`.zip\` descargado.
-          2. Abre [flasher.meshtastic.org](https://flasher.meshtastic.org) en Chrome o Edge (o copia el archivo \`.uf2\` si tu placa es nRF52).
-          3. Sube el binario a tu dispositivo.
-          4. Tu nodo arrancará automáticamente con todos tus canales comunitarios, frecuencias y ajustes de fábrica preconfigurados.
+          > ⚠️ Si borras los datos del navegador pierdes la clave y habrá que repetir la compilación. Puedes exportar una copia de seguridad desde el descifrador.
 
-          _Enlace de respaldo en GitHub Actions: [Ver ejecución y artefactos]($RUN_URL)_"
+          _Enlace de respaldo en GitHub Actions: [Ver ejecución]($RUN_URL)_"
 
           gh issue edit "$ISSUE_NUM" --repo "$REPO" --remove-label "build-in-progress" --add-label "build-completed" || true
           gh issue close "$ISSUE_NUM" --repo "$REPO"

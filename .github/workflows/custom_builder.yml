@@ -210,6 +210,11 @@ on:
         required: false
         default: ""
         description: "Contraseña WiFi"
+      encrypted_config:
+        type: string
+        required: false
+        default: ""
+        description: "Configuración cifrada generada por el Web Builder (no editar)"
       custom_userprefs_json:
         type: string
         required: false
@@ -325,8 +330,26 @@ jobs:
             fi
           done
 
-      - name: Generate tailored userPrefs.jsonc
+      - name: Decrypt request from Web Builder
+        if: inputs.encrypted_config != ''
+        env:
+          BUILD_REQUEST_B64: ${{ inputs.encrypted_config }}
+          BUILD_PRIVATE_KEY: ${{ secrets.BUILD_PRIVATE_KEY }}
         run: |
+          pip install --quiet cryptography
+          python3 .github/scripts/build_crypto.py decrypt-request
+
+      - name: Generate tailored userPrefs.jsonc
+        env:
+          LEGACY_CUSTOM_USERPREFS_JSON: ${{ inputs.custom_userprefs_json }}
+          WIFI_PASSWORD: ${{ inputs.wifi_password }}
+          NEXUS_MASTER_KEY: ${{ inputs.nexus_master_key }}
+        run: |
+          if [ -f requested_userprefs.json ]; then
+            CUSTOM_JSON="$(cat requested_userprefs.json)"
+          else
+            CUSTOM_JSON="$LEGACY_CUSTOM_USERPREFS_JSON"
+          fi
           python3 .github/scripts/generate_custom_userprefs.py \
             --file userPrefs.jsonc \
             --output userPrefs.jsonc \
@@ -336,19 +359,19 @@ jobs:
             --enable-bluetooth "${{ inputs.enable_bluetooth }}" \
             --enable-meshcore "${{ inputs.enable_meshcore }}" \
             --nexus-base-texts "${{ inputs.nexus_base_texts }}" \
-            --nexus-master-key "${{ inputs.nexus_master_key }}" \
+            --nexus-master-key "$NEXUS_MASTER_KEY" \
             --device-role "${{ inputs.device_role }}" \
             --lora-region "${{ inputs.lora_region }}" \
             --lora-preset-mode "${{ inputs.lora_preset_mode }}" \
             --channels-preset "${{ inputs.channels_preset }}" \
             --mqtt-address "${{ inputs.mqtt_address }}" \
             --wifi-ssid "${{ inputs.wifi_ssid }}" \
-            --wifi-password "${{ inputs.wifi_password }}" \
+            --wifi-password "$WIFI_PASSWORD" \
             --gps-mode "${{ inputs.gps_mode }}" \
             --fixed-latitude "${{ inputs.fixed_latitude }}" \
             --fixed-longitude "${{ inputs.fixed_longitude }}" \
             --fixed-altitude "${{ inputs.fixed_altitude }}" \
-            --custom-userprefs-json '${{ inputs.custom_userprefs_json }}'
+            --custom-userprefs-json "$CUSTOM_JSON"
 
       - name: Compile Custom Firmware
         env:
@@ -413,6 +436,14 @@ jobs:
           zip -9 -r "../$ZIP_NAME" ./*
           cd ..
 
+      - name: Encrypt Bundle for the Requester
+        if: inputs.encrypted_config != ''
+        run: |
+          # Artifacts of a public repo are downloadable by anyone: only the requester's browser can open this.
+          python3 .github/scripts/build_crypto.py encrypt-file --in "$ZIP_NAME" --out "$ZIP_NAME.enc"
+          rm -f "$ZIP_NAME"
+          echo "ZIP_NAME=$ZIP_NAME.enc" >> "$GITHUB_ENV"
+
       - name: Upload Firmware Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -440,5 +471,6 @@ jobs:
           | **GPS** | \`${{ inputs.gps_mode }}\` |
           | **Archivo** | \`${{ env.ZIP_NAME }}\` |
 
-          Descarga el ZIP desde la sección **Artifacts** de esta ejecución.
+          Descarga el archivo desde la sección **Artifacts** de esta ejecución.
+          Si es un \`.enc\`, ábrelo con el descifrador del Web Builder (\`decrypt.html\`) en el navegador que lanzó la compilación.
           EOF

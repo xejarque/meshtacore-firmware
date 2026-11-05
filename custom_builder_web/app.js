@@ -1058,7 +1058,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 1-Click Build via GitHub Issue Bot (No token needed, works for any user)
   if (btnBuildViaIssue) {
-    btnBuildViaIssue.addEventListener("click", () => {
+    btnBuildViaIssue.addEventListener("click", async () => {
       const data = getFormData();
       const prefs = buildUserPrefs(data);
 
@@ -1085,6 +1085,18 @@ document.addEventListener("DOMContentLoaded", () => {
           ? "🏔️ Repetidor Solar / Azoteas & Montañas (Ultra-ligero)"
           : "📱 Companion / Personal (Estándar)";
 
+      let encryptedConfig;
+      try {
+        encryptedConfig = await BuildCrypto.encryptBuildRequest(configPayload);
+      } catch (err) {
+        if (issueStatus) {
+          issueStatus.className = "status-msg status-error";
+          issueStatus.classList.remove("hidden");
+          issueStatus.textContent = `No se pudo cifrar la solicitud: ${err.message}`;
+        }
+        return;
+      }
+
       const issueBody = `### ⚙️ Solicitud de Compilación Automática de Firmware Meshtacore
 
 - **Placa Objetivo:** \`${data.target}\`
@@ -1094,8 +1106,10 @@ document.addEventListener("DOMContentLoaded", () => {
 - **Rol:** \`${data.device_role}\` | **Región LoRa:** \`${data.lora_region}\`
 - **Flags Extra de Optimización:** \`${data.extra_build_flags || "Ninguno (Estándar)"}\`
 
-\`\`\`json:meshtacore-build-config
-${JSON.stringify(configPayload, null, 2)}
+🔒 _La configuración (claves, contraseñas...) viaja cifrada: solo el bot de compilación puede leerla._
+
+\`\`\`meshtacore-build-config-enc
+${encryptedConfig}
 \`\`\`
 
 > ℹ️ _Pulsa **"Submit new issue"** abajo para que el bot de GitHub Actions empiece a compilar tu firmware y te adjunte el enlace de descarga en este mismo hilo._`;
@@ -1138,6 +1152,17 @@ ${JSON.stringify(configPayload, null, 2)}
     const data = getFormData();
     const prefs = buildUserPrefs(data);
 
+    let encryptedConfig;
+    try {
+      encryptedConfig = await BuildCrypto.encryptBuildRequest({
+        custom_userprefs: prefs,
+      });
+    } catch (err) {
+      dispatchStatus.className = "status-msg status-error";
+      dispatchStatus.textContent = `No se pudo cifrar la solicitud: ${err.message}`;
+      return;
+    }
+
     const payload = {
       ref: DEFAULT_BRANCH,
       inputs: {
@@ -1152,15 +1177,14 @@ ${JSON.stringify(configPayload, null, 2)}
         channels_preset: data.channels_preset,
         enable_bluetooth: data.enable_bluetooth ? "true" : "false",
         enable_meshcore: data.enable_meshcore ? "true" : "false",
-        nexus_master_key: data.nexus_master_key,
         mqtt_address: data.mqtt_address,
         gps_mode: data.gps_mode,
         fixed_latitude: data.fixed_latitude,
         fixed_longitude: data.fixed_longitude,
         fixed_altitude: data.fixed_altitude,
         wifi_ssid: data.wifi_ssid,
-        wifi_password: data.wifi_password,
-        custom_userprefs_json: JSON.stringify(prefs),
+        // Secrets (wifi password, master key, PSKs...) only travel inside the encrypted blob.
+        encrypted_config: encryptedConfig,
         extra_build_flags: data.extra_build_flags,
       },
     };
