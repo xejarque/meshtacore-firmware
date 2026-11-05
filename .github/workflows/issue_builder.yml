@@ -264,8 +264,35 @@ jobs:
           gh release upload custom-builds "$ZIP_NAME" --repo "$REPO" --clobber
           DOWNLOAD_URL="https://github.com/$REPO/releases/download/custom-builds/$ZIP_NAME"
 
+          # Also publish the (already encrypted) bundle on a data branch: release assets have no CORS
+          # headers but raw.githubusercontent.com does, so decrypt.html can fetch it in one step.
+          # Plain fast-forward commits only; the newest 20 bundles are kept.
+          DATA_BRANCH="custom-builds-data"
+          REMOTE="https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO}.git"
+          WORK="$(mktemp -d)"
+          for ATTEMPT in 1 2 3; do
+            rm -rf "$WORK" && mkdir -p "$WORK"
+            if git ls-remote --exit-code --heads "$REMOTE" "$DATA_BRANCH" >/dev/null 2>&1; then
+              git clone -q --depth 1 --branch "$DATA_BRANCH" "$REMOTE" "$WORK"
+            else
+              git init -q "$WORK"
+              git -C "$WORK" checkout -q --orphan "$DATA_BRANCH"
+            fi
+            cp "$ZIP_NAME" "$WORK/"
+            # Bundle names end in YYYYMMDD_HHMMSS.zip.enc: sort by that stamp, drop all but the newest 20.
+            (cd "$WORK" && ls -1 ./*.enc | sed -E 's/^(.*)-([0-9]{8}_[0-9]{6})\.zip\.enc$/\2 \1-\2.zip.enc/' \
+              | sort -r | tail -n +21 | cut -d' ' -f2- | xargs -r rm -f)
+            git -C "$WORK" add -A
+            git -C "$WORK" -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "Add encrypted bundle $ZIP_NAME"
+            if git -C "$WORK" push -q "$REMOTE" "$DATA_BRANCH"; then
+              break
+            fi
+            echo "Concurrent publish, retrying ($ATTEMPT/3)..."
+          done
+
           OWNER="${REPO%%/*}"
-          DECRYPT_URL="https://${OWNER,,}.github.io/${REPO#*/}/decrypt.html"
+          DECRYPT_URL="https://${OWNER,,}.github.io/${REPO#*/}/decrypt.html?f=${ZIP_NAME}"
 
           # Post reply comment on issue
           gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "### 🎉 ¡Tu Firmware Meshtacore está listo!
@@ -276,10 +303,11 @@ jobs:
 
           🔒 El firmware lleva tus claves y contraseñas, así que está **cifrado**: solo el navegador desde el que hiciste la solicitud puede abrirlo.
 
-          1. 📥 **[Descargar el archivo cifrado]($DOWNLOAD_URL)**
-          2. 🔓 **[Abrir el descifrador]($DECRYPT_URL)** (en ese mismo navegador) y seleccionar el archivo descargado.
-          3. Descomprime el \`.zip\` obtenido y flashéalo en [flasher.meshtastic.org](https://flasher.meshtastic.org) (o copia el \`.uf2\` si tu placa es nRF52).
+          1. 🔓 **[Descargar y descifrar firmware]($DECRYPT_URL)** (ábrelo en el mismo navegador desde el que hiciste la solicitud: te entrega el \`.zip\` directamente).
+          2. Descomprime el \`.zip\` obtenido y flashéalo en [flasher.meshtastic.org](https://flasher.meshtastic.org) (o copia el \`.uf2\` si tu placa es nRF52).
 
+          > ℹ️ Si el descifrador no puede descargarlo solo, [baja el archivo cifrado a mano]($DOWNLOAD_URL) y selecciónalo en esa misma página.
+          >
           > ⚠️ Si borras los datos del navegador pierdes la clave y habrá que repetir la compilación. Puedes exportar una copia de seguridad desde el descifrador.
 
           _Enlace de respaldo en GitHub Actions: [Ver ejecución]($RUN_URL)_"

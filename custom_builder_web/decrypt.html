@@ -89,6 +89,52 @@
         statusBox.textContent = text;
       }
 
+      const REPO_OWNER = "xejarque";
+      const REPO_NAME = "meshtacore-firmware";
+      const DATA_BRANCH = "custom-builds-data";
+
+      const DECRYPT_ERROR =
+        "No se pudo descifrar: este navegador no tiene la clave de esa compilación " +
+        "(¿otro navegador o datos borrados?). Importa la copia de seguridad de la clave e inténtalo de nuevo.";
+
+      async function decryptAndDownload(encBytes, encName) {
+        const zip = await BuildCrypto.decryptBundle(encBytes);
+        download(zip, encName.replace(/\.enc$/, ""), "application/zip");
+        showStatus(
+          "success",
+          "✅ Listo. Descomprime el ZIP y flashea tu nodo.",
+        );
+      }
+
+      // One-step mode: decrypt.html?f=<bundle>.zip.enc fetches the bundle published by the bot.
+      async function autoFetch() {
+        const name = new URLSearchParams(location.search).get("f");
+        if (!name) return;
+        if (!/^[A-Za-z0-9._-]+\.enc$/.test(name)) {
+          return showStatus("error", "Nombre de archivo no válido.");
+        }
+        showStatus("loading", "Descargando y descifrando...");
+        let bytes;
+        try {
+          const res = await fetch(
+            `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${DATA_BRANCH}/${name}`,
+          );
+          if (!res.ok) throw new Error(res.status);
+          bytes = await res.arrayBuffer();
+        } catch (err) {
+          return showStatus(
+            "error",
+            "No se pudo descargar el archivo automáticamente (puede haber caducado). " +
+              "Descárgalo a mano desde el enlace del issue y selecciónalo abajo.",
+          );
+        }
+        try {
+          await decryptAndDownload(bytes, name);
+        } catch (err) {
+          showStatus("error", DECRYPT_ERROR);
+        }
+      }
+
       function download(bytes, filename, type) {
         const url = URL.createObjectURL(new Blob([bytes], { type }));
         const a = Object.assign(document.createElement("a"), {
@@ -110,22 +156,13 @@
             );
           showStatus("loading", "Descifrando...");
           try {
-            const zip = await BuildCrypto.decryptBundle(
-              await file.arrayBuffer(),
-            );
-            download(zip, file.name.replace(/\.enc$/, ""), "application/zip");
-            showStatus(
-              "success",
-              "✅ Listo. Descomprime el ZIP y flashea tu nodo.",
-            );
+            await decryptAndDownload(await file.arrayBuffer(), file.name);
           } catch (err) {
-            showStatus(
-              "error",
-              "No se pudo descifrar: este navegador no tiene la clave de esa compilación " +
-                "(¿otro navegador o datos borrados?). Importa la copia de seguridad de la clave e inténtalo de nuevo.",
-            );
+            showStatus("error", DECRYPT_ERROR);
           }
         });
+
+      autoFetch();
 
       document
         .getElementById("btnExportKey")
