@@ -996,6 +996,45 @@ bool NodeDB::factoryReset(bool eraseBleBonds)
     return true;
 }
 
+bool NodeDB::applyRequestedCleanInstall()
+{
+#ifndef USERPREFS_FORCE_CLEAN_INSTALL
+    return false;
+#elif !defined(FSCom)
+    return false;
+#else
+    // Stamped with the build epoch: one wipe per build, so a rebooting node is not wiped again.
+    static constexpr const char *stampFile = "/clean_install.stamp";
+#ifdef BUILD_EPOCH
+    const uint32_t epoch = (uint32_t)BUILD_EPOCH;
+#else
+    const uint32_t epoch = 1;
+#endif
+    uint32_t stamp = 0;
+    auto in = FSCom.open(stampFile, FILE_O_READ);
+    if (in) {
+        in.read((uint8_t *)&stamp, sizeof(stamp));
+        in.close();
+    }
+    if (stamp == epoch)
+        return false;
+
+    LOG_WARN("Clean install build: discarding the saved config");
+#if HAS_NEXUS
+    // factoryReset() re-applies the rescue copy, so drop it first or the previous settings come back.
+    NexusRescue::clear();
+#endif
+    factoryReset(false); // keeps the PKI private key the loaded config still holds in RAM
+
+    auto out = FSCom.open(stampFile, FILE_O_WRITE);
+    if (out) {
+        out.write((const uint8_t *)&epoch, sizeof(epoch));
+        out.close();
+    }
+    return true;
+#endif
+}
+
 void NodeDB::installDefaultNodeDatabase()
 {
     LOG_DEBUG("Install default NodeDatabase");
@@ -1557,6 +1596,10 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.mqtt.tls_enabled = USERPREFS_MQTT_TLS_ENABLED;
 #else
     moduleConfig.mqtt.tls_enabled = default_mqtt_tls_enabled;
+#endif
+
+#ifdef USERPREFS_MQTT_PROXY_TO_CLIENT_ENABLED
+    moduleConfig.mqtt.proxy_to_client_enabled = USERPREFS_MQTT_PROXY_TO_CLIENT_ENABLED;
 #endif
 
     moduleConfig.has_neighbor_info = true;

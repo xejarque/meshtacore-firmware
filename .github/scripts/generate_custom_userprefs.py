@@ -149,6 +149,12 @@ def main():
         default=False,
     )
     parser.add_argument(
+        "--mqtt-proxy-to-client",
+        type=lambda v: v.lower() in ("true", "1", "yes"),
+        default=False,
+        help="Route MQTT through the connected phone instead of a direct network connection",
+    )
+    parser.add_argument(
         "--wifi-enabled",
         type=lambda v: v.lower() in ("true", "1", "yes"),
         default=False,
@@ -432,6 +438,11 @@ def main():
         prefs.pop("USERPREFS_MQTT_ROOT_TOPIC", None)
         prefs.pop("USERPREFS_MQTT_ENCRYPTION_ENABLED", None)
         prefs.pop("USERPREFS_MQTT_TLS_ENABLED", None)
+
+    if args.mqtt_proxy_to_client:
+        prefs["USERPREFS_MQTT_PROXY_TO_CLIENT_ENABLED"] = "true"
+    else:
+        prefs.pop("USERPREFS_MQTT_PROXY_TO_CLIENT_ENABLED", None)
 
     # WiFi
     if args.wifi_enabled and args.wifi_ssid:

@@ -163,6 +163,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnSingleChannel = document.getElementById("btnSingleChannel");
   const mqttEnabled = document.getElementById("mqttEnabled");
   const mqttFields = document.getElementById("mqttFields");
+  const mqttProxy = document.getElementById("mqttProxy");
+  const mqttNoNetworkNotice = document.getElementById("mqttNoNetworkNotice");
+  const wifiNoNetworkNotice = document.getElementById("wifiNoNetworkNotice");
   const fixedLat = document.getElementById("fixedLat");
   const fixedLon = document.getElementById("fixedLon");
   const fixedAlt = document.getElementById("fixedAlt");
@@ -459,6 +462,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (solarRadioDriver) solarRadioDriver.value = "sx1262";
       updatePresetUI();
     }
+    applyBoardCapabilities();
   });
 
   // Preset Selector Logic (Companion vs Repetidor Solar / Azoteas & Montañas)
@@ -511,7 +515,55 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
+    applyBoardCapabilities();
     if (typeof updateLivePreview === "function") updateLivePreview();
+  }
+
+  // A board with no network of its own can only reach MQTT through the phone, and has no WiFi
+  // config at all. The selector marks those groups with data-networking="0".
+  let proxyAutoSet = false;
+
+  function boardHasNetworking() {
+    if (!boardTarget || boardTarget.value === "custom") return true;
+    const opt = boardTarget.selectedOptions && boardTarget.selectedOptions[0];
+    const group = opt && opt.parentElement;
+    return !(group && group.dataset && group.dataset.networking === "0");
+  }
+
+  function applyBoardCapabilities() {
+    const wired = boardHasNetworking();
+
+    if (mqttNoNetworkNotice)
+      mqttNoNetworkNotice.style.display = wired ? "none" : "block";
+    if (wifiNoNetworkNotice)
+      wifiNoNetworkNotice.style.display = wired ? "none" : "block";
+
+    if (wifiEnabled) {
+      wifiEnabled.disabled = !wired;
+      if (!wired && wifiEnabled.checked) {
+        wifiEnabled.checked = false;
+        if (wifiFields) wifiFields.classList.add("hidden");
+      }
+    }
+
+    // Without a network of its own, MQTT only works through the phone proxy.
+    if (mqttProxy) {
+      if (!wired && !mqttProxy.checked) {
+        mqttProxy.checked = true;
+        proxyAutoSet = true;
+      } else if (wired && proxyAutoSet) {
+        mqttProxy.checked = false;
+        proxyAutoSet = false;
+      }
+    }
+
+    if (typeof updateLivePreview === "function") updateLivePreview();
+  }
+
+  if (mqttProxy) {
+    mqttProxy.addEventListener("change", () => {
+      proxyAutoSet = false;
+    });
   }
 
   if (presetCompanion)
@@ -842,6 +894,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const shortName = ownerShortName.value.trim();
     const hasScreen = document.getElementById("hasScreen").checked;
     const enableBluetooth = document.getElementById("enableBluetooth").checked;
+    const forceCleanInstall =
+      document.getElementById("forceCleanInstall").checked;
     const deviceRole = document.getElementById("deviceRole").value;
     const isMute = deviceRole === "CLIENT_MUTE";
     const mcRelay = isMute
@@ -906,6 +960,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const smartPosVal = smartPosition ? smartPosition.checked : false;
 
     const isMqttOn = mqttEnabled.checked;
+    const isMqttProxy = document.getElementById("mqttProxy").checked;
     const mAddress = document.getElementById("mqttAddress").value.trim();
     const mRoot = document.getElementById("mqttRoot").value.trim();
     const mUser = document.getElementById("mqttUsername").value.trim();
@@ -952,6 +1007,7 @@ document.addEventListener("DOMContentLoaded", () => {
       owner_short_name: shortName.substring(0, 4),
       has_screen: hasScreen,
       enable_bluetooth: enableBluetooth,
+      force_clean_install: forceCleanInstall,
       enable_meshcore: true,
       meshcore_advert_hours: mcAdvert,
       meshcore_relay_mode: mcRelay,
@@ -982,6 +1038,7 @@ document.addEventListener("DOMContentLoaded", () => {
       channels_preset: "repo_default_5_channels",
       channels_json: JSON.stringify(channelsData),
       mqtt_enabled: isMqttOn,
+      mqtt_proxy: isMqttProxy,
       mqtt_address: mAddress || "mqtt.meshtastic.es",
       mqtt_root: mRoot || "msh",
       mqtt_username: mUser || "meshdev",
@@ -1170,6 +1227,11 @@ ${JSON.stringify(configPayload, null, 2)}
       prefs["HAS_BLUETOOTH"] = "0";
     }
 
+    // Opt-in wipe on first boot, so the compiled defaults replace the stored config.
+    if (data.force_clean_install) {
+      prefs["USERPREFS_FORCE_CLEAN_INSTALL"] = "1";
+    }
+
     // MeshCore is always enabled in Meshtacore firmware
     if (data.meshcore_advert_hours) {
       prefs["USERPREFS_MESHCORE_ADVERT_HOURS"] = data.meshcore_advert_hours;
@@ -1297,9 +1359,9 @@ ${JSON.stringify(configPayload, null, 2)}
       });
     }
 
-    // MQTT
+    // MQTT: always emit the switch, or the generator's default (enabled) wins.
+    prefs["USERPREFS_MQTT_ENABLED"] = data.mqtt_enabled ? "1" : "0";
     if (data.mqtt_enabled) {
-      prefs["USERPREFS_MQTT_ENABLED"] = "1";
       prefs["USERPREFS_MQTT_ADDRESS"] =
         data.mqtt_address || "mqtt.meshtastic.es";
       prefs["USERPREFS_MQTT_ROOT_TOPIC"] = data.mqtt_root || "msh";
@@ -1309,6 +1371,9 @@ ${JSON.stringify(configPayload, null, 2)}
         ? "true"
         : "false";
       prefs["USERPREFS_MQTT_TLS_ENABLED"] = data.mqtt_tls_enabled
+        ? "true"
+        : "false";
+      prefs["USERPREFS_MQTT_PROXY_TO_CLIENT_ENABLED"] = data.mqtt_proxy
         ? "true"
         : "false";
     }
@@ -1375,6 +1440,6 @@ ${JSON.stringify(configPayload, null, 2)}
     URL.revokeObjectURL(url);
   });
 
-  // Initial preview render
-  updateLivePreview();
+  // Initial UI state (board-dependent availability) + preview
+  applyBoardCapabilities();
 });

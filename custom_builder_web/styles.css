@@ -309,6 +309,12 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  min-width: 0;
+}
+
+select.form-control {
+  width: 100%;
+  min-width: 0;
 }
 
 label {
@@ -769,6 +775,12 @@ details.collapsible[open] summary {
   padding: 16px;
   margin-top: 14px;
   animation: fadeIn 0.25s ease-out;
+}
+.solar-options-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  min-width: 0;
 }
 .solar-options-header {
   display: flex;

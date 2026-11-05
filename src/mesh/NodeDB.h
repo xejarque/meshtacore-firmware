@@ -468,6 +468,10 @@ class NodeDB
 
     bool factoryReset(bool eraseBleBonds = false);
 
+    /** Builder-requested clean install: when the build carries USERPREFS_FORCE_CLEAN_INSTALL, wipe the
+     *  config found on the device once so the compiled defaults are the ones installed. */
+    bool applyRequestedCleanInstall();
+
     LoadFileResult loadProto(const char *filename, size_t protoSize, size_t objSize, const pb_msgdesc_t *fields,
                              void *dest_struct);
     bool saveProto(const char *filename, size_t protoSize, const pb_msgdesc_t *fields, const void *dest_struct,

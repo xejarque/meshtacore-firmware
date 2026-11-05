@@ -134,9 +134,9 @@
                       <div class="preset-details">
                         <strong>Repetidor Solar / Azoteas & Montañas</strong>
                         <small
-                          >Resiliencia total, ultra-ligero en RAM y Flash, sin
-                          pantalla, telemetría de batería y administración
-                          remota LoRa.</small
+                          >Nodo fijo ultra-ligero en RAM y Flash: sin pantalla,
+                          rol REPEATER y administración remota por LoRa. GPS y
+                          telemetría de batería, opcionales.</small
                         >
                       </div>
                     </div>
@@ -155,7 +155,7 @@
                   >
                 </div>
 
-                <div class="grid-2 mt-2">
+                <div class="solar-options-grid mt-2">
                   <!-- Pregunta GPS -->
                   <div class="form-group">
                     <label for="solarIncludeGps"
@@ -205,7 +205,10 @@
                   >Selecciona tu Placa (70+ modelos soportados)</label
                 >
                 <select id="boardTarget" class="form-control">
-                  <optgroup label="nRF52840 (Nordic Semiconductor)">
+                  <optgroup
+                    label="nRF52840 (Nordic Semiconductor)"
+                    data-networking="0"
+                  >
                     <option value="heltec-mesh-node-t114">
                       Heltec Mesh Node T114 (nRF52840)
                     </option>
@@ -454,6 +457,22 @@
                 </div>
                 <label class="switch">
                   <input type="checkbox" id="enableBluetooth" checked />
+                  <span class="slider"></span>
+                </label>
+              </div>
+
+              <div class="toggle-row">
+                <div class="toggle-info">
+                  <strong>Instalación Limpia</strong>
+                  <p>
+                    Borra la configuración guardada del nodo en el primer
+                    arranque, para que se apliquen los valores de este firmware
+                    en lugar de los anteriores. Conserva la clave PKI y los
+                    bonos BLE.
+                  </p>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="forceCleanInstall" />
                   <span class="slider"></span>
                 </label>
               </div>
@@ -1099,7 +1118,36 @@
                 </label>
               </div>
 
+              <div
+                id="mqttNoNetworkNotice"
+                style="
+                  display: none;
+                  color: #f59e0b;
+                  font-size: 0.78rem;
+                  margin-top: 0.35rem;
+                  font-weight: 500;
+                "
+              >
+                ⚠️ Esta placa no tiene red propia (WiFi/Ethernet): el MQTT solo
+                funciona con «Proxy MQTT vía teléfono» activado.
+              </div>
+
               <div id="mqttFields" class="mt-3">
+                <div class="toggle-row">
+                  <div class="toggle-info">
+                    <strong>Proxy MQTT vía teléfono (BLE)</strong>
+                    <p>
+                      Usa la conexión a Internet del móvil en lugar de WiFi o
+                      Ethernet. Necesario en placas sin red propia (nRF52 como
+                      la T1000-E); requiere la app oficial conectada por BLE.
+                    </p>
+                  </div>
+                  <label class="switch">
+                    <input type="checkbox" id="mqttProxy" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+
                 <div class="grid-2">
                   <div class="form-group">
                     <label for="mqttAddress">Servidor / Broker MQTT</label>
@@ -1310,6 +1358,20 @@
                   <input type="checkbox" id="wifiEnabled" />
                   <span class="slider"></span>
                 </label>
+              </div>
+
+              <div
+                id="wifiNoNetworkNotice"
+                style="
+                  display: none;
+                  color: #f59e0b;
+                  font-size: 0.78rem;
+                  margin-top: 0.35rem;
+                  font-weight: 500;
+                "
+              >
+                ⚠️ Esta placa no tiene WiFi: la red local no está disponible en
+                este modelo.
               </div>
 
               <div class="grid-2 mt-3 hidden" id="wifiFields">
