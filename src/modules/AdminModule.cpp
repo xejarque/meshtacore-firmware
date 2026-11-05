@@ -35,6 +35,7 @@
 #include "MessageStore.h"
 #include "RadioInterface.h"
 #include "TypeConversions.h"
+#include "mesh/AdminKeys.h"
 #include "mesh/RadioLibInterface.h"
 #include "modules/NexusModule.h"
 #ifdef MESHTASTIC_PHONEAPI_ACCESS_CONTROL
@@ -202,30 +203,11 @@ bool AdminModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshta
     } else if (mp.pki_encrypted) {
         if (
 #if HAS_NEXUS
-            // Nexus port (Nexus-28002, 2026-08-24): delegate to
-            // NexusModule::isAuthorizedAdmin, which covers the full Nexus
-            // trust list in one pubkey-byte-compare:
-            //   - config.security.admin_key[0..2]   (per-device, baked via USERPREFS_USE_ADMIN_KEY_*)
-            //   - NEXUS_MASTER_KEY_1..4             (build-time hardcoded)
-            //   - nexus_secondary_keys[0..3]        (vault-loaded runtime)
-            // PKI doesn't carry signatures (see verifyTrustedSignature for
-            // that), so this is a plain 32-byte memcmp across the three
-            // sources. Same semantics as the Nexus-269 inline pattern, plus
-            // the secondary_keys check added to checkMasterKeys on the 28002
-            // line. Lets Nexus deployments rotate admin authority (master /
-            // secondary) without re-flashing every node. Replaces the inline
-            // 4-line OR chain that previously lived here.
+            // Nexus: isAuthorizedAdmin covers admin_key[0..2], NEXUS_MASTER_KEY_1..4 and the vault-loaded secondary keys;
+            // AdminKeys::isAuthorized adds upstream's host-key and admin-key-count handling.
             (meshtastic::nexusModule && meshtastic::nexusModule->isAuthorizedAdmin(mp.public_key.bytes)) ||
-#else
-            // Non-Nexus build: keep the upstream admin_key[0..2] check verbatim.
-            (config.security.admin_key[0].size == 32 &&
-             memcmp(mp.public_key.bytes, config.security.admin_key[0].bytes, 32) == 0) ||
-            (config.security.admin_key[1].size == 32 &&
-             memcmp(mp.public_key.bytes, config.security.admin_key[1].bytes, 32) == 0) ||
-            (config.security.admin_key[2].size == 32 &&
-             memcmp(mp.public_key.bytes, config.security.admin_key[2].bytes, 32) == 0) ||
 #endif
-            false) {
+            AdminKeys::isAuthorized(mp.public_key.bytes)) {
             LOG_INFO("PKC admin payload with authorized sender key");
 
             // Note: PKC admin does NOT automatically authorize the
@@ -452,8 +434,10 @@ bool AdminModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshta
 
         if (MeshtasticOTA::trySwitchToOTA()) {
             suppressRebootBanner = true;
-            if (screen)
+            if (screen) {
+                powerFSM.trigger(EVENT_PRESS);
                 screen->startFirmwareUpdateScreen();
+            }
             MeshtasticOTA::saveConfig(&config.network, mode, r->ota_request.ota_hash.bytes);
             sendWarningAndLog("Rebooting to %s OTA", mode_name);
         } else {
@@ -1184,9 +1168,11 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c, bool fromOthers)
 #endif
 
 #if !MESHTASTIC_EXCLUDE_GPS
-        // Enable gps if it was previously disabled due to region not being set
-        if (!requiresReboot && config.lora.region != meshtastic_Config_LoRaConfig_RegionCode_UNSET && gps != nullptr &&
-            !gps->isEnabled() && config.position.gps_mode == meshtastic_Config_PositionConfig_GpsMode_ENABLED) {
+        // Enable gps if it was previously disabled due to region not being set. Only then: a probe that
+        // gave up also leaves it disabled, and re-enabling on every LoRa save re-runs the blocking probe.
+        if (!requiresReboot && oldLoraConfig.region == meshtastic_Config_LoRaConfig_RegionCode_UNSET &&
+            config.lora.region != meshtastic_Config_LoRaConfig_RegionCode_UNSET && gps != nullptr && !gps->isEnabled() &&
+            config.position.gps_mode == meshtastic_Config_PositionConfig_GpsMode_ENABLED) {
             gps->enable();
         }
 #endif
@@ -1238,6 +1224,8 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c, bool fromOthers)
         }
 #endif
         config.security = incoming;
+        // A remote admin does not get to drop the host's own admin keys.
+        AdminKeys::applyHostKeys();
 #if !(MESHTASTIC_EXCLUDE_PKI_KEYGEN) && !(MESHTASTIC_EXCLUDE_PKI)
         // First provisioning (no key) generates one; a private key supplied without its public key derives it.
         // A supplied public key that is itself blacklisted is re-derived too, so a restore carrying a whole
@@ -1256,8 +1244,7 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c, bool fromOthers)
             }
         }
 #endif
-        if (config.security.is_managed && !(config.security.admin_key[0].size == 32 || config.security.admin_key[1].size == 32 ||
-                                            config.security.admin_key[2].size == 32)) {
+        if (config.security.is_managed && !AdminKeys::any()) {
             config.security.is_managed = false;
             const char *warning = "You must provide at least one admin public key to enable managed mode";
             LOG_WARN(warning);
@@ -1416,63 +1403,7 @@ bool AdminModule::handleSetModuleConfig(const meshtastic_ModuleConfig &c)
         // Sanitize a local copy rather than const_cast-ing the const input (UB if a truly-const
         // object is ever passed); the validated copy is assigned into moduleConfig below.
         auto beaconCfg = c.payload_variant.mesh_beacon;
-        // Hard cap at 100 chars.
-        beaconCfg.broadcast_message[100] = '\0';
-        // Enforce interval minimum (0 means unset/use default).
-        if (beaconCfg.broadcast_interval_secs != 0 &&
-            beaconCfg.broadcast_interval_secs < default_mesh_beacon_min_broadcast_interval_secs)
-            beaconCfg.broadcast_interval_secs = default_mesh_beacon_min_broadcast_interval_secs;
-        // Validate broadcast_offer_preset against broadcast_offer_region (or current region if unset).
-        if (beaconCfg.has_broadcast_offer_preset) {
-            meshtastic_Config_LoRaConfig probe = config.lora;
-            probe.use_preset = true;
-            probe.modem_preset = beaconCfg.broadcast_offer_preset;
-            if (beaconCfg.broadcast_offer_region != meshtastic_Config_LoRaConfig_RegionCode_UNSET)
-                probe.region = beaconCfg.broadcast_offer_region;
-            if (!RadioInterface::validateConfigLora(probe)) {
-                LOG_WARN("Beacon: broadcast_offer_preset %d invalid for region, clearing", beaconCfg.broadcast_offer_preset);
-                beaconCfg.has_broadcast_offer_preset = false;
-            }
-        }
-        // Validate broadcast_offer_region is a known region code.
-        if (beaconCfg.broadcast_offer_region != meshtastic_Config_LoRaConfig_RegionCode_UNSET) {
-            const RegionInfo *r = getRegion(beaconCfg.broadcast_offer_region);
-            if (r->code != beaconCfg.broadcast_offer_region) {
-                LOG_WARN("Beacon: broadcast_offer_region %d invalid, clearing", beaconCfg.broadcast_offer_region);
-                beaconCfg.broadcast_offer_region = meshtastic_Config_LoRaConfig_RegionCode_UNSET;
-            }
-        }
-        // Validate each broadcast target so a bad preset/region is cleared on write rather than
-        // relying on the runtime TX drop.
-        for (pb_size_t i = 0; i < beaconCfg.broadcast_targets_count; i++) {
-            auto &t = beaconCfg.broadcast_targets[i];
-            // Region must be a known region code (UNSET = use running config at TX time).
-            if (t.region != meshtastic_Config_LoRaConfig_RegionCode_UNSET) {
-                const RegionInfo *r = getRegion(t.region);
-                if (r->code != t.region) {
-                    LOG_WARN("Beacon: broadcast_targets[%u] region %d invalid, clearing", i, t.region);
-                    t.region = meshtastic_Config_LoRaConfig_RegionCode_UNSET;
-                }
-            }
-            // Preset must be valid for the target region (or current region if unset).
-            if (t.has_preset) {
-                meshtastic_Config_LoRaConfig probe = config.lora;
-                probe.use_preset = true;
-                probe.modem_preset = t.preset;
-                if (t.region != meshtastic_Config_LoRaConfig_RegionCode_UNSET)
-                    probe.region = t.region;
-                if (!RadioInterface::validateConfigLora(probe)) {
-                    LOG_WARN("Beacon: broadcast_targets[%u] preset %d invalid for region, clearing", i, t.preset);
-                    t.has_preset = false;
-                    t.has_channel_index = false;
-                }
-            }
-            // channel_index must reference a real channel-table slot.
-            if (t.has_channel_index && t.channel_index >= MAX_NUM_CHANNELS) {
-                LOG_WARN("Beacon: broadcast_targets[%u] channel_index %u out of range, clearing", i, t.channel_index);
-                t.has_channel_index = false;
-            }
-        }
+        MeshBeaconModule::sanitizeConfig(beaconCfg);
         moduleConfig.has_mesh_beacon = true;
         moduleConfig.mesh_beacon = beaconCfg;
         shouldReboot = false;
@@ -1852,6 +1783,11 @@ void AdminModule::handleGetDeviceConnectionStatus(const meshtastic_MeshPacket &r
 #elif defined(ARCH_NRF52)
     if (config.bluetooth.enabled && nrf52Bluetooth) {
         conn.bluetooth.is_connected = nrf52Bluetooth->isConnected();
+    }
+#elif defined(MESHTASTIC_LINUX_BLE)
+    if (config.bluetooth.enabled && linuxBluetooth) {
+        conn.bluetooth.is_connected = linuxBluetooth->isConnected();
+        conn.bluetooth.rssi = linuxBluetooth->getRssi();
     }
 #endif
 #endif
@@ -2542,6 +2478,9 @@ void disableBluetooth()
 #elif defined(ARCH_NRF52)
     if (nrf52Bluetooth)
         nrf52Bluetooth->shutdown();
+#elif defined(MESHTASTIC_LINUX_BLE)
+    if (linuxBluetooth)
+        linuxBluetooth->deinit();
 #endif
 #endif
 }

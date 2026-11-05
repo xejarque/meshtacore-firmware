@@ -46,6 +46,11 @@ bool RadioLibInterface::sendRawFrame(const uint8_t *bytes, size_t len)
     memcpy(rawTxBuf, bytes, len);
     rawTxLen = len;
 
+    // As startSend(): the TX ends any CAD handoff wait and the held preamble the scan just judged clear.
+    cadHandoffRxStart = 0;
+    preambleHoldStart = 0;
+    preambleHoldHeaderSeen = false;
+
     // Drive the radio into TX. startTransmit() arms the TX-done IRQ which
     // handleTransmitInterrupt() will route to completeRawSend(). rawSending is set before
     // configHardwareForSend() so drivers can pick the MeshCore sync word for this frame.
@@ -720,6 +725,9 @@ void RadioLibInterface::maybeSendMeshCoreFrame()
     // Same listen-before-talk as the Meshtastic TX path. A busy radio or channel leaves the frame
     // queued (takePendingFrame copies, not clears) for the next meshCoreRelayTick().
     const bool own = meshCoreRepeater.pendingIsOwn();
+    // The scan and the transmit it decides are one sequence: a readout landing between them would clear the flags the
+    // transmit sets up. The lock is recursive, so canSendImmediately() and the scan re-enter it.
+    RadioSequence seq(this);
     if (!isReceiving || !canSendImmediately()) {
         meshCoreRepeater.deferRadio++;
         if (logDefer) {
@@ -734,7 +742,9 @@ void RadioLibInterface::maybeSendMeshCoreFrame()
             LOG_DEBUG("MeshCore TX deferred: channel busy");
             lastDeferLogMs = millis();
         }
-        startReceive();
+        // Not startReceive(): after a CAD detect the chip is already listening to the frame the scan found, and a
+        // standby here would abort it. rearmReceive() adopts that RX.
+        rearmReceive();
         return;
     }
     // The scan can dispatch a pending radio event (setStandby) that starts a Meshtastic TX: leave that one alone.
