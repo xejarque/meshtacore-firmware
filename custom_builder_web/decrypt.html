@@ -7,6 +7,64 @@
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <link rel="stylesheet" href="styles.css" />
     <script src="theme.js"></script>
+    <style>
+      /* styles.css has no status classes: define what this page needs. */
+      .dl-panel {
+        text-align: center;
+        padding: 2rem 1rem;
+      }
+      .dl-icon {
+        font-size: 3.5rem;
+        line-height: 1;
+        margin-bottom: 0.75rem;
+      }
+      .dl-title {
+        font-size: 1.4rem;
+        font-weight: 700;
+        margin: 0 0 0.5rem;
+      }
+      .dl-file {
+        display: inline-block;
+        margin: 0.25rem 0 1rem;
+        word-break: break-all;
+      }
+      .dl-steps {
+        text-align: left;
+        max-width: 28rem;
+        margin: 1rem auto;
+        padding-left: 1.4rem;
+      }
+      .dl-panel.is-success {
+        border-left: 6px solid var(--accent, #1a7f37);
+      }
+      .dl-panel.is-error {
+        border-left: 6px solid #cf222e;
+      }
+      .spinner {
+        width: 3rem;
+        height: 3rem;
+        margin: 0 auto 1rem;
+        border: 4px solid rgba(128, 128, 128, 0.25);
+        border-top-color: var(--accent, #1a7f37);
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .inline-status {
+        margin-top: 0.75rem;
+        font-weight: 600;
+      }
+      .inline-status.is-success {
+        color: var(--accent, #1a7f37);
+      }
+      .inline-status.is-error {
+        color: #cf222e;
+      }
+    </style>
   </head>
   <body>
     <header class="site-nav">
@@ -32,7 +90,13 @@
     </header>
 
     <main style="max-width: 640px; margin: 2rem auto; padding: 0 1rem">
-      <div class="card">
+      <!-- One-step mode (?f=...): a single, unmistakable status panel -->
+      <div id="autoCard" class="card hidden" aria-live="polite">
+        <div class="card-body dl-panel" id="autoPanel"></div>
+      </div>
+
+      <!-- Manual mode: only shown without ?f= or when the automatic download failed -->
+      <div id="manualCard" class="card">
         <div class="card-header"><h2>🔓 Descifrar firmware</h2></div>
         <div class="card-body">
           <p>
@@ -50,7 +114,7 @@
           <button id="btnDecrypt" type="button" class="btn btn-primary mt-3">
             Descifrar y descargar ZIP
           </button>
-          <div id="decryptStatus" class="status-msg hidden mt-2"></div>
+          <div id="manualStatus" class="inline-status hidden"></div>
         </div>
       </div>
 
@@ -76,63 +140,31 @@
             >Importar clave</label
           >
           <input type="file" id="importKeyFile" accept=".json" class="hidden" />
+          <div id="keyStatus" class="inline-status hidden"></div>
         </div>
       </div>
     </main>
 
     <script src="crypto.js"></script>
     <script>
-      const statusBox = document.getElementById("decryptStatus");
-
-      function showStatus(kind, text) {
-        statusBox.className = `status-msg status-${kind}`;
-        statusBox.textContent = text;
-      }
-
       const REPO_OWNER = "xejarque";
       const REPO_NAME = "meshtacore-firmware";
       const DATA_BRANCH = "custom-builds-data";
+      const BASE_TITLE = document.title;
 
       const DECRYPT_ERROR =
         "No se pudo descifrar: este navegador no tiene la clave de esa compilación " +
         "(¿otro navegador o datos borrados?). Importa la copia de seguridad de la clave e inténtalo de nuevo.";
 
-      async function decryptAndDownload(encBytes, encName) {
-        const zip = await BuildCrypto.decryptBundle(encBytes);
-        download(zip, encName.replace(/\.enc$/, ""), "application/zip");
-        showStatus(
-          "success",
-          "✅ Listo. Descomprime el ZIP y flashea tu nodo.",
-        );
-      }
+      const autoCard = document.getElementById("autoCard");
+      const autoPanel = document.getElementById("autoPanel");
+      const manualCard = document.getElementById("manualCard");
 
-      // One-step mode: decrypt.html?f=<bundle>.zip.enc fetches the bundle published by the bot.
-      async function autoFetch() {
-        const name = new URLSearchParams(location.search).get("f");
-        if (!name) return;
-        if (!/^[A-Za-z0-9._-]+\.enc$/.test(name)) {
-          return showStatus("error", "Nombre de archivo no válido.");
-        }
-        showStatus("loading", "Descargando y descifrando...");
-        let bytes;
-        try {
-          const res = await fetch(
-            `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${DATA_BRANCH}/${name}`,
-          );
-          if (!res.ok) throw new Error(res.status);
-          bytes = await res.arrayBuffer();
-        } catch (err) {
-          return showStatus(
-            "error",
-            "No se pudo descargar el archivo automáticamente (puede haber caducado). " +
-              "Descárgalo a mano desde el enlace del issue y selecciónalo abajo.",
-          );
-        }
-        try {
-          await decryptAndDownload(bytes, name);
-        } catch (err) {
-          showStatus("error", DECRYPT_ERROR);
-        }
+      const byId = (id) => document.getElementById(id);
+
+      function inlineStatus(box, kind, text) {
+        box.className = `inline-status is-${kind}`;
+        box.textContent = text;
       }
 
       function download(bytes, filename, type) {
@@ -145,45 +177,161 @@
         setTimeout(() => URL.revokeObjectURL(url), 10000);
       }
 
-      document
-        .getElementById("btnDecrypt")
-        .addEventListener("click", async () => {
-          const file = document.getElementById("encFile").files[0];
-          if (!file)
-            return showStatus(
-              "error",
-              "Selecciona primero el archivo .enc descargado.",
-            );
-          showStatus("loading", "Descifrando...");
-          try {
-            await decryptAndDownload(await file.arrayBuffer(), file.name);
-          } catch (err) {
-            showStatus("error", DECRYPT_ERROR);
-          }
-        });
+      // ---- One-step panel -------------------------------------------------
+
+      function setPanel(kind, html) {
+        autoCard.classList.remove("hidden");
+        autoPanel.className = `card-body dl-panel is-${kind}`;
+        autoPanel.innerHTML = html;
+      }
+
+      const escapeHtml = (text) =>
+        text.replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+
+      function showLoading() {
+        manualCard.classList.add("hidden");
+        document.title = `⏳ ${BASE_TITLE}`;
+        setPanel(
+          "loading",
+          `<div class="spinner"></div>
+           <p class="dl-title">Descargando y descifrando tu firmware…</p>
+           <p>Solo tarda unos segundos.</p>`,
+        );
+      }
+
+      function showSuccess(zipBytes, zipName) {
+        document.title = `✅ Firmware descargado`;
+        setPanel(
+          "success",
+          `<div class="dl-icon">✅</div>
+           <p class="dl-title">¡Listo! Tu firmware se ha descargado</p>
+           <code class="dl-file">${escapeHtml(zipName)}</code>
+           <p>Búscalo en la carpeta de <strong>Descargas</strong> de tu navegador.</p>
+           <ol class="dl-steps">
+             <li>Descomprime el <code>.zip</code>.</li>
+             <li>Flashéalo en
+               <a href="https://flasher.meshtastic.org" target="_blank" rel="noopener">flasher.meshtastic.org</a>
+               (Chrome o Edge), o copia el <code>.uf2</code> si tu placa es nRF52.</li>
+           </ol>
+           <button id="btnAgain" type="button" class="btn btn-outline btn-sm">
+             ¿No lo ves? Descargar de nuevo
+           </button>`,
+        );
+        byId("btnAgain").addEventListener("click", () =>
+          download(zipBytes, zipName, "application/zip"),
+        );
+      }
+
+      function showFailure(message) {
+        document.title = `❌ ${BASE_TITLE}`;
+        setPanel(
+          "error",
+          `<div class="dl-icon">❌</div>
+           <p class="dl-title">No se pudo completar</p>
+           <p>${escapeHtml(message)}</p>
+           <p>Puedes probar con el archivo descargado a mano, más abajo.</p>`,
+        );
+        manualCard.classList.remove("hidden");
+      }
+
+      // decrypt.html?f=<bundle>.zip.enc fetches the bundle published by the bot.
+      async function autoFetch() {
+        const name = new URLSearchParams(location.search).get("f");
+        if (!name) return;
+        if (!/^[A-Za-z0-9._-]+\.enc$/.test(name)) {
+          return showFailure("Nombre de archivo no válido.");
+        }
+        showLoading();
+        let bytes;
+        try {
+          const res = await fetch(
+            `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${DATA_BRANCH}/${name}`,
+          );
+          if (!res.ok) throw new Error(res.status);
+          bytes = await res.arrayBuffer();
+        } catch (err) {
+          return showFailure(
+            "No se pudo descargar el archivo automáticamente (puede haber caducado). " +
+              "Descárgalo a mano desde el enlace del issue.",
+          );
+        }
+        try {
+          const zip = await BuildCrypto.decryptBundle(bytes);
+          const zipName = name.replace(/\.enc$/, "");
+          download(zip, zipName, "application/zip");
+          showSuccess(zip, zipName);
+        } catch (err) {
+          showFailure(DECRYPT_ERROR);
+        }
+      }
+
+      // ---- Manual mode ------------------------------------------------------
+
+      byId("btnDecrypt").addEventListener("click", async () => {
+        const status = byId("manualStatus");
+        const file = byId("encFile").files[0];
+        if (!file) {
+          return inlineStatus(
+            status,
+            "error",
+            "Selecciona primero el archivo .enc descargado.",
+          );
+        }
+        inlineStatus(status, "success", "Descifrando…");
+        try {
+          const zip = await BuildCrypto.decryptBundle(await file.arrayBuffer());
+          const zipName = file.name.replace(/\.enc$/, "");
+          download(zip, zipName, "application/zip");
+          inlineStatus(
+            status,
+            "success",
+            `✅ Listo: «${zipName}» descargado en tu carpeta de Descargas. Descomprímelo y flashea tu nodo.`,
+          );
+        } catch (err) {
+          inlineStatus(status, "error", DECRYPT_ERROR);
+        }
+      });
+
+      // ---- Key backup --------------------------------------------------------
+
+      byId("btnExportKey").addEventListener("click", async () => {
+        download(
+          await BuildCrypto.exportUserKeys(),
+          "meshtacore-build-key.json",
+          "application/json",
+        );
+        inlineStatus(
+          byId("keyStatus"),
+          "success",
+          "✅ Clave exportada (meshtacore-build-key.json). Guárdala en un lugar seguro.",
+        );
+      });
+
+      byId("importKeyFile").addEventListener("change", async (e) => {
+        const status = byId("keyStatus");
+        try {
+          await BuildCrypto.importUserKeys(await e.target.files[0].text());
+          inlineStatus(status, "success", "✅ Clave importada.");
+        } catch (err) {
+          inlineStatus(
+            status,
+            "error",
+            `No se pudo importar la clave: ${err.message}`,
+          );
+        }
+      });
 
       autoFetch();
-
-      document
-        .getElementById("btnExportKey")
-        .addEventListener("click", async () => {
-          download(
-            await BuildCrypto.exportUserKeys(),
-            "meshtacore-build-key.json",
-            "application/json",
-          );
-        });
-
-      document
-        .getElementById("importKeyFile")
-        .addEventListener("change", async (e) => {
-          try {
-            await BuildCrypto.importUserKeys(await e.target.files[0].text());
-            showStatus("success", "✅ Clave importada.");
-          } catch (err) {
-            showStatus("error", `No se pudo importar la clave: ${err.message}`);
-          }
-        });
     </script>
   </body>
 </html>
