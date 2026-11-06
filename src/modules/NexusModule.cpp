@@ -2989,6 +2989,10 @@ int32_t NexusModule::runOnce() {
         }
         paging_next_send = now + 2000;
     }
+    if (meshCoreDiscoverPending && Throttle::deadlinePassedAt(now, meshCoreDiscoverUntil)) {
+        meshCoreDiscoverPending = false; // one shot: the scan collects answers only inside its window
+        finishMeshCoreDiscover();
+    }
     if (netscan_active && (now - netscan_start > 60000)) {
         netscan_active = false; // Stop collection FIRST (ESP32 Atomic)
 
@@ -3276,7 +3280,7 @@ int32_t NexusModule::runOnce() {
     if (noise_sampling_active || freqscan_active)
         return 50;
     if (netscan_active || clientscan_active || pendingReply.active || pendingLoRaConfig || macro_running_cmd[0] || paging_ptr ||
-        pagingWindow.hasMore())
+        pagingWindow.hasMore() || meshCoreDiscoverPending)
         return 100;
     return 1000; // Default idle sleep
 }

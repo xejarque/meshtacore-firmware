@@ -411,6 +411,101 @@ void NexusModule::formatMeshCoreNeighbors(char *reply, size_t replyLen)
 #endif
 }
 
+// Accepts "4d", "!a1b2", "0xA1B2", "a1:b2" or "a1 b2": optional "!"/"0x" prefix, bytes optionally split by ':' or ' '.
+static bool parseHexBytes(const char *str, uint8_t *out, uint8_t *lenOut, uint8_t maxLen)
+{
+    while (*str == ' ' || *str == '!')
+        str++;
+    if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X'))
+        str += 2;
+    uint8_t count = 0;
+    while (*str) {
+        if ((*str == ':' || *str == ' ') && count > 0) {
+            str++;
+            continue;
+        }
+        if (!isxdigit((unsigned char)str[0]) || !isxdigit((unsigned char)str[1]) || count >= maxLen)
+            return false;
+        char byteBuf[3] = {str[0], str[1], 0};
+        out[count++] = (uint8_t)strtoul(byteBuf, nullptr, 16);
+        str += 2;
+    }
+    if (count == 0)
+        return false;
+    *lenOut = count;
+    return true;
+}
+
+void NexusModule::handleMeshCoreFavCommand(const char *args, char *reply, size_t replyLen)
+{
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    char word[16];
+    const char *rest = takeWord(args, word, sizeof(word));
+
+    if (word[0] == '\0') {
+        // No argument lists what is already kept: this command can only add or remove, never clear in bulk.
+        char list[128];
+        size_t len = 0;
+        list[0] = '\0';
+        meshCoreCompanion.nodes.forEach([&](const MeshCoreNode &n) {
+            if (!n.isFavorite() || len >= sizeof(list) - 20)
+                return;
+            char hex[10];
+            snprintf(hex, sizeof(hex), "%02X%02X%02X%02X", n.pub[0], n.pub[1], n.pub[2], n.pub[3]);
+            len += snprintf(list + len, sizeof(list) - len, "%s%s", len ? ", " : "", hex);
+        });
+        snprintf(reply, replyLen, "JT MESHCORE: FAV takes <hex_prefix> [ON|OFF]. %s%s", len ? "Kept: " : "No favourites yet",
+                 list);
+        return;
+    }
+
+    uint8_t prefix[4] = {};
+    uint8_t plen = 0;
+    if (!parseHexBytes(word, prefix, &plen, sizeof(prefix))) {
+        snprintf(reply, replyLen, "JT MESHCORE: FAV expects 1-4 hex bytes of the public key (e.g. 4d, a1b2)");
+        return;
+    }
+
+    MeshCoreNode *matches[8];
+    const size_t found = meshCoreCompanion.nodes.findByPrefix(prefix, plen, matches, sizeof(matches) / sizeof(matches[0]));
+    if (found == 0) {
+        snprintf(reply, replyLen, "JT MESHCORE: no contact starts with '%s'", word);
+        return;
+    }
+    if (found > 1) {
+        // MeshCore hashes collide within a prefix: name the candidates instead of guessing which one was meant.
+        char list[128];
+        size_t len = 0;
+        list[0] = '\0';
+        for (size_t i = 0; i < found && len < sizeof(list) - 20; i++)
+            len += snprintf(list + len, sizeof(list) - len, "%s%02X%02X%02X%02X", len ? ", " : "", matches[i]->pub[0],
+                            matches[i]->pub[1], matches[i]->pub[2], matches[i]->pub[3]);
+        snprintf(reply, replyLen, "JT MESHCORE: '%s' matches %u contacts: %s", word, (unsigned)found, list);
+        return;
+    }
+
+    bool on = true;
+    char opt[8];
+    takeWord(rest, opt, sizeof(opt));
+    if (strcasecmp(opt, "OFF") == 0)
+        on = false;
+    else if (opt[0] != '\0' && strcasecmp(opt, "ON") != 0) {
+        snprintf(reply, replyLen, "JT MESHCORE: FAV takes ON or OFF");
+        return;
+    }
+
+    MeshCoreNode *n = matches[0];
+    meshCoreCompanion.nodes.setFavorite(n, on);
+    meshCoreCompanion.nodes.touch(n); // a saved favourite ranks first, so keep it recent too
+    snprintf(reply, replyLen, "JT MESHCORE: %s %s (%02X%02X%02X%02X)%s", on ? "kept" : "released",
+             n->name[0] ? n->name : "sin nombre", n->pub[0], n->pub[1], n->pub[2], n->pub[3],
+             on ? ", saved on the next contacts write" : "");
+#else
+    (void)args;
+    snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
+#endif
+}
+
 // Reads a whole decimal number from word. False for an empty word, letters or trailing text.
 static bool parseWholeNumber(const char *word, uint32_t *value)
 {
@@ -420,6 +515,116 @@ static bool parseWholeNumber(const char *word, uint32_t *value)
         return false;
     *value = (uint32_t)parsed;
     return true;
+}
+
+static void formatHexPrefix(const uint8_t *pub, char *out, size_t outLen)
+{
+    snprintf(out, outLen, "%02X%02X%02X%02X", pub[0], pub[1], pub[2], pub[3]);
+}
+
+void NexusModule::handleMeshCoreDiscoverCommand(const char *args, char *reply, size_t replyLen)
+{
+    RadioLibInterface *radio = RadioLibInterface::instance;
+    if (!radio) {
+        snprintf(reply, replyLen, "JT MESHCORE: no radio");
+        return;
+    }
+    if (meshCoreDiscoverPending) {
+        const uint32_t leftMs = meshCoreDiscoverUntil > Time::getMillis() ? meshCoreDiscoverUntil - Time::getMillis() : 0;
+        snprintf(reply, replyLen, "🔎 Descubriendo ya (%us restantes)", (unsigned)((leftMs + 999) / 1000));
+        return;
+    }
+
+    // MeshCore's discover.neighbors waits 60 s because it answers over the CLI synchronously; here the listing comes
+    // as a second message, so 10 s is enough for the repeater's randomised reply delay.
+    uint32_t seconds = 10;
+    char word[8];
+    takeWord(args, word, sizeof(word));
+    if (word[0] != '\0') {
+        if (!parseWholeNumber(word, &seconds) || seconds < 5 || seconds > 60) {
+            snprintf(reply, replyLen, "JT MESHCORE: DESCUBRIR takes 5-60 seconds, or nothing");
+            return;
+        }
+    }
+
+    if (!radio->getMeshCoreRepeater().startDiscover(seconds * 1000UL)) {
+        snprintf(reply, replyLen, "JT MESHCORE: no se pudo lanzar la búsqueda (radio ocupada)");
+        return;
+    }
+    meshCoreDiscoverWindowMs = seconds * 1000UL;
+    meshCoreDiscoverUntil = Time::getMillis() + meshCoreDiscoverWindowMs;
+    meshCoreDiscoverPending = true;
+    snprintf(reply, replyLen, "🔎 Descubriendo vecinos MeshCore (%us)...", (unsigned)seconds);
+}
+
+void NexusModule::finishMeshCoreDiscover()
+{
+    meshCoreDiscoverPending = false;
+    if (!RadioLibInterface::instance)
+        return;
+
+    MeshCoreRepeater::DiscoveredPeer found[MeshCoreRepeater::DISCOVER_RESULTS_MAX];
+    const size_t count =
+        RadioLibInterface::instance->getMeshCoreRepeater().finishDiscover(found, sizeof(found) / sizeof(found[0]));
+
+    DirectNeighborEntry *entries = neighborEntries;
+    size_t listed = 0;
+    const uint32_t now = getTime(false);
+    for (size_t i = 0; i < count && listed < 32; i++) {
+        const MeshCoreRepeater::DiscoveredPeer &peer = found[i];
+        char name[sizeof(entries[0].name)];
+        name[0] = '\0';
+
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+        // Store it where every other MeshCore node lives, so CONTACTS and VECINOS see it too. A full table is left
+        // untouched: a scan must never evict a contact the operator saved or talked to.
+        MeshCoreNode *n = meshCoreCompanion.nodes.upsertIfRoom(peer.pub);
+        if (n) {
+            n->type = peer.type;
+            n->snr = peer.rxSnr;
+            n->hops = 0; // it answered a zero-hop request: it is a direct neighbour by definition
+            n->lastHeard = now;
+            if (n->nodeNum == 0)
+                meshCoreCompanion.nodes.assignNodeNum(n, MeshCoreNodeStore<MESHCORE_NODES_MAX>::nodeNumForKey(peer.pub),
+                                                      MeshCoreCompanion::PSEUDO_NODE_NUM);
+            if (n->name[0])
+                strncpy(name, n->name, sizeof(name) - 1);
+        }
+#endif
+        if (!name[0]) // no ADVERT yet: the answer carries no name, so show the key prefix
+            formatHexPrefix(peer.pub, name, sizeof(name));
+
+        strncpy(entries[listed].name, name, sizeof(entries[listed].name) - 1);
+        entries[listed].name[sizeof(entries[listed].name) - 1] = '\0';
+        entries[listed].snr = peer.rxSnr;
+        entries[listed].lastHeard = now;
+        entries[listed].nodeNum = 0;
+        listed++;
+    }
+
+    char body[160];
+    if (listed == 0) {
+        snprintf(body, sizeof(body), "🔎 **Vecinos MeshCore**: *nadie respondió* (%us)",
+                 (unsigned)(meshCoreDiscoverWindowMs / 1000));
+    } else {
+        char header[48];
+        snprintf(header, sizeof(header), "🔎 **Vecinos MeshCore** (%u nuevos):\n", (unsigned)listed);
+        snprintf(body, sizeof(body), "%s", header);
+        // One line per peer, built with the same renderer as VECINOS so both listings read alike.
+        for (size_t i = 0; i < listed; i++) {
+            char item[96];
+            formatNeighborLine(entries[i], now, item, sizeof(item));
+            if (strlen(body) + strlen(item) >= sizeof(body))
+                break;
+            strncat(body, item, sizeof(body) - strlen(body) - 1);
+        }
+    }
+
+    const size_t len = strlen(body);
+    size_t outLen = len;
+    if (outLen > 0 && body[outLen - 1] == '\n')
+        body[--outLen] = '\0';
+    sendReply(meshCoreDiscoverReply, body, outLen);
 }
 
 static void setPathSize(RadioLibInterface &radio, const char *arg, bool signatureRequired, char *reply, size_t replyLen)
@@ -904,31 +1109,6 @@ static void handleMeshCoreSendCommand(const char *args, char *reply, size_t repl
 #endif
 }
 
-// Accepts "4d", "!a1b2", "0xA1B2", "a1:b2" or "a1 b2": optional "!"/"0x" prefix, bytes optionally split by ':' or ' '.
-static bool parseHexBytes(const char *str, uint8_t *out, uint8_t *lenOut, uint8_t maxLen)
-{
-    while (*str == ' ' || *str == '!')
-        str++;
-    if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X'))
-        str += 2;
-    uint8_t count = 0;
-    while (*str) {
-        if ((*str == ':' || *str == ' ') && count > 0) {
-            str++;
-            continue;
-        }
-        if (!isxdigit((unsigned char)str[0]) || !isxdigit((unsigned char)str[1]) || count >= maxLen)
-            return false;
-        char byteBuf[3] = {str[0], str[1], 0};
-        out[count++] = (uint8_t)strtoul(byteBuf, nullptr, 16);
-        str += 2;
-    }
-    if (count == 0)
-        return false;
-    *lenOut = count;
-    return true;
-}
-
 static void handleMeshCoreDropCommand(const char *arg, char *reply, size_t replyLen)
 {
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
@@ -993,7 +1173,8 @@ static void handleMeshCoreDropsCommand(char *reply, size_t replyLen)
 #endif
 }
 
-void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t replyLen)
+void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t replyLen, const meshtastic_MeshPacket *mp,
+                                        uint32_t replyId, bool toPhoneOnly)
 {
     RadioLibInterface *radio = RadioLibInterface::instance;
     if (!radio) {
@@ -1008,9 +1189,8 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
         snprintf(reply, replyLen,
                  "JT MESHCORE: INFO, STATS [FULL], NODES, CONTACTS, REPEATERS, NODE <id>, PATH <target>, TRACE <target>, SEND "
                  "<target> <msg>, DROP [hex|CLEAR], UNDROP <hex>, DROPS, RELAY [ON|OFF|AUTO], ADVERT [1-168|NOW], REGION [...], "
-                 "VECINOS, IDENTITY, KEY <hex>, PATHSIZE [1-3], FLOODMAX [g u a], HYBRID [ON|OFF], PPING [...], PING <target>, "
-                 "RESET. SAVE "
-                 "keeps them.");
+                 "VECINOS, DESCUBRIR [5-60], FAV <hex> [ON|OFF], IDENTITY, KEY <hex>, PATHSIZE [1-3], FLOODMAX [g u a], "
+                 "HYBRID [ON|OFF], PPING [...], PING <target>, RESET. SAVE keeps them.");
     } else if (strcasecmp(word, "INFO") == 0) {
         formatInfo(*radio, reply, replyLen);
     } else if (strcasecmp(word, "STATS") == 0) {
@@ -1043,6 +1223,15 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
         handleRegionCommand(rest, reply, replyLen);
     } else if (strcasecmp(word, "VECINOS") == 0 || strcasecmp(word, "NEIGHBOURS") == 0 || strcasecmp(word, "NEIGHBORS") == 0) {
         formatMeshCoreNeighbors(reply, replyLen);
+    } else if (strcasecmp(word, "DESCUBRIR") == 0 || strcasecmp(word, "DISCOVER") == 0 || strcasecmp(word, "BUSCAR") == 0) {
+        // The listing arrives in a second message, so the context has to survive until the window closes.
+        if (mp) {
+            const bool isDM = mp->to == myNodeInfo.my_node_num;
+            meshCoreDiscoverReply = {isDM ? mp->from : 0xFFFFFFFF, mp->channel, replyId, toPhoneOnly, toPhoneOnly || !isDM};
+        }
+        handleMeshCoreDiscoverCommand(rest, reply, replyLen);
+    } else if (strcasecmp(word, "FAV") == 0) {
+        handleMeshCoreFavCommand(rest, reply, replyLen);
     } else if (strcasecmp(word, "KEY") == 0) {
         formatKey(rest, reply, replyLen);
     } else if (strcasecmp(word, "PATHSIZE") == 0) {
@@ -1279,7 +1468,7 @@ void NexusModule::loadMeshCoreSettings()
 
 #else // !MESHTASTIC_ENABLE_MESHCORE_SNIFFER
 
-void NexusModule::handleMeshCoreCommand(const char *, char *reply, size_t replyLen)
+void NexusModule::handleMeshCoreCommand(const char *, char *reply, size_t replyLen, const meshtastic_MeshPacket *, uint32_t, bool)
 {
     snprintf(reply, replyLen, "JT MESHCORE: not in this build (MeshCore sniffer off)");
 }
@@ -1317,6 +1506,18 @@ void NexusModule::handleMeshCorePingSend(const char *, char *reply, size_t reply
 void NexusModule::formatMeshCoreNeighbors(char *reply, size_t replyLen)
 {
     snprintf(reply, replyLen, "📡 **Vecinos MeshCore**: *companion off*");
+}
+
+void NexusModule::handleMeshCoreDiscoverCommand(const char *, char *reply, size_t replyLen)
+{
+    snprintf(reply, replyLen, "JT MESHCORE: not in this build (MeshCore sniffer off)");
+}
+
+void NexusModule::finishMeshCoreDiscover() {}
+
+void NexusModule::handleMeshCoreFavCommand(const char *, char *reply, size_t replyLen)
+{
+    snprintf(reply, replyLen, "JT MESHCORE: not in this build (MeshCore sniffer off)");
 }
 
 void NexusModule::saveMeshCoreSettings() {}

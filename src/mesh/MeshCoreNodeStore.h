@@ -118,6 +118,34 @@ template <size_t N> class MeshCoreNodeStore
         return n;
     }
 
+    /// The first free slot, or -1 when the table is full. Never picks an occupied one, unlike victim().
+    int freeSlot() const
+    {
+        for (size_t i = 0; i < N; i++)
+            if (!entries[i].lastMod)
+                return (int)i;
+        return -1;
+    }
+
+    /**
+     * The node with this key, created only when the table has a free slot. A full table leaves the contact store
+     * untouched and returns null: a discovery scan must not evict a node the operator saved or talked to.
+     */
+    MeshCoreNode *upsertIfRoom(const uint8_t pub[32])
+    {
+        MeshCoreNode *n = find(pub);
+        if (!n) {
+            const int slot = freeSlot();
+            if (slot < 0)
+                return nullptr;
+            n = &entries[(size_t)slot];
+            *n = MeshCoreNode();
+            memcpy(n->pub, pub, 32);
+        }
+        touch(n);
+        return n;
+    }
+
     MeshCoreNode *find(const uint8_t pub[32]) { return const_cast<MeshCoreNode *>(findEntry(pub)); }
     const MeshCoreNode *find(const uint8_t pub[32]) const { return findEntry(pub); }
 

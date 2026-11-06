@@ -1264,6 +1264,163 @@ void test_discover_answers_the_identity_of_the_type_asked()
     TEST_ASSERT_TRUE(sawChat);
 }
 
+// --- our own neighbour scan: NODE_DISCOVER_REQ out, the zero-hop answers in ---
+
+// The request is a zero-hop CONTROL frame carrying the tag we later match answers against.
+void test_start_discover_sends_a_zero_hop_request()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+
+    TEST_ASSERT_TRUE(repeater.startDiscover(10000));
+
+    uint8_t out[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t outLen = repeater.takePendingFrame(out, sizeof(out));
+    TEST_ASSERT_EQUAL_UINT32(2 + 6 + 4, outLen);
+    TEST_ASSERT_EQUAL_HEX8((0x0B << 2) | 0x02, out[0]); // CONTROL, DIRECT
+    TEST_ASSERT_EQUAL_HEX8(0x00, out[1]);               // zero hop: only direct neighbours hear it
+    TEST_ASSERT_EQUAL_HEX8(0x80, out[2]);               // NODE_DISCOVER_REQ, full key
+    TEST_ASSERT_EQUAL_HEX8(MeshCoreRepeater::DISCOVER_FILTER_ALL, out[3]);
+    uint32_t sentTag = 0;
+    memcpy(&sentTag, &out[4], 4);
+    TEST_ASSERT_EQUAL_UINT32(sentTag, repeater.discoverTag());
+    TEST_ASSERT_TRUE(repeater.discoverRunning());
+    TEST_ASSERT_EQUAL_UINT32(0, out[8] | out[9] | out[10] | out[11]); // since = 0
+}
+
+// A scan answers only the running one, only on the right tag, and only from a zero-hop direct frame.
+void test_discover_collects_matching_answers_only()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    TEST_ASSERT_TRUE(repeater.startDiscover(10000));
+    uint8_t out[MeshCoreRepeater::MAX_FRAME_LEN];
+    repeater.takePendingFrame(out, sizeof(out));
+    repeater.clearPendingFrame();
+    const uint32_t tag = repeater.discoverTag();
+
+    auto makeResp = [](uint8_t *buf, uint32_t respTag, uint8_t type) {
+        buf[0] = (0x0B << 2) | 0x02; // CONTROL, DIRECT
+        buf[1] = 0x00;               // zero hop
+        buf[2] = 0x90 | type;        // NODE_DISCOVER_RESP | type
+        buf[3] = 20;                 // the SNR it measured on our request, x4
+        memcpy(&buf[4], &respTag, 4);
+        for (size_t i = 0; i < 32; i++)
+            buf[8 + i] = (uint8_t)(0xA0 + i); // its key
+        return (size_t)(2 + 6 + 32);
+    };
+
+    uint8_t buf[2 + 6 + 32];
+
+    // Wrong tag: another node's scan, so it must not land in ours.
+    size_t len = makeResp(buf, tag + 1, 2);
+    repeater.handleReceivedFrame(buf, len, 7.5f, kAirtimeMs);
+
+    // Right tag: collected, with the SNR we measured on its answer.
+    len = makeResp(buf, tag, 2);
+    repeater.handleReceivedFrame(buf, len, 7.5f, kAirtimeMs);
+
+    MeshCoreRepeater::DiscoveredPeer peers[MeshCoreRepeater::DISCOVER_RESULTS_MAX];
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.finishDiscover(peers, MeshCoreRepeater::DISCOVER_RESULTS_MAX));
+    TEST_ASSERT_EQUAL_UINT8(2, peers[0].type);
+    TEST_ASSERT_EQUAL_INT8(20, peers[0].snrX4);
+    TEST_ASSERT_EQUAL_FLOAT(7.5f, peers[0].rxSnr);
+    for (size_t i = 0; i < 32; i++)
+        TEST_ASSERT_EQUAL_UINT8((uint8_t)(0xA0 + i), peers[0].pub[i]);
+    TEST_ASSERT_FALSE(repeater.discoverRunning());
+    TEST_ASSERT_EQUAL_UINT32(0, repeater.discoverTag());
+}
+
+// The same peer answering twice takes one slot, not two.
+void test_discover_dedupes_a_peer_that_answers_twice()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    TEST_ASSERT_TRUE(repeater.startDiscover(10000));
+    uint8_t out[MeshCoreRepeater::MAX_FRAME_LEN];
+    repeater.takePendingFrame(out, sizeof(out));
+    repeater.clearPendingFrame();
+    const uint32_t tag = repeater.discoverTag();
+
+    uint8_t buf[2 + 6 + 32];
+    for (int round = 0; round < 2; round++) {
+        buf[0] = (0x0B << 2) | 0x02;
+        buf[1] = 0x00;
+        buf[2] = 0x92;
+        buf[3] = (uint8_t)(4 * (round + 1));
+        memcpy(&buf[4], &tag, 4);
+        memset(&buf[8], 0x5A, 32);
+        repeater.handleReceivedFrame(buf, sizeof(buf), 3.0f, kAirtimeMs);
+    }
+
+    MeshCoreRepeater::DiscoveredPeer peers[MeshCoreRepeater::DISCOVER_RESULTS_MAX];
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.finishDiscover(peers, MeshCoreRepeater::DISCOVER_RESULTS_MAX));
+    TEST_ASSERT_EQUAL_INT8(8, peers[0].snrX4); // the later answer refreshed the record
+}
+
+// No scan running: answers are ignored, not buffered for a later call.
+void test_discover_ignores_answers_when_no_scan_is_running()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+
+    uint8_t buf[2 + 6 + 32];
+    buf[0] = (0x0B << 2) | 0x02;
+    buf[1] = 0x00;
+    buf[2] = 0x92;
+    buf[3] = 20;
+    const uint32_t anyTag = 0x11223344;
+    memcpy(&buf[4], &anyTag, 4);
+    memset(&buf[8], 0x5A, 32);
+    repeater.handleReceivedFrame(buf, sizeof(buf), 3.0f, kAirtimeMs);
+
+    MeshCoreRepeater::DiscoveredPeer peers[MeshCoreRepeater::DISCOVER_RESULTS_MAX];
+    TEST_ASSERT_EQUAL_UINT32(0, repeater.finishDiscover(peers, MeshCoreRepeater::DISCOVER_RESULTS_MAX));
+}
+
+// One scan at a time, and a zero window is refused rather than spinning an empty scan.
+void test_discover_refuses_a_second_concurrent_scan()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+
+    TEST_ASSERT_FALSE(repeater.startDiscover(0));
+    TEST_ASSERT_TRUE(repeater.startDiscover(10000));
+    TEST_ASSERT_FALSE(repeater.startDiscover(10000));
+
+    MeshCoreRepeater::DiscoveredPeer peers[MeshCoreRepeater::DISCOVER_RESULTS_MAX];
+    repeater.finishDiscover(peers, sizeof(peers) / sizeof(peers[0]));
+    TEST_ASSERT_TRUE(repeater.startDiscover(5000)); // the first scan is closed, so a new one fits
+}
+
+// The scan keeps working when the node does not relay: searching for neighbours is not relaying.
+// canRelay() is false for a CLIENT_MUTE-role node, which is exactly the one most likely to scan.
+void test_discover_runs_even_when_the_node_does_not_relay()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    // handleReceivedFrame on a DIRECT CONTROL frame with our own scan running is the path under test;
+    // the relay half is skipped for CLIENT_MUTE, so the answers must still be collected.
+    TEST_ASSERT_TRUE(repeater.startDiscover(10000));
+    uint8_t out[MeshCoreRepeater::MAX_FRAME_LEN];
+    repeater.takePendingFrame(out, sizeof(out));
+    repeater.clearPendingFrame();
+    const uint32_t tag = repeater.discoverTag();
+
+    uint8_t buf[2 + 6 + 32];
+    buf[0] = (0x0B << 2) | 0x02;
+    buf[1] = 0x00;
+    buf[2] = 0x91;
+    buf[3] = 12;
+    memcpy(&buf[4], &tag, 4);
+    memset(&buf[8], 0x33, 32);
+    repeater.handleReceivedFrame(buf, sizeof(buf), 5.0f, kAirtimeMs);
+
+    MeshCoreRepeater::DiscoveredPeer peers[MeshCoreRepeater::DISCOVER_RESULTS_MAX];
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.finishDiscover(peers, MeshCoreRepeater::DISCOVER_RESULTS_MAX));
+    TEST_ASSERT_EQUAL_UINT8(1, peers[0].type); // chat
+}
+
 // No identity: relay stays transparent, discovery is ignored.
 void test_without_identity_relay_is_transparent()
 {
@@ -1667,6 +1824,12 @@ void setup()
     RUN_TEST(test_alias_advert_is_signed_by_the_alias);
     RUN_TEST(test_own_alias_advert_echo_is_not_relayed);
     RUN_TEST(test_discover_answers_the_identity_of_the_type_asked);
+    RUN_TEST(test_start_discover_sends_a_zero_hop_request);
+    RUN_TEST(test_discover_collects_matching_answers_only);
+    RUN_TEST(test_discover_dedupes_a_peer_that_answers_twice);
+    RUN_TEST(test_discover_ignores_answers_when_no_scan_is_running);
+    RUN_TEST(test_discover_refuses_a_second_concurrent_scan);
+    RUN_TEST(test_discover_runs_even_when_the_node_does_not_relay);
     RUN_TEST(test_without_identity_relay_is_transparent);
     RUN_TEST(test_ed25519_matches_rfc8032);
     RUN_TEST(test_identity_with_reserved_hash_is_rejected);

@@ -212,6 +212,36 @@ class MeshCoreRepeater
     /** Frames the relay can hold at once (ZephCore queues 32; floods are redundant, so a handful is enough here). */
     static constexpr size_t QUEUE_SIZE = 8;
 
+    /// One node that answered our NODE_DISCOVER_REQ (MeshCore's discover.neighbors): always a zero-hop peer.
+    struct DiscoveredPeer {
+        uint8_t pub[32]; // Ed25519 public key, MeshCore's PUB_KEY_SIZE
+        uint8_t type;    // ADV_TYPE_* the responder announced
+        int8_t snrX4;    // the SNR the responder measured on our request, x4, as it reports it
+        float rxSnr;     // the SNR we measured on its answer: the link we actually hear
+        uint32_t atMs;   // Time::getMillis() when the answer arrived
+    };
+
+    /** One scan collects at most this many peers; the table is static, never on the stack. */
+    static constexpr size_t DISCOVER_RESULTS_MAX = 16;
+    /** Every MeshCore node type: chat(1), repeater(2), room(3), sensor(4) as a bitmask. */
+    static constexpr uint8_t DISCOVER_FILTER_ALL = 0x1E;
+
+    /**
+     * Send a zero-hop NODE_DISCOVER_REQ with a fresh random tag and collect the matching answers for windowMs.
+     * Asking needs no identity key (only answering does). False when a scan is already running or the request
+     * could not be queued.
+     */
+    bool startDiscover(uint32_t windowMs, uint8_t filterMask = DISCOVER_FILTER_ALL);
+
+    /** True while a scan is accepting answers. */
+    bool discoverRunning() const { return discoverActive; }
+
+    /** The tag of the running scan (0 when none); answers carrying another tag are ignored. */
+    uint32_t discoverTag() const { return discoverActive ? discoverActiveTag : 0; }
+
+    /** Copy the collected peers into out, end the scan and clear the table. Returns how many were copied. */
+    size_t finishDiscover(DiscoveredPeer *out, size_t max);
+
     /** Adaptive jitter factor in [0.40, 1.00] (0.5 before warmup), from the observed dupes. */
     float getFloodDelayFactor();
 
@@ -327,6 +357,17 @@ class MeshCoreRepeater
     static constexpr uint32_t DISCOVER_WINDOW_MS = 120000;
     uint32_t discoverWindowStartMs = 0;
     uint8_t discoverRepliesInWindow = 0;
+
+    // The scan we started (MeshCore simple_repeater's discover.neighbors). One at a time; the answers are kept in
+    // a member table rather than a local, so the buffer never lands on a thread stack.
+    bool discoverActive = false;
+    uint32_t discoverActiveTag = 0;
+    uint32_t discoverUntilMs = 0;
+    DiscoveredPeer discoverTable[DISCOVER_RESULTS_MAX] = {};
+    uint8_t discoverCount = 0;
+
+    /** Note a NODE_DISCOVER_RESP that matches the running scan. Never consumes the frame. */
+    void handleDiscoverResponse(const uint8_t *raw, const FrameInfo &info, float snr);
 
     /** Our path hash (prefix of the public key) is the first hop of this direct frame's path. */
     bool isNextHopForUs(const uint8_t *raw, const FrameInfo &info) const;

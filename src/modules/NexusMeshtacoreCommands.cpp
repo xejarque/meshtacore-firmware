@@ -34,7 +34,7 @@ bool NexusModule::handleMeshtacoreCommand(const meshtastic_MeshPacket &mp, uint3
     if (strcasecmp(cmd, "MESHCORE") == 0 || strncasecmp(cmd, "MESHCORE ", 9) == 0 || strcasecmp(cmd, "MCORE") == 0 ||
         strncasecmp(cmd, "MCORE ", 6) == 0) {
         const char *args = strchr(cmd, ' ');
-        handleMeshCoreCommand(args ? args + 1 : "", replyMsg, sizeof(replyMsg));
+        handleMeshCoreCommand(args ? args + 1 : "", replyMsg, sizeof(replyMsg), &mp, replyId, activePhoneOnly);
     } else if (strcasecmp(cmd, "REGION") == 0 || strncasecmp(cmd, "REGION ", 7) == 0) {
         const char *args = strchr(cmd, ' ');
         handleRegionCommand(args ? args + 1 : "", replyMsg, sizeof(replyMsg));

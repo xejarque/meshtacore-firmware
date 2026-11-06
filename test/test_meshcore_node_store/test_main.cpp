@@ -34,6 +34,85 @@ static MeshCoreNode *addNode(MeshCoreNodeStore<4> &store, uint8_t first, uint8_t
 void setUp() {}
 void tearDown() {}
 
+// --- upsertIfRoom: a discovery scan may add, but never evicts ---
+
+// While there is room it behaves like upsert: creates the record and returns it.
+void test_upsert_if_room_creates_in_a_free_slot()
+{
+    MeshCoreNodeStore<4> store;
+    uint8_t pub[32];
+    makeKey(pub, 0xA0);
+
+    MeshCoreNode *n = store.upsertIfRoom(pub);
+    TEST_ASSERT_NOT_NULL(n);
+    TEST_ASSERT_EQUAL_PTR(n, store.find(pub));
+    TEST_ASSERT_EQUAL_UINT32(1, store.count());
+
+    TEST_ASSERT_EQUAL_PTR(n, store.upsertIfRoom(pub)); // known key: same record, no second slot
+    TEST_ASSERT_EQUAL_UINT32(1, store.count());
+}
+
+// A full table returns null and leaves every record untouched, unlike upsert(), which evicts.
+void test_upsert_if_room_refuses_when_the_table_is_full()
+{
+    MeshCoreNodeStore<4> store;
+    MeshCoreNode *kept = addNode(store, 0xA0);
+    store.setFavorite(kept, true);
+    addNode(store, 0xA1);
+    addNode(store, 0xA2);
+    addNode(store, 0xA3);
+    TEST_ASSERT_EQUAL_UINT32(4, store.count());
+
+    uint8_t newcomer[32];
+    makeKey(newcomer, 0xB0);
+    TEST_ASSERT_NULL(store.upsertIfRoom(newcomer));
+
+    TEST_ASSERT_EQUAL_UINT32(4, store.count());
+    TEST_ASSERT_NULL(store.find(newcomer));
+    for (uint8_t i = 0; i < 4; i++) { // and not one of the four was dropped
+        uint8_t pub[32];
+        makeKey(pub, 0xA0 + i);
+        TEST_ASSERT_NOT_NULL(store.find(pub));
+    }
+}
+
+// A known key still refreshes its record when the table is full: only new keys are turned away.
+void test_upsert_if_room_still_touches_a_known_node_when_full()
+{
+    MeshCoreNodeStore<4> store;
+    MeshCoreNode *a = addNode(store, 0xA0);
+    addNode(store, 0xA1);
+    addNode(store, 0xA2);
+    addNode(store, 0xA3);
+
+    uint8_t pub[32];
+    makeKey(pub, 0xA0);
+    TEST_ASSERT_EQUAL_PTR(a, store.upsertIfRoom(pub));
+}
+
+void test_free_slot_reports_the_first_free_index()
+{
+    MeshCoreNodeStore<4> store;
+    TEST_ASSERT_EQUAL_INT(0, store.freeSlot());
+
+    uint8_t pub[32];
+    makeKey(pub, 0xA0);
+    store.upsert(pub);
+    TEST_ASSERT_EQUAL_INT(1, store.freeSlot());
+
+    store.remove(pub);
+    TEST_ASSERT_EQUAL_INT(0, store.freeSlot()); // the freed slot comes back
+}
+
+void test_free_slot_is_negative_when_the_table_is_full()
+{
+    MeshCoreNodeStore<4> store;
+    for (uint8_t i = 0; i < 4; i++)
+        addNode(store, 0xA0 + i);
+    TEST_ASSERT_EQUAL_INT(-1, store.freeSlot());
+    TEST_ASSERT_EQUAL_UINT32(4, store.count()); // asking does not touch the table
+}
+
 void test_upsert_creates_once_and_find_returns_it()
 {
     MeshCoreNodeStore<4> store;
@@ -203,6 +282,11 @@ void setup()
 {
     initializeTestEnvironment();
     UNITY_BEGIN();
+    RUN_TEST(test_upsert_if_room_creates_in_a_free_slot);
+    RUN_TEST(test_upsert_if_room_refuses_when_the_table_is_full);
+    RUN_TEST(test_upsert_if_room_still_touches_a_known_node_when_full);
+    RUN_TEST(test_free_slot_reports_the_first_free_index);
+    RUN_TEST(test_free_slot_is_negative_when_the_table_is_full);
     RUN_TEST(test_upsert_creates_once_and_find_returns_it);
     RUN_TEST(test_full_table_evicts_the_oldest_node);
     RUN_TEST(test_full_table_spares_favourites_and_dm_peers);

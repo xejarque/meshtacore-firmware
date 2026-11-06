@@ -222,6 +222,12 @@ void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, float
 
     rxSeen++;
 
+    // A zero-hop NODE_DISCOVER_RESP feeds the scan we started. This sits outside the relay half on purpose: a node
+    // that does not relay (CLIENT_MUTE, relay OFF) must still be able to search for neighbours.
+    const bool directFrame = info.route_type == MC_ROUTE_DIRECT || info.route_type == MC_ROUTE_TRANSPORT_DIRECT;
+    if (directFrame && info.payload_type == MC_PAYLOAD_TYPE_CONTROL && info.path_hash_count == 0)
+        handleDiscoverResponse(raw, info, snr);
+
 #if MESHTASTIC_ENABLE_MESHCORE_RELAY
     const bool direct = info.route_type == MC_ROUTE_DIRECT || info.route_type == MC_ROUTE_TRANSPORT_DIRECT;
     if (direct) {
@@ -1115,6 +1121,98 @@ bool MeshCoreRepeater::queueOwnFrame(const uint8_t *raw, size_t len, uint32_t de
     f.deadlineMs = f.firstSeenMs + delayMs;
     rememberFrame(hash); // a neighbour re-flooding our own ADVERT must not make us relay it again
     return true;
+}
+
+bool MeshCoreRepeater::startDiscover(uint32_t windowMs, uint8_t filterMask)
+{
+    if (discoverActive || windowMs == 0)
+        return false;
+
+    // NODE_DISCOVER_REQ (simple_repeater sendNodeDiscoverReq): type, type filter, random tag, then 'since'. The low
+    // bit of the type byte stays 0, so we ask for the full 32-byte key rather than its 8-byte prefix.
+    uint8_t frame[2 + 6 + 4];
+    frame[0] = (MC_PAYLOAD_TYPE_CONTROL << 2) | MC_ROUTE_DIRECT;
+    frame[1] = 0x00; // zero hop: only direct neighbours hear it and answer
+    frame[2] = MC_CTL_DISCOVER_REQ;
+    frame[3] = filterMask;
+    const uint32_t tag = (uint32_t)random() ^ ((uint32_t)random() << 16);
+    memcpy(&frame[4], &tag, 4);
+    const uint32_t since = 0; // we have no 'modified since' to offer; 0 asks "who is there"
+    memcpy(&frame[8], &since, 4);
+
+    if (!queueOwnFrame(frame, sizeof(frame), 0))
+        return false;
+
+    discoverActive = true;
+    discoverActiveTag = tag;
+    discoverUntilMs = Time::getMillis() + windowMs;
+    discoverCount = 0;
+    LOG_INFO("MeshCore discover scan started (%lums, filter 0x%02X)", (unsigned long)windowMs, (unsigned)filterMask);
+    return true;
+}
+
+size_t MeshCoreRepeater::finishDiscover(DiscoveredPeer *out, size_t max)
+{
+    size_t copied = 0;
+    if (out) {
+        for (size_t i = 0; i < discoverCount && copied < max; i++)
+            out[copied++] = discoverTable[i];
+    }
+    discoverActive = false;
+    discoverActiveTag = 0;
+    discoverUntilMs = 0;
+    discoverCount = 0;
+    return copied;
+}
+
+void MeshCoreRepeater::handleDiscoverResponse(const uint8_t *raw, const FrameInfo &info, float snr)
+{
+    if (!discoverActive || Time::getMillis() > discoverUntilMs) {
+        if (discoverActive) { // the window ran out with nobody closing the scan: end it here
+            discoverActive = false;
+            discoverActiveTag = 0;
+        }
+        return;
+    }
+
+    // NODE_DISCOVER_RESP: type|node type, the request SNR x4, the request tag, then the responder key.
+    const uint8_t *resp = &raw[info.header_len];
+    if (info.payload_len < 6 || (resp[0] & 0xF0) != MC_CTL_DISCOVER_RESP)
+        return;
+    uint32_t tag = 0;
+    memcpy(&tag, &resp[2], 4);
+    if (tag != discoverActiveTag)
+        return;
+
+    const size_t keyLen = (size_t)info.payload_len - 6;
+    if (keyLen < 8) // a prefix is not enough to know who answered
+        return;
+    if (keyLen < MC_PUB_KEY_SIZE)
+        return; // MeshCore's own initiator drops prefix-only answers too
+
+    uint8_t pub[MC_PUB_KEY_SIZE];
+    memcpy(pub, &resp[6], MC_PUB_KEY_SIZE);
+    if ((hasIdentityKey && memcmp(pub, identityPub, MC_PUB_KEY_SIZE) == 0) ||
+        (hasAliasKey && memcmp(pub, aliasPub, MC_PUB_KEY_SIZE) == 0))
+        return; // our own answer heard back
+
+    DiscoveredPeer *slot = nullptr;
+    for (size_t i = 0; i < discoverCount; i++) {
+        if (memcmp(discoverTable[i].pub, pub, MC_PUB_KEY_SIZE) == 0) {
+            slot = &discoverTable[i]; // same peer answering again: refresh in place
+            break;
+        }
+    }
+    if (!slot) {
+        if (discoverCount >= DISCOVER_RESULTS_MAX)
+            return;
+        slot = &discoverTable[discoverCount++];
+        memcpy(slot->pub, pub, MC_PUB_KEY_SIZE);
+    }
+    slot->type = resp[0] & 0x0F;
+    slot->snrX4 = (int8_t)resp[1];
+    slot->rxSnr = snr;
+    slot->atMs = Time::getMillis();
 }
 
 #endif // MESHTASTIC_ENABLE_MESHCORE_SNIFFER

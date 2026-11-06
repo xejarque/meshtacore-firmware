@@ -174,7 +174,9 @@ private:
     void seedHibernatingFromRtc();
     void handleHealthCommand();
     // /nexus MESHCORE [INFO|STATS|RELAY|ADVERT|RESET] (NexusMeshCoreCommand.cpp): the MeshCore relay and ADVERT settings.
-    void handleMeshCoreCommand(const char *args, char *reply, size_t replyLen);
+    // mp/replyId are only needed by the commands that answer later (DESCUBRIR); the rest ignore them.
+    void handleMeshCoreCommand(const char *args, char *reply, size_t replyLen, const meshtastic_MeshPacket *mp = nullptr,
+                               uint32_t replyId = 0, bool toPhoneOnly = false);
     // /nexus MESHCORE REGION [...] or /nexus REGION [...] (NexusMeshCoreCommand.cpp): MeshCore region management.
     void handleRegionCommand(const char *args, char *reply, size_t replyLen);
     // The MeshCore settings follow SAVE and LOAD, in their own flash file.
@@ -184,6 +186,12 @@ private:
     void formatNeighbors(char *reply, size_t replyLen);
     // /nexus MESHCORE VECINOS: direct MeshCore neighbours.
     void formatMeshCoreNeighbors(char *reply, size_t replyLen);
+    // /nexus MESHCORE DESCUBRIR [secs]: send a zero-hop NODE_DISCOVER_REQ and collect the answers.
+    void handleMeshCoreDiscoverCommand(const char *args, char *reply, size_t replyLen);
+    // /nexus MESHCORE FAV <hex_prefix> [ON|OFF]: keep a MeshCore contact across restarts.
+    void handleMeshCoreFavCommand(const char *args, char *reply, size_t replyLen);
+    // Called from runOnce() when the discovery window closes: stores the answers and replies to the requester.
+    void finishMeshCoreDiscover();
     // Format MeshCore PPING reply (NexusMeshCoreCommand.cpp)
     bool isMeshCoreBotChannel(uint32_t channel);
     bool isMeshCorePing(const meshtastic_MeshPacket &mp, bool isPingDM);
@@ -553,6 +561,11 @@ public:
         bool copyToPhone = true;
     };
     ReplyContext traceReply, netscanReply, clientscanReply, noiseReply;
+    // /nexus MESHCORE DESCUBRIR: where the delayed neighbour listing goes once the scan window closes.
+    ReplyContext meshCoreDiscoverReply;
+    bool meshCoreDiscoverPending = false;
+    uint32_t meshCoreDiscoverUntil = 0;
+    uint32_t meshCoreDiscoverWindowMs = 0;
     bool sendReply(const ReplyContext &context, const char *message, size_t length, bool reliable = true);
 
     // Trace context
