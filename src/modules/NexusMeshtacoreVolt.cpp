@@ -124,12 +124,18 @@ bool parseAction(const char *token, uint8_t *action)
 }
 
 // Copies the next space-delimited word into `out` and returns the pointer after it and the spaces that follow.
+// A word that does not fit yields an empty `out`, so callers reject it instead of parsing the leftover as the next token.
 const char *takeWord(const char *p, char *out, size_t outSize)
 {
     size_t length = 0;
     while (*p && *p != ' ' && length < outSize - 1)
         out[length++] = *p++;
     out[length] = '\0';
+    if (*p && *p != ' ') {
+        out[0] = '\0';
+        while (*p && *p != ' ')
+            p++;
+    }
     while (*p == ' ')
         p++;
     return p;
