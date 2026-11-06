@@ -2,6 +2,7 @@
 #include "MeshCoreRegionMap.h"
 #include <ErriezCRC32.h>
 #include <SHA256.h>
+#include <algorithm>
 #include <stdio.h>
 #include <stdlib.h>
 #include <strings.h>
@@ -67,13 +68,13 @@ RegionEntry *MeshCoreRegionMap::putRegion(const char *name, uint16_t parent_id, 
 
     RegionEntry *region = findByName(name);
     if (region) {
-        if (region->id == parent_id || region->id == 0)
+        if (region->id == 0 || isSelfOrDescendant(parent_id, region->id))
             return nullptr;
         region->parent = parent_id;
         return region;
     }
 
-    if (id == 0 && num_regions >= MAX_REGION_ENTRIES)
+    if (num_regions >= MAX_REGION_ENTRIES)
         return nullptr;
 
     region = &regions[num_regions++];
@@ -86,6 +87,20 @@ RegionEntry *MeshCoreRegionMap::putRegion(const char *name, uint16_t parent_id, 
     region->name[sizeof(region->name) - 1] = '\0';
     region->parent = parent_id;
     return region;
+}
+
+bool MeshCoreRegionMap::isSelfOrDescendant(uint16_t candidate_id, uint16_t ancestor_id) const
+{
+    // Bounded walk: an existing cycle must not hang the check.
+    for (int hops = 0; candidate_id != 0 && hops <= MAX_REGION_ENTRIES; hops++) {
+        if (candidate_id == ancestor_id)
+            return true;
+        const RegionEntry *r = findById(candidate_id);
+        if (!r)
+            return false;
+        candidate_id = r->parent;
+    }
+    return candidate_id != 0;
 }
 
 void MeshCoreRegionMap::getAutoKeyFor(uint16_t id, const char *name, MeshCoreTransportKey &dest) const
@@ -317,7 +332,7 @@ void MeshCoreRegionMap::printChildRegions(int indent, const RegionEntry *parent,
     int n = snprintf(line + lineLen, sizeof(line) - lineLen, "%s%s%s%s\n", skipHash(parent->name), isHome ? "^" : "",
                      isDefault ? "*" : "", allowFlood ? " F" : "");
     if (n > 0)
-        lineLen += n;
+        lineLen += std::min(n, (int)sizeof(line) - 1 - lineLen); // snprintf reports the untruncated length
 
     if (pos + lineLen < max_len) {
         memcpy(buf + pos, line, lineLen);

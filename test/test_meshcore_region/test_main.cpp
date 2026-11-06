@@ -15,11 +15,11 @@
 // - Bulk definition (processDef) segment parsing and cursor jumps.
 // - Tree export formatting with line boundaries and home/default indicators.
 // - Binary serialization CRC integrity and round-trip fidelity.
-#include "mesh/MeshCoreRegionMap.cpp"
 #include "mesh/MeshCoreRegionMap.h"
 
 #include "Arduino.h"
 #include "TestUtil.h"
+#include <SHA256.h>
 #include <unity.h>
 
 static void test_put_region_hierarchy_and_limits()
@@ -53,6 +53,61 @@ static void test_put_region_hierarchy_and_limits()
     }
     TEST_ASSERT_EQUAL_INT(MAX_REGION_ENTRIES, map.getCount());
     TEST_ASSERT_NULL(map.putRegion("OVERFLOW", 0));
+}
+
+// An explicit id used to skip the capacity check and write regions[MAX_REGION_ENTRIES].
+static void test_put_region_explicit_id_respects_capacity()
+{
+    MeshCoreRegionMap map;
+    for (int i = 0; i < MAX_REGION_ENTRIES; i++) {
+        char name[16];
+        snprintf(name, sizeof(name), "REG%d", i);
+        TEST_ASSERT_NOT_NULL(map.putRegion(name, 0));
+    }
+    TEST_ASSERT_NULL(map.putRegion("EXTRA", 0, 500));
+    TEST_ASSERT_EQUAL_INT(MAX_REGION_ENTRIES, map.getCount());
+}
+
+// Re-parenting a region under its own descendant would detach both from the tree for good.
+static void test_put_region_rejects_parent_cycle()
+{
+    MeshCoreRegionMap map;
+    RegionEntry *a = map.putRegion("A", 0);
+    RegionEntry *b = map.putRegion("B", a->id);
+    RegionEntry *c = map.putRegion("C", b->id);
+
+    TEST_ASSERT_NULL(map.putRegion("A", b->id));
+    TEST_ASSERT_NULL(map.putRegion("A", c->id));
+    TEST_ASSERT_EQUAL_UINT16(0, a->parent);
+
+    // Moving to an unrelated parent is still allowed.
+    RegionEntry *d = map.putRegion("D", 0);
+    TEST_ASSERT_NOT_NULL(map.putRegion("C", d->id));
+    TEST_ASSERT_EQUAL_UINT16(d->id, c->parent);
+}
+
+// A deep chain fills the 64-byte line with indent; the copy must never exceed it.
+static void test_tree_export_deep_chain_stays_bounded()
+{
+    MeshCoreRegionMap map;
+    uint16_t parent = 0;
+    for (int i = 0; i < MAX_REGION_ENTRIES; i++) {
+        char name[31];
+        snprintf(name, sizeof(name), "R%02dXXXXXXXXXXXXXXXXXXXXXXXXX", i);
+        RegionEntry *r = map.putRegion(name, parent);
+        TEST_ASSERT_NOT_NULL(r);
+        parent = r->id;
+    }
+    char tree[4096];
+    size_t len = map.exportTo(tree, sizeof(tree));
+    TEST_ASSERT_EQUAL_size_t(strlen(tree), len);
+    const char *line = tree;
+    while (*line) {
+        const char *nl = strchr(line, '\n');
+        size_t lineLen = nl ? (size_t)(nl - line) : strlen(line);
+        TEST_ASSERT_TRUE(lineLen < 64);
+        line = nl ? nl + 1 : line + lineLen;
+    }
 }
 
 static void test_remove_region_rules()
@@ -272,6 +327,9 @@ void setup()
     initializeTestEnvironment();
     UNITY_BEGIN();
     RUN_TEST(test_put_region_hierarchy_and_limits);
+    RUN_TEST(test_put_region_explicit_id_respects_capacity);
+    RUN_TEST(test_put_region_rejects_parent_cycle);
+    RUN_TEST(test_tree_export_deep_chain_stays_bounded);
     RUN_TEST(test_remove_region_rules);
     RUN_TEST(test_find_by_name_and_prefix);
     RUN_TEST(test_transport_key_and_code_calculation);

@@ -58,6 +58,8 @@ class MeshCoreRegionMap
     const RegionEntry *findByNamePrefix(const char *prefix) const;
     RegionEntry *findById(uint16_t id);
     const RegionEntry *findById(uint16_t id) const;
+    /// True when candidate_id is ancestor_id or one of its descendants (re-parenting would make a cycle).
+    bool isSelfOrDescendant(uint16_t candidate_id, uint16_t ancestor_id) const;
 
     RegionEntry *getHomeRegion();
     const RegionEntry *getHomeRegion() const;
