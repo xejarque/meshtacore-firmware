@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
-// Meshtacore additions to the /nexus CLI: RESCUE, CHEM, STORM, SETURL, PUBSILENCE, VWAKE, VOLT and MESHCORE. They live here, not
+// Meshtacore additions to the /nexus CLI: RESCUE, CHEM, STORM, URL, PUBSILENCE, VWAKE, VOLT and MESHCORE. They live here, not
 // in NexusCommands.cpp, so a merge of the jentastic upstream does not collide with them: the dispatch chain in
 // handleNexusCommand() carries a single call to handleMeshtacoreCommand().
 
@@ -46,7 +46,7 @@ bool NexusModule::handleMeshtacoreCommand(const meshtastic_MeshPacket &mp, uint3
         // /nexus RESCUE [SHOW]: the copy restored after a factory reset or a wiped /prefs.
         NexusRescue::describe(replyMsg, sizeof(replyMsg));
     } else if (strcasecmp(cmd, "RESCUE CLEAR") == 0) {
-        snprintf(replyMsg, sizeof(replyMsg), "JT: RESCUE %s", NexusRescue::clear() ? "copy deleted" : "delete failed");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: RESCUE %s", NexusRescue::clear() ? "copy deleted" : "delete failed");
     } else if (strcasecmp(cmd, "RESCUE SAVE") == 0) {
         NexusRescue::snapshot();
         NexusRescue::describe(replyMsg, sizeof(replyMsg));
@@ -56,13 +56,13 @@ bool NexusModule::handleMeshtacoreCommand(const meshtastic_MeshPacket &mp, uint3
     } else if (strncasecmp(cmd, "STORM ", 6) == 0 || strcasecmp(cmd, "STORM") == 0) {
         // /nexus STORM <minutes 1-1440>|OFF: radio off and deep sleep, then reboot.
         handleStormCommand(cmd[5] ? cmd + 6 : "");
-    } else if (strncasecmp(cmd, "SETURL ", 7) == 0) {
-        // /nexus SETURL <channel URL>: merge the shared channels by name, keep Nexus channels and TX power.
+    } else if (isCommandWord(cmd, "URL")) {
+        // /nexus URL <channel URL>: merge the shared channels by name, keep Nexus channels and TX power.
         // The command buffer keeps 127 bytes: a URL that fills it was cut and must not half-apply.
         if (strlen(this->cmdBuf) >= sizeof(this->cmdBuf) - 1) // the whole message, prefix included, filled it
-            snprintf(replyMsg, sizeof(replyMsg), "JT: SETURL URL too long for one command");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: URL URL too long for one command");
         else
-            handleSetUrlCommand(cmd + 7);
+            handleSetUrlCommand(skipToken(cmd));
     } else if (strncasecmp(cmd, "PUBSILENCE ", 11) == 0 || strcasecmp(cmd, "PUBSILENCE") == 0) {
         // /nexus PUBSILENCE [ON|OFF]: no ACKs, replies or unicast NodeInfo from us on public-key channels.
         const char *p = cmd[10] ? cmd + 11 : "";
@@ -71,11 +71,11 @@ bool NexusModule::handleMeshtacoreCommand(const meshtastic_MeshPacket &mp, uint3
         const bool enable = (strcasecmp(p, "ON") == 0 || strcasecmp(p, "1") == 0);
         const bool disable = (strcasecmp(p, "OFF") == 0 || strcasecmp(p, "0") == 0);
         if (*p && !enable && !disable) {
-            snprintf(replyMsg, sizeof(replyMsg), "JT: PUBSILENCE expects ON or OFF");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: PUBSILENCE expects ON or OFF");
         } else {
             if (*p)
                 ext_flags = enable ? (ext_flags | EXT_FLAG_PUBLIC_SILENCE) : (ext_flags & ~EXT_FLAG_PUBLIC_SILENCE);
-            snprintf(replyMsg, sizeof(replyMsg), "JT: Public channel silence %s",
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Public channel silence %s",
                      (ext_flags & EXT_FLAG_PUBLIC_SILENCE) ? "ON" : "OFF");
         }
     } else if (strncasecmp(cmd, "VWAKE ", 6) == 0 || strcasecmp(cmd, "VWAKE") == 0) {
@@ -98,7 +98,7 @@ void NexusModule::handleVwakeCommand(const char *arg)
     while (*arg == ' ')
         arg++;
     if (!nrf52HasBatteryLpcompWake()) {
-        snprintf(replyMsg, sizeof(replyMsg), "JT: VWAKE not supported on this board");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: VWAKE not supported on this board");
         return;
     }
     if (strcasecmp(arg, "DEFAULT") == 0) {
@@ -108,7 +108,7 @@ void NexusModule::handleVwakeCommand(const char *arg)
         unsigned num = 0, den = 0;
         if (sscanf(arg, "%u/%u", &num, &den) != 2 || (den != 8 && den != 16) || num == 0 || num * (16 / den) >= 16 ||
             !nrf52SetBatteryLpcompWakeFraction(num, den)) {
-            snprintf(replyMsg, sizeof(replyMsg), "JT: VWAKE expects n/8 or n/16 below 1, or DEFAULT");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: VWAKE expects n/8 or n/16 below 1, or DEFAULT");
             return;
         }
         lpcomp_wake_ref = (uint8_t)(num * (16 / den));
@@ -117,13 +117,13 @@ void NexusModule::handleVwakeCommand(const char *arg)
     nrf52GetBatteryLpcompWakeFraction(&num, &den);
     const uint32_t mv = nrf52EstimateBatteryLpcompWakeMv();
     if (mv)
-        snprintf(replyMsg, sizeof(replyMsg), "JT: VWAKE %u/%u VDD%s (~%lu mV battery)", num, den,
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: VWAKE %u/%u VDD%s (~%lu mV battery)", num, den,
                  lpcomp_wake_ref ? "" : " default", (unsigned long)mv);
     else
-        snprintf(replyMsg, sizeof(replyMsg), "JT: VWAKE %u/%u VDD%s", num, den, lpcomp_wake_ref ? "" : " default");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: VWAKE %u/%u VDD%s", num, den, lpcomp_wake_ref ? "" : " default");
 #else
     (void)arg;
-    snprintf(replyMsg, sizeof(replyMsg), "JT: VWAKE not supported on this board");
+    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: VWAKE not supported on this board");
 #endif
 }
 
@@ -198,7 +198,7 @@ void NexusModule::handleSetUrlCommand(const char *url)
     memset(&set, 0, sizeof(set));
     if (nexus_base64_decode(buffer, sizeof(buffer), &dlen, url) != 0 ||
         !pb_decode_from_bytes(buffer, dlen, &meshtastic_ChannelSet_msg, &set) || set.settings_count == 0) {
-        snprintf(replyMsg, sizeof(replyMsg), "JT: SETURL could not decode the channel URL");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: URL could not decode the channel URL");
         return;
     }
 
@@ -233,7 +233,7 @@ void NexusModule::handleSetUrlCommand(const char *url)
         setIntervalFromNow(50);
         loraChanged = true;
     }
-    snprintf(replyMsg, sizeof(replyMsg), "JT: SETURL %d/%u channels%s.%s", applied, (unsigned)set.settings_count,
+    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: URL %d/%u channels%s.%s", applied, (unsigned)set.settings_count,
              loraChanged ? ", LoRa in 5s" : "", notes);
 }
 
@@ -244,12 +244,12 @@ void NexusModule::handleStormCommand(const char *arg)
     while (*arg == ' ')
         arg++;
     if (strcasecmp(arg, "OFF") == 0) {
-        snprintf(replyMsg, sizeof(replyMsg), "JT: STORM %s", stormPending ? "cancelled" : "not pending");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: STORM %s", stormPending ? "cancelled" : "not pending");
         stormPending = false;
         return;
     }
     if (!*arg) {
-        snprintf(replyMsg, sizeof(replyMsg), stormPending ? "JT: STORM pending, %lu min" : "JT: STORM idle",
+        snprintf(replyMsg, sizeof(replyMsg), stormPending ? "MESHTACORE: STORM pending, %lu min" : "MESHTACORE: STORM idle",
                  (unsigned long)stormSleepMinutes);
         return;
     }
@@ -257,13 +257,13 @@ void NexusModule::handleStormCommand(const char *arg)
     const bool minutesOk = parseUInt(arg, minutesU, STORM_MAX_MINUTES);
     const long minutes = (long)minutesU;
     if (!minutesOk || minutes < 1) {
-        snprintf(replyMsg, sizeof(replyMsg), "JT: STORM expects 1-%lu minutes or OFF", (unsigned long)STORM_MAX_MINUTES);
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: STORM expects 1-%lu minutes or OFF", (unsigned long)STORM_MAX_MINUTES);
         return;
     }
     stormSleepMinutes = (uint32_t)minutes;
     stormStartDeadlineMs = millis() + STORM_NOTICE_MS;
     stormPending = true;
-    snprintf(replyMsg, sizeof(replyMsg), "JT: STORM radio off for %ld min in 10 s (STORM OFF cancels)", minutes);
+    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: STORM radio off for %ld min in 10 s (STORM OFF cancels)", minutes);
 }
 
 void NexusModule::handleChemCommand(const char *arg)
@@ -276,12 +276,12 @@ void NexusModule::handleChemCommand(const char *arg)
             if (strcasecmp(arg, batteryChemistryName((BatteryChemistry)c)) == 0)
                 chosen = c;
         if (!setBatteryChemistry((BatteryChemistry)chosen)) {
-            snprintf(replyMsg, sizeof(replyMsg), "JT: CHEM expects VARIANT, LIPO, NIMH, SODIUM or LIFEPO4");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: CHEM expects VARIANT, LIPO, NIMH, SODIUM or LIFEPO4");
             return;
         }
         battery_chemistry = chosen;
     }
-    snprintf(replyMsg, sizeof(replyMsg), "JT: CHEM %s, full %u mV, cutoff %u mV per cell",
+    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: CHEM %s, full %u mV, cutoff %u mV per cell",
              batteryChemistryName((BatteryChemistry)battery_chemistry), activeBatteryOcv[0],
              activeBatteryOcv[NUM_OCV_POINTS - 1]);
 }
@@ -344,6 +344,6 @@ void NexusModule::handleHealthCommand()
     int32_t noise = (RadioLibInterface::instance) ? RadioLibInterface::instance->getAverageNoiseFloor() : -120;
 
     snprintf(replyMsg, sizeof(replyMsg),
-             "MTC HEALTH:\nUp: %s\nBoot: %s\nBat: %s\nHeap: %s\nTemp: %.1fC\nChU: %.1f%% TxU: %.1f%% Noise: %ddBm", upBuf,
+             "MESHTACORE HEALTH:\nUp: %s\nBoot: %s\nBat: %s\nHeap: %s\nTemp: %.1fC\nChU: %.1f%% TxU: %.1f%% Noise: %ddBm", upBuf,
              bootBuf, batBuf, heapBuf, temp, chUtil, txUtil, (int)noise);
 }

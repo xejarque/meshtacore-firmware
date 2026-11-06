@@ -8,7 +8,7 @@
     </title>
     <meta
       name="description"
-      content="Documentación exhaustiva y referencia completa de comandos Nexus / MTC (+100 comandos), configuración de MeshCore híbrido, firewall, Zero-Hop, perfiles de batería y utilidades para Meshtacore."
+      content="Documentación exhaustiva y referencia completa de comandos Nexus / MESHTACORE (+100 comandos), configuración de MeshCore híbrido, firewall, Zero-Hop, perfiles de batería y utilidades para Meshtacore."
     />
     <link rel="icon" type="image/svg+xml" href="../logo.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -93,7 +93,7 @@
         </div>
 
         <div class="sidebar-category">
-          <div class="sidebar-cat-title">Comandos Nexus & MTC</div>
+          <div class="sidebar-cat-title">Comandos Nexus & MESHTACORE</div>
           <ul class="sidebar-menu">
             <li><a href="#sec-1">§1 Canales & Invocaciones</a></li>
             <li><a href="#sec-2">§2 Información & Ayuda</a></li>
@@ -135,7 +135,7 @@
             repetidores solares y redes de emergencia. Incorpora la tecnología
             <strong>Dual-Mesh</strong> para escuchar simultáneamente Meshtastic
             y MeshCore en el mismo chip SX126x y el motor de consola remota
-            <strong>Nexus / MTC</strong>
+            <strong>Nexus / MESHTACORE</strong>
             con más de 100 comandos ejecutables por radio.
           </p>
 
@@ -326,7 +326,7 @@
                     específica del tema (ej. <code>HELP DROPS</code>,
                     <code>HELP FW</code>, <code>HELP SKEY</code>).
                   </td>
-                  <td><code>MTC: Paging help categories...</code></td>
+                  <td><code>MESHTACORE: Paging help categories...</code></td>
                 </tr>
                 <tr class="cmd-row">
                   <td>
@@ -339,7 +339,7 @@
                   </td>
                   <td>
                     <code
-                      >MTC INFO: !3f2a89c1 [MTC1] Ver:2.8.104 (rak4631)
+                      >MESHTACORE INFO: !3f2a89c1 [MTC1] Ver:2.8.104 (rak4631)
                       Role:ROUTER MAC:aa:bb:cc:dd:ee:ff</code
                     >
                   </td>
@@ -352,7 +352,9 @@
                   <td>
                     Devuelve la cadena textual completa de versión del firmware.
                   </td>
-                  <td><code>MTC VERSION: meshtacore-beta-2.8.104</code></td>
+                  <td>
+                    <code>MESHTACORE VERSION: meshtacore-beta-2.8.104</code>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -421,25 +423,25 @@
                     Muestra la lista de todos los filtros entrantes actualmente
                     activos.
                   </td>
-                  <td><code>MTC ACTIVE DROPS: TR PO TL BRNI</code></td>
+                  <td><code>MESHTACORE ACTIVE DROPS: TR PO TL BRNI</code></td>
                 </tr>
                 <tr class="cmd-row">
                   <td><span class="cmd-badge">OUTDROPS</span></td>
                   <td><code>OUTDROPS</code></td>
                   <td>Muestra los filtros salientes activos.</td>
-                  <td><code>MTC ACTIVE OUTDROPS: PO</code></td>
+                  <td><code>MESHTACORE ACTIVE OUTDROPS: PO</code></td>
                 </tr>
                 <tr class="cmd-row">
                   <td>
                     <span class="cmd-badge">HEXDROPS</span> /
-                    <code>SETHEX</code>
+                    <code>HEX</code>
                   </td>
-                  <td><code>SETHEX &lt;hex64&gt;</code></td>
+                  <td><code>HEX &lt;hex64&gt;</code></td>
                   <td>
                     Lee o programa toda la máscara de 64 bits de drops en una
                     sola operación.
                   </td>
-                  <td><code>SETHEX 0x0000000000000001</code></td>
+                  <td><code>HEX 0x0000000000000001</code></td>
                 </tr>
                 <tr class="cmd-row">
                   <td>
@@ -906,16 +908,15 @@
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><span class="cmd-badge">SETLORA</span></td>
+                  <td><span class="cmd-badge">LORA</span></td>
                   <td>
                     <code
-                      >SETLORA &lt;sf&gt; &lt;bw&gt; &lt;cr&gt;
-                      &lt;freq&gt;</code
+                      >LORA &lt;sf&gt; &lt;bw&gt; &lt;cr&gt; &lt;freq&gt;</code
                     >
                   </td>
                   <td>
                     Ajusta parámetros de modulación en caliente (se aplica tras
-                    5s). Ej: <code>SETLORA 7 62 5 869.618</code>.
+                    5s). Ej: <code>LORA 7 62 5 869.618</code>.
                   </td>
                 </tr>
                 <tr class="cmd-row">
@@ -928,19 +929,19 @@
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><span class="cmd-badge">SETPOWER</span></td>
-                  <td><code>SETPOWER &lt;dBm&gt;</code></td>
+                  <td><span class="cmd-badge">POWER</span></td>
+                  <td><code>POWER &lt;dBm&gt;</code></td>
                   <td>
                     Ajusta la potencia de transmisión de salida (ej:
-                    <code>SETPOWER 22</code>).
+                    <code>POWER 22</code>).
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><span class="cmd-badge">SETSYNCWORD</span></td>
-                  <td><code>SETSYNCWORD &lt;hex|RESET&gt;</code></td>
+                  <td><span class="cmd-badge">SYNCWORD</span></td>
+                  <td><code>SYNCWORD &lt;hex|RESET&gt;</code></td>
                   <td>
                     Sobrescribe la palabra de sincronismo (ej:
-                    <code>SETSW 0x14B4</code>).
+                    <code>SW 0x14B4</code>).
                   </td>
                 </tr>
                 <tr class="cmd-row">
@@ -952,8 +953,8 @@
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><span class="cmd-badge">SETREBROADCAST</span></td>
-                  <td><code>SETREBROADCAST &lt;modo&gt;</code></td>
+                  <td><span class="cmd-badge">REBROADCAST</span></td>
+                  <td><code>REBROADCAST &lt;modo&gt;</code></td>
                   <td>
                     Define la política de retransmisión: <code>ALL</code>,
                     <code>LOCAL_ONLY</code>, <code>KNOWN_ONLY</code> o
@@ -970,9 +971,9 @@
                 </tr>
                 <tr class="cmd-row">
                   <td>
-                    <span class="cmd-badge">ROLE</span> / <code>SETROLE</code>
+                    <span class="cmd-badge">ROLE</span> / <code>ROLE</code>
                   </td>
-                  <td><code>SETROLE &lt;rol&gt;</code></td>
+                  <td><code>ROLE &lt;rol&gt;</code></td>
                   <td>
                     Consulta o cambia el rol del nodo: <code>CLIENT</code>,
                     <code>CLIENT_MUTE</code>, <code>ROUTER</code>,
@@ -981,9 +982,9 @@
                 </tr>
                 <tr class="cmd-row">
                   <td>
-                    <span class="cmd-badge">SETFSK</span> / <code>SETFLRC</code>
+                    <span class="cmd-badge">FSK</span> / <code>FLRC</code>
                   </td>
-                  <td><code>SETFSK &lt;br&gt; [dev] [bw]</code></td>
+                  <td><code>FSK &lt;br&gt; [dev] [bw]</code></td>
                   <td>
                     Cambia experimentalmente la modulación de LoRa a FSK/GFSK o
                     FLRC para pruebas punto a punto.
@@ -1342,13 +1343,13 @@
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><span class="cmd-badge">SETCHNAME</span></td>
-                  <td><code>SETCHNAME &lt;idx&gt; &lt;nombre&gt;</code></td>
+                  <td><span class="cmd-badge">CHNAME</span></td>
+                  <td><code>CHNAME &lt;idx&gt; &lt;nombre&gt;</code></td>
                   <td>Renombra un canal (protege los canales confiables).</td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><span class="cmd-badge">SETCHPSK</span></td>
-                  <td><code>SETCHPSK &lt;idx&gt; &lt;clave_b64&gt;</code></td>
+                  <td><span class="cmd-badge">CHPSK</span></td>
+                  <td><code>CHPSK &lt;idx&gt; &lt;clave_b64&gt;</code></td>
                   <td>
                     Actualiza la clave criptográfica de un canal mediante
                     Base64.
@@ -1373,8 +1374,8 @@
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><span class="cmd-badge">SETCONFIG</span></td>
-                  <td><code>SETCONFIG &lt;param&gt; &lt;val&gt;</code></td>
+                  <td><span class="cmd-badge">CONFIG</span></td>
+                  <td><code>CONFIG &lt;param&gt; &lt;val&gt;</code></td>
                   <td>
                     Modifica intervalos: <code>NI</code>, <code>TEL_D</code>,
                     <code>TEL_E</code>, <code>POS</code>, <code>SMART</code>,
@@ -1680,11 +1681,9 @@
               <tbody>
                 <tr class="cmd-row">
                   <td>
-                    <span class="cmd-badge">TIME</span> / <code>SETTIME</code>
+                    <span class="cmd-badge">TIME</span> / <code>TIME</code>
                   </td>
-                  <td>
-                    <code>TIME</code> / <code>SETTIME &lt;epoch&gt;</code>
-                  </td>
+                  <td><code>TIME</code> / <code>TIME &lt;epoch&gt;</code></td>
                   <td>
                     Consulta o ajusta manualmente el reloj de tiempo real (RTC).
                   </td>
@@ -2094,7 +2093,7 @@
                   <td>Índice de ayuda y manual de comandos interactivo</td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><code>HEXDROPS / SETHEX</code></td>
+                  <td><code>HEXDROPS / HEX</code></td>
                   <td>§3 Firewall</td>
                   <td>
                     Lectura y programación de máscaras de filtrado en
@@ -2308,7 +2307,7 @@
                   <td>Eliminación de archivos en almacenamiento local</td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><code>ROLE / SETROLE</code></td>
+                  <td><code>ROLE / ROLE</code></td>
                   <td>§7 Radio</td>
                   <td>Consulta o cambio de rol de funcionamiento del nodo</td>
                 </tr>
@@ -2335,34 +2334,34 @@
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><code>SETCHNAME / SETCHPSK</code></td>
+                  <td><code>CHNAME / CHPSK</code></td>
                   <td>§12 Canales</td>
                   <td>Configuración de nombre y clave de cifrado de canales</td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><code>SETCONFIG</code></td>
+                  <td><code>CONFIG</code></td>
                   <td>§12 Canales</td>
                   <td>
                     Ajuste de intervalos de transmisión de telemetría y posición
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><code>SETFSK / SETFLRC</code></td>
+                  <td><code>FSK / FLRC</code></td>
                   <td>§7 Radio</td>
                   <td>Activación experimental de modulaciones FSK o FLRC</td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><code>SETLORA</code></td>
+                  <td><code>LORA</code></td>
                   <td>§7 Radio</td>
                   <td>Ajuste de SF, ancho de banda y frecuencia en directo</td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><code>SETPOWER</code></td>
+                  <td><code>POWER</code></td>
                   <td>§7 Radio</td>
                   <td>Ajuste de potencia de salida de transmisión en dBm</td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><code>SETSYNCWORD</code></td>
+                  <td><code>SYNCWORD</code></td>
                   <td>§7 Radio</td>
                   <td>Sobrescribe la palabra de sincronismo del módem</td>
                 </tr>
@@ -2403,7 +2402,7 @@
                   <td>Emisión de texto en canal general o secundario</td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><code>TIME / SETTIME</code></td>
+                  <td><code>TIME / TIME</code></td>
                   <td>§16 Sistema</td>
                   <td>
                     Fecha, hora UTC y sincronización de reloj en tiempo real

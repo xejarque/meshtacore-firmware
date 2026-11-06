@@ -106,12 +106,12 @@ This document details the architectural root causes that caused `-local` to fail
 
 4. **Empty Command Fallback (`src/modules/NexusCommands.cpp`):**
    If an operator sends `/nexus` or `/nexus-local` without arguments (`*cmd == '\0'`), the firmware now responds with:
-   `JT: Ready. Send HELP for command list.`
-   instead of the confusing `JT: Unknown command ''`.
+   `MESHTACORE: Ready. Send HELP for command list.`
+   instead of the confusing `MESHTACORE: Unknown command ''`.
 
 5. **Helpful Mesh Rejection Notice (`src/modules/NexusModule.cpp`):**
    If a remote node sends `/nexus-local` over RF, unless `SILENT_LOG` is active, the node replies back over the mesh with:
-   `JT SECURITY: -local prefix is for local interface only. Use -node over mesh.`
+   `MESHTACORE SECURITY: -local prefix is for local interface only. Use -node over mesh.`
 
 ---
 

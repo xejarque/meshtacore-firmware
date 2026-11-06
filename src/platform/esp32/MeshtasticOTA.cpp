@@ -132,7 +132,7 @@ void getInfo(char *buf, size_t bufSize)
 
     const esp_partition_t *part = getAppPartition();
     if (part == NULL) {
-        // Body only: the "JT WiFiOTA Info:" title is supplied by startPaging()
+        // Body only: the "MESHTACORE WiFiOTA Info:" title is supplied by startPaging()
         // at the call site in NexusModule.cpp. Don't repeat it here. See
         // Commit 42.
         snprintf(buf, bufSize,

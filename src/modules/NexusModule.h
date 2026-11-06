@@ -58,7 +58,7 @@ static constexpr uint64_t FEATURE_DISABLE_AGC_RESET            = (1ULL << 2);
 //                                         clampToLateRebroadcastWindow() block in
 //                                         FloodingRouter::perhapsCancelDupe() for
 //                                         favorited from/to packets. Off (default)
-//                                         = JT behavior: client/router window.
+//                                         = MESHTACORE behavior: client/router window.
 static constexpr uint64_t FEATURE_LATEBASE                     = (1ULL << 3);
 
 // Nexus v67 nexusVariantBits carve-out. Each variant that needs persisted
@@ -283,7 +283,7 @@ public:
     //
     // Bit 2 — SILENT_LOG: when ON, packets rejected by REQ_SIG /
     //   ALLOW_DM are silently logged (LOG_WARN) and dropped without
-    //   any reply. When OFF, the operator receives a 'JT: SECURITY: ...'
+    //   any reply. When OFF, the operator receives a 'MESHTACORE: SECURITY: ...'
     //   reply explaining why their command was rejected (useful for
     //   debugging, lets an attacker probe the bitmask state).
     //   Off-by-default to favor operator UX. Operators wanting
@@ -924,7 +924,7 @@ public:
     uint16_t preamble_override = 0;   // v35: RAM preamble override (0 = default)
     uint8_t syncword_override = 0;    // v40: RAM syncword override (0 = Meshtastic default 0x2B)
 
-    // Nexus SETFSK/SETFLRC (research 2026-10-09; Jenny rulings 2026-10-14): RAM-only
+    // Nexus FSK/FLRC (research 2026-10-09; Jenny rulings 2026-10-14): RAM-only
     // alternate-modem state. mode: 0 = LoRa (disabled), 1 = FSK/GFSK, 2 = FLRC.
     // NOT vaulted (RAM-only ruling) and re-read on every applyModemConfig() /
     // programModemParams() so it persists until explicitly disabled
@@ -1357,7 +1357,7 @@ private:
 
     // Returns true if `id` was already in the ring (replay). On a miss, the
     // id is recorded (evicting oldest when full). Caller skips dispatch on
-    // true and replies with JT SECURITY: replay detected — ... .
+    // true and replies with MESHTACORE SECURITY: replay detected — ... .
     bool checkReplay(uint32_t id);
 
     void getRelayNames(char *buf, size_t bufSize, uint8_t suffix);

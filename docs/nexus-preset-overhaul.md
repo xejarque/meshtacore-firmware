@@ -11,7 +11,7 @@
 
 ## 1. Executive Summary
 
-The `PRESET` / `SETPRESET` command handler in `src/modules/NexusCommands.cpp` has been completely overhauled:
+The `PRESET` / `PRESET` command handler in `src/modules/NexusCommands.cpp` has been completely overhauled:
 
 1. **2.4 GHz Preset Support (`LORA_24`):**
    - Added custom tactical preset **`Madrid24`** (`2482.0000 MHz`, BW 400 kHz, SF9, CR 4/5, region `LORA_24`).
@@ -37,9 +37,9 @@ The `PRESET` / `SETPRESET` command handler in `src/modules/NexusCommands.cpp` ha
 5. **Bidirectional Multi-Band Hardware Guard (with Dual-Band Exception):**
    - If a radio is single-band (e.g. SX1262, SX1280, LLCC68, RF95):
      - On `LORA_24`, setting any Sub-GHz preset (`EU_868`, `EU_866`, `EU_N_868`) is blocked with:  
-       `JT: Cannot set Sub-GHz preset on LORA_24 (single-band radio).`
+       `MESHTACORE: Cannot set Sub-GHz preset on LORA_24 (single-band radio).`
      - On Sub-GHz (`EU_868`, `EU_866`, `EU_N_868`, or unset), setting any 2.4 GHz preset (`Madrid24` or `LORA_24`) is blocked with:  
-       `JT: Cannot set 2.4GHz preset on Sub-GHz region (single-band radio).`
+       `MESHTACORE: Cannot set 2.4GHz preset on Sub-GHz region (single-band radio).`
    - **Hardware Exception:** If the transceiver is dual-band (**`radioType == LR1121_RADIO`** or **`LR2021_RADIO`**), the guard is bypassed, allowing seamless live transitions between 2.4 GHz and Sub-GHz!
 
 ---

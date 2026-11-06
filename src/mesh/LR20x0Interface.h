@@ -28,7 +28,7 @@ template <class T> class LR20x0Interface : public RadioLibInterface
     /// \return true if initialisation succeeded.
     virtual bool reconfigure() override;
 
-    // Nexus SETFSK/SETFLRC (Phase 2): GFSK + FLRC programming for LR2021 (X1, sub-GHz FLRC).
+    // Nexus FSK/FLRC (Phase 2): GFSK + FLRC programming for LR2021 (X1, sub-GHz FLRC).
     int16_t programAltModemFSK();
     int16_t programAltModemFLRC();
     uint8_t altModemCaps() const override { return 0x03; } // FSK + FLRC

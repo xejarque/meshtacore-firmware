@@ -37,7 +37,7 @@ class LR2021Interface : public LR20x0Interface<LR2021>
 
     // Apply the stored side-detector table to the chip. Called from all
     // three reconfiguration paths in LR20x0Interface (init, reconfigure,
-    // fullBegin) so /nexus SETLORA re-programs the side detector no matter
+    // fullBegin) so /nexus LORA re-programs the side detector no matter
     // which internal code path setlora triggers (band-hop via fullBegin,
     // same-band via per-parameter setters, or recovery via fullBegin).
     // No-op when sideDetectorsCount() == 0 (boot default). If the chip

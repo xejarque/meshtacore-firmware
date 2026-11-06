@@ -5,7 +5,7 @@
 #include "error.h"
 #include "main.h"
 #include "mesh/NodeDB.h"
-#include "modules/NexusModule.h" // Nexus SETFSK/SETFLRC: altModem state (Phase 2: SX128x)
+#include "modules/NexusModule.h" // Nexus FSK/FLRC: altModem state (Phase 2: SX128x)
 
 #if ARCH_PORTDUINO
 #include "PortduinoGlue.h"
@@ -226,7 +226,7 @@ template <typename T> int16_t SX128xInterface<T>::programAltModemFLRC()
 
 template <typename T> int16_t SX128xInterface<T>::programModemParams()
 {
-    // Nexus SETFSK/SETFLRC (Phase 2): alt modem armed -> program GFSK/FLRC instead of
+    // Nexus FSK/FLRC (Phase 2): alt modem armed -> program GFSK/FLRC instead of
     // LoRa; re-read on every reconfigure (persist-until-disabled ruling, 2026-10-14).
     if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode == 1) {
         return programAltModemFSK();
@@ -237,7 +237,7 @@ template <typename T> int16_t SX128xInterface<T>::programModemParams()
 
     // configure publicly accessible settings
     int16_t err = lora.setSpreadingFactor(sf);
-    // Nexus SETFSK/SETFLRC: Returning to LoRa from FSK/FLRC modem triggers RADIOLIB_ERR_WRONG_MODEM
+    // Nexus FSK/FLRC: Returning to LoRa from FSK/FLRC modem triggers RADIOLIB_ERR_WRONG_MODEM
     // because hardware packet type is still GFSK/FLRC. Re-init chip cleanly to restore LoRa
     // packet mode without triggering a spurious critical error.
     if (err == RADIOLIB_ERR_WRONG_MODEM) {
@@ -451,7 +451,7 @@ template <typename T> uint8_t SX128xInterface<T>::readChipState()
 template <typename T> void SX128xInterface<T>::addReceiveMetadata(meshtastic_MeshPacket *mp)
 {
     // LOG_DEBUG("PacketStatus %x", lora.getPacketStatus());
-    // Nexus SETFSK/SETFLRC: no chirp SNR in GFSK/FLRC — RSSI-based pseudo-SNR (2026-10-14).
+    // Nexus FSK/FLRC: no chirp SNR in GFSK/FLRC — RSSI-based pseudo-SNR (2026-10-14).
     if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
         mp->rx_snr = meshtastic::NexusModule::altPseudoSnr(lora.getRSSI());
     } else {
@@ -576,7 +576,7 @@ template <typename T> bool SX128xInterface<T>::isChannelActive()
                                        .timeout = 0,
                                        .irqFlags = RADIOLIB_IRQ_CAD_DEFAULT_FLAGS,
                                        .irqMask = RADIOLIB_IRQ_CAD_DEFAULT_MASK}};
-    // Nexus SETFSK/SETFLRC: no LoRa CAD in GFSK/FLRC — RSSI energy sniff (2026-10-14).
+    // Nexus FSK/FLRC: no LoRa CAD in GFSK/FLRC — RSSI energy sniff (2026-10-14).
     // MUST sample instantaneous RSSI while still in continuous RX mode: entering standby
     // drops getRSSI to the standby floor and makes channel activity detection blind.
     if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
@@ -611,7 +611,7 @@ template <typename T> bool SX128xInterface<T>::isChannelActive()
 /** Could we send right now (i.e. either not actively receiving or transmitting)? */
 template <typename T> bool SX128xInterface<T>::isActivelyReceiving()
 {
-    // Nexus SETFSK/SETFLRC: LoRa detects on HEADER_VALID; GFSK/FLRC detect on
+    // Nexus FSK/FLRC: LoRa detects on HEADER_VALID; GFSK/FLRC detect on
     // SYNC_WORD_VALID (the GFSK packet-start event).
     if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
         const uint16_t irq = lora.getIrqStatus();

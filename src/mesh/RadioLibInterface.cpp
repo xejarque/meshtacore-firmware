@@ -577,7 +577,7 @@ void RadioLibInterface::onNotify(uint32_t notification)
             }
         } else if (!iface->checkIrq(RADIOLIB_IRQ_RX_DONE) && !iface->checkIrq(RADIOLIB_IRQ_TIMEOUT) &&
                    !iface->checkIrq(RADIOLIB_IRQ_CRC_ERR) && !iface->checkIrq(RADIOLIB_IRQ_HEADER_ERR)) {
-            // Nexus SETFSK/SETFLRC: PREAMBLE_DETECTED/HEADER_VALID/SYNC are routed to the edge-triggered DIO1
+            // Nexus FSK/FLRC: PREAMBLE_DETECTED/HEADER_VALID/SYNC are routed to the edge-triggered DIO1
             // (MESHTASTIC_RADIOLIB_IRQ_RX_FLAGS), so every packet's own preamble fires this notification BEFORE
             // RX_DONE. Handled as a completed receive it reads an empty buffer (silent rxBad) and the re-arm below
             // puts the chip in standby - aborting the packet in flight. LoRa only survives because its 32 ms preamble
@@ -1636,7 +1636,7 @@ uint32_t RadioLibInterface::altModemPacketTime(uint32_t pl, RadioLibTime_t repor
 // Nexus port (Nexus-28001, 2026-08-16): read NexusModule::syncword_override (vault v40) and
 // apply to the subclass syncWord member. Called from RadioInterface::applyModemConfig() at
 // boot AND on every LoRa re-config (including the deferred apply triggered by /nexus
-// SETSYNCWORD). syncword_override == 0 leaves the default 0x2b in place.
+// SYNCWORD). syncword_override == 0 leaves the default 0x2b in place.
 void RadioLibInterface::applyNexusSyncwordOverride()
 {
     if (meshtastic::nexusModule && meshtastic::nexusModule->syncword_override != 0) {

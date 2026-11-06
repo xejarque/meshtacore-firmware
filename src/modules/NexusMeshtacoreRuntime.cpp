@@ -65,10 +65,10 @@ bool NexusModule::deferLowBatterySleep(uint32_t batteryMv)
         wakeMv = nrf52EstimateBatteryLpcompWakeMv();
 #endif
     if (wakeMv)
-        snprintf(msg, sizeof(msg), "JT: [Sleep] battery %lu mV, wakes at ~%lu mV", (unsigned long)batteryMv,
+        snprintf(msg, sizeof(msg), "MESHTACORE: [Sleep] battery %lu mV, wakes at ~%lu mV", (unsigned long)batteryMv,
                  (unsigned long)wakeMv);
     else
-        snprintf(msg, sizeof(msg), "JT: [Sleep] battery %lu mV, low-battery deep sleep", (unsigned long)batteryMv);
+        snprintf(msg, sizeof(msg), "MESHTACORE: [Sleep] battery %lu mV, low-battery deep sleep", (unsigned long)batteryMv);
     sendToNexusChannel(msg, strlen(msg), 0);
 
     lowBatterySleepPending = true;
@@ -106,7 +106,7 @@ void NexusModule::serviceReadyAnnounce()
         return;
     char msg[64];
     const uint32_t mv = powerStatus ? powerStatus->getBatteryVoltageMv() : 0;
-    snprintf(msg, sizeof(msg), "JT: [Ready] awake after deep sleep, battery %lu mV", (unsigned long)mv);
+    snprintf(msg, sizeof(msg), "MESHTACORE: [Ready] awake after deep sleep, battery %lu mV", (unsigned long)mv);
     sendToNexusChannel(msg, strlen(msg), 0);
 }
 

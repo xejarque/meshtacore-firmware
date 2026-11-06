@@ -97,7 +97,7 @@ template <class T> class SX128xInterface : public RadioLibInterface
     /** Program all modem parameters into the chip; returns the first RadioLib error, or RADIOLIB_ERR_NONE */
     int16_t programModemParams();
 
-    // Nexus SETFSK/SETFLRC (Phase 2): GFSK + FLRC programming for SX128x (2.4 GHz).
+    // Nexus FSK/FLRC (Phase 2): GFSK + FLRC programming for SX128x (2.4 GHz).
     int16_t programAltModemFSK();
     int16_t programAltModemFLRC();
     uint8_t altModemCaps() const override { return 0x03; } // FSK + FLRC

@@ -13,6 +13,7 @@
 #include "gps/RTC.h"
 #include "mesh/PathReport.h"
 #include "mesh/RadioLibInterface.h"
+#include "mesh/Throttle.h"
 #include "modules/NexusModule.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -251,7 +252,7 @@ static void formatInfo(const RadioLibInterface &radio, char *reply, size_t reply
     const MeshCoreConfig &settings = radio.getMeshCoreConfig();
     const MeshCoreRepeater &relay = radio.getMeshCoreRepeater();
     const bool asRepeater = relay.getNodeType() == MeshCoreRepeater::ADV_TYPE_REPEATER;
-    snprintf(reply, replyLen, "JT MESHCORE: relay %s (%s), node %s, alias %s, advert %uh, next %um", relayName(settings.relay),
+    snprintf(reply, replyLen, "MESHTACORE: relay %s (%s), node %s, alias %s, advert %uh, next %um", relayName(settings.relay),
              relay.canRelay() ? "on" : "off", asRepeater ? "repeater" : "chat", relay.usesAlias() ? "on" : "off",
              (unsigned)settings.effectiveAdvertHours(), (unsigned)(radio.meshCoreAdvertDueInMs() / 60000UL));
     size_t used = strlen(reply);
@@ -276,7 +277,7 @@ static void formatStats(const RadioLibInterface &radio, const char *arg, char *r
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
     if (full) {
         snprintf(reply, replyLen,
-                 "JT MESHCORE STATS:\nrxSeen %lu (fld:%lu dir:%lu dup:%lu drop:%lu)\ntxRelayed %lu txDrop %lu\nAirtime tx:%lums "
+                 "MESHTACORE STATS:\nrxSeen %lu (fld:%lu dir:%lu dup:%lu drop:%lu)\ntxRelayed %lu txDrop %lu\nAirtime tx:%lums "
                  "rx:%lums\nDefer ch:%lu rad:%lu | DM rx:%lu tx:%lu ack:%lu to:%lu",
                  (unsigned long)relay.rxSeen, (unsigned long)relay.rxFlood, (unsigned long)relay.rxDirectForUs,
                  (unsigned long)relay.rxDup, (unsigned long)relay.rxDropped, (unsigned long)relay.txRelayed,
@@ -286,7 +287,7 @@ static void formatStats(const RadioLibInterface &radio, const char *arg, char *r
                  (unsigned long)meshCoreCompanion.dmTimedOut);
     } else {
         snprintf(reply, replyLen,
-                 "JT MESHCORE: rx %lu dup %lu drop %lu relayed %lu defer %lu+%lu | DM rx %lu tx %lu acked %lu timeout %lu",
+                 "MESHTACORE: rx %lu dup %lu drop %lu relayed %lu defer %lu+%lu | DM rx %lu tx %lu acked %lu timeout %lu",
                  (unsigned long)relay.rxSeen, (unsigned long)relay.rxDup, (unsigned long)relay.rxDropped,
                  (unsigned long)relay.txRelayed, (unsigned long)relay.deferChannel, (unsigned long)relay.deferRadio,
                  (unsigned long)meshCoreCompanion.dmRx, (unsigned long)meshCoreCompanion.dmTx,
@@ -294,7 +295,7 @@ static void formatStats(const RadioLibInterface &radio, const char *arg, char *r
     }
 #else
     (void)full;
-    snprintf(reply, replyLen, "JT MESHCORE: rx %lu dup %lu drop %lu relayed %lu defer %lu+%lu", (unsigned long)relay.rxSeen,
+    snprintf(reply, replyLen, "MESHTACORE: rx %lu dup %lu drop %lu relayed %lu defer %lu+%lu", (unsigned long)relay.rxSeen,
              (unsigned long)relay.rxDup, (unsigned long)relay.rxDropped, (unsigned long)relay.txRelayed,
              (unsigned long)relay.deferChannel, (unsigned long)relay.deferRadio);
 #endif
@@ -305,7 +306,7 @@ static void setRelay(RadioLibInterface &radio, const char *arg, bool signatureRe
     char word[8];
     takeWord(arg, word, sizeof(word));
     if (word[0] == '\0') {
-        snprintf(reply, replyLen, "JT MESHCORE: relay %s (%s)", relayName(radio.getMeshCoreConfig().relay),
+        snprintf(reply, replyLen, "MESHTACORE: relay %s (%s)", relayName(radio.getMeshCoreConfig().relay),
                  radio.getMeshCoreRepeater().canRelay() ? "on" : "off");
         return;
     }
@@ -318,11 +319,11 @@ static void setRelay(RadioLibInterface &radio, const char *arg, bool signatureRe
     else if (strcasecmp(word, "AUTO") == 0)
         mode = MeshCoreConfig::RELAY_AUTO;
     else {
-        snprintf(reply, replyLen, "JT MESHCORE: RELAY takes ON, OFF or AUTO");
+        snprintf(reply, replyLen, "MESHTACORE: RELAY takes ON, OFF or AUTO");
         return;
     }
     radio.setMeshCoreRelayMode(mode);
-    snprintf(reply, replyLen, "JT MESHCORE: relay %s, now %s", relayName(mode),
+    snprintf(reply, replyLen, "MESHTACORE: relay %s, now %s", relayName(mode),
              radio.getMeshCoreRepeater().canRelay() ? "on" : "off");
     warnIfUnsigned(signatureRequired, reply, replyLen);
 }
@@ -332,26 +333,26 @@ static void setAdvert(RadioLibInterface &radio, const char *arg, bool signatureR
     char word[8];
     takeWord(arg, word, sizeof(word));
     if (word[0] == '\0') {
-        snprintf(reply, replyLen, "JT MESHCORE: advert every %uh, next in %um",
+        snprintf(reply, replyLen, "MESHTACORE: advert every %uh, next in %um",
                  (unsigned)radio.getMeshCoreConfig().effectiveAdvertHours(), (unsigned)(radio.meshCoreAdvertDueInMs() / 60000UL));
         return;
     }
     if (strcasecmp(word, "NOW") == 0) {
         if (radio.requestMeshCoreAdvertNow())
-            snprintf(reply, replyLen, "JT MESHCORE: flood ADVERT queued");
+            snprintf(reply, replyLen, "MESHTACORE: flood ADVERT queued");
         else
-            snprintf(reply, replyLen, "JT MESHCORE: ADVERT NOW is spaced 10 min apart");
+            snprintf(reply, replyLen, "MESHTACORE: ADVERT NOW is spaced 10 min apart");
         return;
     }
 
     char *end = nullptr;
     const long hours = strtol(word, &end, 10);
     if (end == word || *end != '\0' || !MeshCoreConfig::validAdvertHours((uint32_t)hours)) {
-        snprintf(reply, replyLen, "JT MESHCORE: ADVERT takes 1-168 hours, NOW, or nothing");
+        snprintf(reply, replyLen, "MESHTACORE: ADVERT takes 1-168 hours, NOW, or nothing");
         return;
     }
     radio.setMeshCoreAdvertHours((uint8_t)hours);
-    snprintf(reply, replyLen, "JT MESHCORE: advert every %ldh from the next scheduled flood", hours);
+    snprintf(reply, replyLen, "MESHTACORE: advert every %ldh from the next scheduled flood", hours);
     warnIfUnsigned(signatureRequired, reply, replyLen);
 }
 
@@ -454,7 +455,7 @@ void NexusModule::handleMeshCoreFavCommand(const char *args, char *reply, size_t
             snprintf(hex, sizeof(hex), "%02X%02X%02X%02X", n.pub[0], n.pub[1], n.pub[2], n.pub[3]);
             len += snprintf(list + len, sizeof(list) - len, "%s%s", len ? ", " : "", hex);
         });
-        snprintf(reply, replyLen, "JT MESHCORE: FAV takes <hex_prefix> [ON|OFF]. %s%s", len ? "Kept: " : "No favourites yet",
+        snprintf(reply, replyLen, "MESHTACORE: FAV takes <hex_prefix> [ON|OFF]. %s%s", len ? "Kept: " : "No favourites yet",
                  list);
         return;
     }
@@ -462,14 +463,14 @@ void NexusModule::handleMeshCoreFavCommand(const char *args, char *reply, size_t
     uint8_t prefix[4] = {};
     uint8_t plen = 0;
     if (!parseHexBytes(word, prefix, &plen, sizeof(prefix))) {
-        snprintf(reply, replyLen, "JT MESHCORE: FAV expects 1-4 hex bytes of the public key (e.g. 4d, a1b2)");
+        snprintf(reply, replyLen, "MESHTACORE: FAV expects 1-4 hex bytes of the public key (e.g. 4d, a1b2)");
         return;
     }
 
     MeshCoreNode *matches[8];
     const size_t found = meshCoreCompanion.nodes.findByPrefix(prefix, plen, matches, sizeof(matches) / sizeof(matches[0]));
     if (found == 0) {
-        snprintf(reply, replyLen, "JT MESHCORE: no contact starts with '%s'", word);
+        snprintf(reply, replyLen, "MESHTACORE: no contact starts with '%s'", word);
         return;
     }
     if (found > 1) {
@@ -480,7 +481,7 @@ void NexusModule::handleMeshCoreFavCommand(const char *args, char *reply, size_t
         for (size_t i = 0; i < found && len < sizeof(list) - 20; i++)
             len += snprintf(list + len, sizeof(list) - len, "%s%02X%02X%02X%02X", len ? ", " : "", matches[i]->pub[0],
                             matches[i]->pub[1], matches[i]->pub[2], matches[i]->pub[3]);
-        snprintf(reply, replyLen, "JT MESHCORE: '%s' matches %u contacts: %s", word, (unsigned)found, list);
+        snprintf(reply, replyLen, "MESHTACORE: '%s' matches %u contacts: %s", word, (unsigned)found, list);
         return;
     }
 
@@ -490,19 +491,19 @@ void NexusModule::handleMeshCoreFavCommand(const char *args, char *reply, size_t
     if (strcasecmp(opt, "OFF") == 0)
         on = false;
     else if (opt[0] != '\0' && strcasecmp(opt, "ON") != 0) {
-        snprintf(reply, replyLen, "JT MESHCORE: FAV takes ON or OFF");
+        snprintf(reply, replyLen, "MESHTACORE: FAV takes ON or OFF");
         return;
     }
 
     MeshCoreNode *n = matches[0];
     meshCoreCompanion.nodes.setFavorite(n, on);
     meshCoreCompanion.nodes.touch(n); // a saved favourite ranks first, so keep it recent too
-    snprintf(reply, replyLen, "JT MESHCORE: %s %s (%02X%02X%02X%02X)%s", on ? "kept" : "released",
+    snprintf(reply, replyLen, "MESHTACORE: %s %s (%02X%02X%02X%02X)%s", on ? "kept" : "released",
              n->name[0] ? n->name : "sin nombre", n->pub[0], n->pub[1], n->pub[2], n->pub[3],
              on ? ", saved on the next contacts write" : "");
 #else
     (void)args;
-    snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
+    snprintf(reply, replyLen, "MESHTACORE: companion disabled");
 #endif
 }
 
@@ -526,7 +527,7 @@ void NexusModule::handleMeshCoreDiscoverCommand(const char *args, const ReplyCon
 {
     RadioLibInterface *radio = RadioLibInterface::instance;
     if (!radio) {
-        snprintf(reply, replyLen, "JT MESHCORE: no radio");
+        snprintf(reply, replyLen, "MESHTACORE: no radio");
         return;
     }
     if (meshCoreDiscoverPending) {
@@ -543,13 +544,13 @@ void NexusModule::handleMeshCoreDiscoverCommand(const char *args, const ReplyCon
     takeWord(args, word, sizeof(word));
     if (word[0] != '\0') {
         if (!parseWholeNumber(word, &seconds) || seconds < 5 || seconds > 60) {
-            snprintf(reply, replyLen, "JT MESHCORE: DESCUBRIR takes 5-60 seconds, or nothing");
+            snprintf(reply, replyLen, "MESHTACORE: DESCUBRIR takes 5-60 seconds, or nothing");
             return;
         }
     }
 
     if (!radio->getMeshCoreRepeater().startDiscover(seconds * 1000UL)) {
-        snprintf(reply, replyLen, "JT MESHCORE: no se pudo lanzar la búsqueda (radio ocupada)");
+        snprintf(reply, replyLen, "MESHTACORE: no se pudo lanzar la búsqueda (radio ocupada)");
         return;
     }
     // Only a scan that really started takes over the reply context: a refused or repeated request must not redirect
@@ -643,7 +644,7 @@ static void setPathSize(RadioLibInterface &radio, const char *arg, bool signatur
     char word[10];
     takeWord(arg, word, sizeof(word));
     if (word[0] == '\0') {
-        snprintf(reply, replyLen, "JT MESHCORE: the floods we originate carry %u-byte path hashes",
+        snprintf(reply, replyLen, "MESHTACORE: the floods we originate carry %u-byte path hashes",
                  (unsigned)MeshCoreRepeater::getOwnPathHashSize());
         return;
     }
@@ -653,10 +654,10 @@ static void setPathSize(RadioLibInterface &radio, const char *arg, bool signatur
     } else if (parseWholeNumber(word, &bytes) && MeshCoreConfig::validPathHashSize(bytes)) {
         radio.setMeshCorePathHashSize((uint8_t)bytes);
     } else {
-        snprintf(reply, replyLen, "JT MESHCORE: PATHSIZE takes 1, 2 or 3 (bytes per repeater in the path), DEFAULT, or nothing");
+        snprintf(reply, replyLen, "MESHTACORE: PATHSIZE takes 1, 2 or 3 (bytes per repeater in the path), DEFAULT, or nothing");
         return;
     }
-    snprintf(reply, replyLen, "JT MESHCORE: %u-byte path hashes from the next flood we originate",
+    snprintf(reply, replyLen, "MESHTACORE: %u-byte path hashes from the next flood we originate",
              (unsigned)MeshCoreRepeater::getOwnPathHashSize());
     warnIfUnsigned(signatureRequired, reply, replyLen);
 }
@@ -671,7 +672,7 @@ static void setFloodMax(RadioLibInterface &radio, const char *arg, bool signatur
         rest = takeWord(rest, word, sizeof(word));
 
     if (words[0][0] == '\0') {
-        snprintf(reply, replyLen, "JT MESHCORE: flood max %u, unscoped %u, advert %u", (unsigned)relay.getFloodMax(),
+        snprintf(reply, replyLen, "MESHTACORE: flood max %u, unscoped %u, advert %u", (unsigned)relay.getFloodMax(),
                  (unsigned)relay.getFloodMaxUnscoped(), (unsigned)relay.getFloodMaxAdvert());
         return;
     }
@@ -683,13 +684,12 @@ static void setFloodMax(RadioLibInterface &radio, const char *arg, bool signatur
         for (size_t i = 0; i < 3; i++)
             valid = valid && parseWholeNumber(words[i], &limits[i]) && MeshCoreConfig::validFloodMax(limits[i]);
         if (!valid) {
-            snprintf(reply, replyLen,
-                     "JT MESHCORE: FLOODMAX <1-64 any flood> <1-64 unscoped> <1-64 advert>, DEFAULT, or nothing");
+            snprintf(reply, replyLen, "MESHTACORE: FLOODMAX <1-64 any flood> <1-64 unscoped> <1-64 advert>, DEFAULT, or nothing");
             return;
         }
         radio.setMeshCoreFloodLimits((uint8_t)limits[0], (uint8_t)limits[1], (uint8_t)limits[2]);
     }
-    snprintf(reply, replyLen, "JT MESHCORE: flood max %u, unscoped %u, advert %u", (unsigned)relay.getFloodMax(),
+    snprintf(reply, replyLen, "MESHTACORE: flood max %u, unscoped %u, advert %u", (unsigned)relay.getFloodMax(),
              (unsigned)relay.getFloodMaxUnscoped(), (unsigned)relay.getFloodMaxAdvert());
     warnIfUnsigned(signatureRequired, reply, replyLen);
 }
@@ -698,14 +698,14 @@ static void formatIdentity(const RadioLibInterface &radio, char *reply, size_t r
 {
     const MeshCoreRepeater &relay = radio.getMeshCoreRepeater();
     if (!relay.hasIdentity()) {
-        snprintf(reply, replyLen, "JT MESHCORE: no identity yet (it is created with the first ADVERT)");
+        snprintf(reply, replyLen, "MESHTACORE: no identity yet (it is created with the first ADVERT)");
         return;
     }
     const uint8_t *pub = relay.getIdentityPub();
     char hex[2 * 32 + 1];
     for (size_t i = 0; i < 32; i++)
         snprintf(&hex[i * 2], 3, "%02x", pub[i]);
-    snprintf(reply, replyLen, "JT MESHCORE: id=%02x%02x%02x%02x type=%u name=%s\npub=%s", pub[0], pub[1], pub[2], pub[3],
+    snprintf(reply, replyLen, "MESHTACORE: id=%02x%02x%02x%02x type=%u name=%s\npub=%s", pub[0], pub[1], pub[2], pub[3],
              (unsigned)relay.getNodeType(), owner.long_name[0] ? owner.long_name : "(none)", hex);
     if (relay.usesAlias()) {
         const uint8_t *alias = relay.getAliasPub();
@@ -719,31 +719,31 @@ static void setHybrid(RadioLibInterface &radio, const char *arg, bool signatureR
 {
 #if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
     if (!radio.supportsMeshCoreHybridSync()) {
-        snprintf(reply, replyLen, "JT MESHCORE: this radio has no hybrid sync word");
+        snprintf(reply, replyLen, "MESHTACORE: this radio has no hybrid sync word");
         return;
     }
     char word[8];
     takeWord(arg, word, sizeof(word));
     if (word[0] == '\0') {
-        snprintf(reply, replyLen, "JT MESHCORE: hybrid sync %s",
+        snprintf(reply, replyLen, "MESHTACORE: hybrid sync %s",
                  radio.isMeshCoreHybridSync() ? "ON (Meshtastic and MeshCore heard)" : "OFF (Meshtastic only)");
         return;
     }
     const bool on = strcasecmp(word, "ON") == 0 || strcmp(word, "1") == 0;
     const bool off = strcasecmp(word, "OFF") == 0 || strcmp(word, "0") == 0;
     if (!on && !off) {
-        snprintf(reply, replyLen, "JT MESHCORE: HYBRID takes ON, OFF, or nothing");
+        snprintf(reply, replyLen, "MESHTACORE: HYBRID takes ON, OFF, or nothing");
         return;
     }
     radio.setMeshCoreHybridSync(on);
-    snprintf(reply, replyLen, "JT MESHCORE: hybrid sync %s%s", on ? "ON" : "OFF, MeshCore is not heard",
+    snprintf(reply, replyLen, "MESHTACORE: hybrid sync %s%s", on ? "ON" : "OFF, MeshCore is not heard",
              on ? "" : " until reboot");
     warnIfUnsigned(signatureRequired, reply, replyLen);
 #else
     (void)radio;
     (void)arg;
     (void)signatureRequired;
-    snprintf(reply, replyLen, "JT MESHCORE: hybrid sync is not compiled in");
+    snprintf(reply, replyLen, "MESHTACORE: hybrid sync is not compiled in");
 #endif
 }
 
@@ -751,10 +751,9 @@ static void formatKey(const char *hex, char *reply, size_t replyLen)
 {
     char base64[25];
     if (meshCoreKeyHexToBase64(hex, base64, sizeof(base64)))
-        snprintf(reply, replyLen, "JT MESHCORE KEY: %s (pega esto como clave del canal MC:<nombre> en la app Meshtastic)",
-                 base64);
+        snprintf(reply, replyLen, "MESHTACORE KEY: %s (pega esto como clave del canal MC:<nombre> en la app Meshtastic)", base64);
     else
-        snprintf(reply, replyLen, "JT MESHCORE KEY: pon los 32 digitos hex que MeshCore muestra como clave del canal");
+        snprintf(reply, replyLen, "MESHTACORE KEY: pon los 32 digitos hex que MeshCore muestra como clave del canal");
 }
 
 static void formatRegionTree(const MeshCoreRegionMap &map, char *reply, size_t replyLen)
@@ -762,16 +761,16 @@ static void formatRegionTree(const MeshCoreRegionMap &map, char *reply, size_t r
     static char tree[256];
     size_t len = map.exportTo(tree, sizeof(tree));
     if (len == 0) {
-        snprintf(reply, replyLen, "MTC REGION: tree empty");
+        snprintf(reply, replyLen, "MESHTACORE REGION: tree empty");
         return;
     }
     if (len + 14 < replyLen) {
-        snprintf(reply, replyLen, "MTC REGION:\n%s", tree);
+        snprintf(reply, replyLen, "MESHTACORE REGION:\n%s", tree);
         size_t rlen = strlen(reply);
         if (rlen > 0 && reply[rlen - 1] == '\n')
             reply[rlen - 1] = '\0';
     } else {
-        snprintf(reply, replyLen, "MTC REGION (%d regs):\n%.*s...", map.getCount(), (int)(replyLen - 30), tree);
+        snprintf(reply, replyLen, "MESHTACORE REGION (%d regs):\n%.*s...", map.getCount(), (int)(replyLen - 30), tree);
     }
 }
 
@@ -779,7 +778,7 @@ void NexusModule::handleRegionCommand(const char *args, char *reply, size_t repl
 {
     RadioLibInterface *radio = RadioLibInterface::instance;
     if (!radio) {
-        snprintf(reply, replyLen, "MTC REGION: no radio");
+        snprintf(reply, replyLen, "MESHTACORE REGION: no radio");
         return;
     }
     MeshCoreRepeater &relay = radio->getMeshCoreRepeater();
@@ -792,39 +791,40 @@ void NexusModule::handleRegionCommand(const char *args, char *reply, size_t repl
     if (subcmd[0] == '\0' || strcasecmp(subcmd, "TREE") == 0 || strcasecmp(subcmd, "SHOW") == 0) {
         formatRegionTree(map, reply, replyLen);
     } else if (strcasecmp(subcmd, "HELP") == 0) {
-        snprintf(reply, replyLen,
-                 "MTC REGION: TREE, LIST [ALLOWED|DENIED], GET <n>, PUT <n> [p], REMOVE <n>, ALLOWF <n>, DENYF <n>, HOME [n], "
-                 "DEFAULT [n|<null>], DEF <tokens>, CLEAR, SAVE, LOAD");
+        snprintf(
+            reply, replyLen,
+            "MESHTACORE REGION: TREE, LIST [ALLOWED|DENIED], GET <n>, PUT <n> [p], REMOVE <n>, ALLOWF <n>, DENYF <n>, HOME [n], "
+            "DEFAULT [n|<null>], DEF <tokens>, CLEAR, SAVE, LOAD");
     } else if (strcasecmp(subcmd, "LIST") == 0) {
         char mode[16];
         takeWord(rest, mode, sizeof(mode));
         static char listBuf[160];
         if (strcasecmp(mode, "ALLOWED") == 0) {
             int count = map.exportNamesTo(listBuf, sizeof(listBuf), REGION_DENY_FLOOD, false);
-            snprintf(reply, replyLen, "MTC REGION ALLOWED (%d): %s", count, count > 0 ? listBuf : "-none-");
+            snprintf(reply, replyLen, "MESHTACORE REGION ALLOWED (%d): %s", count, count > 0 ? listBuf : "-none-");
         } else if (strcasecmp(mode, "DENIED") == 0) {
             int count = map.exportNamesTo(listBuf, sizeof(listBuf), REGION_DENY_FLOOD, true);
-            snprintf(reply, replyLen, "MTC REGION DENIED (%d): %s", count, count > 0 ? listBuf : "-none-");
+            snprintf(reply, replyLen, "MESHTACORE REGION DENIED (%d): %s", count, count > 0 ? listBuf : "-none-");
         } else {
-            snprintf(reply, replyLen, "MTC REGION: LIST expects ALLOWED or DENIED");
+            snprintf(reply, replyLen, "MESHTACORE REGION: LIST expects ALLOWED or DENIED");
         }
     } else if (strcasecmp(subcmd, "GET") == 0) {
         char name[32];
         takeWord(rest, name, sizeof(name));
         if (name[0] == '\0') {
-            snprintf(reply, replyLen, "MTC REGION: GET expects <region_name>");
+            snprintf(reply, replyLen, "MESHTACORE REGION: GET expects <region_name>");
             return;
         }
         const RegionEntry *r = map.findByNamePrefix(name);
         if (!r) {
-            snprintf(reply, replyLen, "MTC REGION: unknown region '%s'", name);
+            snprintf(reply, replyLen, "MESHTACORE REGION: unknown region '%s'", name);
             return;
         }
         const RegionEntry *parent = map.findById(r->parent);
         const bool isHome = (r->id != 0 && map.getHomeRegion() == r);
         const bool isDefault = (r->id != 0 && map.getDefaultRegion() == r);
         const bool floodAllowed = !(r->flags & REGION_DENY_FLOOD);
-        snprintf(reply, replyLen, "MTC REGION: %s (parent: %s) [FLOOD: %s]%s%s", r->name, parent ? parent->name : "*",
+        snprintf(reply, replyLen, "MESHTACORE REGION: %s (parent: %s) [FLOOD: %s]%s%s", r->name, parent ? parent->name : "*",
                  floodAllowed ? "ALLOWED" : "DENIED", isHome ? " (HOME)" : "", isDefault ? " (DEFAULT)" : "");
     } else if (strcasecmp(subcmd, "PUT") == 0) {
         char name[32];
@@ -832,107 +832,107 @@ void NexusModule::handleRegionCommand(const char *args, char *reply, size_t repl
         const char *rest2 = takeWord(rest, name, sizeof(name));
         takeWord(rest2, parentName, sizeof(parentName));
         if (name[0] == '\0') {
-            snprintf(reply, replyLen, "MTC REGION: PUT expects <name> [parent]");
+            snprintf(reply, replyLen, "MESHTACORE REGION: PUT expects <name> [parent]");
             return;
         }
         const RegionEntry *parent = &map.getWildcard();
         if (parentName[0] != '\0') {
             parent = map.findByNamePrefix(parentName);
             if (!parent) {
-                snprintf(reply, replyLen, "MTC REGION: unknown parent '%s'", parentName);
+                snprintf(reply, replyLen, "MESHTACORE REGION: unknown parent '%s'", parentName);
                 return;
             }
         }
         RegionEntry *r = map.putRegion(name, parent->id);
         if (!r) {
-            snprintf(reply, replyLen, "MTC REGION: unable to put '%s' (table full or invalid name)", name);
+            snprintf(reply, replyLen, "MESHTACORE REGION: unable to put '%s' (table full or invalid name)", name);
             return;
         }
         r->flags &= ~REGION_DENY_FLOOD; // Flood allowed by default
-        snprintf(reply, replyLen, "MTC REGION: %s under %s (flood allowed)", r->name, parent->name);
+        snprintf(reply, replyLen, "MESHTACORE REGION: %s under %s (flood allowed)", r->name, parent->name);
         warnIfUnsigned(signatureRequired, reply, replyLen);
     } else if (strcasecmp(subcmd, "REMOVE") == 0) {
         char name[32];
         takeWord(rest, name, sizeof(name));
         if (name[0] == '\0') {
-            snprintf(reply, replyLen, "MTC REGION: REMOVE expects <name>");
+            snprintf(reply, replyLen, "MESHTACORE REGION: REMOVE expects <name>");
             return;
         }
         RegionEntry *r = map.findByName(name);
         if (!r) {
-            snprintf(reply, replyLen, "MTC REGION: region '%s' not found", name);
+            snprintf(reply, replyLen, "MESHTACORE REGION: region '%s' not found", name);
             return;
         }
         if (!map.removeRegion(*r)) {
-            snprintf(reply, replyLen, "MTC REGION: cannot remove '%s' (has child regions or is *)", name);
+            snprintf(reply, replyLen, "MESHTACORE REGION: cannot remove '%s' (has child regions or is *)", name);
             return;
         }
-        snprintf(reply, replyLen, "MTC REGION: removed '%s'", name);
+        snprintf(reply, replyLen, "MESHTACORE REGION: removed '%s'", name);
         warnIfUnsigned(signatureRequired, reply, replyLen);
     } else if (strcasecmp(subcmd, "ALLOWF") == 0) {
         char name[32];
         takeWord(rest, name, sizeof(name));
         if (name[0] == '\0') {
-            snprintf(reply, replyLen, "MTC REGION: ALLOWF expects <name>");
+            snprintf(reply, replyLen, "MESHTACORE REGION: ALLOWF expects <name>");
             return;
         }
         RegionEntry *r = map.findByNamePrefix(name);
         if (!r) {
-            snprintf(reply, replyLen, "MTC REGION: unknown region '%s'", name);
+            snprintf(reply, replyLen, "MESHTACORE REGION: unknown region '%s'", name);
             return;
         }
         r->flags &= ~REGION_DENY_FLOOD;
-        snprintf(reply, replyLen, "MTC REGION: %s flood allowed", r->name);
+        snprintf(reply, replyLen, "MESHTACORE REGION: %s flood allowed", r->name);
         warnIfUnsigned(signatureRequired, reply, replyLen);
     } else if (strcasecmp(subcmd, "DENYF") == 0) {
         char name[32];
         takeWord(rest, name, sizeof(name));
         if (name[0] == '\0') {
-            snprintf(reply, replyLen, "MTC REGION: DENYF expects <name>");
+            snprintf(reply, replyLen, "MESHTACORE REGION: DENYF expects <name>");
             return;
         }
         RegionEntry *r = map.findByNamePrefix(name);
         if (!r) {
-            snprintf(reply, replyLen, "MTC REGION: unknown region '%s'", name);
+            snprintf(reply, replyLen, "MESHTACORE REGION: unknown region '%s'", name);
             return;
         }
         r->flags |= REGION_DENY_FLOOD;
-        snprintf(reply, replyLen, "MTC REGION: %s flood denied", r->name);
+        snprintf(reply, replyLen, "MESHTACORE REGION: %s flood denied", r->name);
         warnIfUnsigned(signatureRequired, reply, replyLen);
     } else if (strcasecmp(subcmd, "HOME") == 0) {
         char name[32];
         takeWord(rest, name, sizeof(name));
         if (name[0] == '\0') {
             const RegionEntry *h = map.getHomeRegion();
-            snprintf(reply, replyLen, "MTC REGION: home is %s", h ? h->name : "*");
+            snprintf(reply, replyLen, "MESHTACORE REGION: home is %s", h ? h->name : "*");
             return;
         }
         if (strcmp(name, "*") == 0 || strcasecmp(name, "<null>") == 0 || strcasecmp(name, "NONE") == 0) {
             map.setHomeRegion(nullptr);
-            snprintf(reply, replyLen, "MTC REGION: home is now *");
+            snprintf(reply, replyLen, "MESHTACORE REGION: home is now *");
             warnIfUnsigned(signatureRequired, reply, replyLen);
             return;
         }
         const RegionEntry *h = map.findByNamePrefix(name);
         if (!h) {
-            snprintf(reply, replyLen, "MTC REGION: unknown region '%s'", name);
+            snprintf(reply, replyLen, "MESHTACORE REGION: unknown region '%s'", name);
             return;
         }
         map.setHomeRegion(h);
-        snprintf(reply, replyLen, "MTC REGION: home is now %s", h->name);
+        snprintf(reply, replyLen, "MESHTACORE REGION: home is now %s", h->name);
         warnIfUnsigned(signatureRequired, reply, replyLen);
     } else if (strcasecmp(subcmd, "DEFAULT") == 0) {
         char name[32];
         takeWord(rest, name, sizeof(name));
         if (name[0] == '\0') {
             const RegionEntry *d = map.getDefaultRegion();
-            snprintf(reply, replyLen, "MTC REGION: default scope is %s", d ? d->name : "<null>");
+            snprintf(reply, replyLen, "MESHTACORE REGION: default scope is %s", d ? d->name : "<null>");
             return;
         }
         if (strcasecmp(name, "<null>") == 0 || strcasecmp(name, "NONE") == 0 || strcasecmp(name, "OFF") == 0 ||
             strcmp(name, "*") == 0) {
             map.setDefaultRegion(nullptr);
-            snprintf(reply, replyLen, "MTC REGION: default scope cleared");
+            snprintf(reply, replyLen, "MESHTACORE REGION: default scope cleared");
             warnIfUnsigned(signatureRequired, reply, replyLen);
             return;
         }
@@ -940,33 +940,33 @@ void NexusModule::handleRegionCommand(const char *args, char *reply, size_t repl
         if (!d)
             d = map.putRegion(name, 0);
         if (!d) {
-            snprintf(reply, replyLen, "MTC REGION: region table full");
+            snprintf(reply, replyLen, "MESHTACORE REGION: region table full");
             return;
         }
         d->flags &= ~REGION_DENY_FLOOD;
         map.setDefaultRegion(d);
-        snprintf(reply, replyLen, "MTC REGION: default scope is now %s", d->name);
+        snprintf(reply, replyLen, "MESHTACORE REGION: default scope is now %s", d->name);
         warnIfUnsigned(signatureRequired, reply, replyLen);
     } else if (strcasecmp(subcmd, "DEF") == 0) {
         char errBuf[64] = {0};
         if (map.processDef(rest, errBuf, sizeof(errBuf))) {
-            snprintf(reply, replyLen, "MTC REGION: def applied (%d regions)", map.getCount());
+            snprintf(reply, replyLen, "MESHTACORE REGION: def applied (%d regions)", map.getCount());
         } else {
-            snprintf(reply, replyLen, "MTC REGION: %s", errBuf);
+            snprintf(reply, replyLen, "MESHTACORE REGION: %s", errBuf);
         }
         warnIfUnsigned(signatureRequired, reply, replyLen);
     } else if (strcasecmp(subcmd, "CLEAR") == 0) {
         map.clear();
-        snprintf(reply, replyLen, "MTC REGION: regions cleared");
+        snprintf(reply, replyLen, "MESHTACORE REGION: regions cleared");
         warnIfUnsigned(signatureRequired, reply, replyLen);
     } else if (strcasecmp(subcmd, "SAVE") == 0) {
         bool ok = radio->saveMeshCoreRegions();
-        snprintf(reply, replyLen, "MTC REGION: %s", ok ? "regions saved to flash" : "save failed");
+        snprintf(reply, replyLen, "MESHTACORE REGION: %s", ok ? "regions saved to flash" : "save failed");
     } else if (strcasecmp(subcmd, "LOAD") == 0) {
         bool ok = radio->reloadMeshCoreRegions();
-        snprintf(reply, replyLen, "MTC REGION: %s (%d regions)", ok ? "regions loaded" : "load failed", map.getCount());
+        snprintf(reply, replyLen, "MESHTACORE REGION: %s (%d regions)", ok ? "regions loaded" : "load failed", map.getCount());
     } else {
-        snprintf(reply, replyLen, "MTC REGION: unknown subcommand '%s', try HELP", subcmd);
+        snprintf(reply, replyLen, "MESHTACORE REGION: unknown subcommand '%s', try HELP", subcmd);
     }
 }
 
@@ -976,7 +976,7 @@ static void handleMeshCorePathCommand(const char *arg, char *reply, size_t reply
     while (*arg == ' ')
         arg++;
     if (*arg == '\0') {
-        snprintf(reply, replyLen, "JT MESHCORE: PATH expects <contact|!hex|packetId>");
+        snprintf(reply, replyLen, "MESHTACORE: PATH expects <contact|!hex|packetId>");
         return;
     }
     char *end = nullptr;
@@ -988,24 +988,24 @@ static void handleMeshCorePathCommand(const char *arg, char *reply, size_t reply
     }
     const MeshCoreNode *contact = meshCoreCompanion.findContact(arg);
     if (!contact) {
-        snprintf(reply, replyLen, "JT MESHCORE: no contact matching '%s'", arg);
+        snprintf(reply, replyLen, "MESHTACORE: no contact matching '%s'", arg);
         return;
     }
     const MeshCoreCompanion::HeardPath *route = meshCoreCompanion.heardFindByFrom(contact->nodeNum);
     if (!route) {
-        snprintf(reply, replyLen, "JT MESHCORE: no route heard for %s", contact->name);
+        snprintf(reply, replyLen, "MESHTACORE: no route heard for %s", contact->name);
         return;
     }
     static char line[200];
     if (meshCoreCompanion.formatRouteLine(*route, line, sizeof(line), 0.0f,
                                           MeshCoreCompanion::SIGNAL_SNR | MeshCoreCompanion::SIGNAL_RSSI)) {
-        snprintf(reply, replyLen, "JT MESHCORE: %s › %s", contact->name, line);
+        snprintf(reply, replyLen, "MESHTACORE: %s › %s", contact->name, line);
     } else {
-        snprintf(reply, replyLen, "JT MESHCORE: route format failed for %s", contact->name);
+        snprintf(reply, replyLen, "MESHTACORE: route format failed for %s", contact->name);
     }
 #else
     (void)arg;
-    snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
+    snprintf(reply, replyLen, "MESHTACORE: companion disabled");
 #endif
 }
 
@@ -1023,7 +1023,7 @@ static void handleMeshCoreTraceCommand(const char *args, char *reply, size_t rep
                                  reply, replyLen);
 #else
     (void)args;
-    snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
+    snprintf(reply, replyLen, "MESHTACORE: companion disabled");
 #endif
 }
 
@@ -1034,7 +1034,7 @@ static void handleMeshCoreNodesCommand(uint8_t typeFilter, const char *arg, char
     meshCoreCompanion.formatNodeList(typeFilter, reply, replyLen);
 #else
     (void)typeFilter;
-    snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
+    snprintf(reply, replyLen, "MESHTACORE: companion disabled");
 #endif
 }
 
@@ -1044,14 +1044,14 @@ static void handleMeshCoreNodeDetailCommand(const char *arg, char *reply, size_t
     while (*arg == ' ')
         arg++;
     if (*arg == '\0') {
-        snprintf(reply, replyLen, "JT MESHCORE: NODE expects <name|!hex>");
+        snprintf(reply, replyLen, "MESHTACORE: NODE expects <name|!hex>");
         return;
     }
     if (!meshCoreCompanion.formatNodeDetail(arg, reply, replyLen))
-        snprintf(reply, replyLen, "JT MESHCORE: node '%s' not found", arg);
+        snprintf(reply, replyLen, "MESHTACORE: node '%s' not found", arg);
 #else
     (void)arg;
-    snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
+    snprintf(reply, replyLen, "MESHTACORE: companion disabled");
 #endif
 }
 
@@ -1063,16 +1063,16 @@ static void handleMeshCoreSendCommand(const char *args, char *reply, size_t repl
     while (text && *text == ' ')
         text++;
     if (target[0] == '\0' || !text || text[0] == '\0') {
-        snprintf(reply, replyLen, "JT MESHCORE: SEND expects <contact|channel> <text>");
+        snprintf(reply, replyLen, "MESHTACORE: SEND expects <contact|channel> <text>");
         return;
     }
     const MeshCoreNode *contact = meshCoreCompanion.findContact(target);
     if (contact) {
         RadioInterface *iface = router ? router->getRadioIface() : nullptr;
         if (meshCoreCompanion.sendDirectText(contact->nodeNum, generatePacketId(), text, Time::getMillis(), iface))
-            snprintf(reply, replyLen, "JT MESHCORE: DM sent to %s", contact->name);
+            snprintf(reply, replyLen, "MESHTACORE: DM sent to %s", contact->name);
         else
-            snprintf(reply, replyLen, "JT MESHCORE: DM failed to %s", contact->name);
+            snprintf(reply, replyLen, "MESHTACORE: DM failed to %s", contact->name);
         return;
     }
     // A channel name wins over a bare digit, so a channel literally named "1" stays addressable by name.
@@ -1104,19 +1104,19 @@ static void handleMeshCoreSendCommand(const char *args, char *reply, size_t repl
                     service->sendToMesh(tp);
                 const char *name = channels.getName(targetCh);
                 if (name && name[0])
-                    snprintf(reply, replyLen, "JT MESHCORE: sent on Ch %d (%s)", targetCh, name);
+                    snprintf(reply, replyLen, "MESHTACORE: sent on Ch %d (%s)", targetCh, name);
                 else
-                    snprintf(reply, replyLen, "JT MESHCORE: sent on Ch %d", targetCh);
+                    snprintf(reply, replyLen, "MESHTACORE: sent on Ch %d", targetCh);
             } else {
-                snprintf(reply, replyLen, "JT MESHCORE: alloc failed");
+                snprintf(reply, replyLen, "MESHTACORE: alloc failed");
             }
             return;
         }
     }
-    snprintf(reply, replyLen, "JT MESHCORE: target '%s' not found (expected contact or channel)", target);
+    snprintf(reply, replyLen, "MESHTACORE: target '%s' not found (expected contact or channel)", target);
 #else
     (void)args;
-    snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
+    snprintf(reply, replyLen, "MESHTACORE: companion disabled");
 #endif
 }
 
@@ -1126,27 +1126,27 @@ static void handleMeshCoreDropCommand(const char *arg, char *reply, size_t reply
     while (*arg == ' ')
         arg++;
     if (*arg == '\0') {
-        snprintf(reply, replyLen, "JT MESHCORE: DROP expects <hex_prefix|CLEAR>");
+        snprintf(reply, replyLen, "MESHTACORE: DROP expects <hex_prefix|CLEAR>");
         return;
     }
     if (strcasecmp(arg, "CLEAR") == 0) {
         meshCoreCompanion.clearDrops();
-        snprintf(reply, replyLen, "JT MESHCORE: drops cleared");
+        snprintf(reply, replyLen, "MESHTACORE: drops cleared");
         return;
     }
     uint8_t prefix[4] = {};
     uint8_t plen = 0;
     if (!parseHexBytes(arg, prefix, &plen, 4)) {
-        snprintf(reply, replyLen, "JT MESHCORE: DROP expects 1-4 hex bytes (e.g. 4d, a1b2, 0xA1, a1:b2)");
+        snprintf(reply, replyLen, "MESHTACORE: DROP expects 1-4 hex bytes (e.g. 4d, a1b2, 0xA1, a1:b2)");
         return;
     }
     if (meshCoreCompanion.addDrop(prefix, plen))
-        snprintf(reply, replyLen, "JT MESHCORE: dropped prefix %s", arg);
+        snprintf(reply, replyLen, "MESHTACORE: dropped prefix %s", arg);
     else
-        snprintf(reply, replyLen, "JT MESHCORE: drop list full (max %u)", (unsigned)MeshCoreCompanion::MAX_MC_DROPS);
+        snprintf(reply, replyLen, "MESHTACORE: drop list full (max %u)", (unsigned)MeshCoreCompanion::MAX_MC_DROPS);
 #else
     (void)arg;
-    snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
+    snprintf(reply, replyLen, "MESHTACORE: companion disabled");
 #endif
 }
 
@@ -1156,22 +1156,22 @@ static void handleMeshCoreUndropCommand(const char *arg, char *reply, size_t rep
     while (*arg == ' ')
         arg++;
     if (*arg == '\0') {
-        snprintf(reply, replyLen, "JT MESHCORE: UNDROP expects <hex_prefix>");
+        snprintf(reply, replyLen, "MESHTACORE: UNDROP expects <hex_prefix>");
         return;
     }
     uint8_t prefix[4] = {};
     uint8_t plen = 0;
     if (!parseHexBytes(arg, prefix, &plen, 4)) {
-        snprintf(reply, replyLen, "JT MESHCORE: UNDROP expects 1-4 hex bytes");
+        snprintf(reply, replyLen, "MESHTACORE: UNDROP expects 1-4 hex bytes");
         return;
     }
     if (meshCoreCompanion.removeDrop(prefix, plen))
-        snprintf(reply, replyLen, "JT MESHCORE: undropped prefix %s", arg);
+        snprintf(reply, replyLen, "MESHTACORE: undropped prefix %s", arg);
     else
-        snprintf(reply, replyLen, "JT MESHCORE: prefix %s not found in drop list", arg);
+        snprintf(reply, replyLen, "MESHTACORE: prefix %s not found in drop list", arg);
 #else
     (void)arg;
-    snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
+    snprintf(reply, replyLen, "MESHTACORE: companion disabled");
 #endif
 }
 
@@ -1180,7 +1180,7 @@ static void handleMeshCoreDropsCommand(char *reply, size_t replyLen)
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
     meshCoreCompanion.listDrops(reply, replyLen);
 #else
-    snprintf(reply, replyLen, "JT MESHCORE: companion disabled");
+    snprintf(reply, replyLen, "MESHTACORE: companion disabled");
 #endif
 }
 
@@ -1189,7 +1189,7 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
 {
     RadioLibInterface *radio = RadioLibInterface::instance;
     if (!radio) {
-        snprintf(reply, replyLen, "JT MESHCORE: no radio");
+        snprintf(reply, replyLen, "MESHTACORE: no radio");
         return;
     }
     char word[16];
@@ -1198,7 +1198,7 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
 
     if (word[0] == '\0' || strcasecmp(word, "HELP") == 0) {
         snprintf(reply, replyLen,
-                 "JT MESHCORE: INFO, STATS [FULL], NODES, CONTACTS, REPEATERS, NODE <id>, PATH <target>, TRACE <target>, SEND "
+                 "MESHTACORE: INFO, STATS [FULL], NODES, CONTACTS, REPEATERS, NODE <id>, PATH <target>, TRACE <target>, SEND "
                  "<target> <msg>, DROP [hex|CLEAR], UNDROP <hex>, DROPS, RELAY [ON|OFF|AUTO], ADVERT [1-168|NOW], REGION [...], "
                  "VECINOS, DESCUBRIR [5-60], FAV <hex> [ON|OFF], IDENTITY, KEY <hex>, PATHSIZE [1-3], FLOODMAX [g u a], "
                  "HYBRID [ON|OFF], PPING [...], PING <target>, RESET. SAVE keeps them.");
@@ -1263,11 +1263,11 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
         radio->setMeshCoreAdvertHours(0);
         radio->setMeshCorePathHashSize(0);
         radio->setMeshCoreFloodLimits(0, 0, 0);
-        snprintf(reply, replyLen, "JT MESHCORE: relay AUTO, advert %uh, %u-byte paths, default flood limits",
+        snprintf(reply, replyLen, "MESHTACORE: relay AUTO, advert %uh, %u-byte paths, default flood limits",
                  (unsigned)MeshCoreConfig::DEFAULT_ADVERT_HOURS, (unsigned)MeshCoreConfig::DEFAULT_PATH_HASH_SIZE);
         warnIfUnsigned(signatureRequired, reply, replyLen);
     } else {
-        snprintf(reply, replyLen, "JT MESHCORE: unknown '%s', try HELP", word);
+        snprintf(reply, replyLen, "MESHTACORE: unknown '%s', try HELP", word);
     }
 }
 
@@ -1310,7 +1310,7 @@ bool NexusModule::formatMeshCorePingReply(const meshtastic_MeshPacket &mp, char 
     if (mc_ping_header_mode == PING_HEADER_CUSTOM && pping_header[0] != '\0')
         header = pping_header;
     else if (mc_ping_header_mode != PING_HEADER_NONE)
-        header = "🤖MeshCore Ping🤖";
+        header = "🤖MESHTACORE Ping🤖";
 
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
     static char routeLine[200];
@@ -1370,28 +1370,28 @@ void NexusModule::handleMeshCorePpingCommand(const char *args, char *reply, size
         if (botCh >= 0) {
             snprintf(botStatus, sizeof(botStatus), "Ch %d (%s)", botCh, ping_channels[botCh] ? "ON" : "OFF");
         }
-        snprintf(reply, replyLen, "JT MESHCORE PPING:\nGlobal:%d MC:#bot:%s RSSI:%d SNR:%d FE:%d Emoji:%d DM:%d Hdr:%s Cmd:%s",
+        snprintf(reply, replyLen, "MESHTACORE PPING:\nGlobal:%d MC:#bot:%s RSSI:%d SNR:%d FE:%d Emoji:%d DM:%d Hdr:%s Cmd:%s",
                  public_ping ? 1 : 0, botStatus, ping_rssi ? 1 : 0, ping_snr ? 1 : 0, ping_freqerr ? 1 : 0, (int)ping_emoji_mode,
                  ping_allow_dm ? 1 : 0, pingHeaderModeName(mc_ping_header_mode), ping_trigger);
     } else if (strcasecmp(args, "ON") == 0) {
         // Only the MeshCore side: /nexus PPING owns public_ping.
         if (botCh >= 0) {
             ping_channels[botCh] = true;
-            snprintf(reply, replyLen, "JT MESHCORE: PPING ON (MC:#bot on Ch %d)", botCh);
+            snprintf(reply, replyLen, "MESHTACORE: PPING ON (MC:#bot on Ch %d)", botCh);
         } else {
-            snprintf(reply, replyLen, "JT MESHCORE: PPING ON (MC:#bot channel not configured)");
+            snprintf(reply, replyLen, "MESHTACORE: PPING ON (MC:#bot channel not configured)");
         }
     } else if (strcasecmp(args, "OFF") == 0) {
         for (ChannelIndex i = 0; i < MAX_NUM_CHANNELS; i++) {
             if (channels.isMeshCoreChannel(i))
                 ping_channels[i] = false;
         }
-        snprintf(reply, replyLen, "JT MESHCORE: PPING OFF on MeshCore channels");
-    } else if (applyPpingSetting(args, true, "JT MESHCORE", reply, replyLen)) {
+        snprintf(reply, replyLen, "MESHTACORE: PPING OFF on MeshCore channels");
+    } else if (applyPpingSetting(args, true, "MESHTACORE", reply, replyLen)) {
         // Shared reporting settings: see NexusCommands.cpp.
     } else {
         snprintf(reply, replyLen,
-                 "JT MESHCORE: PPING ON|OFF|CMD <cmd>|RSSI|SNR|FREQERR|EMOJI|HEADER "
+                 "MESHTACORE: PPING ON|OFF|CMD <cmd>|RSSI|SNR|FREQERR|EMOJI|HEADER "
                  "[text|OFF|DEFAULT|NONE|CUSTOM]|ALLOWDM|CHAN|FLAGS|SETHEX|GETHEX");
     }
 }
@@ -1441,9 +1441,9 @@ void NexusModule::handleMeshCorePingSend(const char *target, char *reply, size_t
             tp->decoded.payload.size = strlen(pingMsg);
             if (service)
                 service->sendToMesh(tp);
-            snprintf(reply, replyLen, "JT MESHCORE: Ping sent to Ch %d (%s)", targetCh, channels.getName(targetCh));
+            snprintf(reply, replyLen, "MESHTACORE: Ping sent to Ch %d (%s)", targetCh, channels.getName(targetCh));
         } else {
-            snprintf(reply, replyLen, "JT MESHCORE: Packet alloc failed");
+            snprintf(reply, replyLen, "MESHTACORE: Packet alloc failed");
         }
         return;
     }
@@ -1461,15 +1461,15 @@ void NexusModule::handleMeshCorePingSend(const char *target, char *reply, size_t
             tp->decoded.payload.size = strlen(pingMsg);
             if (service)
                 service->sendToMesh(tp);
-            snprintf(reply, replyLen, "JT MESHCORE: Ping sent to %s (!%08x)", contact->name, (unsigned)contact->nodeNum);
+            snprintf(reply, replyLen, "MESHTACORE: Ping sent to %s (!%08x)", contact->name, (unsigned)contact->nodeNum);
         } else {
-            snprintf(reply, replyLen, "JT MESHCORE: Packet alloc failed");
+            snprintf(reply, replyLen, "MESHTACORE: Packet alloc failed");
         }
         return;
     }
 #endif
 
-    snprintf(reply, replyLen, "JT MESHCORE: Unknown channel or contact '%s'", target);
+    snprintf(reply, replyLen, "MESHTACORE: Unknown channel or contact '%s'", target);
 }
 
 void NexusModule::saveMeshCoreSettings()
@@ -1488,12 +1488,12 @@ void NexusModule::loadMeshCoreSettings()
 
 void NexusModule::handleMeshCoreCommand(const char *, char *reply, size_t replyLen, const meshtastic_MeshPacket *, uint32_t, bool)
 {
-    snprintf(reply, replyLen, "JT MESHCORE: not in this build (MeshCore sniffer off)");
+    snprintf(reply, replyLen, "MESHTACORE: not in this build (MeshCore sniffer off)");
 }
 
 void NexusModule::handleRegionCommand(const char *, char *reply, size_t replyLen)
 {
-    snprintf(reply, replyLen, "MTC REGION: not in this build (MeshCore sniffer off)");
+    snprintf(reply, replyLen, "MESHTACORE REGION: not in this build (MeshCore sniffer off)");
 }
 
 bool NexusModule::isMeshCoreBotChannel(uint32_t)
@@ -1513,12 +1513,12 @@ bool NexusModule::formatMeshCorePingReply(const meshtastic_MeshPacket &, char *,
 
 void NexusModule::handleMeshCorePpingCommand(const char *, char *reply, size_t replyLen)
 {
-    snprintf(reply, replyLen, "JT MESHCORE: not in this build (MeshCore sniffer off)");
+    snprintf(reply, replyLen, "MESHTACORE: not in this build (MeshCore sniffer off)");
 }
 
 void NexusModule::handleMeshCorePingSend(const char *, char *reply, size_t replyLen)
 {
-    snprintf(reply, replyLen, "JT MESHCORE: not in this build (MeshCore sniffer off)");
+    snprintf(reply, replyLen, "MESHTACORE: not in this build (MeshCore sniffer off)");
 }
 
 void NexusModule::formatMeshCoreNeighbors(char *reply, size_t replyLen)
@@ -1528,14 +1528,14 @@ void NexusModule::formatMeshCoreNeighbors(char *reply, size_t replyLen)
 
 void NexusModule::handleMeshCoreDiscoverCommand(const char *, const ReplyContext &, char *reply, size_t replyLen)
 {
-    snprintf(reply, replyLen, "JT MESHCORE: not in this build (MeshCore sniffer off)");
+    snprintf(reply, replyLen, "MESHTACORE: not in this build (MeshCore sniffer off)");
 }
 
 void NexusModule::finishMeshCoreDiscover() {}
 
 void NexusModule::handleMeshCoreFavCommand(const char *, char *reply, size_t replyLen)
 {
-    snprintf(reply, replyLen, "JT MESHCORE: not in this build (MeshCore sniffer off)");
+    snprintf(reply, replyLen, "MESHTACORE: not in this build (MeshCore sniffer off)");
 }
 
 void NexusModule::saveMeshCoreSettings() {}

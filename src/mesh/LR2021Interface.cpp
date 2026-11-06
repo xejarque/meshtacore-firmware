@@ -28,7 +28,7 @@ bool LR2021Interface::wideLora()
 // Our thin layer translates the operator's SF list (raw bytes 5..12) into
 // the LR2021LoRaSideDetector_t array. We leave ldro=false, invertIQ=false,
 // and syncWord = this->syncWord (the Meshtastic-side member from
-// RadioLibInterface.h:100, default 0x2B, overridable via /nexus SETSYNCWORD
+// RadioLibInterface.h:100, default 0x2B, overridable via /nexus SYNCWORD
 // which lands in vault v40) so the side detectors listen on the SAME byte
 // as the main detector. This matches the Meshtastic protocol invariant of
 // one shared syncword on the channel.
@@ -50,7 +50,7 @@ bool LR2021Interface::wideLora()
 // side[i].sf range, duplicate SF detection) is done by RadioLib inside
 // setSideDetector and surfaces as RADIOLIB_ERR_INVALID_SIDE_DETECT or
 // RADIOLIB_ERR_WRONG_MODEM. The CLI handler (NexusCommands.cpp) catches
-// those and translates to a friendly 'JT LR2021_SF: rejected by chip' reply.
+// those and translates to a friendly 'MESHTACORE LR2021_SF: rejected by chip' reply.
 //
 // Static (CLI-side) validators stay in the CLI handler - range [5..12],
 // distinctness, spread<=4 - so operators see granular error messages
@@ -80,7 +80,7 @@ bool LR2021Interface::configureSideDetectors(const uint8_t *sfs, uint8_t num)
         sideDet[i].ldro = false;
         sideDet[i].invertIQ = false;
         // Use the main detector's syncword (default 0x2B, or whatever the
-        // operator set via /nexus SETSYNCWORD, vault v40). Reading directly
+        // operator set via /nexus SYNCWORD, vault v40). Reading directly
         // from the RadioLibInterface member ensures the side detectors
         // always match the channel's syncword - the chip-actual byte.
         sideDet[i].syncWord = syncWord;
@@ -90,12 +90,12 @@ bool LR2021Interface::configureSideDetectors(const uint8_t *sfs, uint8_t num)
 
 // Nexus-28005 (2026-09-13): single source of truth for the side-
 // detector apply. Called from all three reconfiguration paths in
-// LR20x0Interface (init, reconfigure, fullBegin) so /nexus SETLORA
+// LR20x0Interface (init, reconfigure, fullBegin) so /nexus LORA
 // re-programs the side detector no matter which internal code path
 // setlora triggers. Before this commit, the apply hook only lived in
 // init() - but setlora goes through reconfigure()/fullBegin(), not
 // init(), so the apply never fired when operators changed LoRa params
-// after setting side detectors. Symptom: /nexus LR2021_SF 7 + SETLORA
+// after setting side detectors. Symptom: /nexus LR2021_SF 7 + LORA
 // left the chip in single-SF RX.
 //
 // No-op when the table is empty (boot default - RAM-only persistence
@@ -119,7 +119,7 @@ void LR2021Interface::applyStoredSideDetectors()
 //
 // Validates and stores the operator-configured side-detector SF table in
 // RAM. The apply hook in LR20x0Interface::init() picks up the table on
-// the next radio init (which happens on /nexus SETLORA, the role/region
+// the next radio init (which happens on /nexus LORA, the role/region
 // change, the LR2021_DIO_AS_RF_SWITCH toggle, or any other path that
 // re-runs init()). Storage is RAM-only - operators re-set after reboot.
 //

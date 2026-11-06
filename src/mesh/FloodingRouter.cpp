@@ -208,9 +208,9 @@ void FloodingRouter::perhapsCancelDupe(const meshtastic_MeshPacket *p)
 #if HAS_NEXUS
     // Nexus LATEBASE (2026-10-07): upstream v2.8.1 also clamps CLIENT_BASE
     // (favorited from/to) into the late-rebroadcast window - i.e. CLIENT_BASE
-    // repeats with ROUTER_LATE timing. JT removed that block so CLIENT_BASE
+    // repeats with ROUTER_LATE timing. MESHTACORE removed that block so CLIENT_BASE
     // repeats in the client/router window instead; feature bit LATEBASE restores
-    // the upstream behavior on demand (default OFF = current JT behavior).
+    // the upstream behavior on demand (default OFF = current MESHTACORE behavior).
     if (meshtastic::nexusModule && (meshtastic::nexusModule->getNexusFeaturesHex() & meshtastic::FEATURE_LATEBASE) &&
         config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_BASE && iface && nodeDB &&
         nodeDB->isFromOrToFavoritedNode(*p)) {

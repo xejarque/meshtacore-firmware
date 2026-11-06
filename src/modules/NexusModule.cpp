@@ -2293,12 +2293,12 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                     formatMeshCorePingReply(mp, rMsg, sizeof(rMsg));
                 } else {
 #endif
-                // Meshtastic keeps its own header mode: DEFAULT prints the Derpy branding, CUSTOM the shared text, and
+                // Meshtastic keeps its own header mode: DEFAULT prints the MESHTACORE banner, CUSTOM the shared text, and
                 // NONE starts the reply with the hop line.
                 if (mt_ping_header_mode == PING_HEADER_CUSTOM && pping_header[0] != '\0') {
                     l = appendClamped(rMsg, sizeof(rMsg), 0, "%s\n", pping_header);
                 } else if (mt_ping_header_mode != PING_HEADER_NONE) {
-                    l = appendClamped(rMsg, sizeof(rMsg), 0, "🤖Derpy Ping🤖\n");
+                    l = appendClamped(rMsg, sizeof(rMsg), 0, "🤖MESHTACORE Ping🤖\n");
                 }
 
                 if (hopsUsed == 0) {
@@ -2499,7 +2499,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                     // continues to suppress for packets addressed to us.
                     if (!securitySilentLog() && !addressedElsewhere) {
                         char repReply[NEXUS_MAX_REPLY];
-                        snprintf(repReply, sizeof(repReply), "MTC SECURITY: rejected — replay detected (packet id %u)", (unsigned)mp.id);
+                        snprintf(repReply, sizeof(repReply), "MESHTACORE SECURITY: rejected — replay detected (packet id %u)", (unsigned)mp.id);
                         uint32_t to = (mp.to == myNodeInfo.my_node_num) ? mp.from : 0xFFFFFFFF;
                         queueMeshReply(to, mp.channel, mp.id, repReply, strlen(repReply), false, true);
                     }
@@ -2517,7 +2517,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
             //
             // On reject, behavior depends on SILENT_LOG:
             //   ON  → LOG_WARN + continue to the bottom (no reply)
-            //   OFF → LOG_WARN + send 'JT: SECURITY: ...' reply + continue
+            //   OFF → LOG_WARN + send 'MESHTACORE: SECURITY: ...' reply + continue
             // Both paths drop through to the end of handleReceived so the
             // packet is still returned as CONTINUE for upstream visibility.
             bool authorized = false;
@@ -2556,7 +2556,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                             return handleLocal(mp);
                         LOG_WARN("Nexus: Security Violation - /nexus-local received over RF from !%08x", mp.from);
                         if (!securitySilentLog()) {
-                            const char *secReply = "MTC SECURITY: -local prefix is for local interface only. Use -node over mesh.";
+                            const char *secReply = "MESHTACORE SECURITY: -local prefix is for local interface only. Use -node over mesh.";
                             uint32_t to = (mp.to == myNodeInfo.my_node_num) ? mp.from : 0xFFFFFFFF;
                             queueMeshReply(to, mp.channel, mp.id, secReply, strlen(secReply), false, true);
                         }
@@ -2611,7 +2611,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                     // (addressedElsewhere) always stay silent — Nexus-28005.
                     if (!securitySilentLog() && !addressedElsewhere && rejectReason) {
                         char secReply[NEXUS_MAX_REPLY];
-                        snprintf(secReply, sizeof(secReply), "MTC SECURITY: rejected — %s", rejectReason);
+                        snprintf(secReply, sizeof(secReply), "MESHTACORE SECURITY: rejected — %s", rejectReason);
                         // Reply on the same channel the command arrived on,
                         // back to the sender (or broadcast if no specific sender).
                         uint32_t to = (mp.to == myNodeInfo.my_node_num) ? mp.from : 0xFFFFFFFF;
@@ -2633,7 +2633,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
 
             char report[NEXUS_MAX_REPLY];
             int rLen = snprintf(report, sizeof(report),
-                                "MTC FWDM [!%08x]:\nMsg:%.100s\nHops:%u/%u RY:%s\nSNR:%.2f RSSI:%d",
+                                "MESHTACORE FWDM [!%08x]:\nMsg:%.100s\nHops:%u/%u RY:%s\nSNR:%.2f RSSI:%d",
                                 (unsigned int)mp.from, cmdBuf, hopsUsed, mp.hop_start, relayId, mp.rx_snr, (int)mp.rx_rssi);
 
             if (rLen < 0 || (size_t)rLen >= sizeof(report)) rLen = sizeof(report) - 1;
@@ -2909,7 +2909,7 @@ int32_t NexusModule::runOnce() {
     if (trace_active && Throttle::hasElapsed(trace_start_time, 100000)) {
         trace_active = false;
         trace_reply_to = 0;
-        const char *message = "MTC: Trace Timeout (100s)";
+        const char *message = "MESHTACORE: Trace Timeout (100s)";
         sendReply(traceReply, message, strlen(message));
     }
 
@@ -3000,7 +3000,7 @@ int32_t NexusModule::runOnce() {
 
         if (nexus_netscan_count == 0) {
             // Send empty reply
-            const char *msg = "MTC NETSCAN: No direct neighbors heard.";
+            const char *msg = "MESHTACORE NETSCAN: No direct neighbors heard.";
             size_t mLen = strlen(msg);
             if (mLen > NEXUS_MAX_REPLY_BODY) mLen = NEXUS_MAX_REPLY_BODY;
             sendReply(netscanReply, msg, mLen, false);
@@ -3008,7 +3008,7 @@ int32_t NexusModule::runOnce() {
             // Generate multi-part CSV reports
             char buf[NEXUS_MAX_REPLY];
             int part = 1;
-            int len = snprintf(buf, sizeof(buf), "MTC NETSCAN (%d):\nID,RSSI,SNR,FE,RY\n", nexus_netscan_count);
+            int len = snprintf(buf, sizeof(buf), "MESHTACORE NETSCAN (%d):\nID,RSSI,SNR,FE,RY\n", nexus_netscan_count);
 
             // Nexus: Post-scan Deduplication Logic
             for(int i=0; i<nexus_netscan_count; i++) {
@@ -3055,7 +3055,7 @@ int32_t NexusModule::runOnce() {
 
         if (clientscan_count == 0) {
             // The scan owns its context independently of command paging.
-            const char *msg = "MTC CLIENTSCAN: No repeats heard.";
+            const char *msg = "MESHTACORE CLIENTSCAN: No repeats heard.";
             size_t mLen = strlen(msg);
             if (mLen > NEXUS_MAX_REPLY_BODY)
                 mLen = NEXUS_MAX_REPLY_BODY;
@@ -3063,7 +3063,7 @@ int32_t NexusModule::runOnce() {
         } else {
             char buf[NEXUS_MAX_REPLY];
             int part = 1;
-            int len = snprintf(buf, sizeof(buf), "MTC CLIENTSCAN (!%08x):\nRY,Delay,RSSI,H/S,SNR\n", (unsigned int)clientscan_target_id);
+            int len = snprintf(buf, sizeof(buf), "MESHTACORE CLIENTSCAN (!%08x):\nRY,Delay,RSSI,H/S,SNR\n", (unsigned int)clientscan_target_id);
 
             // Static (BSS) so 64B+32B+64B+200B don't all stack-frame here.
             static char relayNames[64];
@@ -3116,7 +3116,7 @@ int32_t NexusModule::runOnce() {
         if (now - noise_sampling_start > 15000 || noise_retry_count > 300) {
             noise_sampling_active = false;
             char errBuf[NEXUS_MAX_REPLY];
-            snprintf(errBuf, sizeof(errBuf), "MTC: Noise Floor Error\nTimeout / Busy (R:%d)", noise_retry_count);
+            snprintf(errBuf, sizeof(errBuf), "MESHTACORE: Noise Floor Error\nTimeout / Busy (R:%d)", noise_retry_count);
             size_t eLen = strlen(errBuf);
             sendReply(noiseReply, errBuf, eLen, false);
             if (freqscan_active) {
@@ -3188,7 +3188,7 @@ int32_t NexusModule::runOnce() {
                 if (service) service->configChanged.notifyObservers(nullptr);
 
                 char fBuf[NEXUS_MAX_REPLY];
-                snprintf(fBuf, sizeof(fBuf), "MTC FREQSCAN (%.2fM):\n%s", targetF, nBuf);
+                snprintf(fBuf, sizeof(fBuf), "MESHTACORE FREQSCAN (%.2fM):\n%s", targetF, nBuf);
                 strncpy(nBuf, fBuf, sizeof(nBuf));
                 nBuf[sizeof(nBuf)-1] = '\0';
                 freqscan_active = false;
@@ -3264,7 +3264,7 @@ int32_t NexusModule::runOnce() {
                 if (changed & (1ULL << i)) {
                     bool state = (current_val & (1ULL << i)) != 0;
                     char alert[NEXUS_MAX_REPLY];
-                    snprintf(alert, sizeof(alert), "MTC: GPIO %d changed to %s", i, state ? "HIGH" : "LOW");
+                    snprintf(alert, sizeof(alert), "MESHTACORE: GPIO %d changed to %s", i, state ? "HIGH" : "LOW");
                     LOG_INFO("%s", alert);
                     sendToNexusChannel(alert, strlen(alert));
                 }
@@ -3449,7 +3449,7 @@ void NexusModule::formatMCUInfo(char *buf, size_t bufSize) {
     // (/nexus STATS shows it from owner.macaddr), so we don't need it here.
     char devIdHex[20] = "n/a (sdk missing)";
 
-    // Body only: the "MTC MCU Info:" title is supplied by startPaging() at
+    // Body only: the "MESHTACORE MCU Info:" title is supplied by startPaging() at
     // the call site. Don't repeat it here. See Commit 42.
     // Nexus port: dropped full_revision field (not in this build's esp_chip_info_t).
     // Operators still get model, cores, features, flash, IDF, CPU, heap, temp,
@@ -3802,7 +3802,7 @@ void NexusModule::formatSensorsInfo(char *buf, size_t bufSize)
 
     int n = 0; // bytes written
 
-    // I2C count line (the body). The "MTC SENSORS:" title is supplied by
+    // I2C count line (the body). The "MESHTACORE SENSORS:" title is supplied by
     // startPaging() at the call site; we don't repeat it here to avoid a
     // duplicated header on the wire. See Commit 41.
     n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0,
@@ -3913,7 +3913,7 @@ void NexusModule::formatRLBuckets(char *buf, size_t bufSize)
 
     // Header
     n += snprintf(buf + n, (n < (int)bufSize) ? bufSize - n : 0,
-        "MTC RL Buckets (live tokens / limit, since-boot counters):\n"
+        "MESHTACORE RL Buckets (live tokens / limit, since-boot counters):\n"
         " ID  Tokens/Limit  %%Full  En?  Seen  Pass  Drop  Drop%%\n");
 
     for (int i = 0; i < 7; i++) {
@@ -3949,7 +3949,7 @@ void NexusModule::formatRLBuckets(char *buf, size_t bufSize)
 // 17 sections of Meshtastic config, dumped field-by-field with human-readable
 // enum names. Excludes Security (public/private/admin keys + secrets) and
 // Channels (already exposed by /nexus CHANNELS). Each section is bracketed
-// by `JT Full Config: <NAME>\n--\n` header and `--\n` footer so the paging
+// by `MESHTACORE Full Config: <NAME>\n--\n` header and `--\n` footer so the paging
 // output stays readable.
 //
 // Pattern (Commit 45): each appendFCDSection_*() writes its lines directly
@@ -4189,7 +4189,7 @@ void NexusModule::appendFCDSection_DEVICE()
 {
     auto &d = config.device;
     #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
-    appendPaging("MTC Full Config: DEVICE\n--\n");
+    appendPaging("MESHTACORE Full Config: DEVICE\n--\n");
     FCD_LINE("role: %s\n", roleName(d.role));
     FCD_LINE("serial_enabled: %s\n", d.serial_enabled ? "true" : "false");
     FCD_LINE("button_gpio: %u\n", (unsigned)d.button_gpio);
@@ -4210,7 +4210,7 @@ void NexusModule::appendFCDSection_POSITION()
 {
     auto &p = config.position;
     #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
-    appendPaging("MTC Full Config: POSITION\n--\n");
+    appendPaging("MESHTACORE Full Config: POSITION\n--\n");
     FCD_LINE("position_broadcast_secs: %u\n", (unsigned)p.position_broadcast_secs);
     FCD_LINE("position_broadcast_smart_enabled: %s\n", p.position_broadcast_smart_enabled ? "true" : "false");
     FCD_LINE("fixed_position: %s\n", p.fixed_position ? "true" : "false");
@@ -4252,7 +4252,7 @@ void NexusModule::appendFCDSection_POWER()
 {
     auto &pw = config.power;
     #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
-    appendPaging("MTC Full Config: POWER\n--\n");
+    appendPaging("MESHTACORE Full Config: POWER\n--\n");
     FCD_LINE("is_power_saving: %s\n", pw.is_power_saving ? "true" : "false");
     FCD_LINE("on_battery_shutdown_after_secs: %u\n", (unsigned)pw.on_battery_shutdown_after_secs);
     FCD_LINE("adc_multiplier_override: %.3f\n", (double)pw.adc_multiplier_override);
@@ -4270,7 +4270,7 @@ void NexusModule::appendFCDSection_NETWORK()
 {
     auto &nw = config.network;
     #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
-    appendPaging("MTC Full Config: NETWORK\n--\n");
+    appendPaging("MESHTACORE Full Config: NETWORK\n--\n");
     FCD_LINE("wifi_enabled: %s\n", nw.wifi_enabled ? "true" : "false");
     FCD_LINE("wifi_ssid: %s\n", nw.wifi_ssid);
     appendPaging("wifi_psk: ***\n");
@@ -4300,7 +4300,7 @@ void NexusModule::appendFCDSection_DISPLAY()
 {
     auto &dp = config.display;
     #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
-    appendPaging("MTC Full Config: DISPLAY\n--\n");
+    appendPaging("MESHTACORE Full Config: DISPLAY\n--\n");
     FCD_LINE("screen_on_secs: %u\n", (unsigned)dp.screen_on_secs);
     FCD_LINE("auto_screen_carousel_secs: %u\n", (unsigned)dp.auto_screen_carousel_secs);
     FCD_LINE("compass_north_top: %s\n", dp.compass_north_top ? "true" : "false");
@@ -4322,7 +4322,7 @@ void NexusModule::appendFCDSection_LORA()
 {
     auto &lr = config.lora;
     #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
-    appendPaging("MTC Full Config: LORA\n--\n");
+    appendPaging("MESHTACORE Full Config: LORA\n--\n");
     FCD_LINE("use_preset: %s\n", lr.use_preset ? "true" : "false");
     FCD_LINE("modem_preset: %s\n", modemPresetName(lr.modem_preset));
     FCD_LINE("bandwidth: %u\n", (unsigned)lr.bandwidth);
@@ -4357,7 +4357,7 @@ void NexusModule::appendFCDSection_BLUETOOTH()
 {
     auto &bt = config.bluetooth;
     #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
-    appendPaging("MTC Full Config: BLUETOOTH\n--\n");
+    appendPaging("MESHTACORE Full Config: BLUETOOTH\n--\n");
     FCD_LINE("enabled: %s\n", bt.enabled ? "true" : "false");
     FCD_LINE("mode: %s\n", pairingModeName(bt.mode));
     FCD_LINE("fixed_pin: [redacted]\n");
@@ -4369,7 +4369,7 @@ void NexusModule::appendFCDSection_MQTT()
 {
     auto &mq = moduleConfig.mqtt;
     #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
-    appendPaging("MTC Full Config: MQTT\n--\n");
+    appendPaging("MESHTACORE Full Config: MQTT\n--\n");
     FCD_LINE("enabled: %s\n", mq.enabled ? "true" : "false");
     FCD_LINE("address: %s\n", mq.address);
     FCD_LINE("username: %s\n", mq.username);
@@ -4393,7 +4393,7 @@ void NexusModule::appendFCDSection_SERIAL()
 {
     auto &se = moduleConfig.serial;
     #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
-    appendPaging("MTC Full Config: SERIAL\n--\n");
+    appendPaging("MESHTACORE Full Config: SERIAL\n--\n");
     FCD_LINE("enabled: %s\n", se.enabled ? "true" : "false");
     FCD_LINE("echo: %s\n", se.echo ? "true" : "false");
     FCD_LINE("rxd: %u\n", (unsigned)se.rxd);
@@ -4410,7 +4410,7 @@ void NexusModule::appendFCDSection_EXTNOTIF()
 {
     auto &en = moduleConfig.external_notification;
     #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
-    appendPaging("MTC Full Config: EXTNOTIF\n--\n");
+    appendPaging("MESHTACORE Full Config: EXTNOTIF\n--\n");
     FCD_LINE("enabled: %s\n", en.enabled ? "true" : "false");
     FCD_LINE("output_ms: %u\n", (unsigned)en.output_ms);
     FCD_LINE("output: %u\n", (unsigned)en.output);
@@ -4434,7 +4434,7 @@ void NexusModule::appendFCDSection_STOREFORWARD()
 {
     auto &sf = moduleConfig.store_forward;
     #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
-    appendPaging("MTC Full Config: STOREFORWARD\n--\n");
+    appendPaging("MESHTACORE Full Config: STOREFORWARD\n--\n");
     FCD_LINE("enabled: %s\n", sf.enabled ? "true" : "false");
     FCD_LINE("heartbeat: %s\n", sf.heartbeat ? "true" : "false");
     FCD_LINE("records: %u\n", (unsigned)sf.records);
@@ -4449,7 +4449,7 @@ void NexusModule::appendFCDSection_RANGETEST()
 {
     auto &rt = moduleConfig.range_test;
     #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
-    appendPaging("MTC Full Config: RANGETEST\n--\n");
+    appendPaging("MESHTACORE Full Config: RANGETEST\n--\n");
     FCD_LINE("enabled: %s\n", rt.enabled ? "true" : "false");
     FCD_LINE("sender: %u\n", (unsigned)rt.sender);
     FCD_LINE("save: %s\n", rt.save ? "true" : "false");
@@ -4462,7 +4462,7 @@ void NexusModule::appendFCDSection_TELEMETRY()
 {
     auto &tl = moduleConfig.telemetry;
     #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
-    appendPaging("MTC Full Config: TELEMETRY\n--\n");
+    appendPaging("MESHTACORE Full Config: TELEMETRY\n--\n");
     FCD_LINE("device_update_interval: %u\n", (unsigned)tl.device_update_interval);
     FCD_LINE("environment_update_interval: %u\n", (unsigned)tl.environment_update_interval);
     FCD_LINE("environment_measurement_enabled: %s\n", tl.environment_measurement_enabled ? "true" : "false");
@@ -4486,7 +4486,7 @@ void NexusModule::appendFCDSection_CANNEDMSG()
 {
     auto &cm = moduleConfig.canned_message;
     #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
-    appendPaging("MTC Full Config: CANNEDMSG\n--\n");
+    appendPaging("MESHTACORE Full Config: CANNEDMSG\n--\n");
     FCD_LINE("rotary1_enabled: %s\n", cm.rotary1_enabled ? "true" : "false");
     FCD_LINE("inputbroker_pin_a: %u\n", (unsigned)cm.inputbroker_pin_a);
     FCD_LINE("inputbroker_pin_b: %u\n", (unsigned)cm.inputbroker_pin_b);
@@ -4506,7 +4506,7 @@ void NexusModule::appendFCDSection_AUDIO()
 {
     auto &au = moduleConfig.audio;
     #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
-    appendPaging("MTC Full Config: AUDIO\n--\n");
+    appendPaging("MESHTACORE Full Config: AUDIO\n--\n");
     FCD_LINE("codec2_enabled: %s\n", au.codec2_enabled ? "true" : "false");
     FCD_LINE("ptt_pin: %u\n", (unsigned)au.ptt_pin);
     FCD_LINE("bitrate: %u\n", (unsigned)au.bitrate);
@@ -4522,7 +4522,7 @@ void NexusModule::appendFCDSection_REMOTEHW()
 {
     auto &rh = moduleConfig.remote_hardware;
     #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
-    appendPaging("MTC Full Config: REMOTEHW\n--\n");
+    appendPaging("MESHTACORE Full Config: REMOTEHW\n--\n");
     FCD_LINE("enabled: %s\n", rh.enabled ? "true" : "false");
     FCD_LINE("allow_undefined_pin_access: %s\n", rh.allow_undefined_pin_access ? "true" : "false");
     FCD_LINE("available_pins_count: %u\n", (unsigned)rh.available_pins_count);
@@ -4543,7 +4543,7 @@ void NexusModule::appendFCDSection_NEIGHBORINFO()
 {
     auto &nb = moduleConfig.neighbor_info;
     #define FCD_LINE(...) do { char line[160]; snprintf(line, sizeof(line), __VA_ARGS__); appendPaging(line); } while(0)
-    appendPaging("MTC Full Config: NEIGHBORINFO\n--\n");
+    appendPaging("MESHTACORE Full Config: NEIGHBORINFO\n--\n");
     FCD_LINE("enabled: %s\n", nb.enabled ? "true" : "false");
     FCD_LINE("update_interval: %u\n", (unsigned)nb.update_interval);
     FCD_LINE("transmit_over_lora: %s\n", nb.transmit_over_lora ? "true" : "false");
@@ -5351,7 +5351,7 @@ void NexusModule::startPaging(uint32_t to, uint32_t ch, uint32_t replyId, const 
     pagingWindow.reset(pagingOffset);
     paging_ptr = 0;
     char header[96];
-    snprintf(header, sizeof(header), "MTC %s:\n", title);
+    snprintf(header, sizeof(header), "MESHTACORE %s:\n", title);
     appendPaging(header);
     setIntervalFromNow(50);
 }
@@ -5616,7 +5616,7 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
         uint64_t pa_bits  = nexusVariantBits & VARIANT_PA_MASK;
         uint64_t lna_bits = (nexusVariantBits & VARIANT_LNA_MASK) >> VARIANT_LNA_SHIFT;
         snprintf(out, outsz,
-                 "MTC G3 STATUS\n"
+                 "MESHTACORE G3 STATUS\n"
                  "  PA  = %s\n"
                  "  LNA = %s\n"
                  "  vault: PA=%s LNA=%s (run /nexus SAVE to persist)",
@@ -5737,7 +5737,7 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
         pa_label(pa_buf, sizeof(pa_buf));
         lna_label(lna_buf, sizeof(lna_buf));
         snprintf(replyMsg, replySize,
-                 "MTC G3 REINIT\n"
+                 "MESHTACORE G3 REINIT\n"
                  "  PA  = %s\n"
                  "  LNA = %s",
                  pa_buf, lna_buf);
@@ -5748,7 +5748,7 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
         if (strcasecmp(arg, "ON") == 0) {
             if (nexus_g3_pa_runtime == G3_DISABLED) {
                 snprintf(replyMsg, replySize,
-                         "MTC G3: PA ON refused — pin is DISABLED (physical jumper PL1 detected at boot). "
+                         "MESHTACORE G3: PA ON refused — pin is DISABLED (physical jumper PL1 detected at boot). "
                          "Remove the jumper and reboot to regain software control.");
                 return;
             }
@@ -5757,11 +5757,11 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
             nexus_g3_pa_runtime = G3_ON;
             nexusVariantBits = (nexusVariantBits & ~VARIANT_PA_MASK) | VARIANT_PA_ON;
             snprintf(replyMsg, replySize,
-                     "MTC G3: PA=ON (GPIO9 OUTPUT HIGH). RAM-only — run /nexus SAVE to persist.");
+                     "MESHTACORE G3: PA=ON (GPIO9 OUTPUT HIGH). RAM-only — run /nexus SAVE to persist.");
         } else if (strcasecmp(arg, "OFF") == 0) {
             if (nexus_g3_pa_runtime == G3_DISABLED) {
                 snprintf(replyMsg, replySize,
-                         "MTC G3: PA OFF refused — pin is DISABLED (physical jumper PL1 detected at boot). "
+                         "MESHTACORE G3: PA OFF refused — pin is DISABLED (physical jumper PL1 detected at boot). "
                          "Remove the jumper and reboot to regain software control.");
                 return;
             }
@@ -5769,9 +5769,9 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
             nexus_g3_pa_runtime = G3_OFF;
             nexusVariantBits = (nexusVariantBits & ~VARIANT_PA_MASK) | VARIANT_PA_OFF;
             snprintf(replyMsg, replySize,
-                     "MTC G3: PA=OFF (GPIO9 INPUT / Hi-Z). RAM-only — run /nexus SAVE to persist.");
+                     "MESHTACORE G3: PA=OFF (GPIO9 INPUT / Hi-Z). RAM-only — run /nexus SAVE to persist.");
         } else {
-            snprintf(replyMsg, replySize, "MTC G3: PA expects ON|OFF (got '%s')", arg);
+            snprintf(replyMsg, replySize, "MESHTACORE G3: PA expects ON|OFF (got '%s')", arg);
         }
         return;
     }
@@ -5784,7 +5784,7 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
         if (want_on) {
             if (nexus_g3_lna_runtime == G3_DISABLED) {
                 snprintf(replyMsg, replySize,
-                         "MTC G3: LNA ON refused — pin is DISABLED (physical jumper LNA-P detected at boot). "
+                         "MESHTACORE G3: LNA ON refused — pin is DISABLED (physical jumper LNA-P detected at boot). "
                          "Remove the jumper and reboot to regain software control.");
                 return;
             }
@@ -5793,11 +5793,11 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
             nexus_g3_lna_runtime = G3_ON;
             nexusVariantBits = (nexusVariantBits & ~VARIANT_LNA_MASK) | (VARIANT_LNA_ON << VARIANT_LNA_SHIFT);
             snprintf(replyMsg, replySize,
-                     "MTC G3: LNA=ON (GPIO10 OUTPUT LOW). RAM-only — run /nexus SAVE to persist.");
+                     "MESHTACORE G3: LNA=ON (GPIO10 OUTPUT LOW). RAM-only — run /nexus SAVE to persist.");
         } else if (want_off) {
             if (nexus_g3_lna_runtime == G3_DISABLED) {
                 snprintf(replyMsg, replySize,
-                         "MTC G3: LNA OFF refused — pin is DISABLED (physical jumper LNA-P detected at boot). "
+                         "MESHTACORE G3: LNA OFF refused — pin is DISABLED (physical jumper LNA-P detected at boot). "
                          "Remove the jumper and reboot to regain software control.");
                 return;
             }
@@ -5806,14 +5806,14 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
             nexus_g3_lna_runtime = G3_OFF;
             nexusVariantBits = (nexusVariantBits & ~VARIANT_LNA_MASK) | (VARIANT_LNA_OFF << VARIANT_LNA_SHIFT);
             snprintf(replyMsg, replySize,
-                     "MTC G3: LNA=OFF (GPIO10 OUTPUT HIGH / bypassed). RAM-only — run /nexus SAVE to persist.");
+                     "MESHTACORE G3: LNA=OFF (GPIO10 OUTPUT HIGH / bypassed). RAM-only — run /nexus SAVE to persist.");
         } else {
-            snprintf(replyMsg, replySize, "MTC G3: LNA expects ON|OFF|BYPASS (got '%s')", arg);
+            snprintf(replyMsg, replySize, "MESHTACORE G3: LNA expects ON|OFF|BYPASS (got '%s')", arg);
         }
         return;
     }
 
     snprintf(replyMsg, replySize,
-             "MTC G3: unknown sub '%s'. Use PA | LNA | STATUS.", sub);
+             "MESHTACORE G3: unknown sub '%s'. Use PA | LNA | STATUS.", sub);
 }
 #endif // STATION_G3

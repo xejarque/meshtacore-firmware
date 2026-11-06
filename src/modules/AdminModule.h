@@ -31,7 +31,7 @@ class AdminModule : public ProtobufModule<meshtastic_AdminMessage>, public Obser
 {
     friend class AdminModuleTestShim; // test/support/AdminModuleTestShim.h - native tests reach the private handlers/state
     // Nexus port: NexusModule reaches into AdminModule's protected/private handlers
-    // (handleSetConfig, handleSetModuleConfig, reboot) to drive /nexus SETCONFIG,
+    // (handleSetConfig, handleSetModuleConfig, reboot) to drive /nexus CONFIG,
     // /nexus REBOOT, and similar internal operators. Friend is preferred over moving
     // the methods to public - they're internal AdminModule plumbing that Nexus orchestrates
     // on behalf of the operator.

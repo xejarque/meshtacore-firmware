@@ -404,7 +404,7 @@ static void onNexusTraceResult(const String &result, int8_t rssi, float freqErr,
     float elapsed = (Time::getMillis() - nexusModule->trace_start_time) / 1000.0f;
 
     char replyMsg[NEXUS_MAX_REPLY]; // Stack reduction for nRF
-    int l = snprintf(replyMsg, sizeof(replyMsg), "MTC TRACE (%.2fs):\n%s\n", elapsed, result.c_str());
+    int l = snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE TRACE (%.2fs):\n%s\n", elapsed, result.c_str());
     if (l < 0 || (size_t)l >= sizeof(replyMsg)) l = sizeof(replyMsg) - 1;
     snprintf(replyMsg + l, sizeof(replyMsg) - l, "[Last: %ddBm, %.2fHz]", rssi, freqErr);
 
@@ -623,12 +623,19 @@ static const LoRaPresetDef s_loraPresets[] = {
 
 // === BEGIN handleNexusCommand (from NexusModule.cpp:1651-8873) ===
 
+// True when a reply starts with one of the three CHECKSIG prefixes. Each literal is compared in full.
+static bool isChecksigReplyText(const char *text) {
+    return strncmp(text, "✅ MESHTACORE CHECKSIG", sizeof("✅ MESHTACORE CHECKSIG") - 1) == 0 ||
+           strncmp(text, "🚫 MESHTACORE CHECKSIG", sizeof("🚫 MESHTACORE CHECKSIG") - 1) == 0 ||
+           strncmp(text, "📄 MESHTACORE CHECKSIG", sizeof("📄 MESHTACORE CHECKSIG") - 1) == 0;
+}
+
 void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char *cmd, bool isBroadcast, uint32_t replyId, bool toPhoneOnly, int redirect_depth) {
     if (!cmd) return;
     if (redirect_depth > NEXUS_MAX_REDIRECT_DEPTH || commandDepth > NEXUS_MAX_REDIRECT_DEPTH) {
         ReplyContext context{mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, toPhoneOnly,
                              toPhoneOnly || (mp.to != myNodeInfo.my_node_num)};
-        const char *error = "MTC: Command nesting limit exceeded (max 3).";
+        const char *error = "MESHTACORE: Command nesting limit exceeded (max 3).";
         sendReply(context, error, strlen(error));
         return;
     }
@@ -702,10 +709,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         // Fix: use the SAME literal UTF-8 source as the dispatcher tail so
         // the byte sequences are guaranteed to match. No more hand-coded
         // hex escapes — the source is greppable too.
-        const bool pp_isChecksigReply =
-            strncmp(replyMsg, "✅ MTC CHECKSIG", 16) == 0 ||
-            strncmp(replyMsg, "🚫 MTC CHECKSIG", 16) == 0 ||
-            strncmp(replyMsg, "📄 MTC CHECKSIG", 16) == 0;
+        const bool pp_isChecksigReply = isChecksigReplyText(replyMsg);
         if (replyMsg[0] != '\0' && !pp_isChecksigReply) {
             const char *pp_sigEmoji;
             if (mp.decoded.xeddsa_signature.size == XEDDSA_SIGNATURE_SIZE) {
@@ -861,7 +865,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (strcasecmp(p, "OFF") == 0) {
             hop_mask_active = false;
             // saveVault();
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Hop Masking DISABLED.");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Hop Masking DISABLED.");
         } else {
             uint32_t startU = 0, limitU = 0;
             const char *hp = p;
@@ -873,14 +877,14 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 hop_mask_start = (uint8_t)start;
                 hop_mask_limit = (uint8_t)limit;
                 // saveVault();
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Hop Masking ACTIVE (Start:%d, Limit:%d)", start, limit);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Hop Masking ACTIVE (Start:%d, Limit:%d)", start, limit);
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid Hop Mask (0-7)");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid Hop Mask (0-7)");
             }
         }
     }
     else if (strcasecmp(cmd, "HOPMASK") == 0) {
-        snprintf(replyMsg, sizeof(replyMsg), "MTC Hop Masking: %s (S:%d, L:%d)",
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE Hop Masking: %s (S:%d, L:%d)",
                  hop_mask_active ? "ACTIVE" : "OFF", hop_mask_start, hop_mask_limit);
     }
     else if (strncasecmp(cmd, "CH-HOPMASK ", 11) == 0 || strncasecmp(cmd, "CHM ", 4) == 0) {
@@ -891,7 +895,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (ch >= 0 && ch < 8) {
             if (strcasecmp(next, "OFF") == 0) {
                 nexus_per_ch_hopmask[ch].active = 0;
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Ch %d (%s) Hopmask DISABLED", ch, channels.getByIndex(ch).settings.name);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Ch %d (%s) Hopmask DISABLED", ch, channels.getByIndex(ch).settings.name);
             } else {
                 uint32_t startU = 0, limitU = 0;
                 const char *hp = next;
@@ -901,13 +905,13 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     nexus_per_ch_hopmask[ch].active = 1;
                     nexus_per_ch_hopmask[ch].start = (uint8_t)start;
                     nexus_per_ch_hopmask[ch].limit = (uint8_t)limit;
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Ch %d (%s) Hopmask ACTIVE (S:%d, L:%d)", ch, channels.getByIndex(ch).settings.name, start, limit);
-                } else snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid Hop Mask (0-7)");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Ch %d (%s) Hopmask ACTIVE (S:%d, L:%d)", ch, channels.getByIndex(ch).settings.name, start, limit);
+                } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid Hop Mask (0-7)");
             }
-        } else snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid Channel");
+        } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid Channel");
     }
     else if (strcasecmp(cmd, "CH-HOPMASK") == 0 || strcasecmp(cmd, "CHM") == 0) {
-        int l = snprintf(replyMsg, sizeof(replyMsg), "MTC Ch Hopmasks:\n");
+        int l = snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE Ch Hopmasks:\n");
         for (int i = 0; i < 8; i++) {
             if (nexus_per_ch_hopmask[i].active) {
                 if (l < (int)sizeof(replyMsg) - 40) {
@@ -937,7 +941,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (portIdx != -1) {
             if (strcasecmp(p, "OFF") == 0) {
                 nexus_per_port_hopmask[portIdx].active = 0;
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Port %s Hopmask DISABLED", portStr);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Port %s Hopmask DISABLED", portStr);
             } else {
                 uint32_t startU = 0, limitU = 0;
                 const char *hp = p;
@@ -947,13 +951,13 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     nexus_per_port_hopmask[portIdx].active = 1;
                     nexus_per_port_hopmask[portIdx].start = (uint8_t)start;
                     nexus_per_port_hopmask[portIdx].limit = (uint8_t)limit;
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Port %s Hopmask ACTIVE (S:%d, L:%d)", portStr, start, limit);
-                } else snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid Hop Mask (0-7)");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Port %s Hopmask ACTIVE (S:%d, L:%d)", portStr, start, limit);
+                } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid Hop Mask (0-7)");
             }
-        } else snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid Port (NI|TL|PO|TR)");
+        } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid Port (NI|TL|PO|TR)");
     }
     else if (strcasecmp(cmd, "PORT-HOPMASK") == 0 || strcasecmp(cmd, "PHM") == 0) {
-        int l = snprintf(replyMsg, sizeof(replyMsg), "MTC Port Hopmasks:\n");
+        int l = snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE Port Hopmasks:\n");
         const char* pNames[] = {"NI", "TL", "PO", "TR", "TX"};
         for (int i = 0; i < 5; i++) {
             if (nexus_per_port_hopmask[i].active) {
@@ -978,9 +982,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (strncasecmp(p, "ADD ", 4) == 0) {
             uint32_t ch = 0;
             if (!parseUIntAuto(p + 4, ch)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - %s ADD <channel hash>", isWhite ? "PRWHITELIST" : "PRBLACKLIST");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - %s ADD <channel hash>", isWhite ? "PRWHITELIST" : "PRBLACKLIST");
             } else if (ch < 8) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: %s - Only Ch 8+ allowed", isWhite ? "Whitelist" : "Blacklist");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: %s - Only Ch 8+ allowed", isWhite ? "Whitelist" : "Blacklist");
             } else {
                 uint32_t *list = isWhite ? nexus_ch_whitelist : nexus_ch_blacklist;
                 int slot = -1;
@@ -988,12 +992,12 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     if (list[i] == ch) { slot = -2; break; }
                     if (list[i] == 0 && slot == -1) slot = i;
                 }
-                if (slot == -2) snprintf(replyMsg, sizeof(replyMsg), "MTC: Ch %u (0x%X) already in list", (unsigned int)ch, (unsigned int)ch);
-                else if (slot == -1) snprintf(replyMsg, sizeof(replyMsg), "MTC: List full (max 16)");
+                if (slot == -2) snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Ch %u (0x%X) already in list", (unsigned int)ch, (unsigned int)ch);
+                else if (slot == -1) snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: List full (max 16)");
                 else {
                     list[slot] = ch;
                     // saveVault();
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Ch %u (0x%X) added to %s", (unsigned int)ch, (unsigned int)ch, isWhite ? "Whitelist" : "Blacklist");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Ch %u (0x%X) added to %s", (unsigned int)ch, (unsigned int)ch, isWhite ? "Whitelist" : "Blacklist");
                 }
             }
         }
@@ -1006,18 +1010,18 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 if (list[i] == ch) { list[i] = 0; found = true; break; }
             }
             if (!chOk) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - %s REM <channel hash>", isWhite ? "PRWHITELIST" : "PRBLACKLIST");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - %s REM <channel hash>", isWhite ? "PRWHITELIST" : "PRBLACKLIST");
             } else if (found) {
                 // saveVault();
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Ch %u (0x%X) removed from %s", (unsigned int)ch, (unsigned int)ch, isWhite ? "Whitelist" : "Blacklist");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Ch %u (0x%X) removed from %s", (unsigned int)ch, (unsigned int)ch, isWhite ? "Whitelist" : "Blacklist");
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Ch %u (0x%X) not found in %s", (unsigned int)ch, (unsigned int)ch, isWhite ? "Whitelist" : "Blacklist");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Ch %u (0x%X) not found in %s", (unsigned int)ch, (unsigned int)ch, isWhite ? "Whitelist" : "Blacklist");
             }
         }
         else if (strcasecmp(p, "LIST") == 0 || *p == '\0') {
             uint32_t *list = isWhite ? nexus_ch_whitelist : nexus_ch_blacklist;
             memset(cmdBuf.lBuf, 0, sizeof(cmdBuf.lBuf));
-            int lLen = snprintf(cmdBuf.lBuf, sizeof(cmdBuf.lBuf), "MTC %s: ", isWhite ? "Whitelist" : "Blacklist");
+            int lLen = snprintf(cmdBuf.lBuf, sizeof(cmdBuf.lBuf), "MESHTACORE %s: ", isWhite ? "Whitelist" : "Blacklist");
             for(int i=0; i<16; i++) {
                 if (list[i] != 0) {
                     if (lLen < (int)sizeof(cmdBuf.lBuf) - 15) {
@@ -1043,9 +1047,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
 
         if (handled) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: %s filter %s", portStr, setDrop ? "ACTIVE" : "DISABLED");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: %s filter %s", portStr, setDrop ? "ACTIVE" : "DISABLED");
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid filter target");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid filter target");
         }
     } else if (strncasecmp(cmd, "OUTDROP ", 8) == 0 || strncasecmp(cmd, "UNOUTDROP ", 10) == 0) {
         bool setDrop = (strncasecmp(cmd, "OUTDROP ", 8) == 0);
@@ -1061,9 +1065,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
 
         if (handled) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC Output: %s filter %s", portStr, setDrop ? "ACTIVE" : "DISABLED");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE Output: %s filter %s", portStr, setDrop ? "ACTIVE" : "DISABLED");
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid output filter target");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid output filter target");
         }
     }
     else if (strncasecmp(cmd, "ZH ", 3) == 0 || strcasecmp(cmd, "ZH") == 0) {
@@ -1073,7 +1077,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         auto zhFlag = [&](const char *verb, uint8_t bit) {
             bool on = false;
             if (!parseOnOff(verb, on)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - ZH [POS|TELE|ROUTER|CLIENT] <ON|OFF>");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - ZH [POS|TELE|ROUTER|CLIENT] <ON|OFF>");
                 return;
             }
             if (on) zero_hop_config |= bit; else zero_hop_config &= ~bit;
@@ -1096,19 +1100,19 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         else if (strncasecmp(p, "ADD ", 4) == 0) {
             uint8_t id = 0;
             if (!parseHexByte(p + 4, id)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - ZH ADD <hex id>");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - ZH ADD <hex id>");
             } else {
                 setZeroHopNode(id, true);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH ID 0x%02X ADDED", id);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: ZH ID 0x%02X ADDED", id);
             }
         }
         else if (strncasecmp(p, "DEL ", 4) == 0) {
             uint8_t id = 0;
             if (!parseHexByte(p + 4, id)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - ZH DEL <hex id>");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - ZH DEL <hex id>");
             } else {
                 setZeroHopNode(id, false);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH ID 0x%02X REMOVED", id);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: ZH ID 0x%02X REMOVED", id);
             }
         }
         else if (strcasecmp(p, "SYNC") == 0) {
@@ -1123,24 +1127,24 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     count++;
                 }
             }
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH SYNC OK (%d nodes)", count);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: ZH SYNC OK (%d nodes)", count);
         }
         else if (strncasecmp(p, "CLEAR ", 6) == 0) {
             const char *target = skipToken(p);
             if (strcasecmp(target, "ROUTER") == 0 || strcasecmp(target, "RT") == 0) {
                 memset(zero_hop_auto_router_mask, 0, sizeof(zero_hop_auto_router_mask));
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH ROUTER MASK CLEARED");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: ZH ROUTER MASK CLEARED");
             } else if (strcasecmp(target, "CLIENT") == 0 || strcasecmp(target, "CLIENT_BASE") == 0 ||
                        strcasecmp(target, "CB") == 0) {
                 memset(zero_hop_auto_client_mask, 0, sizeof(zero_hop_auto_client_mask));
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH CLIENT MASK CLEARED");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: ZH CLIENT MASK CLEARED");
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH CLEAR <ROUTER|CLIENT>");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: ZH CLEAR <ROUTER|CLIENT>");
             }
         }
         else if (strcasecmp(p, "CLEAR") == 0) {
             memset(zero_hop_mask, 0, sizeof(zero_hop_mask));
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH MASK CLEARED");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: ZH MASK CLEARED");
         }
         else if (strcasecmp(p, "EXPORT") == 0 || strcasecmp(p, "OUTPUT") == 0 ||
                  strcasecmp(p, "OUT") == 0 || strcasecmp(p, "B64") == 0) {
@@ -1149,7 +1153,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             // a notebook. Companion to ZH IMPORT.
             memset(cmdBuf.b64, 0, sizeof(cmdBuf.b64));
             nexus_base64_encode(cmdBuf.b64, zero_hop_mask, sizeof(zero_hop_mask), false);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC ZH B64: %s", cmdBuf.b64);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE ZH B64: %s", cmdBuf.b64);
         }
         else if (strncasecmp(p, "IMPORT ", 7) == 0 || strncasecmp(p, "INPUT ", 6) == 0 ||
                  strncasecmp(p, "IN ", 3) == 0) {
@@ -1161,10 +1165,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             size_t written = 0;
             int err = this->nexus_base64_decode(decoded, sizeof(decoded), &written, b64);
             if (err != 0 || written != sizeof(zero_hop_mask)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH IMPORT failed (got %u bytes, need %u)", (unsigned)written, (unsigned)sizeof(zero_hop_mask));
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: ZH IMPORT failed (got %u bytes, need %u)", (unsigned)written, (unsigned)sizeof(zero_hop_mask));
             } else {
                 memcpy(zero_hop_mask, decoded, sizeof(zero_hop_mask));
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH IMPORT OK (32 bytes / 256 relays)");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: ZH IMPORT OK (32 bytes / 256 relays)");
             }
         }
         else if (strcasecmp(p, "LIST") == 0 || strncasecmp(p, "LIST ", 5) == 0) {
@@ -1174,7 +1178,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             const char *vlabel = "manual";
             const uint8_t *zhMask = zeroHopListMask(tgt, &vok, &vlabel);
             if (!vok) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH unknown list '%s' (MANUAL|ROUTER|CLIENT|ALL)", tgt);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: ZH unknown list '%s' (MANUAL|ROUTER|CLIENT|ALL)", tgt);
             } else {
             memset(cmdBuf.lBuf, 0, sizeof(cmdBuf.lBuf));
             cmdBuf.lBuf[0] = '\0';
@@ -1193,7 +1197,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 }
             }
             if (count == 0) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH List (%s) is EMPTY", vlabel);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: ZH List (%s) is EMPTY", vlabel);
             } else {
                 snprintf(replyMsg, sizeof(replyMsg), "%s", cmdBuf.lBuf);
             }
@@ -1211,7 +1215,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             const char *vlabel = "manual";
             const uint8_t *zhMask = zeroHopListMask(tgt, &vok, &vlabel);
             if (!vok) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH unknown list '%s' (MANUAL|ROUTER|CLIENT|ALL)", tgt);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: ZH unknown list '%s' (MANUAL|ROUTER|CLIENT|ALL)", tgt);
             } else {
             char *dst = cmdBuf.lBuf;
             size_t left = sizeof(cmdBuf.lBuf);
@@ -1228,9 +1232,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
             *dst = '\0';
             if (count == 0) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH [%s] (short) empty", vlabel);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: ZH [%s] (short) empty", vlabel);
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC ZH [%s] (%u): %s", vlabel, (unsigned)count, cmdBuf.lBuf);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE ZH [%s] (%u): %s", vlabel, (unsigned)count, cmdBuf.lBuf);
             }
             }
         }
@@ -1245,7 +1249,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             const char *vlabel = "manual";
             const uint8_t *zhMask = zeroHopListMask(tgt, &vok, &vlabel);
             if (!vok) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH unknown list '%s' (MANUAL|ROUTER|CLIENT|ALL)", tgt);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: ZH unknown list '%s' (MANUAL|ROUTER|CLIENT|ALL)", tgt);
             } else {
             uint32_t to = (mp.to == myNodeInfo.my_node_num) ? mp.from : 0xFFFFFFFF;
             char ptitle[32];
@@ -1272,7 +1276,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 appendPaging(footer);
             }
             memset(names, 0, sizeof(names));
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging ZH [%s] list (%u entries)...", vlabel, (unsigned)count);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging ZH [%s] list (%u entries)...", vlabel, (unsigned)count);
             }
         }
         else if (strcasecmp(p, "LISTS") == 0) {
@@ -1309,7 +1313,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             snprintf(foot, sizeof(foot), "-- all: %d entries --", grand);
             appendPaging(foot);
             memset(names, 0, sizeof(names));
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging ZH lists (manual/router/client, %d total)...", grand);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging ZH lists (manual/router/client, %d total)...", grand);
         }
 
         if (replyMsg[0] == '\0') {
@@ -1320,7 +1324,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 for (int b = 0; b < 32; b++) c += __builtin_popcount(m[b]);
                 return c;
             };
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: ZH %s (POS:%s TELE:%s RTR:%s[%d] CLI:%s[%d])",
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: ZH %s (POS:%s TELE:%s RTR:%s[%d] CLI:%s[%d])",
                 isZeroHopEnabled() ? "ON" : "OFF",
                 shouldPreservePosition() ? "ON" : "OFF",
                 shouldPreserveTelemetry() ? "ON" : "OFF",
@@ -1338,25 +1342,25 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 if (*sub) {
                     if (strcasecmp(sub, "OFF") == 0) {
                         gpio_watch_mask = 0;
-                        snprintf(replyMsg, sizeof(replyMsg), "MTC: GPIO Watching DISABLED");
+                        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: GPIO Watching DISABLED");
                     } else {
                         int pin = tokenInt(sub);
                         if (pin >= 0 && pin <= 63) {
                             if (gpio_watch_mask & (1ULL << pin)) {
                                 gpio_watch_mask &= ~(1ULL << pin);
-                                snprintf(replyMsg, sizeof(replyMsg), "MTC: Unwatched GPIO %d", pin);
+                                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Unwatched GPIO %d", pin);
                             } else {
                                 gpio_watch_mask |= (1ULL << pin);
                                 pinMode(pin, INPUT_PULLUP);
                                 if (digitalRead(pin)) gpio_watch_prev |= (1ULL << pin);
                                 else gpio_watch_prev &= ~(1ULL << pin);
-                                snprintf(replyMsg, sizeof(replyMsg), "MTC: Watching GPIO %d", pin);
+                                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Watching GPIO %d", pin);
                             }
-                        } else snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid Pin (0-63)");
+                        } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid Pin (0-63)");
                     }
                     // saveVault removed (SCOPE RULE: only SAVE persists in tactical)
                 } else {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC GPIO Watch Mask: 0x%08lX%08lX",
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE GPIO Watch Mask: 0x%08lX%08lX",
                              (unsigned long)(gpio_watch_mask >> 32), (unsigned long)(gpio_watch_mask & 0xFFFFFFFFu));
                 }
             } else {
@@ -1372,17 +1376,17 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                                 if (strcasecmp(p, "H") == 0 || strcasecmp(p, "HIGH") == 0 || tokenInt(p) > 0) val = 1;
                                 else if (strcasecmp(p, "L") == 0 || strcasecmp(p, "LOW") == 0 || strcmp(p, "0") == 0) val = 0;
                                 if (val < 0) {
-                                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage: GPIO W <pin> <H|L>");
+                                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage: GPIO W <pin> <H|L>");
                                 } else {
                                     pinMode(pin, OUTPUT);
                                     digitalWrite(pin, val);
-                                    snprintf(replyMsg, sizeof(replyMsg), "MTC: GPIO %d set to %s", pin, val ? "HIGH" : "LOW");
+                                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: GPIO %d set to %s", pin, val ? "HIGH" : "LOW");
                                 }
-                            } else snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage: GPIO W <pin> <H|L>");
+                            } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage: GPIO W <pin> <H|L>");
                         } else if (op == 'R') {
                             pinMode(pin, INPUT_PULLUP);
                             int val = digitalRead(pin);
-                            snprintf(replyMsg, sizeof(replyMsg), "MTC: GPIO %d is %s", pin, val ? "HIGH" : "LOW");
+                            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: GPIO %d is %s", pin, val ? "HIGH" : "LOW");
                         } else if (op == 'M') {
                             p = skipToken(p);
                             if (*p) {
@@ -1393,22 +1397,22 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
                                 if (strcasecmp(mBuf, "IN") == 0) {
                                     pinMode(pin, INPUT);
-                                    snprintf(replyMsg, sizeof(replyMsg), "MTC: GPIO %d mode set to INPUT", pin);
+                                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: GPIO %d mode set to INPUT", pin);
                                 } else if (strcasecmp(mBuf, "OUT") == 0) {
                                     pinMode(pin, OUTPUT);
-                                    snprintf(replyMsg, sizeof(replyMsg), "MTC: GPIO %d mode set to OUTPUT", pin);
+                                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: GPIO %d mode set to OUTPUT", pin);
                                 } else if (strcasecmp(mBuf, "PU") == 0) {
                                     pinMode(pin, INPUT_PULLUP);
-                                    snprintf(replyMsg, sizeof(replyMsg), "MTC: GPIO %d mode set to INPUT_PULLUP", pin);
+                                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: GPIO %d mode set to INPUT_PULLUP", pin);
                                 } else {
-                                    snprintf(replyMsg, sizeof(replyMsg), "MTC: GPIO M invalid mode (IN|OUT|PU)");
+                                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: GPIO M invalid mode (IN|OUT|PU)");
                                 }
-                            } else snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage: GPIO M <pin> <IN|OUT|PU>");
-                        } else snprintf(replyMsg, sizeof(replyMsg), "MTC: GPIO [W|R|M|WATCH]");
-                    } else snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid Pin (0-128)");
-                } else snprintf(replyMsg, sizeof(replyMsg), "MTC: GPIO <W|R|M|WATCH> <pin>");
+                            } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage: GPIO M <pin> <IN|OUT|PU>");
+                        } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: GPIO [W|R|M|WATCH]");
+                    } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid Pin (0-128)");
+                } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: GPIO <W|R|M|WATCH> <pin>");
             }
-        } else snprintf(replyMsg, sizeof(replyMsg), "MTC: GPIO <W|R|M|WATCH> <pin> [val]");
+        } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: GPIO <W|R|M|WATCH> <pin> [val]");
     }
     else if (strncasecmp(cmd, "TA ", 3) == 0 || strcasecmp(cmd, "TA") == 0 ||
              strncasecmp(cmd, "TR_ALERT ", 9) == 0 || strcasecmp(cmd, "TR_ALERT") == 0) {
@@ -1433,9 +1437,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
         if (badArg)
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - TA [ON|OFF] [mode 0-2]");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - TA [ON|OFF] [mode 0-2]");
         else
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Trace Alert %s (Mode: %u)", trace_alert ? "ON" : "OFF", (unsigned int)trace_alert_mode);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Trace Alert %s (Mode: %u)", trace_alert ? "ON" : "OFF", (unsigned int)trace_alert_mode);
     }
     else if (strncasecmp(cmd, "TRUSTED ", 8) == 0 || strcasecmp(cmd, "TRUSTED") == 0) {
         const char* slotStr = (cmd[7] == ' ') ? cmd + 8 : nullptr;
@@ -1458,22 +1462,22 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 if (nameStr) {
                     if (strcasecmp(nameStr, "OFF") == 0) {
                         trusted_ch_active[slot] = false;
-                        snprintf(replyMsg, sizeof(replyMsg), "MTC: Trusted Slot %d DISABLED", slot);
+                        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Trusted Slot %d DISABLED", slot);
                     } else {
                         trusted_ch_active[slot] = true;
                         strncpy(trusted_ch_names[slot], nameStr, 15);
                         trusted_ch_names[slot][15] = '\0';
-                        snprintf(replyMsg, sizeof(replyMsg), "MTC: Trusted Slot %d -> '%s'", slot, trusted_ch_names[slot]);
+                        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Trusted Slot %d -> '%s'", slot, trusted_ch_names[slot]);
                     }
                 } else {
-                     snprintf(replyMsg, sizeof(replyMsg), "MTC TRUSTED [%d]: %s (%s)",
+                     snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE TRUSTED [%d]: %s (%s)",
                               slot, trusted_ch_names[slot], trusted_ch_active[slot] ? "ON" : "OFF");
                 }
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid slot (0-1)");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid slot (0-1)");
             }
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC TRUSTED Slots:\n[0] %s (%s)\n[1] %s (%s)",
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE TRUSTED Slots:\n[0] %s (%s)\n[1] %s (%s)",
                      trusted_ch_names[0], trusted_ch_active[0] ? "ON" : "OFF",
                      trusted_ch_names[1], trusted_ch_active[1] ? "ON" : "OFF");
         }
@@ -1501,17 +1505,17 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
         if (badArg)
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - MA [ON|OFF] [mode 0-2]");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - MA [ON|OFF] [mode 0-2]");
         else
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Meta Alert %s (Mode: %u)", meta_alert ? "ON" : "OFF", (unsigned int)meta_alert_mode);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Meta Alert %s (Mode: %u)", meta_alert ? "ON" : "OFF", (unsigned int)meta_alert_mode);
     }
-    else if (strcasecmp(cmd, "SETPREAMBLE") == 0 || strcasecmp(cmd, "SETPRE") == 0 || strncasecmp(cmd, "SETPREAMBLE ", 12) == 0 || strncasecmp(cmd, "SETPRE ", 7) == 0) {
+    else if (isCommandWord(cmd, "PREAMBLE") || isCommandWord(cmd, "PRE")) {
         const char *p = skipToken(cmd);
         if (*p != '\0') {
             int val = tokenInt(p);
             if (val >= 6 && val <= 1024) {
                 preamble_override = (uint16_t)val;
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Preamble Length set to %d. Applying in 5s...", val);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Preamble Length set to %d. Applying in 5s...", val);
 
                 // Trigger radio re-init
                 pendingLoRaApplyAt = Time::getMillis() + 5000;
@@ -1522,14 +1526,14 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 pendingConfig = pc;
                 setIntervalFromNow(50);
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid Preamble (6-1024)");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid Preamble (6-1024)");
             }
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC Preamble Override: %u", preamble_override);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE Preamble Override: %u", preamble_override);
         }
     }
-    else if (strcasecmp(cmd, "SETSYNCWORD") == 0 || strcasecmp(cmd, "SETSW") == 0 || strncasecmp(cmd, "SETSYNCWORD ", 12) == 0 || strncasecmp(cmd, "SETSW ", 6) == 0) {
-        // Nexus: SETSYNCWORD - runtime LoRa sync word override (v40).
+    else if (isCommandWord(cmd, "SYNCWORD") || isCommandWord(cmd, "SW")) {
+        // Nexus: SYNCWORD - runtime LoRa sync word override (v40).
         // 0 or RESET restores Meshtastic default 0x2B. Any byte 0x00-0xFF is accepted
         // (including 0x34 - caller is responsible for the implications, e.g. picking
         // a LoRaWAN syncword will make the node talk LoRaWAN, not Meshtastic).
@@ -1537,7 +1541,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (*p != '\0') {
             if (strcasecmp(p, "RESET") == 0 || strcasecmp(p, "DEFAULT") == 0 || strcasecmp(p, "DEF") == 0) {
                 syncword_override = 0;
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Sync Word reset to default 0x2B. Applying in 5s...");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Sync Word reset to default 0x2B. Applying in 5s...");
 
                 pendingLoRaApplyAt = Time::getMillis() + 5000;
                 pendingLoRaConfig = true;
@@ -1555,17 +1559,17 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 // operator would get no confirmation of anything. Rejected on purpose. Build with
                 // -DMESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC=0 to get the original Nexus behaviour.
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC: SETSYNCWORD disabled (hybrid RX 0x%04X). Build without MeshCore hybrid sync to use it.",
+                         "MESHTACORE: SYNCWORD disabled (hybrid RX 0x%04X). Build without MeshCore hybrid sync to use it.",
                          (unsigned)MESHTASTIC_MESHCORE_RX_SYNCWORD);
 #else
                 // Parse hex (0x..) or decimal. SyncWord is a single byte 0x00-0xFF.
                 char *endptr = nullptr;
                 unsigned long val = strtoul(p, &endptr, 0);
                 if (endptr == p || val > 0xFF) {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid SyncWord (0x00-0xFF, RESET)");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid SyncWord (0x00-0xFF, RESET)");
                 } else {
                     syncword_override = (uint8_t)val;
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Sync Word set to 0x%02X. Applying in 5s...", syncword_override);
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Sync Word set to 0x%02X. Applying in 5s...", syncword_override);
 
                     pendingLoRaApplyAt = Time::getMillis() + 5000;
                     pendingLoRaConfig = true;
@@ -1585,17 +1589,17 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 #if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
             if (syncword_override != 0) {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC Sync Word: RX hybrid 0x%04X, TX 0x%02X (stale override, RESET to fix)",
+                         "MESHTACORE Sync Word: RX hybrid 0x%04X, TX 0x%02X (stale override, RESET to fix)",
                          (unsigned)MESHTASTIC_MESHCORE_RX_SYNCWORD, syncword_override);
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC Sync Word: RX hybrid 0x%04X, TX 0x2B",
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE Sync Word: RX hybrid 0x%04X, TX 0x2B",
                          (unsigned)MESHTASTIC_MESHCORE_RX_SYNCWORD);
             }
 #else
             if (syncword_override == 0) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC Sync Word: 0x2B (Meshtastic default)");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE Sync Word: 0x2B (Meshtastic default)");
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC Sync Word: 0x%02X (override)", syncword_override);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE Sync Word: 0x%02X (override)", syncword_override);
             }
 #endif // MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
         }
@@ -1626,9 +1630,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     nexus_aliases[slot].nodeID = id;
                     strncpy(nexus_aliases[slot].alias, alias, 4);
                     nexus_aliases[slot].alias[4] = '\0';
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Alias '%s' set for !%08x", alias, (unsigned int)id);
-                } else snprintf(replyMsg, sizeof(replyMsg), "MTC: Alias table full");
-            } else snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage: ALIAS SET <node> <alias(4)>");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Alias '%s' set for !%08x", alias, (unsigned int)id);
+                } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Alias table full");
+            } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage: ALIAS SET <node> <alias(4)>");
         } else if (strncasecmp(sub, "DEL ", 4) == 0) {
             sub += 4;
             char target[16] = {0};
@@ -1641,8 +1645,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     found = true; break;
                 }
             }
-            if (found) { snprintf(replyMsg, sizeof(replyMsg), "MTC: Alias '%s' deleted", target); }
-            else snprintf(replyMsg, sizeof(replyMsg), "MTC: Alias not found");
+            if (found) { snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Alias '%s' deleted", target); }
+            else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Alias not found");
         } else if (strcasecmp(sub, "LIST") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Aliases");
             for (int j = 0; j < 16; j++) {
@@ -1652,8 +1656,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     appendPaging(entry);
                 }
             }
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging aliases to mesh...");
-        } else snprintf(replyMsg, sizeof(replyMsg), "MTC: ALIAS [SET|DEL|LIST]");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging aliases to mesh...");
+        } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: ALIAS [SET|DEL|LIST]");
     }
     else if (strncasecmp(cmd, "MACRO ", 6) == 0 || strcasecmp(cmd, "MACRO") == 0 ||
              strncasecmp(cmd, "MC ", 3) == 0 || strcasecmp(cmd, "MC") == 0 ||
@@ -1680,10 +1684,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     memset(nexus_macros[slot].command + commandLength, 0, sizeof(nexus_macros[slot].command) - commandLength);
                     nexus_macros[slot].name[11] = '\0';
                     nexus_macros[slot].command[127] = '\0';
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Macro '%s' stored", name);
-                } else snprintf(replyMsg, sizeof(replyMsg), "MTC: Macro slots full");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Macro '%s' stored", name);
+                } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Macro slots full");
             } else
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage: MACRO SET <name> <cmd>");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage: MACRO SET <name> <cmd>");
         } else if (isRun || strncasecmp(sub, "RUN ", 4) == 0) {
             if (!isRun) sub += 4;
             char name[16] = {0};
@@ -1695,7 +1699,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
             if (slot != -1) {
                 if (macroStepExecuting && strchr(nexus_macros[slot].command, ';')) {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Nested macro sequences are not supported; sequence unchanged.");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Nested macro sequences are not supported; sequence unchanged.");
                 } else if (strchr(nexus_macros[slot].command, ';')) {
                     // Sequence macro
                     strncpy(macro_running_cmd, nexus_macros[slot].command, 127);
@@ -1708,15 +1712,15 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     macroIsBroadcast = isBroadcast;
                     macroDepth = redirect_depth + 1;
                     macro_to_phone = toPhoneOnly;
-                                        snprintf(replyMsg, sizeof(replyMsg), "MTC: Running macro sequence '%s'...", name);
+                                        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Running macro sequence '%s'...", name);
                     setIntervalFromNow(50);
                 } else {
                     // Direct macro
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Executing macro '%s'...", name);
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Executing macro '%s'...", name);
                     handleNexusCommand(mp, nexus_macros[slot].command, isBroadcast, replyId, toPhoneOnly, redirect_depth + 1);
                     return; // Prevent duplicate reply
                 }
-            } else snprintf(replyMsg, sizeof(replyMsg), "MTC: Macro '%s' not found", name);
+            } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Macro '%s' not found", name);
         } else if (!isRun && strncasecmp(sub, "DEL ", 4) == 0) {
             sub += 4;
             char name[16] = {0};
@@ -1729,8 +1733,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     found = true; break;
                 }
             }
-            if (found) { snprintf(replyMsg, sizeof(replyMsg), "MTC: Macro deleted"); }
-            else snprintf(replyMsg, sizeof(replyMsg), "MTC: Macro not found");
+            if (found) { snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Macro deleted"); }
+            else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Macro not found");
         } else if (!isRun && strcasecmp(sub, "LIST") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Macros");
             static char entry[150];
@@ -1742,8 +1746,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 }
             }
             memset(entry, 0, sizeof(entry));
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging macros to mesh...");
-        } else snprintf(replyMsg, sizeof(replyMsg), "MTC: MACRO [SET|RUN|DEL|LIST]");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging macros to mesh...");
+        } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: MACRO [SET|RUN|DEL|LIST]");
     }
     else if (strncasecmp(cmd, "FSIG", 4) == 0) {
         const char *p = cmd + 4;
@@ -1896,27 +1900,27 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
             memset(buf, 0, sizeof(buf));
             memset(line, 0, sizeof(line));
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging signatures...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging signatures...");
         }
         else if (strncasecmp(p, "SET ", 4) == 0) {
             const char *args = p + 4;
             while (*args == ' ') args++;
             int slot = tokenInt(args);
             if (slot < 1 || slot > 8) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Slot must be 1-8.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Slot must be 1-8.");
             } else {
                 while (*args >= '0' && *args <= '9') args++;
                 while (*args == ' ') args++;
                 if (*args == '\0') {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: FSIG SET <1-8> <hex|base64|text>");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: FSIG SET <1-8> <hex|base64|text>");
                 } else {
                     int type = SigFmt::detectType(args);
                     uint8_t buf[16];
                     int n = SigFmt::decode(args, type, buf, 16);
                     if (n < 0) {
-                        snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid format or too long (max 16B).");
+                        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid format or too long (max 16B).");
                     } else if (n == 0) {
-                        snprintf(replyMsg, sizeof(replyMsg), "MTC: Empty signature not allowed.");
+                        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Empty signature not allowed.");
                     } else {
                         memset(&nexus_signatures[slot - 1], 0, sizeof(NexusSignature));
                         memcpy(nexus_signatures[slot - 1].bytes, buf, n);
@@ -1924,7 +1928,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                         nexus_signatures[slot - 1].type = (uint8_t)type;
                         // saveVault removed (SCOPE RULE: only SAVE persists in tactical)
                         const char *typeStr = (type == 0) ? "hex" : (type == 1) ? "base64" : "text";
-                        snprintf(replyMsg, sizeof(replyMsg), "MTC: S%d set (%s, %uB).", slot, typeStr, n);
+                        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: S%d set (%s, %uB).", slot, typeStr, n);
                     }
                 }
             }
@@ -1932,15 +1936,15 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         else if (strncasecmp(p, "OFF ", 4) == 0) {
             int slot = tokenInt(p + 4);
             if (slot < 1 || slot > 8) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Slot must be 1-8.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Slot must be 1-8.");
             } else {
                 memset(&nexus_signatures[slot - 1], 0, sizeof(NexusSignature));
                 // saveVault removed (SCOPE RULE: only SAVE persists in tactical)
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: S%d cleared.", slot);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: S%d cleared.", slot);
             }
         }
         else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: FSIG [LIST|SET <1-8> <value>|OFF <1-8>]");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: FSIG [LIST|SET <1-8> <value>|OFF <1-8>]");
         }
     }
     else if (strcasecmp(cmd, "FREEZE") == 0 || strncasecmp(cmd, "FREEZE ", 7) == 0) {
@@ -1965,7 +1969,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
         if (*sub == '\0' || strcasecmp(sub, "STATUS") == 0) {
             snprintf(replyMsg, sizeof(replyMsg),
-                     "MTC FREEZE:\n"
+                     "MESHTACORE FREEZE:\n"
                      "  NodeDB:  %s\n"
                      "  Warm:    %s\n"
                      "  Device:  %s\n"
@@ -1980,59 +1984,59 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             freeze_nodedb = freeze_warm = freeze_device = freeze_config = true;
             // saveVault removed (SCOPE RULE: only SAVE persists in tactical)
             snprintf(replyMsg, sizeof(replyMsg),
-                     "MTC: All freezes ACTIVE. saveToDisk() blocked on every segment.\n"
+                     "MESHTACORE: All freezes ACTIVE. saveToDisk() blocked on every segment.\n"
                      "Use 'FREEZE OFF' to resume or 'DBFLUSH' to force-flush.");
         } else if (strcasecmp(sub, "OFF") == 0) {
             freeze_nodedb = freeze_warm = freeze_device = freeze_config = false;
             // saveVault removed (SCOPE RULE: only SAVE persists in tactical)
             snprintf(replyMsg, sizeof(replyMsg),
-                     "MTC: All freezes cleared. Normal save resumes.");
+                     "MESHTACORE: All freezes cleared. Normal save resumes.");
         } else if (strncasecmp(sub, "NODEFREEZE", 10) == 0) {
             int v = parseOnOff(sub + 10);
             if (v < 0) {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC: FREEZE NODEFREEZE [ON|OFF] (current: %s)",
+                         "MESHTACORE: FREEZE NODEFREEZE [ON|OFF] (current: %s)",
                          freeze_nodedb ? "ON" : "OFF");
             } else {
                 freeze_nodedb = v;
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC: NodeDB freeze %s. (Persist via /nexus SAVE.)",
+                         "MESHTACORE: NodeDB freeze %s. (Persist via /nexus SAVE.)",
                          freeze_nodedb ? "ON" : "OFF");
             }
         } else if (strncasecmp(sub, "WARMFREEZE", 10) == 0) {
             int v = parseOnOff(sub + 10);
             if (v < 0) {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC: FREEZE WARMFREEZE [ON|OFF] (current: %s)",
+                         "MESHTACORE: FREEZE WARMFREEZE [ON|OFF] (current: %s)",
                          freeze_warm ? "ON" : "OFF");
             } else {
                 freeze_warm = v;
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC: Warm freeze %s. (Persist via /nexus SAVE.)",
+                         "MESHTACORE: Warm freeze %s. (Persist via /nexus SAVE.)",
                          freeze_warm ? "ON" : "OFF");
             }
         } else if (strncasecmp(sub, "DEVICEFREEZE", 12) == 0) {
             int v = parseOnOff(sub + 12);
             if (v < 0) {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC: FREEZE DEVICEFREEZE [ON|OFF] (current: %s)",
+                         "MESHTACORE: FREEZE DEVICEFREEZE [ON|OFF] (current: %s)",
                          freeze_device ? "ON" : "OFF");
             } else {
                 freeze_device = v;
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC: Device freeze %s. (Persist via /nexus SAVE.)",
+                         "MESHTACORE: Device freeze %s. (Persist via /nexus SAVE.)",
                          freeze_device ? "ON" : "OFF");
             }
         } else if (strncasecmp(sub, "CONFIGFREEZE", 12) == 0) {
             int v = parseOnOff(sub + 12);
             if (v < 0) {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC: FREEZE CONFIGFREEZE [ON|OFF] (current: %s)",
+                         "MESHTACORE: FREEZE CONFIGFREEZE [ON|OFF] (current: %s)",
                          freeze_config ? "ON" : "OFF");
             } else {
                 freeze_config = v;
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC: Config freeze %s. (Persist via /nexus SAVE.)",
+                         "MESHTACORE: Config freeze %s. (Persist via /nexus SAVE.)",
                          freeze_config ? "ON" : "OFF");
             }
         } else if (strcasecmp(sub, "DB") == 0 || strcasecmp(sub, "DBONLY") == 0) {
@@ -2043,11 +2047,11 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             freeze_nodedb = true;
             // saveVault removed (SCOPE RULE: only SAVE persists in tactical)
             snprintf(replyMsg, sizeof(replyMsg),
-                     "MTC: NodeDB freeze ACTIVE. nodes.proto frozen at current RAM state.\n"
+                     "MESHTACORE: NodeDB freeze ACTIVE. nodes.proto frozen at current RAM state.\n"
                      "Use 'FREEZE OFF' to resume or 'DBFLUSH' to force-flush.");
         } else {
             snprintf(replyMsg, sizeof(replyMsg),
-                     "MTC: FREEZE [ON|OFF|STATUS|NODEFREEZE|..]\n"
+                     "MESHTACORE: FREEZE [ON|OFF|STATUS|NODEFREEZE|..]\n"
                      "  ON/OFF  = all four on/off\n"
                      "  NODEFREEZE/WARMFREEZE/DEVICEFREEZE/CONFIGFREEZE [ON|OFF]\n"
                      "Legacy: DISK == ON, DB == NODEFREEZE ON. DBFLUSH bypasses all.");
@@ -2068,7 +2072,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         freeze_device = prevDevice;
         freeze_config = prevConfig;
         snprintf(replyMsg, sizeof(replyMsg),
-                 "MTC: DBFLUSH %s (freeze flags unchanged: nodedb=%d warm=%d device=%d config=%d).",
+                 "MESHTACORE: DBFLUSH %s (freeze flags unchanged: nodedb=%d warm=%d device=%d config=%d).",
                  ok ? "OK" : "FAILED", (int)freeze_nodedb, (int)freeze_warm, (int)freeze_device, (int)freeze_config);
     }
     else if (strcasecmp(cmd, "FIREWALL") == 0 || strcasecmp(cmd, "FW") == 0 ||
@@ -2084,7 +2088,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             // Anti-recursion: refuse nested FW/FIREWALL to avoid loops
             if (strncasecmp(sub, "FW ", 3) == 0 || strcasecmp(sub, "FW") == 0 ||
                 strncasecmp(sub, "FIREWALL ", 10) == 0 || strcasecmp(sub, "FIREWALL") == 0) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: FW nested call rejected (anti-recursion guard).");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: FW nested call rejected (anti-recursion guard).");
             } else {
                 // Delegate to existing handler with the sub-command as the new cmd.
                 // Original reply_id is preserved; sub-handler fills replyMsg.
@@ -2197,7 +2201,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             bl2 += snprintf(line + bl2, sizeof(line) - bl2, "\n");
             appendPaging(line);
 
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging firewall status...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging firewall status...");
             // Clean up static scratch buffers so the next call starts fresh.
             memset(line, 0, sizeof(line));
             memset(sec, 0, sizeof(sec));
@@ -2219,9 +2223,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             // %016llX is unsupported on the Meshtastic newlib-nano printf
             // (see file-header note at line ~20). Split the 64-bit mask into
             // two %08lX halves (high first, low second), mirroring the
-            // HEXDROPS / JT GPIO Watch Mask pattern in this file.
+            // HEXDROPS / MESHTACORE GPIO Watch Mask pattern in this file.
             uint64_t m = getNexusFeaturesHex();
-            int l = snprintf(replyMsg, sizeof(replyMsg), "MTC FEATURES: 0x%08lX%08lX\n",
+            int l = snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE FEATURES: 0x%08lX%08lX\n",
                              (unsigned long)(m >> 32),
                              (unsigned long)(m & 0xFFFFFFFFu));
             l += snprintf(replyMsg + l, sizeof(replyMsg) - l,
@@ -2239,20 +2243,20 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         } else if (strcasecmp(sub, "OFF") == 0) {
             // FEATURES OFF: clear all bits.
             setNexusFeaturesHex(0);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC FEATURES: off (mask=0x0)");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE FEATURES: off (mask=0x0)");
         } else if (strncasecmp(sub, "0x", 2) == 0) {
             // FEATURES 0x<hex>: set mask directly via 0x-prefixed hex.
             char *endp = nullptr;
             unsigned long long v = strtoull(sub + 2, &endp, 16);
             if (endp == sub + 2 || (v == ULLONG_MAX && errno == ERANGE)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC FEATURES: bad hex '%s'", sub);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE FEATURES: bad hex '%s'", sub);
             } else {
                 setNexusFeaturesHex((uint64_t)v);
                 uint64_t m = getNexusFeaturesHex();
                 // Nexus-28006 (2026-09-16) — code review 2A fix.
                 // %016llX is unsupported on the Meshtastic newlib-nano printf.
                 // Split into two %08lX halves. See file-header note line ~20.
-                snprintf(replyMsg, sizeof(replyMsg), "MTC FEATURES: 0x%08lX%08lX",
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE FEATURES: 0x%08lX%08lX",
                          (unsigned long)(m >> 32),
                          (unsigned long)(m & 0xFFFFFFFFu));
             }
@@ -2271,14 +2275,14 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 char *endp = nullptr;
                 unsigned long long v = strtoull(sub, &endp, 16);
                 if (endp != sub + strlen(sub) || (v == ULLONG_MAX && errno == ERANGE)) {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC FEATURES: bad hex '%s'", sub);
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE FEATURES: bad hex '%s'", sub);
                 } else {
                     setNexusFeaturesHex((uint64_t)v);
                     uint64_t m = getNexusFeaturesHex();
                     // Nexus-28006 (2026-09-16) — code review 2A fix.
                     // %016llX is unsupported on the Meshtastic newlib-nano printf.
                     // Split into two %08lX halves. See file-header note line ~20.
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC FEATURES: 0x%08lX%08lX",
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE FEATURES: 0x%08lX%08lX",
                              (unsigned long)(m >> 32),
                              (unsigned long)(m & 0xFFFFFFFFu));
                 }
@@ -2321,7 +2325,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 }
                 if (bit == 0) {
                     snprintf(replyMsg, sizeof(replyMsg),
-                             "MTC FEATURES: unknown name '%s' (try FORWARD_OPAQUE_TO_PHONE / FORWARD_FOREIGN_PKI_TO_PHONE / DISABLE_AGC_RESET / LATEBASE)",
+                             "MESHTACORE FEATURES: unknown name '%s' (try FORWARD_OPAQUE_TO_PHONE / FORWARD_FOREIGN_PKI_TO_PHONE / DISABLE_AGC_RESET / LATEBASE)",
                              name);
                 } else {
                     bool turnOn = true;
@@ -2331,7 +2335,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                         else if (strcasecmp(verb, "OFF") == 0) turnOn = false;
                         else {
                             snprintf(replyMsg, sizeof(replyMsg),
-                                     "MTC FEATURES: bad verb '%s' (ON|OFF)", verb);
+                                     "MESHTACORE FEATURES: bad verb '%s' (ON|OFF)", verb);
                             verbOk = false;
                         }
                     }
@@ -2343,7 +2347,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     // %016llX is unsupported on the Meshtastic newlib-nano printf.
                     // Split into two %08lX halves (high first, low second).
                     // See file-header note line ~20.
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC FEATURES: %s %s (mask=0x%08lX%08lX)",
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE FEATURES: %s %s (mask=0x%08lX%08lX)",
                              displayName, turnOn ? "ON" : "off",
                              (unsigned long)(m >> 32),
                              (unsigned long)(m & 0xFFFFFFFFu));
@@ -2365,7 +2369,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     //                                  (chip limit). Each SF must be in
     //                                  [5..12], distinct, spread <= 4.
     //
-    // Returns a JT-formatted reply listing either the new table, the cleared
+    // Returns a MESHTACORE-formatted reply listing either the new table, the cleared
     // state, or a validation rejection reason. Operators on non-LR2021 hardware
     // (heltec-v4 with SX1262, etc.) get a "not supported" reply at runtime.
     //
@@ -2402,10 +2406,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         LR2021Interface *lr2021 = static_cast<LR2021Interface *>(RadioLibInterface::instance);
         const char *sub = skipToken(cmd);
         if (!lr2021) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC LR2021_SF: radio interface unavailable");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE LR2021_SF: radio interface unavailable");
         } else if (!*sub || strcasecmp(sub, "LIST") == 0) {
             uint8_t count = lr2021->sideDetectorsCount();
-            int length = snprintf(replyMsg, sizeof(replyMsg), "MTC LR2021_SF: side=%s", count ? "[" : "(empty)");
+            int length = snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE LR2021_SF: side=%s", count ? "[" : "(empty)");
             for (uint8_t i = 0; i < count; ++i)
                 length +=
                     snprintf(replyMsg + length, sizeof(replyMsg) - length, "%sSF%u", i ? "," : "", lr2021->sideDetectors()[i]);
@@ -2415,20 +2419,20 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             uint8_t sfs[LR2021Interface::MAX_SF_TABLE] = {};
             uint8_t count = 0;
             if (!nexus::parseSideDetectors(sub, sfs, LR2021Interface::MAX_SF_TABLE, count)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC LR2021_SF: use OFF, 0, or 1-3 distinct SFs [5..12], spread <= 4");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE LR2021_SF: use OFF, 0, or 1-3 distinct SFs [5..12], spread <= 4");
             } else if (lr2021->configureSideDetectors(sfs, count)) {
                 lr2021->setSideDetectors(sfs, count);
                 snprintf(replyMsg, sizeof(replyMsg),
-                         count ? "MTC LR2021_SF: stored and applied (n=%u)" : "MTC LR2021_SF: cleared and applied (single-SF RX)",
+                         count ? "MESHTACORE LR2021_SF: stored and applied (n=%u)" : "MESHTACORE LR2021_SF: cleared and applied (single-SF RX)",
                          count);
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC LR2021_SF: chip rejected change; previous stored table retained");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE LR2021_SF: chip rejected change; previous stored table retained");
             }
         }
     }
 #endif
     else if (strcasecmp(cmd, "DROPS") == 0) {
-        int l = snprintf(replyMsg, sizeof(replyMsg), "MTC ACTIVE DROPS:\n");
+        int l = snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE ACTIVE DROPS:\n");
 
         for (const auto &r : s_dropRules) {
             if (this->*r.flag && l >= 0 && (size_t)l < sizeof(replyMsg) - 8) {
@@ -2469,7 +2473,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
     } else if (strcasecmp(cmd, "OUTDROPS") == 0) {
-        int l = snprintf(replyMsg, sizeof(replyMsg), "MTC ACTIVE OUTDROPS:\n");
+        int l = snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE ACTIVE OUTDROPS:\n");
         for (const auto &r : s_outDropRules) {
             if (this->*r.flag && l >= 0 && (size_t)l < sizeof(replyMsg) - 8) {
                 l += snprintf(replyMsg + l, sizeof(replyMsg) - l, "%s ", r.tag);
@@ -2480,28 +2484,28 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     } else if (strcasecmp(cmd, "HEXDROPS") == 0) {
         uint64_t dr = getNexusDropHex();
-        snprintf(replyMsg, sizeof(replyMsg), "MTC HEXDROPS: 0x%08lX%08lX",
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE HEXDROPS: 0x%08lX%08lX",
                  (unsigned long)(dr >> 32), (unsigned long)(dr & 0xFFFFFFFFu));
     } else if (strcasecmp(cmd, "HEXOUTDROPS") == 0) {
         uint64_t odr = getNexusOutDropHex();
-        snprintf(replyMsg, sizeof(replyMsg), "MTC HEXOUTDROPS: 0x%08lX%08lX",
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE HEXOUTDROPS: 0x%08lX%08lX",
                  (unsigned long)(odr >> 32), (unsigned long)(odr & 0xFFFFFFFFu));
-    } else if (strncasecmp(cmd, "SETHEX ", 7) == 0) {
+    } else if (isCommandWord(cmd, "HEX")) {
         uint64_t h = 0;
-        if (!parseHex64(cmd + 7, h)) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - SETHEX <hex mask, up to 16 digits>");
+        if (!parseHex64(skipToken(cmd), h)) {
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - HEX <hex mask, up to 16 digits>");
         } else {
             setNexusDropHex(h);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Drops updated to 0x%08lX%08lX",
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Drops updated to 0x%08lX%08lX",
                      (unsigned long)(h >> 32), (unsigned long)(h & 0xFFFFFFFFu));
         }
-    } else if (strncasecmp(cmd, "SETHEXOUT ", 10) == 0) {
+    } else if (isCommandWord(cmd, "HEXOUT")) {
         uint64_t h = 0;
-        if (!parseHex64(cmd + 10, h)) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - SETHEXOUT <hex mask, up to 16 digits>");
+        if (!parseHex64(skipToken(cmd), h)) {
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - HEXOUT <hex mask, up to 16 digits>");
         } else {
             setNexusOutDropHex(h);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Output Drops updated to 0x%08lX%08lX",
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Output Drops updated to 0x%08lX%08lX",
                      (unsigned long)(h >> 32), (unsigned long)(h & 0xFFFFFFFFu));
         }
     }
@@ -2509,12 +2513,12 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         const char *p = skipToken(cmd);
         if (strcasecmp(cmd, "BSAVE") == 0 || strcasecmp(p, "BACKUP") == 0) {
             bool ok = nodeDB->backupPreferences(meshtastic_AdminMessage_BackupLocation_FLASH);
-            snprintf(replyMsg, sizeof(replyMsg), ok ? "MTC: Config snapshot saved to Flash." : "MTC: Backup save failed.");
+            snprintf(replyMsg, sizeof(replyMsg), ok ? "MESHTACORE: Config snapshot saved to Flash." : "MESHTACORE: Backup save failed.");
         } else {
             const bool saved = saveVault();
             if (saved) saveMeshCoreSettings();
             snprintf(replyMsg, sizeof(replyMsg),
-                     saved ? "MTC: Nexus vault saved and verified." : "MTC: SAVE failed. Previous vault preserved.");
+                     saved ? "MESHTACORE: Nexus vault saved and verified." : "MESHTACORE: SAVE failed. Previous vault preserved.");
         }
     }
     else if (isCommandWord(cmd, "LOAD") || strcasecmp(cmd, "BLOAD") == 0) {
@@ -2522,17 +2526,17 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (strcasecmp(cmd, "BLOAD") == 0 || strcasecmp(p, "BACKUP") == 0) {
             if (nodeDB->restorePreferences(meshtastic_AdminMessage_BackupLocation_FLASH,
                                            SEGMENT_DEVICESTATE | SEGMENT_CONFIG | SEGMENT_MODULECONFIG | SEGMENT_CHANNELS)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Config restored. Rebooting...");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Config restored. Rebooting...");
                 if (adminModule) adminModule->reboot(5);
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: BLOAD Error - Backup not found or invalid.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: BLOAD Error - Backup not found or invalid.");
             }
         } else {
             const bool loaded = loadVault();
             if (loaded) loadMeshCoreSettings();
             snprintf(replyMsg, sizeof(replyMsg),
-                     loaded ? "MTC: Nexus vault loaded and validated."
-                            : "MTC: LOAD failed. RAM unchanged; check vault CRC, size and version.");
+                     loaded ? "MESHTACORE: Nexus vault loaded and validated."
+                            : "MESHTACORE: LOAD failed. RAM unchanged; check vault CRC, size and version.");
         }
     }
     else if (strncasecmp(cmd, "BD ", 3) == 0 || strcasecmp(cmd, "BD") == 0) {
@@ -2544,7 +2548,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         while (*p == ' ') p++;
         if (*p == '\0' || strcasecmp(p, "GET") == 0) {
             snprintf(replyMsg, sizeof(replyMsg),
-                     "MTC BD: max delay = %us (range 100..%ums)",
+                     "MESHTACORE BD: max delay = %us (range 100..%ums)",
                      (unsigned)broadcast_delay_max_s,
                      (unsigned)(broadcast_delay_max_s * 1000U));
         } else if (strncasecmp(p, "SET ", 4) == 0) {
@@ -2554,19 +2558,19 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             long v = strtol(arg, &endp, 10);
             if (endp == arg || *endp != '\0' || v < 1 || v > 300) {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC BD: invalid value '%s' (expected integer 1..300 seconds)",
+                         "MESHTACORE BD: invalid value '%s' (expected integer 1..300 seconds)",
                          arg);
             } else {
                 broadcast_delay_max_s = (uint16_t)v;
                 // saveVault removed (SCOPE RULE: only SAVE persists in tactical)
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC BD: max delay set to %us (jitter 100..%ums). (RAM-only; /nexus SAVE to persist.)",
+                         "MESHTACORE BD: max delay set to %us (jitter 100..%ums). (RAM-only; /nexus SAVE to persist.)",
                          (unsigned)broadcast_delay_max_s,
                          (unsigned)(broadcast_delay_max_s * 1000U));
             }
         } else {
             snprintf(replyMsg, sizeof(replyMsg),
-                     "MTC BD: usage BD SET <1..300> | BD GET");
+                     "MESHTACORE BD: usage BD SET <1..300> | BD GET");
         }
     }
     else if (strcasecmp(cmd, "LS") == 0) {
@@ -2579,7 +2583,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging(entry);
         }
         memset(entry, 0, sizeof(entry));
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging file list to mesh...");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging file list to mesh...");
     }
     else if (strncasecmp(cmd, "RM ", 3) == 0) {
         const char *filename = cmd + 3;
@@ -2592,12 +2596,12 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
         if (FSCom.exists(path)) {
             if (FSCom.remove(path)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: File '%s' deleted", filename);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: File '%s' deleted", filename);
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Failed to delete '%s'", filename);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Failed to delete '%s'", filename);
             }
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: File '%s' not found", filename);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: File '%s' not found", filename);
         }
         memset(path, 0, sizeof(path));
     }
@@ -2614,7 +2618,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (f) {
             size_t s = f.size();
             if (s > 700) { // Safety limit for 1024B paging buffer (700 * 1.37 < 1024)
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: File too large (%uB > 700B)", (unsigned int)s);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: File too large (%uB > 700B)", (unsigned int)s);
             } else {
                 uint8_t *fBuf = (uint8_t*)malloc(s);
                 if (fBuf) {
@@ -2625,25 +2629,25 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                         startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "File Download (B64)");
                         appendPaging(b64);
                         free(b64);
-                        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging file '%s' (%uB) to mesh...", filename, (unsigned int)s);
+                        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging file '%s' (%uB) to mesh...", filename, (unsigned int)s);
                     } else {
-                        snprintf(replyMsg, sizeof(replyMsg), "MTC: Malloc failed (B64)");
+                        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Malloc failed (B64)");
                     }
                     free(fBuf);
                 } else {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Malloc failed (Read)");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Malloc failed (Read)");
                 }
             }
             f.close();
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: File '%s' not found", filename);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: File '%s' not found", filename);
         }
     }
     else if (strcasecmp(cmd, "FS") == 0) {
 #if defined(ARCH_ESP32)
         uint32_t total = FSCom.totalBytes();
         uint32_t used = FSCom.usedBytes();
-        snprintf(replyMsg, sizeof(replyMsg), "MTC FS:\nUsed: %uB\nTotal: %uB\nFree: %uB",
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE FS:\nUsed: %uB\nTotal: %uB\nFree: %uB",
                  used, total, total - used);
 #elif defined(ARCH_NRF52)
         // nRF52 / Adafruit_LittleFS: use the abstracted fsTotalBytes() /
@@ -2656,12 +2660,12 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         uint32_t used  = (uint32_t)fsUsedBytes();
         uint32_t free  = (total >= used) ? (total - used) : 0;
         snprintf(replyMsg, sizeof(replyMsg),
-                 "MTC FS (nRF52):\n"
+                 "MESHTACORE FS (nRF52):\n"
                  "  LittleFS: %uB / %uB (%uB free)\n"
                  "  Warm ring: 12288B reserved (raw flash, 0xEA000-0xED000)",
                  used, total, free);
 #else
-        snprintf(replyMsg, sizeof(replyMsg), "MTC FS: N/A");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE FS: N/A");
 #endif
     }
     else if (strcasecmp(cmd, "FAVS") == 0 || strcasecmp(cmd, "IGNORED") == 0 || strcasecmp(cmd, "ADMINS") == 0) {
@@ -2687,7 +2691,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 appendPaging(entry);
             }
         }
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging %s to mesh...", tag);
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging %s to mesh...", tag);
     }
     else if (strcasecmp(cmd, "NEIGHBORS") == 0 || strcasecmp(cmd, "NEIGHBOURS") == 0 || strcasecmp(cmd, "VECINOS") == 0 ||
              strcasecmp(cmd, "DIRECT") == 0) {
@@ -2697,7 +2701,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             formatNeighbors(replyMsg, sizeof(replyMsg));
     }
     else if (strncasecmp(cmd, "FNODE", 5) == 0 && *skipSpaces(cmd + 5) == '\0') {
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Use FNODE <search/!id>");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Use FNODE <search/!id>");
     }
     else if ((strncasecmp(cmd, "NODES", 5) == 0 && (cmd[5] == '\0' || cmd[5] == ' '))
              || strncasecmp(cmd, "FNODE", 5) == 0) {
@@ -2787,7 +2791,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
         memset(b, 0, sizeof(b));
         memset(entry, 0, sizeof(entry));
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: %s results paged...", isFull ? "Detail" : "NodeDB");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: %s results paged...", isFull ? "Detail" : "NodeDB");
     }
     else if (strncasecmp(cmd, "MQTT ", 5) == 0 || strcasecmp(cmd, "MQTT") == 0) {
         const char *p = (strlen(cmd) > 5) ? cmd + 5 : "";
@@ -2798,22 +2802,22 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             const char* status = (moduleConfig.mqtt.enabled) ? "ENABLED" : "DISABLED";
             const char* conn = (mqtt && mqtt->isConnectedDirectly()) ? "CONNECTED" : (mqtt && moduleConfig.mqtt.proxy_to_client_enabled ? "PROXY" : "DISCONNECTED");
 
-            snprintf(replyMsg, sizeof(replyMsg), "MTC MQTT [%s]:\nStatus: %s\nMode: %s\nSrv: %s\nMap: %s",
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE MQTT [%s]:\nStatus: %s\nMode: %s\nSrv: %s\nMap: %s",
                      conn, status,
                      mqtt_override_mode <= 2 ? modes[mqtt_override_mode] : "UNK",
                      moduleConfig.mqtt.address,
                      moduleConfig.mqtt.map_reporting_enabled ? "ON" : "OFF");
         } else if (strcasecmp(p, "DEFAULT") == 0 || strcasecmp(p, "0") == 0) {
             mqtt_override_mode = 0;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: MQTT Override set to DEFAULT.");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: MQTT Override set to DEFAULT.");
         } else if (strcasecmp(p, "ALWAYS") == 0 || strcasecmp(p, "1") == 0 || strcasecmp(p, "ALWAYS-UPLOAD") == 0) {
             mqtt_override_mode = 1;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: MQTT Override set to ALWAYS-UPLOAD.");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: MQTT Override set to ALWAYS-UPLOAD.");
         } else if (strcasecmp(p, "STRICT") == 0 || strcasecmp(p, "2") == 0 || strcasecmp(p, "STRICT-PRIVACY") == 0) {
             mqtt_override_mode = 2;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: MQTT Override set to STRICT-PRIVACY.");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: MQTT Override set to STRICT-PRIVACY.");
         } else {
-             snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid MQTT Mode (DEFAULT|ALWAYS|STRICT)");
+             snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid MQTT Mode (DEFAULT|ALWAYS|STRICT)");
         }
     }
     else if (strncasecmp(cmd, "INALM ", 6) == 0 || strcasecmp(cmd, "INALM") == 0) {
@@ -2821,14 +2825,14 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         while (*p == ' ') p++;
 
         if (*p == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC INA Legacy Math: %s", ina_legacy_math ? "ON" : "OFF");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE INA Legacy Math: %s", ina_legacy_math ? "ON" : "OFF");
         } else {
             bool enable = false;
             if (!parseOnOff(p, enable)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - INALM [ON|OFF]");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - INALM [ON|OFF]");
             } else {
                 ina_legacy_math = enable;
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: INA Legacy Math set to %s.", enable ? "ON" : "OFF");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: INA Legacy Math set to %s.", enable ? "ON" : "OFF");
             }
         }
     }
@@ -2859,20 +2863,20 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 if (addNode) {
                     nodeDB->addFromContact(sc);
                     nodeDB->saveToDisk(SEGMENT_NODEDATABASE);
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Added node !%08x (%s) from URL",
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Added node !%08x (%s) from URL",
                              (unsigned int)sc.node_num, sc.user.short_name);
                 } else {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC DU !%08x:\nLName: %.32s\nSName: %.8s\nHW: %d Role: %s\nPK: %02x%02x..%02x%02x",
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE DU !%08x:\nLName: %.32s\nSName: %.8s\nHW: %d Role: %s\nPK: %02x%02x..%02x%02x",
                              (unsigned int)sc.node_num, sc.user.long_name, sc.user.short_name,
                              (int)sc.user.hw_model, getRoleName(sc.user.role),
                              sc.user.public_key.bytes[0], sc.user.public_key.bytes[1],
                              sc.user.public_key.bytes[30], sc.user.public_key.bytes[31]);
                 }
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: %s Protobuf Decode Failed.", addNode ? "ADDURL" : "DU");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: %s Protobuf Decode Failed.", addNode ? "ADDURL" : "DU");
             }
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: %s Base64 Decode Failed.", addNode ? "ADDURL" : "DU");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: %s Base64 Decode Failed.", addNode ? "ADDURL" : "DU");
         }
     }
     else if (strncasecmp(cmd, "RDROP ", 6) == 0 || strncasecmp(cmd, "RUNDROP ", 8) == 0 || strcasecmp(cmd, "RDROP") == 0) {
@@ -2883,10 +2887,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
         if (strcasecmp(p, "CLEAR") == 0) {
             memset(relay_drop_mask, 0, sizeof(relay_drop_mask));
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Relay Drop Mask CLEARED.");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Relay Drop Mask CLEARED.");
         } else if (strcasecmp(p, "LIST") == 0) {
             memset(cmdBuf.lBuf, 0, sizeof(cmdBuf.lBuf));
-            int lLen = snprintf(cmdBuf.lBuf, sizeof(cmdBuf.lBuf), "MTC RDROP: ");
+            int lLen = snprintf(cmdBuf.lBuf, sizeof(cmdBuf.lBuf), "MESHTACORE RDROP: ");
             for(int i=0; i<256; i++) {
                 if (isRelayDropped(i)) {
                     if (lLen < (int)sizeof(cmdBuf.lBuf) - 10) {
@@ -2899,10 +2903,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         } else {
             uint8_t id = 0;
             if (!parseHexByte(p, id)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - RDROP <*hex>|LIST|CLEAR");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - RDROP <*hex>|LIST|CLEAR");
             } else {
                 setRelayDropped(id, setDrop);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Relay *%02X %s", id, setDrop ? "DROPPED" : "ALLOWED");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Relay *%02X %s", id, setDrop ? "DROPPED" : "ALLOWED");
             }
         }
     }
@@ -2915,10 +2919,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
         if (strcasecmp(p, "CLEAR") == 0) {
             memset(ignore_dupe_relay_mask, 0, sizeof(ignore_dupe_relay_mask));
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: IDR Mask CLEARED.");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: IDR Mask CLEARED.");
         } else if (strcasecmp(p, "LIST") == 0) {
             memset(cmdBuf.lBuf, 0, sizeof(cmdBuf.lBuf));
-            int lLen = snprintf(cmdBuf.lBuf, sizeof(cmdBuf.lBuf), "MTC IDR: ");
+            int lLen = snprintf(cmdBuf.lBuf, sizeof(cmdBuf.lBuf), "MESHTACORE IDR: ");
             for(int i=0; i<256; i++) {
                 if (isIgnoreDupeRelay(i)) {
                     if (lLen < (int)sizeof(cmdBuf.lBuf) - 10) {
@@ -2931,10 +2935,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         } else {
             uint8_t id = 0;
             if (!parseHexByte(p, id)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - IDR [LIST|CLEAR|<hex id>]");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - IDR [LIST|CLEAR|<hex id>]");
             } else {
                 setIgnoreDupeRelay(id, true);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Relay *%02X added to IDR", id);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Relay *%02X added to IDR", id);
             }
         }
     }
@@ -2943,10 +2947,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         while (*p == ' ') p++;
         uint8_t id = 0;
         if (!parseHexByte(p, id)) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - UNIDR <hex id>");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - UNIDR <hex id>");
         } else {
             setIgnoreDupeRelay(id, false);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Relay *%02X removed from IDR", id);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Relay *%02X removed from IDR", id);
         }
     }
     else if (strcasecmp(cmd, "CONFIG") == 0) {
@@ -2966,7 +2970,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
 
         snprintf(replyMsg, sizeof(replyMsg),
-                 "MTC CONFIG:\nRole: %s\nNI:%us\nTEL: D:%us E:%us P:%us\nPOS:%us(%d) Smart:%d\nGPS:%d Fixed:%d HM:%d RM:%d\nLoc: %s",
+                 "MESHTACORE CONFIG:\nRole: %s\nNI:%us\nTEL: D:%us E:%us P:%us\nPOS:%us(%d) Smart:%d\nGPS:%d Fixed:%d HM:%d RM:%d\nLoc: %s",
                  getRoleName(config.device.role),
                  niInt, telInt, envInt, powInt,
                  posInt, (int)config.position.position_flags, (int)config.position.position_broadcast_smart_enabled,
@@ -2974,7 +2978,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                  posBuf);
         memset(posBuf, 0, sizeof(posBuf));
     }
-    else if (strncasecmp(cmd, "SETCONFIG ", 10) == 0 || strcasecmp(cmd, "SETCONFIG") == 0) {
+    else if (isCommandWord(cmd, "CONFIG")) {
         const char *p = skipToken(cmd);
         const char *valStr = skipToken(p);
 
@@ -3065,7 +3069,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     static meshtastic_MeshPacket dummyPacket; dummyPacket = meshtastic_MeshPacket meshtastic_MeshPacket_init_default; // static: keeps the recursive frame small
                     adminModule->handleReceivedProtobuf(dummyPacket, &am);
 
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Manual location set to %.5f,%.5f", lat, lon);
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Manual location set to %.5f,%.5f", lat, lon);
                     valid = true;
                 } else valid = false;
             } else {
@@ -3080,17 +3084,17 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             if (setBase && adminModule) adminModule->handleSetConfig(pc, false);
             if (setModule && adminModule) adminModule->handleSetModuleConfig(mc);
             if (replyMsg[0] == '\0') {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Config updated.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Config updated.");
             }
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC SETCONFIG: NI|TEL_D|TEL_E|TEL_P|POS|SMART|FIXED|GPS <val> | LOC lat,lon");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE CONFIG: NI|TEL_D|TEL_E|TEL_P|POS|SMART|FIXED|GPS <val> | LOC lat,lon");
         }
     }
     else if (strncasecmp(cmd, "SHARE ", 6) == 0) {
         const char *target = cmd + 6;
         uint32_t nodeID = findNodeByShortNameOrHex(target);
         if (nodeID == 0) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Share Error - Node '%s' not found.", target);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Share Error - Node '%s' not found.", target);
         } else {
             auto node = nodeDB->getMeshNode(nodeID);
             if (node) {
@@ -3117,22 +3121,22 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 if (pb_encode(&stream, meshtastic_SharedContact_fields, &sc)) {
                     nexus_base64_encode(cmdBuf.b64, buffer, stream.bytes_written, true);
 
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC SHARE (%s): https://meshtastic.org/v/#%s",
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE SHARE (%s): https://meshtastic.org/v/#%s",
                              node->short_name[0] != '\0' ? node->short_name : target, cmdBuf.b64);
                 } else {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Encode failed.");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Encode failed.");
                 }
                 memset(buffer, 0, sizeof(buffer));
                 memset(cmdBuf.b64, 0, sizeof(cmdBuf.b64));
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Internal NodeDB error.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Internal NodeDB error.");
             }
         }
     }
     else if (strcasecmp(cmd, "INFRA") == 0) {
         size_t total = nodeDB->getNumMeshNodes();
         int infraCount = 0;
-        startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "MTC Infrastructure");
+        startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "MESHTACORE Infrastructure");
 
         static char line[64];
         for (size_t i = 0; i < total; i++) {
@@ -3160,7 +3164,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging("No infrastructure nodes found in NodeDB.\n");
         }
 
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging infrastructure (%d nodes)...", infraCount);
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging infrastructure (%d nodes)...", infraCount);
     }
     else if (strcasecmp(cmd, "DBINFO") == 0) {
         size_t total = nodeDB->getNumMeshNodes();
@@ -3177,7 +3181,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
 
         snprintf(replyMsg, sizeof(replyMsg),
-                 "MTC DBINFO:\nNodes: %u/%d (%u%%)\nOnline: %u\nDirect: %d\nFavs: %d",
+                 "MESHTACORE DBINFO:\nNodes: %u/%d (%u%%)\nOnline: %u\nDirect: %d\nFavs: %d",
                  (unsigned int)total, MAX_NUM_NODES, (unsigned int)(total * 100 / MAX_NUM_NODES),
                  (unsigned int)online, direct, favs);
     }
@@ -3187,7 +3191,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         // only NEXUS_MAX_REPLY bytes per reply.
         const std::vector<MeshModule *> *all = MeshModule::getAllModules();
         if (!all || all->empty()) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC MODULES: none loaded");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE MODULES: none loaded");
         } else {
             size_t n = all->size();
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Loaded Modules");
@@ -3198,7 +3202,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 snprintf(entry, sizeof(entry), "[%02u/%02u] %s\n", (unsigned)(i + 1), (unsigned)n, nm);
                 appendPaging(entry);
             }
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging %u loaded modules...", (unsigned)n);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging %u loaded modules...", (unsigned)n);
         }
     }
     else if (strcasecmp(cmd, "TELEMETRY") == 0) {
@@ -3305,7 +3309,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
 
-        snprintf(replyMsg, sizeof(replyMsg), "MTC TELEMETRY:\n%s", metricsBuf);
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE TELEMETRY:\n%s", metricsBuf);
     }
     else if (strcasecmp(cmd, "ENV") == 0) {
         static meshtastic_Telemetry em; em = meshtastic_Telemetry meshtastic_Telemetry_init_zero; // static: keeps the recursive frame small
@@ -3319,10 +3323,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             if (e.has_lux) eLen += snprintf(cmdBuf.envBuf + eLen, sizeof(cmdBuf.envBuf) - eLen, "Lux:%.0f ", e.lux);
             if (e.has_uv_lux) eLen += snprintf(cmdBuf.envBuf + eLen, sizeof(cmdBuf.envBuf) - eLen, "UV Index:%.0f", e.uv_lux);
 
-            snprintf(replyMsg, sizeof(replyMsg), "MTC ENV:\n%s", cmdBuf.envBuf);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE ENV:\n%s", cmdBuf.envBuf);
             memset(cmdBuf.envBuf, 0, sizeof(cmdBuf.envBuf));
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC ENV: No sensor data available");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE ENV: No sensor data available");
         }
     }
     else if (strcasecmp(cmd, "POWER") == 0) {
@@ -3346,7 +3350,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         float liveChUtil = (airTime != NULL) ? airTime->channelUtilizationPercent() : 0.0f;
         float liveTxUtil = (airTime != NULL) ? airTime->utilizationTXPercent() : 0.0f;
 
-        int l = snprintf(replyMsg, sizeof(replyMsg), "MTC POWER:\n");
+        int l = snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE POWER:\n");
         if (l < 0 || (size_t)l >= sizeof(replyMsg)) l = sizeof(replyMsg) - 1;
 
         if (v1 > 0 || i1 != 0) {
@@ -3372,7 +3376,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
         if (*p == '\0') {
             auto &c = config.power;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC PMGT:\nPS:%d SD:%u BT:%u\nSDS:%u LS:%u MW:%u",
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE PMGT:\nPS:%d SD:%u BT:%u\nSDS:%u LS:%u MW:%u",
                      c.is_power_saving, (unsigned int)c.on_battery_shutdown_after_secs,
                      (unsigned int)c.wait_bluetooth_secs, (unsigned int)c.sds_secs,
                      (unsigned int)c.ls_secs, (unsigned int)c.min_wake_secs);
@@ -3404,9 +3408,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
             if (valid && adminModule) {
                 adminModule->handleSetConfig(pc, false);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Power Config Updated.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Power Config Updated.");
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC PMGT: Unknown sub-command or invalid value.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE PMGT: Unknown sub-command or invalid value.");
             }
         }
     }
@@ -3417,15 +3421,15 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (strcasecmp(p, "STATUS") == 0) {
 #if defined(ARCH_ESP32) && !MESHTASTIC_EXCLUDE_WIFI
             if (WiFi.status() == WL_CONNECTED) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC WIFI STATUS:\nSSID:%s\nPSK:%s\nRSSI:%d BSSID:%s\nIP:%s",
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE WIFI STATUS:\nSSID:%s\nPSK:%s\nRSSI:%d BSSID:%s\nIP:%s",
                          WiFi.SSID().c_str(), "[redacted]", WiFi.RSSI(), WiFi.BSSIDstr().c_str(),
                          WiFi.localIP().toString().c_str());
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC WIFI: Not Connected.\nSSID:%s\nPSK:%s", config.network.wifi_ssid,
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE WIFI: Not Connected.\nSSID:%s\nPSK:%s", config.network.wifi_ssid,
                          "[redacted]");
             }
 #else
-            snprintf(replyMsg, sizeof(replyMsg), "MTC WIFI: N/A (Hardware)");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE WIFI: N/A (Hardware)");
 #endif
         } else {
             static meshtastic_Config nc; nc = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
@@ -3441,9 +3445,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
             if (valid && adminModule) {
                 adminModule->handleSetConfig(nc, false);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: WiFi Config Updated.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: WiFi Config Updated.");
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC WIFI: Usage ON|OFF|SSID|PSK|STATUS");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE WIFI: Usage ON|OFF|SSID|PSK|STATUS");
             }
         }
     }
@@ -3451,28 +3455,28 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 #if defined(ARCH_ESP32) && !MESHTASTIC_EXCLUDE_WIFI
         if (WiFi.status() == WL_CONNECTED) {
             snprintf(replyMsg, sizeof(replyMsg),
-                     "MTC WIFI:\nSSID:%s\nRSSI:%d BSSID:%s\nIP:%s",
+                     "MESHTACORE WIFI:\nSSID:%s\nRSSI:%d BSSID:%s\nIP:%s",
                      WiFi.SSID().c_str(), WiFi.RSSI(), WiFi.BSSIDstr().c_str(),
                      WiFi.localIP().toString().c_str());
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC WIFI: Not Connected (Status:%d)", WiFi.status());
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE WIFI: Not Connected (Status:%d)", WiFi.status());
         }
 #else
-        snprintf(replyMsg, sizeof(replyMsg), "MTC WIFI: N/A (No WiFi Hardware)");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE WIFI: N/A (No WiFi Hardware)");
 #endif
     }
-    else if (strncasecmp(cmd, "SETCHNAME ", 10) == 0 || strncasecmp(cmd, "USETCHNAME ", 11) == 0) {
-        // Syntax: [U]SETCHNAME <idx|name> <new_name>
+    else if (isCommandWord(cmd, "CHNAME") || isCommandWord(cmd, "UCHNAME")) {
+        // Syntax: [U]CHNAME <idx|name> <new_name>  (or [U]CHNAME, the same without SET)
         bool unprotected = (strncasecmp(cmd, "U", 1) == 0);
-        const char *p = cmd + (unprotected ? 11 : 10);
+        const char *p = skipToken(cmd);
         const char *next = nullptr;
         int idx = findChannelByNameOrIndex(p, &next);
         p = next;
 
         if (idx < 0) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid channel");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid channel");
         } else if (!p || *p == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Missing new channel name");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Missing new channel name");
         } else {
             static meshtastic_Channel ch; ch = channels.getByIndex(idx); // static: keeps the recursive frame small
 
@@ -3491,7 +3495,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 #endif
 
             if (!unprotected && (strcasecmp(ch.settings.name, trusted1) == 0 || strcasecmp(ch.settings.name, trusted2) == 0)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Error - Trusted channel protected.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Error - Trusted channel protected.");
             } else {
                 ch.index = idx; // Ensure index is correct for setChannel()
                 strncpy(ch.settings.name, p, sizeof(ch.settings.name));
@@ -3503,21 +3507,21 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 nodeDB->saveToDisk(SEGMENT_CHANNELS);
                 if (service) service->configChanged.notifyObservers(nullptr);
 
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Ch %d name set to '%s'", idx, p);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Ch %d name set to '%s'", idx, p);
             }
         }
     }
-    else if (strncasecmp(cmd, "SETCHPSK ", 9) == 0 || strncasecmp(cmd, "USETCHPSK ", 10) == 0) {
-        // Syntax: [U]SETCHPSK <idx|name> <base64_or_hex_psk>
+    else if (isCommandWord(cmd, "CHPSK") || isCommandWord(cmd, "UCHPSK")) {
+        // Syntax: [U]CHPSK <idx|name> <base64_or_hex_psk>
         bool unprotected = (strncasecmp(cmd, "U", 1) == 0);
-        const char *p = cmd + (unprotected ? 10 : 9);
+        const char *p = skipToken(cmd);
         const char *next = nullptr;
         int idx = findChannelByNameOrIndex(p, &next);
 
         if (idx < 0) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid channel");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid channel");
         } else if (!next || *next == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Missing PSK");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Missing PSK");
         } else {
             static meshtastic_Channel ch; ch = channels.getByIndex(idx); // static: keeps the recursive frame small
 
@@ -3536,7 +3540,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 #endif
 
             if (!unprotected && (strcasecmp(ch.settings.name, trusted1) == 0 || strcasecmp(ch.settings.name, trusted2) == 0)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Error - Trusted channel protected.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Error - Trusted channel protected.");
             } else {
                 size_t dlen = 0;
                 unsigned char buffer[32];
@@ -3548,9 +3552,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     channels.onConfigChanged();
                     nodeDB->saveToDisk(SEGMENT_CHANNELS);
                     if (service) service->configChanged.notifyObservers(nullptr);
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Ch %d PSK updated (%d bytes)", idx, (int)dlen);
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Ch %d PSK updated (%d bytes)", idx, (int)dlen);
                 } else {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid Base64 or Hex PSK");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid Base64 or Hex PSK");
                 }
             }
         }
@@ -3567,7 +3571,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         while (*p == ' ') p++;
 
         if (strlen(name) == 0) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Missing channel name");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Missing channel name");
         } else {
             int freeIdx = -1;
             for (int j = 0; j < (int)MAX_NUM_CHANNELS; j++) {
@@ -3578,7 +3582,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
 
             if (freeIdx < 0) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: No free channel slots");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: No free channel slots");
             } else {
                 static meshtastic_Channel ch; ch = channels.getByIndex(freeIdx); // static: keeps the recursive frame small
                 ch.index = freeIdx;
@@ -3603,7 +3607,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 channels.onConfigChanged();
                 nodeDB->saveToDisk(SEGMENT_CHANNELS);
                 if (service) service->configChanged.notifyObservers(nullptr);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Added Ch %d '%s'", freeIdx, name);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Added Ch %d '%s'", freeIdx, name);
             }
         }
     }
@@ -3614,9 +3618,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         int idx = findChannelByNameOrIndex(p);
 
         if (idx < 0) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid channel");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid channel");
         } else if (idx == 0) {
-             snprintf(replyMsg, sizeof(replyMsg), "MTC: Error - Cannot delete Primary (Index 0)");
+             snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Error - Cannot delete Primary (Index 0)");
         } else {
             static meshtastic_Channel ch; ch = channels.getByIndex(idx); // static: keeps the recursive frame small
 
@@ -3635,7 +3639,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 #endif
 
             if (!unprotected && (strcasecmp(ch.settings.name, trusted1) == 0 || strcasecmp(ch.settings.name, trusted2) == 0)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Error - Trusted channel protected.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Error - Trusted channel protected.");
             } else {
                 ch.index = idx;
                 ch.role = meshtastic_Channel_Role_DISABLED;
@@ -3644,7 +3648,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 channels.onConfigChanged();
                 nodeDB->saveToDisk(SEGMENT_CHANNELS);
                 if (service) service->configChanged.notifyObservers(nullptr);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Deleted Ch %d", idx);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Deleted Ch %d", idx);
             }
         }
     }
@@ -3676,7 +3680,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 #endif
 #endif
 
-        snprintf(replyMsg, sizeof(replyMsg), "MTC PHONE:\nBT:%s RSSI:%d\nSerial:%s\nWiFi:%s%s", btConnected ? "YES" : "NO", btRSSI,
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE PHONE:\nBT:%s RSSI:%d\nSerial:%s\nWiFi:%s%s", btConnected ? "YES" : "NO", btRSSI,
                  serConnected ? "YES" : "NO", wifiConnected ? "YES" : "NO", wifiClientStr.c_str());
     }
     else if (strcasecmp(cmd, "POS") == 0) {
@@ -3706,7 +3710,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 int32_t lon = gpsStatus->getLongitude();
                 int32_t alt = gpsStatus->getAltitude();
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC POS [%s]:\nLat:%.5f Lon:%.5f\nAlt:%dm \nGPS:%s (%s)\nSats:%u PDOP:%.2f",
+                         "MESHTACORE POS [%s]:\nLat:%.5f Lon:%.5f\nAlt:%dm \nGPS:%s (%s)\nSats:%u PDOP:%.2f",
                          source,
                          lat / 1e7, lon / 1e7, (int)alt,
                          getGnssModelName(gps->p.location_source),
@@ -3716,7 +3720,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             } else {
                 // GPS online but no lock yet — report hardware status, skip Lat/Lon.
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC POS [%s]:\nGPS:%s (%s)\nSats:%u PDOP:%.2f",
+                         "MESHTACORE POS [%s]:\nGPS:%s (%s)\nSats:%u PDOP:%.2f",
                          source,
                          getGnssModelName(gps->p.location_source),
                          fix,
@@ -3733,11 +3737,11 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 // Nexus-28001: slim NodeInfoLite doesn't have `position`; use the shim.
                 const meshtastic_PositionLite *p = nexus_pos(node);
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC POS [%s]:\nLat:%.5f Lon:%.5f\nAlt:%dm",
+                         "MESHTACORE POS [%s]:\nLat:%.5f Lon:%.5f\nAlt:%dm",
                          source,
                          p->latitude_i / 1e7, p->longitude_i / 1e7, (int)p->altitude);
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC POS: No fix.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE POS: No fix.");
             }
         }
     }
@@ -3748,7 +3752,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         uint32_t targetNum = (uint32_t)parsedNum;
         auto node = idOk ? nodeDB->getMeshNode(targetNum) : nullptr;
         if (!idOk) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - METRICS <!hex node id>");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - METRICS <!hex node id>");
         } else if (node) {
             memset(cmdBuf.mBuf, 0, sizeof(cmdBuf.mBuf));
             int mLen = 0;
@@ -3758,22 +3762,22 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
 
             if (mLen > 0) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC METRICS %08x:\n%s", targetNum, cmdBuf.mBuf);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE METRICS %08x:\n%s", targetNum, cmdBuf.mBuf);
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: No metrics for %08x", targetNum);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: No metrics for %08x", targetNum);
             }
             memset(cmdBuf.mBuf, 0, sizeof(cmdBuf.mBuf));
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Node %08x not found", targetNum);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Node %08x not found", targetNum);
         }
     }
     else if (strcasecmp(cmd, "REBOOT") == 0) {
         LOG_INFO("Nexus: Reboot triggered");
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Rebooting in 20s...");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Rebooting in 20s...");
         if (adminModule) {
             adminModule->reboot(20);
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Error - adminModule NULL");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Error - adminModule NULL");
         }
     }
     // Nexus LORACHIPSTATS / LCS — % of sampled seconds per LoRa chip state.
@@ -3783,16 +3787,16 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
              strncasecmp(cmd, "LORACHIPSTATS ", 14) == 0 || strncasecmp(cmd, "LCS ", 4) == 0) {
         RadioLibInterface *ri = RadioLibInterface::instance;
         if (!ri) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC LCS: no radio");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE LCS: no radio");
         } else {
             const char *sub = strchr(cmd, ' ');
             while (sub && *sub == ' ') sub++;
             if (sub && strcasecmp(sub, "RESET") == 0) {
                 memset(ri->chipStateCount, 0, sizeof(ri->chipStateCount));
                 ri->chipStateTotal = 0;
-                snprintf(replyMsg, sizeof(replyMsg), "MTC LCS: counters reset");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE LCS: counters reset");
             } else if (ri->chipStateTotal == 0) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC LCS: no samples yet");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE LCS: no samples yet");
             } else {
                 uint32_t total = ri->chipStateTotal;
                 // tenths of a percent per bucket — integer math (newlib-nano has no %f),
@@ -3800,7 +3804,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 uint32_t t[RadioLibInterface::CHIP_STATE_COUNT];
                 for (int i = 0; i < RadioLibInterface::CHIP_STATE_COUNT; i++)
                     t[i] = (uint32_t)((uint64_t)ri->chipStateCount[i] * 1000 / total);
-                int l = snprintf(replyMsg, sizeof(replyMsg), "MTC LCS: n=%lu (~%lud)\n",
+                int l = snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE LCS: n=%lu (~%lud)\n",
                                  (unsigned long)total, (unsigned long)(total / 86400));
                 // One state per line (2026-10-07) with the raw sample count
                 // next to the percentage. t[] holds tenths-of-a-percent; names[] must
@@ -3879,7 +3883,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         int mqttPerc = (total > 0) ? (int)(mqtt_ok_off_flag_on * 100 / total) : 0;
         int offPerc = (total > 0) ? (int)(mqtt_both_off * 100 / total) : 0;
 
-        snprintf(replyMsg, sizeof(replyMsg), "MTC MQTT:\nON:%u(%d%%) MQTT:%u(%d%%)\nOFF:%u(%d%%) Tot:%u",
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE MQTT:\nON:%u(%d%%) MQTT:%u(%d%%)\nOFF:%u(%d%%) Tot:%u",
                  mqtt_ok_on, onPerc, mqtt_ok_off_flag_on, mqttPerc, mqtt_both_off, offPerc, total);
     }
     else if (strcasecmp(cmd, "STATS") == 0) {
@@ -3900,10 +3904,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
         uint32_t unexp = getUnexpectedRebootCount();
         if (unexp > 0) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC STATS:\nTX:%u RX:%u\nBad:%u(%d%%) Dp:%u(%d%%)\nRelay:%u Can:%u\nDrop:%u Noise:%d\nReboots:%u(%u unexp)",
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE STATS:\nTX:%u RX:%u\nBad:%u(%d%%) Dp:%u(%d%%)\nRelay:%u Can:%u\nDrop:%u Noise:%d\nReboots:%u(%u unexp)",
                      tx, rx, rxBad, rxBadPerc, rxDupe, dupePerc, txRelay, txCanceled, txDrop, noise, (unsigned)myNodeInfo.reboot_count, (unsigned)unexp);
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC STATS:\nTX:%u RX:%u\nBad:%u(%d%%) Dp:%u(%d%%)\nRelay:%u Can:%u\nDrop:%u Noise:%d\nReboots:%u",
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE STATS:\nTX:%u RX:%u\nBad:%u(%d%%) Dp:%u(%d%%)\nRelay:%u Can:%u\nDrop:%u Noise:%d\nReboots:%u",
                      tx, rx, rxBad, rxBadPerc, rxDupe, dupePerc, txRelay, txCanceled, txDrop, noise, (unsigned)myNodeInfo.reboot_count);
         }
     }
@@ -3915,7 +3919,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         size_t dlen = 0;
         unsigned char searchPK[32];
         if (nexus_base64_decode(searchPK, sizeof(searchPK), &dlen, p) != 0 || dlen != 32) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid 32-byte Base64 key");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid 32-byte Base64 key");
         } else {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "SearchKey Results");
             int matches = 0;
@@ -3930,7 +3934,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 }
             }
             if (matches == 0) appendPaging("No matches found.\n");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Found %d matching nodes", matches);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Found %d matching nodes", matches);
             memset(line, 0, sizeof(line));
         }
     }
@@ -3940,7 +3944,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         uint32_t decPerc = (this->rx_total_count > 0) ? (decryptedCount * 100 / this->rx_total_count) : 0;
         int32_t noise = (RadioLibInterface::instance) ? RadioLibInterface::instance->getAverageNoiseFloor() : -120;
 
-        snprintf(replyMsg, sizeof(replyMsg), "MTC SIG-STATS:\nTotal Wire: %u\nPrivate: %u (%u%%)\nKnown/Dec: %u (%u%%)\nNoise Floor: %d dBm",
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE SIG-STATS:\nTotal Wire: %u\nPrivate: %u (%u%%)\nKnown/Dec: %u (%u%%)\nNoise Floor: %d dBm",
                  this->rx_total_count, this->rx_private_count, privPerc, decryptedCount, decPerc, noise);
     }
     else if (strcasecmp(cmd, "VERIFYSTATS") == 0 || strcasecmp(cmd, "VS") == 0) {
@@ -3960,16 +3964,16 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         uint32_t okPct = (total > 0) ? (this->rx_sig_valid_count * 100 / total) : 0;
 
         snprintf(replyMsg, sizeof(replyMsg),
-                 "MTC VERIFY-STATS:\nNoSig:  %u pkts, %u B (%u%%)\nSigInv: %u pkts, %u B (%u%%)\nSigOK:  %u pkts, %u B (%u%%)\nTotal:  %u pkts, %u B",
+                 "MESHTACORE VERIFY-STATS:\nNoSig:  %u pkts, %u B (%u%%)\nSigInv: %u pkts, %u B (%u%%)\nSigOK:  %u pkts, %u B (%u%%)\nTotal:  %u pkts, %u B",
                  this->rx_no_sig_count, this->rx_no_sig_bytes, noPct,
                  this->rx_sig_invalid_count, this->rx_sig_invalid_bytes, invPct,
                  this->rx_sig_valid_count, this->rx_sig_valid_bytes, okPct,
                  total, totalBytes);
     }
-    else if (isCommandWord(cmd, "SETROLE") || isCommandWord(cmd, "ROLE")) {
+    else if (isCommandWord(cmd, "ROLE")) {
         const char *roleStr = skipToken(cmd);
         if (*roleStr == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC ROLE: %s (%u)", getRoleName(config.device.role), (uint32_t)config.device.role);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE ROLE: %s (%u)", getRoleName(config.device.role), (uint32_t)config.device.role);
         } else {
             int role = -1;
             if (strcasecmp(roleStr, "CLIENT") == 0) role = meshtastic_Config_DeviceConfig_Role_CLIENT;
@@ -3991,19 +3995,19 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 c.payload_variant.device.role = (meshtastic_Config_DeviceConfig_Role)role;
 
                 if (adminModule) adminModule->handleSetConfig(c, false);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Role updated to %s (%d).", roleStr, role);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Role updated to %s (%d).", roleStr, role);
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid role '%s'", roleStr);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid role '%s'", roleStr);
             }
         }
     }
-    else if (isCommandWord(cmd, "SETLNA") || isCommandWord(cmd, "LNA")) {
+    else if (isCommandWord(cmd, "LNA")) {
 #if HAS_LORA_FEM
         if (loraFEMInterface.isLnaCanControl()) {
             const char *p = skipToken(cmd);
             if (*p == '\0') {
                 bool lnaEnabled = (config.lora.fem_lna_mode == meshtastic_Config_LoRaConfig_FEM_LNA_Mode_ENABLED);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC LNA: %s", lnaEnabled ? "ENABLED" : "BYPASS");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE LNA: %s", lnaEnabled ? "ENABLED" : "BYPASS");
             } else {
                 bool enable = false, valid = false;
                 if (strcasecmp(p, "ON") == 0 || strcasecmp(p, "ENABLED") == 0 || strcasecmp(p, "1") == 0) {
@@ -4018,28 +4022,27 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     c.payload_variant.lora.fem_lna_mode = enable ? meshtastic_Config_LoRaConfig_FEM_LNA_Mode_ENABLED : meshtastic_Config_LoRaConfig_FEM_LNA_Mode_DISABLED;
                     if (adminModule) {
                         adminModule->handleSetConfig(c, false);
-                        snprintf(replyMsg, sizeof(replyMsg), "MTC: LNA set to %s", enable ? "ENABLED" : "BYPASS");
+                        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: LNA set to %s", enable ? "ENABLED" : "BYPASS");
                     } else {
-                        snprintf(replyMsg, sizeof(replyMsg), "MTC: Error - adminModule NULL");
+                        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Error - adminModule NULL");
                     }
                 } else {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid LNA param (ON|OFF|BYPASS)");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid LNA param (ON|OFF|BYPASS)");
                 }
             }
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC LNA: Hardware does not support LNA control");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE LNA: Hardware does not support LNA control");
         }
 #else
-        snprintf(replyMsg, sizeof(replyMsg), "MTC LNA: NO_FEM");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE LNA: NO_FEM");
 #endif
     }
-    else if (isCommandWord(cmd, "SETPOWER") || isCommandWord(cmd, "SETTXPOWER") || isCommandWord(cmd, "SETPWR") ||
-             strcasecmp(cmd, "GETTXPOWER") == 0 || isCommandWord(cmd, "TXPOWER")) {
+    else if (strcasecmp(cmd, "GETTXPOWER") == 0 || isCommandWord(cmd, "TXPOWER") || isCommandWord(cmd, "POWER")) {
         const char *p = skipToken(cmd);
         if (*p == '\0') {
             int activePwr = (int)config.lora.tx_power;
             int sxPwr = (int)getChipPower(activePwr);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC TX Power:\nActive: %d dBm\nChip: %d dBm",
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE TX Power:\nActive: %d dBm\nChip: %d dBm",
                      activePwr, sxPwr);
         } else {
             const int pwrI = tokenInt(p, INT_MIN);
@@ -4051,9 +4054,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 c.payload_variant.lora.tx_power = pwr;
 
                 if (adminModule) adminModule->handleSetConfig(c, false);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: TX Power set to %d dBm.", pwr);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: TX Power set to %d dBm.", pwr);
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid Power (-9 to 31)");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid Power (-9 to 31)");
             }
         }
     }
@@ -4065,15 +4068,15 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         while (*p == ' ') p++;
 
         if (*p == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Client Always is %s", client_always ? "ON" : "OFF");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Client Always is %s", client_always ? "ON" : "OFF");
         } else {
             bool enable = false;
             if (!parseOnOff(p, enable)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - CLIENTALWAYS [ON|OFF]");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - CLIENTALWAYS [ON|OFF]");
             } else {
                 client_always = enable;
                 // saveVault();
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Client Always set to %s", enable ? "ON" : "OFF");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Client Always set to %s", enable ? "ON" : "OFF");
             }
         }
     }
@@ -4082,19 +4085,19 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         while (*p == ' ') p++;
 
         if (*p == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Base Texts is %s", base_texts ? "ON" : "OFF");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Base Texts is %s", base_texts ? "ON" : "OFF");
         } else {
             bool enable = false;
             if (!parseOnOff(p, enable)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - BASETEXTS [ON|OFF]");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - BASETEXTS [ON|OFF]");
             } else {
                 base_texts = enable;
                 // saveVault();
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Base Texts set to %s", enable ? "ON" : "OFF");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Base Texts set to %s", enable ? "ON" : "OFF");
             }
         }
     }
-    else if (strcasecmp(cmd, "SETTINGS") == 0 || strcasecmp(cmd, "ST") == 0) {
+    else if (strcasecmp(cmd, "ST") == 0) {
         // Human-readable tactical overview
         char hMask[16];
         if (!hop_mask_active) strcpy(hMask, "OFF"); else snprintf(hMask, sizeof(hMask), "%d/%d", hop_mask_start, hop_mask_limit);
@@ -4119,7 +4122,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         unsigned long dmask_lo = (unsigned long)(dmask & 0xFFFFFFFFu);
 
         snprintf(replyMsg, sizeof(replyMsg),
-                 "MTC SETTINGS:\nRole:%s Hops:%s\nCA:%d BT:%d DMF:%d\nDrops:0x%08lX%08lX\nPPing:0x%03X SK:%d/4 BD:%us",
+                 "MESHTACORE SETTINGS:\nRole:%s Hops:%s\nCA:%d BT:%d DMF:%d\nDrops:0x%08lX%08lX\nPPing:0x%03X SK:%d/4 BD:%us",
                  getRoleName(config.device.role), hMask,
                  client_always, base_texts, dm_forward,
                  dmask_hi, dmask_lo,
@@ -4150,7 +4153,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         //                DMs are never signed; auth falls back to isAuthorizedAdmin().
         //   SILENT_LOG — when ON, packets rejected by REQ_SIG/ALLOW_DM are
         //                silently logged and dropped. When OFF, the sender
-        //                receives a 'JT SECURITY: rejected — ...' reply.
+        //                receives a 'MESHTACORE SECURITY: rejected — ...' reply.
         //   AUTO_FAV_NEXUS   — when ON, any decoded packet (non-zero portnum) seen
         //                on a Nexus channel from a non-self sender auto-favourites
         //                the sender. No flash save.
@@ -4197,7 +4200,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         // REQ_SIG on shortcut advance past the command word correctly. The
         // previous implementation hardcoded cmd[8] which only worked for the
         // 8-char "SECURITY" form — the 3-char "SEC" form landed the parser in
-        // the middle of the first arg and produced "MTC SECURITY: unknown bit '...'".
+        // the middle of the first arg and produced "MESHTACORE SECURITY: unknown bit '...'".
         const char *p = skipToken(cmd);
         if (*p != '\0') {
             // Skip leading whitespace, then read the sub-token.
@@ -4249,7 +4252,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                         turnOn = true;
                     } else {
                         snprintf(replyMsg, sizeof(replyMsg),
-                                 "MTC SECURITY: AUTO_FAV_EXTRA channel must be 0-7");
+                                 "MESHTACORE SECURITY: AUTO_FAV_EXTRA channel must be 0-7");
                         securityReject = true;
                     }
                 } else {
@@ -4261,7 +4264,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 isOverview = true;
             } else if (sub[0] != '\0') {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC SECURITY: unknown bit '%s' (valid: REQ_SIG/RSIG/RS, ALLOW_DM/AD/ADM, SILENT_LOG/SL/SIL, AUTO_FAV_NEXUS/AFN/AN, AUTO_FAV_TRUSTED/AFT/AT, AUTO_FAV_EXTRA/AFX, BYPASS_RP/BRP)", sub);
+                         "MESHTACORE SECURITY: unknown bit '%s' (valid: REQ_SIG/RSIG/RS, ALLOW_DM/AD/ADM, SILENT_LOG/SL/SIL, AUTO_FAV_NEXUS/AFN/AN, AUTO_FAV_TRUSTED/AFT/AT, AUTO_FAV_EXTRA/AFX, BYPASS_RP/BRP)", sub);
                 // Nexus-28006 (2026-09-16) — code review 1D fix.
                 // Previously: `return;` here dropped replyMsg before the
                 // dispatcher tail at the end of handleNexusCommand could
@@ -4311,11 +4314,11 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             // dispatcher tail picks up replyMsg and delivers the ack.
             if (hasExtraCh) {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC SECURITY: AUTO_FAV_EXTRA ON ch%u -> 0x%08lX (run /nexus SAVE to persist)",
+                         "MESHTACORE SECURITY: AUTO_FAV_EXTRA ON ch%u -> 0x%08lX (run /nexus SAVE to persist)",
                          (unsigned)setExtraCh, (unsigned long)newMask);
             } else {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC SECURITY: %s -> 0x%08lX (run /nexus SAVE to persist)",
+                         "MESHTACORE SECURITY: %s -> 0x%08lX (run /nexus SAVE to persist)",
                          targetName,
                          (unsigned long)newMask);
             }
@@ -4332,8 +4335,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         // the return, control falls through to the next else-if block
         // (VAULT), then to the rest of the dispatcher chain, then to the
         // terminal `else` at line ~8979 which overwrites replyMsg with
-        // `JT: Unknown command 'SECURITY'`. The phone app silently drops
-        // that string (no JT-recognized command name) so operators see
+        // `MESHTACORE: Unknown command 'SECURITY'`. The phone app silently drops
+        // that string (no MESHTACORE-recognized command name) so operators see
         // nothing — same symptom as the LR2021_SF silent-fail we fixed
         // earlier. Bit-toggle path was unaffected because it already had
         // `return;` (line ~4160).
@@ -4352,7 +4355,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         // reply. Mirrors the same fix in the bit-toggle block above.
         snprintf(
             replyMsg, sizeof(replyMsg),
-            "MTC SECURITY:\n REQ_SIG:%s\n ALLOW_DM:%s\n SILENT:%s\n FAV_NX:%s\n FAV_TR:%s\n FAV_XT:%s ch%u\n BYPASS_RP:%s (%u/%u)",
+            "MESHTACORE SECURITY:\n REQ_SIG:%s\n ALLOW_DM:%s\n SILENT:%s\n FAV_NX:%s\n FAV_TR:%s\n FAV_XT:%s ch%u\n BYPASS_RP:%s (%u/%u)",
             (nexus_security_bitmask & NEXUS_SECURITY_REQUIRE_SIG) ? "ON " : "off",
             (nexus_security_bitmask & NEXUS_SECURITY_ALLOW_DM) ? "ON " : "off",
             (nexus_security_bitmask & NEXUS_SECURITY_SILENT_LOG) ? "ON " : "off",
@@ -4382,7 +4385,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             // route the message back via replyId.
             if (!v) {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC VAULT: OOM allocating scratch vault (%u B)",
+                         "MESHTACORE VAULT: OOM allocating scratch vault (%u B)",
                          (unsigned)sizeof(NexusVault));
                 return;
             }
@@ -4397,7 +4400,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         bool valid = readVaultForDisplay(v, &reason);
         if (!valid) {
             snprintf(replyMsg, sizeof(replyMsg),
-                     "MTC VAULT:\nState: INVALID (%s)\nFile: /nexus.bin missing or unreadable",
+                     "MESHTACORE VAULT:\nState: INVALID (%s)\nFile: /nexus.bin missing or unreadable",
                      reason);
         } else {
             // Field summary (subset of what's persisted)
@@ -4410,7 +4413,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             uint8_t cronUsed = 0;
             for (int i = 0; i < 8; i++) if (v->cron_table[i].active) cronUsed++;
             snprintf(replyMsg, sizeof(replyMsg),
-                     "MTC VAULT:\nVer:v%u Size:%uB\nDrop:0x%08lX%08lX\nOutDr:0x%08lX%08lX\nInv:0x%08X\nGroups:%u/4\nAliases:%u/16\nMacros:%u/4\nCron:%u/8",
+                     "MESHTACORE VAULT:\nVer:v%u Size:%uB\nDrop:0x%08lX%08lX\nOutDr:0x%08lX%08lX\nInv:0x%08X\nGroups:%u/4\nAliases:%u/16\nMacros:%u/4\nCron:%u/8",
                      (unsigned int)v->version, (unsigned int)sizeof(NexusVault),
                      (unsigned long)(v->drop_mask >> 32), (unsigned long)(v->drop_mask & 0xFFFFFFFFu),
                      (unsigned long)(v->out_drop_mask >> 32), (unsigned long)(v->out_drop_mask & 0xFFFFFFFFu),
@@ -4434,7 +4437,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             // route it back to the operator.
             if (!v) {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC VAULT DIFF: OOM allocating scratch vault (%u B)",
+                         "MESHTACORE VAULT DIFF: OOM allocating scratch vault (%u B)",
                          (unsigned)sizeof(NexusVault));
                 return;
             }
@@ -4444,7 +4447,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         bool valid = readVaultForDisplay(v, &reason);
         if (!valid) {
             snprintf(replyMsg, sizeof(replyMsg),
-                     "MTC VAULT DIFF:\nNo valid vault (%s) - any RAM state will be saved on next /nexus SAVE",
+                     "MESHTACORE VAULT DIFF:\nNo valid vault (%s) - any RAM state will be saved on next /nexus SAVE",
                      reason);
         } else {
             // Build a paginated diff. We compare every persisted field in
@@ -5024,7 +5027,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     }
     else if (strcasecmp(cmd, "LORA") == 0 || strcasecmp(cmd, "LR") == 0) {
         snprintf(replyMsg, sizeof(replyMsg),
-                 "MTC LORA:\nSF:%u BW:%u CR:%u\nPreset:%u (%s)\nFreq:%.4fMHz\nPower:%ddBm\nIgnoreMQTT:%d\nRebroadcast:%s",
+                 "MESHTACORE LORA:\nSF:%u BW:%u CR:%u\nPreset:%u (%s)\nFreq:%.4fMHz\nPower:%ddBm\nIgnoreMQTT:%d\nRebroadcast:%s",
                  config.lora.spread_factor, config.lora.bandwidth, config.lora.coding_rate,
                  config.lora.modem_preset, config.lora.use_preset ? "ACTIVE" : "OFF",
                  config.lora.override_frequency, (int)config.lora.tx_power,
@@ -5037,11 +5040,11 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         while (*p == ' ') p++;
 
         if (*p == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: LoRa Ignore MQTT is %s", config.lora.ignore_mqtt ? "ON" : "OFF");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: LoRa Ignore MQTT is %s", config.lora.ignore_mqtt ? "ON" : "OFF");
         } else {
             bool enable = false;
             if (!parseOnOff(p, enable)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - IGNOREMQTT [ON|OFF]");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - IGNOREMQTT [ON|OFF]");
             } else {
                 static meshtastic_Config c; c = meshtastic_Config meshtastic_Config_init_default; // static: keeps the recursive frame small
                 c.which_payload_variant = meshtastic_Config_lora_tag;
@@ -5049,16 +5052,16 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 c.payload_variant.lora.ignore_mqtt = enable;
 
                 if (adminModule) adminModule->handleSetConfig(c, false);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: LoRa Ignore MQTT set to %s", enable ? "ON" : "OFF");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: LoRa Ignore MQTT set to %s", enable ? "ON" : "OFF");
             }
         }
     }
-    else if (strncasecmp(cmd, "SETREBROADCAST ", 15) == 0 || strcasecmp(cmd, "REBROADCAST") == 0) {
-        const char *p = (strlen(cmd) > 15) ? cmd + 15 : "";
+    else if (isCommandWord(cmd, "REBROADCAST")) {
+        const char *p = skipToken(cmd);
         while (*p == ' ') p++;
 
         if (*p == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Rebroadcast Mode is %s (%u)",
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Rebroadcast Mode is %s (%u)",
                      getRebroadcastModeName(config.device.rebroadcast_mode), (uint32_t)config.device.rebroadcast_mode);
         } else {
             int mode = -1;
@@ -5077,19 +5080,18 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 c.payload_variant.device.rebroadcast_mode = (meshtastic_Config_DeviceConfig_RebroadcastMode)mode;
 
                 if (adminModule) adminModule->handleSetConfig(c, false);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Rebroadcast Mode set to %s (%d)", getRebroadcastModeName(mode), mode);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Rebroadcast Mode set to %s (%d)", getRebroadcastModeName(mode), mode);
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid Mode (ALL|ALL_SKIP|LOCAL|KNOWN|NONE|CORE)");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid Mode (ALL|ALL_SKIP|LOCAL|KNOWN|NONE|CORE)");
             }
         }
     }
-    else if (strncasecmp(cmd, "PRESET ", 7) == 0 || strcasecmp(cmd, "PRESET") == 0 ||
-             strncasecmp(cmd, "SETPRESET ", 10) == 0 || strcasecmp(cmd, "SETPRESET") == 0) {
-        const char *p = (strncasecmp(cmd, "PRESET", 6) == 0) ? cmd + 6 : cmd + 9;
+    else if (strncasecmp(cmd, "PRESET ", 7) == 0 || strcasecmp(cmd, "PRESET") == 0) {
+        const char *p = cmd + 6;
         while (*p == ' ') p++;
 
         if (*p == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage: PRESET <name>. See HELP PRESET for list.");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage: PRESET <name>. See HELP PRESET for list.");
         } else {
             struct LoRaParams {
                 uint8_t sf;
@@ -5123,7 +5125,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
 
             if (!found) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Unknown Preset '%s'", p);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Unknown Preset '%s'", p);
             } else {
                 // Magnemite tweak at apply (R4, Jenny 2026-10-20): band capability comes
                 // from radioType, NOT the currently-configured region. Region is only a
@@ -5148,11 +5150,11 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     (radioType == LR1110_RADIO || radioType == LR1120_RADIO || radioType == LR1121_RADIO);
 
                 if (isTarget24 && !cap24) {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Cannot set 2.4GHz preset on this single-band radio.");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Cannot set 2.4GHz preset on this single-band radio.");
                 } else if (!isTarget24 && !capSub) {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Cannot set Sub-GHz preset on this single-band radio.");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Cannot set Sub-GHz preset on this single-band radio.");
                 } else if (isMiniUnsupported) {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Mini presets (BW 31.25 kHz) are not supported on this radio.");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Mini presets (BW 31.25 kHz) are not supported on this radio.");
                 } else {
                     memset(&pendingConfig, 0, sizeof(pendingConfig));
                     pendingConfig.which_payload_variant = meshtastic_Config_lora_tag;
@@ -5169,7 +5171,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                                        (target.region == meshtastic_Config_LoRaConfig_RegionCode_EU_866) ? "EU_866" :
                                        (target.region == meshtastic_Config_LoRaConfig_RegionCode_EU_N_868) ? "EU_N_868" : "LoRa";
 
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Preset '%s' accepted (%s). SF:%u BW:%u CR:%u Freq:%.4fMHz. Applying LIVE in 5s.",
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Preset '%s' accepted (%s). SF:%u BW:%u CR:%u Freq:%.4fMHz. Applying LIVE in 5s.",
                              p, rStr, target.sf, target.bw, target.cr, target.freq);
                     pendingLoRaConfig = true;
                     pendingLoRaApplyAt = Time::getMillis() + 5000;
@@ -5177,12 +5179,12 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
     }
-    else if (strncasecmp(cmd, "SETLORA ", 8) == 0) {
-        // Nexus: Local + remote both allowed (mirrors SETPREAMBLE / SETSYNCWORD behavior).
+    else if (isCommandWord(cmd, "LORA")) {
+        // Nexus: Local + remote both allowed (mirrors PREAMBLE / SYNCWORD behavior).
         // Removed 2026-07-30: prior `if (mp.from == 0) reject` was inconsistent with the
         // sibling radio-reconfig commands and made CLI/serial debugging painful.
-        // Format: SETLORA <SF> <BW> <CR> <FREQ_OVERRIDE>
-        const char *p = cmd + 8;
+        // Format: LORA <SF> <BW> <CR> <FREQ_OVERRIDE>
+        const char *p = skipToken(cmd);
         int sf = tokenInt(p); while (*p && *p != ' ') p++; while (*p == ' ') p++;
         int bw = tokenInt(p); while (*p && *p != ' ') p++; while (*p == ' ') p++;
         int cr = tokenInt(p); while (*p && *p != ' ') p++; while (*p == ' ') p++;
@@ -5216,25 +5218,25 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             pendingConfig.payload_variant.lora.coding_rate = cr;
             pendingConfig.payload_variant.lora.override_frequency = freq;
 
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: LoRa accepted. SF:%u BW:%u CR:%u Freq:%.4fMHz. Applying LIVE in 5s.", sf, bw, cr, freq);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: LoRa accepted. SF:%u BW:%u CR:%u Freq:%.4fMHz. Applying LIVE in 5s.", sf, bw, cr, freq);
             pendingLoRaConfig = true;
             pendingLoRaApplyAt = Time::getMillis() + 5000;
         } else {
             if (freq >= 2400.0f && freq <= 2500.0f) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid 2.4GHz params (SF:5-12, CR:5-8, BW:200|400|800|1600, Freq:2400-2500)");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid 2.4GHz params (SF:5-12, CR:5-8, BW:200|400|800|1600, Freq:2400-2500)");
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid sub-GHz params (SF:5-12, CR:5-8, BW:31|62|125|250|500, Freq:863-873)");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid sub-GHz params (SF:5-12, CR:5-8, BW:31|62|125|250|500, Freq:863-873)");
             }
         }
     }
-    else if (strncasecmp(cmd, "SETFSK ", 7) == 0 || strcasecmp(cmd, "SETFSK") == 0 ||
-             strncasecmp(cmd, "SETFLRC ", 8) == 0 || strcasecmp(cmd, "SETFLRC") == 0) {
-        // Nexus SETFSK/SETFLRC (research 2026-10-09; Jenny rulings 2026-10-14):
+    else if (isCommandWord(cmd, "FSK") ||
+             isCommandWord(cmd, "FLRC")) {
+        // Nexus FSK/FLRC (research 2026-10-09; Jenny rulings 2026-10-14):
         //  public, RAM-only, persist-until-disabled, deferred 5s apply. Staging is
-        //  identical to SETSYNCWORD: mutate the RAM state NOW, stage an unchanged
+        //  identical to SYNCWORD: mutate the RAM state NOW, stage an unchanged
         //  LoRa config so the deferred apply re-enters applyModemConfig() and
         //  programModemParams() picks the FSK path via altModem.mode.
-        bool isFlrc = (strncasecmp(cmd, "SETFLRC", 7) == 0);
+        bool isFlrc = isCommandWord(cmd, "FLRC");
         const char *sub = skipToken(cmd);
         RadioInterface *radioIf = (router) ? router->getInterface() : nullptr;
         uint8_t caps = radioIf ? radioIf->altModemCaps() : 0;
@@ -5242,7 +5244,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
         if (strcasecmp(sub, "OFF") == 0 || strcasecmp(sub, "RESET") == 0 || strcasecmp(sub, "DEFAULT") == 0) {
             if (altModem.mode == 0) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Alt modem already off (LoRa).");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Alt modem already off (LoRa).");
             } else {
                 altModem = NexusAltModem{0, 0.0f, 0.0f, 0.0f, 0};
                 pendingLoRaConfig = true;
@@ -5252,19 +5254,19 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 pc.payload_variant.lora = config.lora;
                 pendingConfig = pc;
                 setIntervalFromNow(50);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Alt modem disabled (back to LoRa). Applying in 5s...");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Alt modem disabled (back to LoRa). Applying in 5s...");
             }
         } else if (*sub == '\0') {
             static const char *modeName[] = {"LORA", "FSK", "FLRC"};
-            snprintf(replyMsg, sizeof(replyMsg), "MTC Alt Modem: %s BR:%.1fk dev:%.1fk bw:%.1fk pre:%u | caps:%s%s%s",
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE Alt Modem: %s BR:%.1fk dev:%.1fk bw:%.1fk pre:%u | caps:%s%s%s",
                      modeName[altModem.mode <= 2 ? altModem.mode : 0], altModem.brKbps, altModem.freqDevKHz,
                      altModem.rxBwKHz, (unsigned)altModem.preambleBits,
                      (caps & 0x01) ? "FSK " : "", (caps & 0x02) ? "FLRC " : "", (caps == 0) ? "none" : "");
         } else {
             if (!(caps & need)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: %s not supported on this radio", isFlrc ? "SETFLRC" : "SETFSK");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: %s not supported on this radio", isFlrc ? "FLRC" : "FSK");
             } else if (isFlrc) {
-                // SETFLRC <br_kbps> <cr 2|3|4> [bt 0|1|2] [preamble_bits]
+                // FLRC <br_kbps> <cr 2|3|4> [bt 0|1|2] [preamble_bits]
                 //   cr: 2 -> 1/2, 3 -> 3/4, 4 -> uncoded 1/1 (per-chip RadioLib constants)
                 //   bt: 0 -> NONE/NRZ, 1 -> BT 0.3, 2 -> BT 0.5 (default 2 = RadioLib default)
                 // FLRC is family-local by physics: 2.4 GHz SX128x pairs talk to SX128x peers,
@@ -5280,7 +5282,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 bool btOk = (bt >= 0 && bt <= 2);
                 bool preOk = (pre >= 4 && pre <= 1024);
                 if (radioType == SX1280_RADIO) {
-                    // A value beginFLRC() rejects leaves the radio unconfigured and the node deaf until SETFLRC OFF,
+                    // A value beginFLRC() rejects leaves the radio unconfigured and the node deaf until FLRC OFF,
                     // so check what the SX128x accepts here: its rates, no BT 0.3, preamble 4-32 bits in steps of 4
                     static const float kFlrcRates[] = {260, 325, 520, 650, 1000, 1300};
                     brOk = false;
@@ -5313,20 +5315,20 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     setIntervalFromNow(50);
                     const char *crName = (crc == 2) ? "1/2" : (crc == 3) ? "3/4" : "1/1";
                     snprintf(replyMsg, sizeof(replyMsg),
-                             "MTC: FLRC accepted. BR:%.1fk CR:%s BT:%d PRE:%d. Applying LIVE in 5s.",
+                             "MESHTACORE: FLRC accepted. BR:%.1fk CR:%s BT:%d PRE:%d. Applying LIVE in 5s.",
                              br, crName, bt, pre);
                 } else if (radioType == SX1280_RADIO) {
                     snprintf(replyMsg, sizeof(replyMsg),
-                             "MTC: Invalid FLRC params (SX128x BR:260|325|520|650|1000|1300k, CR:2|3|4, BT:0|2, PRE:4-32 step 4)");
+                             "MESHTACORE: Invalid FLRC params (SX128x BR:260|325|520|650|1000|1300k, CR:2|3|4, BT:0|2, PRE:4-32 step 4)");
                 } else if (radioType == LR2021_RADIO) {
                     snprintf(replyMsg, sizeof(replyMsg),
-                             "MTC: Invalid FLRC params (LR2021 BR:260|325|520|650|1040|1300|2080|2600k, CR:2|3|4, BT:0|1|2, PRE:4-32 step 4)");
+                             "MESHTACORE: Invalid FLRC params (LR2021 BR:260|325|520|650|1040|1300|2080|2600k, CR:2|3|4, BT:0|1|2, PRE:4-32 step 4)");
                 } else {
                     snprintf(replyMsg, sizeof(replyMsg),
-                             "MTC: Invalid FLRC params (BR:1-2600k, CR:2|3|4 = 1/2|3/4|uncoded, BT:0|1|2, PRE:4-1024)");
+                             "MESHTACORE: Invalid FLRC params (BR:1-2600k, CR:2|3|4 = 1/2|3/4|uncoded, BT:0|1|2, PRE:4-1024)");
                 }
             } else {
-                // SETFSK <br_kbps> [freqDev_kHz] [rxBw_kHz] [preamble_bits]
+                // FSK <br_kbps> [freqDev_kHz] [rxBw_kHz] [preamble_bits]
                 // Per Carson's rule (Semtech SX1261-2 §6.2.1 / LR1110 §8.2.1), DSB receiver filter
                 // bandwidth must satisfy rxBw >= br + 2*freqDev (e.g. 50 kbps + 2*25 kHz = 100 kHz -> 117.3 kHz step).
                 const char *p = sub;
@@ -5390,18 +5392,18 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     pendingConfig = pc;
                     setIntervalFromNow(50);
                     snprintf(replyMsg, sizeof(replyMsg),
-                             "MTC: FSK accepted. BR:%.1fk DEV:%.1fk BW:%.1fk PRE:%d. Applying LIVE in 5s.",
+                             "MESHTACORE: FSK accepted. BR:%.1fk DEV:%.1fk BW:%.1fk PRE:%d. Applying LIVE in 5s.",
                              br, dev, rbw, pre);
                 } else if (sx128x) {
                     snprintf(replyMsg, sizeof(replyMsg),
-                             "MTC: Invalid FSK params (SX128x BR:125|250|400|500|800|1000|1600|2000k, DEV:62.5-1000k and "
+                             "MESHTACORE: Invalid FSK params (SX128x BR:125|250|400|500|800|1000|1600|2000k, DEV:62.5-1000k and "
                              "BR/8-2*BR, PRE:4-32 step 4)");
                 } else if (lr2021) {
                     snprintf(replyMsg, sizeof(replyMsg),
-                             "MTC: Invalid FSK params (LR2021 BR:0.5-2000k, DEV:0.6-500k, BW:4.8-3076k, PRE:4-1024)");
+                             "MESHTACORE: Invalid FSK params (LR2021 BR:0.5-2000k, DEV:0.6-500k, BW:4.8-3076k, PRE:4-1024)");
                 } else {
                     snprintf(replyMsg, sizeof(replyMsg),
-                             "MTC: Invalid FSK params (BR:0.6-300k, DEV:1.5-200k, BW:4.8-500k, PRE:4-1024)");
+                             "MESHTACORE: Invalid FSK params (BR:0.6-300k, DEV:1.5-200k, BW:4.8-500k, PRE:4-1024)");
                 }
             }
         }
@@ -5413,11 +5415,11 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         static char names[64];
         memset(names, 0, sizeof(names));
         if (!parseHexByte(p, suffix)) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - SRELAY <*hex>");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - SRELAY <*hex>");
         } else if (getRelayNames(names, sizeof(names), suffix), names[0] != '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC Relay *%02x Matches:\n%s", suffix, names);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE Relay *%02x Matches:\n%s", suffix, names);
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC Relay *%02x: No matches in NodeDB", suffix);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE Relay *%02x: No matches in NodeDB", suffix);
         }
         memset(names, 0, sizeof(names));
     }
@@ -5426,7 +5428,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         while (*targetStr == ' ') targetStr++;
 
         if (strlen(targetStr) < 2) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid NODEDB target");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid NODEDB target");
         } else {
             uint32_t targetNum = 0;
             // 1. Try to find by short name (case-insensitive)
@@ -5449,7 +5451,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
 
             if (targetNum == 0) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC NODEDB: Target '%s' not found", targetStr);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE NODEDB: Target '%s' not found", targetStr);
             } else {
                 auto node = nodeDB->getMeshNode(targetNum);
                 if (node) {
@@ -5470,10 +5472,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     int ch = nodeDB->getMeshNodeChannel(targetNum);
 
                     snprintf(replyMsg, sizeof(replyMsg),
-                             "MTC NODEDB %08x:\nName: %.20s [%s]\nSeen: %us ago, Role:%s\nSNR: %.1f, Hop: %d, Ch: %d\nFav:%d Ign:%d Adm:%d",
+                             "MESHTACORE NODEDB %08x:\nName: %.20s [%s]\nSeen: %us ago, Role:%s\nSNR: %.1f, Hop: %d, Ch: %d\nFav:%d Ign:%d Adm:%d",
                              (unsigned int)targetNum, name, sname, (unsigned int)lastSeen, roleName, snr, hops, ch, nexus_is_favorite(node), nexus_is_ignored(node), isAdmin);
                 } else {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC NODEDB: Node %08x not found", (unsigned int)targetNum);
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE NODEDB: Node %08x not found", (unsigned int)targetNum);
                 }
             }
         }
@@ -5515,9 +5517,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             if (targetNum != 0) {
                 nodeDB->removeNodeByNum(targetNum);
                 nodeDB->saveToDisk(SEGMENT_NODEDATABASE);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Node !%08x removed from DB", (unsigned int)targetNum);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Node !%08x removed from DB", (unsigned int)targetNum);
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: DELNODE Error - Node '%s' not found", targetStr);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: DELNODE Error - Node '%s' not found", targetStr);
             }
             // Nexus-28006 (2026-09-16) — code review 1D fix.
             // Previously: `return;` here dropped replyMsg before the
@@ -5545,10 +5547,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 else
                     nexus_set_ignored(node, false);
                 nodeDB->saveToDisk(SEGMENT_NODEDATABASE);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: %s node !%08x (%s)", force ? "Forced" : "Updated",
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: %s node !%08x (%s)", force ? "Forced" : "Updated",
                          (unsigned int)targetNum, node->short_name[0] ? node->short_name : "UNK");
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Node '%s' not found%s", targetStr,
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Node '%s' not found%s", targetStr,
                          force ? " (and could not create)" : "");
             }
         }
@@ -5568,7 +5570,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         formatRLBuckets(cmdBuf.rlsBuf, sizeof(cmdBuf.rlsBuf));
         startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "RL Buckets");
         appendPaging(cmdBuf.rlsBuf);
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging RL buckets...");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging RL buckets...");
     }
     else if (strcasecmp(cmd, "FULLCONFIGDUMP") == 0 ||
              strcasecmp(cmd, "FCD") == 0 ||
@@ -5597,7 +5599,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         appendFCDSection_AUDIO();
         appendFCDSection_REMOTEHW();
         appendFCDSection_NEIGHBORINFO();
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging full config dump...");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging full config dump...");
     }
     else if (strncasecmp(cmd, "RATELIMIT ", 10) == 0 || strcasecmp(cmd, "RATELIMIT") == 0 ||
              strncasecmp(cmd, "RL ", 3) == 0 || strcasecmp(cmd, "RL") == 0) {
@@ -5619,35 +5621,35 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                                 strcasecmp(target, "BUCKETS") != 0;
 
         if (needsValue && !valOk) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - RL <TEXT|TRACE|OTHER|NI|PO|TL|PR> <0-65535>");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - RL <TEXT|TRACE|OTHER|NI|PO|TL|PR> <0-65535>");
         } else if (strcasecmp(target, "TEXT") == 0) {
             rl_text_limit = val;
             rl_tokens[0] = (float)val;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: RL TEXT set to %u pkts/hr", val);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: RL TEXT set to %u pkts/hr", val);
         } else if (strcasecmp(target, "TRACE") == 0) {
             rl_trace_limit = val;
             rl_tokens[1] = (float)val;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: RL TRACE set to %u pkts/hr", val);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: RL TRACE set to %u pkts/hr", val);
         } else if (strcasecmp(target, "OTHER") == 0) {
             rl_other_limit = val;
             rl_tokens[2] = (float)val;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: RL OTHER set to %u pkts/hr", val);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: RL OTHER set to %u pkts/hr", val);
         } else if (strcasecmp(target, "NODEINFO") == 0 || strcasecmp(target, "NI") == 0) {
             rl_nodeinfo_limit = val;
             rl_tokens[3] = (float)val;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: RL NODEINFO set to %u pkts/hr", val);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: RL NODEINFO set to %u pkts/hr", val);
         } else if (strcasecmp(target, "POSITION") == 0 || strcasecmp(target, "PO") == 0) {
             rl_position_limit = val;
             rl_tokens[4] = (float)val;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: RL POSITION set to %u pkts/hr", val);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: RL POSITION set to %u pkts/hr", val);
         } else if (strcasecmp(target, "TELEMETRY") == 0 || strcasecmp(target, "TL") == 0) {
             rl_telemetry_limit = val;
             rl_tokens[5] = (float)val;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: RL TELEMETRY set to %u pkts/hr", val);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: RL TELEMETRY set to %u pkts/hr", val);
         } else if (strcasecmp(target, "PRIVATE") == 0 || strcasecmp(target, "PR") == 0) {
             rl_private_limit = val;
             rl_tokens[6] = (float)val;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: RL PRIVATE set to %u pkts/hr", val);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: RL PRIVATE set to %u pkts/hr", val);
         } else if (strcasecmp(target, "STATUS") == 0 || strcasecmp(target, "STAT") == 0 ||
                    strcasecmp(target, "BUCKETS") == 0) {
             // /nexus RATELIMIT STATUS [alias STAT/BUCKETS] - delegate to the
@@ -5656,12 +5658,12 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             formatRLBuckets(cmdBuf.rlsBuf, sizeof(cmdBuf.rlsBuf));
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "RL Buckets");
             appendPaging(cmdBuf.rlsBuf);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging RL buckets...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging RL buckets...");
         } else {
             // No target: print the 7 limits (configuration view). Kept short
             // (under 200 bytes) so it fits in a single reply packet.
             snprintf(replyMsg, sizeof(replyMsg),
-                "MTC RL Limits: TX:%u TR:%u OT:%u NI:%u PO:%u TL:%u PR:%u",
+                "MESHTACORE RL Limits: TX:%u TR:%u OT:%u NI:%u PO:%u TL:%u PR:%u",
                 (unsigned)rl_text_limit, (unsigned)rl_trace_limit, (unsigned)rl_other_limit,
                 (unsigned)rl_nodeinfo_limit, (unsigned)rl_position_limit,
                 (unsigned)rl_telemetry_limit, (unsigned)rl_private_limit);
@@ -5675,7 +5677,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         bool setInv = (strncasecmp(cmd, "UN", 2) != 0);
 
         if (isCheck) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC INVALID Rules:\nNULL:%s (%u) SPAIN:%s (%u)\nGERM:%s (%u) HW:%s (%u)\nID:%s (%u)",
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE INVALID Rules:\nNULL:%s (%u) SPAIN:%s (%u)\nGERM:%s (%u) HW:%s (%u)\nID:%s (%u)",
                      inv_null_island ? "ON" : "OFF", (unsigned int)inv_drop_null,
                      inv_out_spain ? "ON" : "OFF", (unsigned int)inv_drop_spain,
                      inv_out_germany ? "ON" : "OFF", (unsigned int)inv_drop_germany,
@@ -5694,9 +5696,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             else handled = false;
 
             if (handled) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: INVALID %s %s", p, setInv ? "ACTIVE" : "DISABLED");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: INVALID %s %s", p, setInv ? "ACTIVE" : "DISABLED");
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC INVALID Rules:\nNULL:%s (%u) SPAIN:%s (%u)\nGERM:%s (%u) HW:%s (%u)\nID:%s (%u)",
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE INVALID Rules:\nNULL:%s (%u) SPAIN:%s (%u)\nGERM:%s (%u) HW:%s (%u)\nID:%s (%u)",
                          inv_null_island ? "ON" : "OFF", (unsigned int)inv_drop_null,
                          inv_out_spain ? "ON" : "OFF", (unsigned int)inv_drop_spain,
                          inv_out_germany ? "ON" : "OFF", (unsigned int)inv_drop_germany,
@@ -5727,7 +5729,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         // byte shows the actual on-air byte 0x2B vs override 0xNN).
         RadioInterface *radio = (router) ? router->getInterface() : nullptr;
         if (!radio) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: RadioInterface NULL!");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: RadioInterface NULL!");
         } else {
             // Read every chip-side value through the wrapper getter set.
             // syncWord lives on RadioLibInterface, cast to access getSyncWord().
@@ -5741,7 +5743,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             float freqMHz = radio->getFreq();
             uint8_t syncByte = static_cast<RadioLibInterface *>(radio)->getSyncWord();
 
-            // Alt-modem active (SETFSK/SETFLRC): bw/sf/cr/Pre/Slot/CW/SW/Speed are
+            // Alt-modem active (FSK/FLRC): bw/sf/cr/Pre/Slot/CW/SW/Speed are
             // the PARKED LoRa config — the modulation on air is FSK/FLRC, which has
             // no SF/BW/CR. Report alt-modem reality instead (Jenny, 2026-10-16).
             // Freq/ChipPwr stay valid: both alt paths reuse applyModemConfig's
@@ -5752,12 +5754,12 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 if (altModem.mode == 2) {
                     const char *crName = (altModem.cr == 2) ? "1/2" : (altModem.cr == 3) ? "3/4" : "1/1";
                     snprintf(replyMsg, sizeof(replyMsg),
-                        "MTC LORA Status:\nMode: FLRC\nFreq: %.3fMHz\nBR:%.1fk CR:%s BT:%d\nPre:%u bits\nChipPwr:%ddBm\nSpeed:%u b/s",
+                        "MESHTACORE LORA Status:\nMode: FLRC\nFreq: %.3fMHz\nBR:%.1fk CR:%s BT:%d\nPre:%u bits\nChipPwr:%ddBm\nSpeed:%u b/s",
                         freqMHz, altModem.brKbps, crName, (int)altModem.bt,
                         (unsigned)altModem.preambleBits, chipPwr, altSpeed);
                 } else {
                     snprintf(replyMsg, sizeof(replyMsg),
-                        "MTC LORA Status:\nMode: FSK (GFSK)\nFreq: %.3fMHz\nBR:%.1fk dev:%.1fk RXBW:%.1fk\nPre:%u bits\nSW:0x12AD (wire profile)\nChipPwr:%ddBm\nSpeed:%u b/s",
+                        "MESHTACORE LORA Status:\nMode: FSK (GFSK)\nFreq: %.3fMHz\nBR:%.1fk dev:%.1fk RXBW:%.1fk\nPre:%u bits\nSW:0x12AD (wire profile)\nChipPwr:%ddBm\nSpeed:%u b/s",
                         freqMHz, altModem.brKbps, altModem.freqDevKHz, altModem.rxBwKHz,
                         (unsigned)altModem.preambleBits, chipPwr, altSpeed);
                 }
@@ -5772,7 +5774,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             // CWmin/CWmax are static constexpr on RadioInterface. Access via the class
             // directly (no instance needed).
             snprintf(replyMsg, sizeof(replyMsg),
-                "MTC LORA Status:\nFreq: %.3fMHz\nBW:%.2fkHz SF:%d CR:%d\nPre:%u (%ums)\nSlot:%ums CW:%u-%u\nSW:0x%02X\nChipPwr:%ddBm\nSpeed:%u b/s",
+                "MESHTACORE LORA Status:\nFreq: %.3fMHz\nBW:%.2fkHz SF:%d CR:%d\nPre:%u (%ums)\nSlot:%ums CW:%u-%u\nSW:0x%02X\nChipPwr:%ddBm\nSpeed:%u b/s",
                 freqMHz, bw, sf, crDenom,
                 (unsigned)pre, (unsigned)preMs,
                 (unsigned)slotMs, (unsigned)RadioInterface::CWmin, (unsigned)RadioInterface::CWmax,
@@ -5795,7 +5797,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging(line);
         }
         memset(line, 0, sizeof(line));
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging hop matrix...");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging hop matrix...");
     }
     else if (strcasecmp(cmd, "HOPSTATS") == 0 || strcasecmp(cmd, "HS") == 0) {
         uint32_t summary[8] = {0};
@@ -5806,7 +5808,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 total += nexus_hop_matrix[s][u];
             }
         }
-        int len = snprintf(shared_buf, sizeof(shared_buf), "MTC HOPSTATS (T:%u):\n", (unsigned int)total);
+        int len = snprintf(shared_buf, sizeof(shared_buf), "MESHTACORE HOPSTATS (T:%u):\n", (unsigned int)total);
         for (int i = 0; i < 8; i++) {
             if (summary[i] > 0 || i < 3) {
                 len += snprintf(shared_buf + len, sizeof(shared_buf) - len, "H%d:%u ", i, (unsigned int)summary[i]);
@@ -5966,10 +5968,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 }
                 delete[] entries;
             } else {
-                appendPaging("MTC: Out of memory for sorted packet stats.");
+                appendPaging("MESHTACORE: Out of memory for sorted packet stats.");
             }
         }
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging sorted packet stats (%u of %u active)...", (unsigned int)spsToShow, (unsigned int)activeCount);
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging sorted packet stats (%u of %u active)...", (unsigned int)spsToShow, (unsigned int)activeCount);
         // Rate snapshot is now anchored to /nexus CS (sets sps_last_clear_ms
         // and zeroes the live counters). No per-call snapshot staging needed.
         // Clean up static scratch buffers so the next call starts fresh.
@@ -5987,10 +5989,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         const char *p = cmd + 11;
         while (*p == ' ') p++;
         if (!p || *p == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Empty status text");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Empty status text");
         } else {
             sendNexusStatusMessage(p);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Status sent (%zu chars)", strlen(p));
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Status sent (%zu chars)", strlen(p));
         }
     }
     else if (strncasecmp(cmd, "STATUSPS ", 9) == 0 || strcasecmp(cmd, "STATUSPS") == 0) {
@@ -6013,13 +6015,13 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
         if (activeCount == 0) {
             sendNexusStatusMessage("PS: no traffic recorded");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Status sent (no traffic)");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Status sent (no traffic)");
         } else {
             // Collect active ports, sort desc by pkts (asc by id as tiebreak).
             struct PortEntry { uint8_t id; uint32_t pkts; };
             PortEntry *entries = new PortEntry[activeCount];
             if (!entries) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: OOM (STATUSPS)");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: OOM (STATUSPS)");
             } else {
                 int idx = 0;
                 for (int i = 0; i < 32; i++) {
@@ -6074,7 +6076,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 // the last appended row was rejected for overflow).
                 uint32_t rowsAdded = overflowed ? (toShow > 0 ? toShow - 1 : 0) : toShow;
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC: Status sent (%u of %u active ports, %s)",
+                         "MESHTACORE: Status sent (%u of %u active ports, %s)",
                          (unsigned)rowsAdded,
                          (unsigned)activeCount, overflowed ? "truncated" : "exact");
                 delete[] entries;
@@ -6094,21 +6096,21 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         const char *p = cmd + 8;
         while (*p == ' ') p++;
         if (!p || *p == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage: NODECRC <base64-pubkey>");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage: NODECRC <base64-pubkey>");
         } else if (!meshtastic::nexusModule) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: NexusModule NULL");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: NexusModule NULL");
         } else {
             uint8_t pk[32];
             size_t dlen = 0;
             if (meshtastic::nexusModule->nexus_base64_decode(pk, sizeof(pk), &dlen, p) != 0) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Base64 decode failed");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Base64 decode failed");
             } else if (dlen != 32) {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC: Expected 32-byte pubkey, got %u bytes", (unsigned)dlen);
+                         "MESHTACORE: Expected 32-byte pubkey, got %u bytes", (unsigned)dlen);
             } else {
                 uint32_t nodeNum = crc32Buffer(pk, dlen);
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC: !%08x (%u)", (unsigned)nodeNum, (unsigned)nodeNum);
+                         "MESHTACORE: !%08x (%u)", (unsigned)nodeNum, (unsigned)nodeNum);
             }
         }
     }
@@ -6122,11 +6124,11 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
         if (grandTotal == 0) {
             snprintf(replyMsg, sizeof(replyMsg),
-                "MTC CR Stats:\nNo packets recorded.\nReset with /nexus CS (CLRSTATS).");
+                "MESHTACORE CR Stats:\nNo packets recorded.\nReset with /nexus CS (CLRSTATS).");
         } else {
             static char line[64];
             size_t off = 0;
-            int n = snprintf(replyMsg, sizeof(replyMsg), "MTC CR Stats:\n");
+            int n = snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE CR Stats:\n");
             if (n > 0) off += (size_t)n;
             for (int i = 0; i < 4; i++) {
                 uint32_t d = cr_stats[i][0];
@@ -6158,7 +6160,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     else if (strcasecmp(cmd, "FIXMYINFO") == 0 || strcasecmp(cmd, "FMI") == 0) {
         meshtastic_NodeInfoLite *us = nodeDB->getMeshNode(nodeDB->getNodeNum());
         if (!us) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC FMI Error: Local node not found in NodeDB!");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE FMI Error: Local node not found in NodeDB!");
         } else {
             bool changed = false;
             static char fixes[128];
@@ -6196,9 +6198,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
             if (changed) {
                 nodeDB->saveToDisk(SEGMENT_NODEDATABASE);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC FMI: Fixed fields: %s", fixes);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE FMI: Fixed fields: %s", fixes);
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC FMI: Info already in sync.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE FMI: Info already in sync.");
             }
             memset(fixes, 0, sizeof(fixes));
         }
@@ -6323,7 +6325,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         sps_last_clear_ms = Time::getMillis();
         schs_last_clear_ms = sps_last_clear_ms;
 
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: All tactical stats cleared.");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: All tactical stats cleared.");
     }
     else if (strncasecmp(cmd, "SORTEDCHANNELSTATS", 18) == 0 || strcasecmp(cmd, "SORTEDCHANNELSTATS") == 0 ||
              strncasecmp(cmd, "CHANNELSTATS", 12) == 0 || strcasecmp(cmd, "CHANNELSTATS") == 0 ||
@@ -6456,10 +6458,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 }
                 delete[] entries;
             } else {
-                appendPaging("MTC: Out of memory for sorted channel stats.");
+                appendPaging("MESHTACORE: Out of memory for sorted channel stats.");
             }
         }
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging sorted channel stats (%u of %u active)...", (unsigned int)schsToShow, (unsigned int)activeCount);
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging sorted channel stats (%u of %u active)...", (unsigned int)schsToShow, (unsigned int)activeCount);
         // Rate snapshot is now anchored to /nexus CS (sets schs_last_clear_ms
         // and zeroes the live counters). No per-call snapshot staging needed.
         // Clean up static scratch buffers so the next call starts fresh.
@@ -6491,7 +6493,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 appendPaging(pLine);
             }
         }
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging transport stats...");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging transport stats...");
     }
     else if (strcasecmp(cmd, "FIREWALLSTATS") == 0 || strcasecmp(cmd, "FWS") == 0) {
         startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Firewall Stats");
@@ -6631,7 +6633,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                  (unsigned int)rl_drop_telemetry, (unsigned int)rl_drop_private);
         appendPaging(line);
 
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging firewall stats...");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging firewall stats...");
         memset(line, 0, sizeof(line));
     }
     else if ((strncasecmp(cmd, "RELAYS ", 7) == 0 || strncasecmp(cmd, "RY ", 3) == 0) && isRelayIdArg(skipToken(cmd))) {
@@ -6658,13 +6660,13 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         // multi-line buffer pages through the operator's view cleanly.
         startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "WiFiOTA Info");
         appendPaging(cmdBuf.otaInfo);
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging WiFiOTA info...");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging WiFiOTA info...");
 #else
         // Non-ESP32 platforms: short message (save airtime bytes).
         // The ota_1 partition is an ESP32 concept; on nRF52/Portduino/etc.
         // there is nothing equivalent to report.
         snprintf(replyMsg, sizeof(replyMsg),
-            "MTC WIFIOTA:\n"
+            "MESHTACORE WIFIOTA:\n"
             "Only available on ESP32");
 #endif
     }
@@ -6678,7 +6680,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         formatMCUInfo(cmdBuf.mcuBuf, sizeof(cmdBuf.mcuBuf));
         startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "MCU Info");
         appendPaging(cmdBuf.mcuBuf);
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging MCU info...");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging MCU info...");
     }
     else if (strcasecmp(cmd, "SENSORS") == 0) {
         // /nexus SENSORS: list I2C devices detected at boot + live power/env
@@ -6690,7 +6692,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         formatSensorsInfo(cmdBuf.sensBuf, sizeof(cmdBuf.sensBuf));
         startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Sensors");
         appendPaging(cmdBuf.sensBuf);
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging sensors...");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging sensors...");
     }
     else if (strncasecmp(cmd, "SORTEDRELAYSTATS", 16) == 0 || strcasecmp(cmd, "SORTEDRELAYSTATS") == 0 ||
              strncasecmp(cmd, "RELAYS", 6) == 0 || strcasecmp(cmd, "RELAYS") == 0 ||
@@ -6720,7 +6722,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (activeCount == 0 || requestedLimit == 0) {
             appendPaging("No traffic recorded.");
             uint32_t shown = 0;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging sorted relay stats (%u of %u active)...", shown, (unsigned int)activeCount);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging sorted relay stats (%u of %u active)...", shown, (unsigned int)activeCount);
         } else {
             // Heap-allocate with the EXACT active count (avoids 256-entry stack array).
             struct RyEntry { uint8_t id; uint32_t direct; uint32_t relayed; uint32_t total; };
@@ -6777,10 +6779,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 memset(entry, 0, sizeof(entry));
                 memset(&sortRyKey, 0, sizeof(sortRyKey));
                 delete[] entries;
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging sorted relay stats (%u of %u active)...", (unsigned int)toShow, (unsigned int)activeCount);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging sorted relay stats (%u of %u active)...", (unsigned int)toShow, (unsigned int)activeCount);
             } else {
-                appendPaging("MTC: Out of memory for sorted relay stats.");
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging sorted relay stats...");
+                appendPaging("MESHTACORE: Out of memory for sorted relay stats.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging sorted relay stats...");
             }
         }
     }
@@ -6822,7 +6824,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging(entry);
         }
         memset(entry, 0, sizeof(entry));
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging RSSILOG (%d entries) to mesh...", requestedCount);
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging RSSILOG (%d entries) to mesh...", requestedCount);
     }
     else if (strcasecmp(cmd, "CHASH") == 0 || strcasecmp(cmd, "CH") == 0 || strcasecmp(cmd, "CHANNELS") == 0 || strcasecmp(cmd, "CHHASHES") == 0) {
         bool showHashes = (strcasecmp(cmd, "CHASH") == 0 || strcasecmp(cmd, "CHANNELS") == 0 || strcasecmp(cmd, "CHHASHES") == 0);
@@ -6842,7 +6844,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 }
             }
         }
-        snprintf(replyMsg, sizeof(replyMsg), "MTC %s:\n%s", showHashes ? "CHASH" : "CHANNELS", shared_buf);
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE %s:\n%s", showHashes ? "CHASH" : "CHANNELS", shared_buf);
     }
     else if (strcasecmp(cmd, "SHORTRSSI") == 0 || strcasecmp(cmd, "SR") == 0) {
         // Self-echo guard: don't reply to loopback / uninitialized rx metrics
@@ -6853,12 +6855,12 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
         if (hopsUsed == 0) {
             snprintf(replyMsg, sizeof(replyMsg),
-                     "MTC SR:\nH:%u/%u relay:none\nR:%d S:%.1f F:%.1f",
+                     "MESHTACORE SR:\nH:%u/%u relay:none\nR:%d S:%.1f F:%.1f",
                      hopsUsed, mp.hop_start,
                      (int)mp.rx_rssi, mp.rx_snr, mp.rx_frequency_error);
         } else {
             snprintf(replyMsg, sizeof(replyMsg),
-                     "MTC SR:\nH:%u/%u relay:%02x\nR:%d S:%.1f F:%.1f",
+                     "MESHTACORE SR:\nH:%u/%u relay:%02x\nR:%d S:%.1f F:%.1f",
                      hopsUsed, mp.hop_start, relayByte,
                      (int)mp.rx_rssi, mp.rx_snr, mp.rx_frequency_error);
         }
@@ -6920,7 +6922,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (hopsUsed == 0) {
             if (peLen > 0) {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC RT:\nH:%u/%u relay:none\nR:%d S:%.1f F:%.1f\nCU:%.1f%% AT:%.1f%%\nB%%:%u%% BV:%.2fV\n%s\nCPUT:%.1fC Up:%.2f",
+                         "MESHTACORE RT:\nH:%u/%u relay:none\nR:%d S:%.1f F:%.1f\nCU:%.1f%% AT:%.1f%%\nB%%:%u%% BV:%.2fV\n%s\nCPUT:%.1fC Up:%.2f",
                          hopsUsed, mp.hop_start,
                          (int)mp.rx_rssi, mp.rx_snr, mp.rx_frequency_error,
                          liveChUtil, liveTxUtil,
@@ -6929,7 +6931,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                          cput, upDays);
             } else {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC RT:\nH:%u/%u relay:none\nR:%d S:%.1f F:%.1f\nCU:%.1f%% AT:%.1f%%\nB%%:%u%% BV:%.2fV\nCPUT:%.1fC Up:%.2f",
+                         "MESHTACORE RT:\nH:%u/%u relay:none\nR:%d S:%.1f F:%.1f\nCU:%.1f%% AT:%.1f%%\nB%%:%u%% BV:%.2fV\nCPUT:%.1fC Up:%.2f",
                          hopsUsed, mp.hop_start,
                          (int)mp.rx_rssi, mp.rx_snr, mp.rx_frequency_error,
                          liveChUtil, liveTxUtil,
@@ -6939,7 +6941,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         } else {
             if (peLen > 0) {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC RT:\nH:%u/%u relay:%02x\nR:%d S:%.1f F:%.1f\nCU:%.1f%% AT:%.1f%%\nB%%:%u%% BV:%.2fV\n%s\nCPUT:%.1fC Up:%.2f",
+                         "MESHTACORE RT:\nH:%u/%u relay:%02x\nR:%d S:%.1f F:%.1f\nCU:%.1f%% AT:%.1f%%\nB%%:%u%% BV:%.2fV\n%s\nCPUT:%.1fC Up:%.2f",
                          hopsUsed, mp.hop_start, relayByte,
                          (int)mp.rx_rssi, mp.rx_snr, mp.rx_frequency_error,
                          liveChUtil, liveTxUtil,
@@ -6948,7 +6950,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                          cput, upDays);
             } else {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC RT:\nH:%u/%u relay:%02x\nR:%d S:%.1f F:%.1f\nCU:%.1f%% AT:%.1f%%\nB%%:%u%% BV:%.2fV\nCPUT:%.1fC Up:%.2f",
+                         "MESHTACORE RT:\nH:%u/%u relay:%02x\nR:%d S:%.1f F:%.1f\nCU:%.1f%% AT:%.1f%%\nB%%:%u%% BV:%.2fV\nCPUT:%.1fC Up:%.2f",
                          hopsUsed, mp.hop_start, relayByte,
                          (int)mp.rx_rssi, mp.rx_snr, mp.rx_frequency_error,
                          liveChUtil, liveTxUtil,
@@ -6966,7 +6968,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         // Report signal metrics of the command packet itself
         uint32_t hopsUsed = (mp.hop_start >= mp.hop_limit) ? (mp.hop_start - mp.hop_limit) : 0;
 
-        int l = snprintf(replyMsg, sizeof(replyMsg), "MTC RSSI:\n📡 Hops:%u/%u ", hopsUsed, mp.hop_start);
+        int l = snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE RSSI:\n📡 Hops:%u/%u ", hopsUsed, mp.hop_start);
         if (l < 0 || (size_t)l >= sizeof(replyMsg)) l = sizeof(replyMsg) - 1;
 
         if (hopsUsed == 0) {
@@ -7020,7 +7022,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         const char *p = cmd + 5;
         while (*p == ' ') p++;
         if (!p || strlen(p) == 0) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Empty message");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Empty message");
         } else {
             meshtastic_MeshPacket *tp = (router) ? router->allocForSending() : nullptr;
             if (tp) {
@@ -7033,7 +7035,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 tp->decoded.payload.size = msgLen;
 
                 if (service) service->sendToMesh(tp);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Text sent to Ch 0");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Text sent to Ch 0");
             }
         }
     }
@@ -7043,9 +7045,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         int chIdx = findChannelByNameOrIndex(p, &msgStart);
 
         if (chIdx < 0) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid channel");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid channel");
         } else if (!msgStart || *msgStart == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Empty message");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Empty message");
         } else {
             meshtastic_MeshPacket *tp = (router) ? router->allocForSending() : nullptr;
             if (tp) {
@@ -7058,7 +7060,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 tp->decoded.payload.size = msgLen;
 
                 if (service) service->sendToMesh(tp);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Text sent to Ch %d (%s)", chIdx, channels.getByIndex(chIdx).settings.name);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Text sent to Ch %d (%s)", chIdx, channels.getByIndex(chIdx).settings.name);
             }
         }
     }
@@ -7069,12 +7071,12 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (positionModule) {
             bool isDM = (mp.to == myNodeInfo.my_node_num);
             positionModule->sendOurPosition(isDM ? mp.from : NODENUM_BROADCAST, false, mp.channel);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Position injected to %s", isDM ? "DM" : "Channel");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Position injected to %s", isDM ? "DM" : "Channel");
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: PositionModule not available.");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: PositionModule not available.");
         }
 #else
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: PositionModule not available.");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: PositionModule not available.");
 #endif
     }
     else if (strncasecmp(cmd, "SENDNODE", 8) == 0 || strncasecmp(cmd, "SN", 2) == 0 ||
@@ -7112,7 +7114,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (customChannel) {
             targetCh = findChannelByNameOrIndex(cmdPtr, &next);
             if (targetCh < 0) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid channel");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid channel");
                 argsOk = false;
             } else {
                 cmdPtr = next;
@@ -7123,7 +7125,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (argsOk && customHops) {
             uint32_t hl = 0, hs = 0;
             if (!takeUInt(cmdPtr, hl, 7) || !takeUInt(cmdPtr, hs, 7)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid hops (limit and start, 0-7)");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid hops (limit and start, 0-7)");
                 argsOk = false;
             } else {
                 hopLim = (int)hl;
@@ -7137,7 +7139,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (!argsOk) {
             // replyMsg already explains what was wrong.
         } else if (!node || node->long_name[0] == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Node %08x not in DB or invalid", targetId);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Node %08x not in DB or invalid", targetId);
         } else {
             meshtastic_MeshPacket *np = (router) ? router->allocForSending() : nullptr;
             if (np) {
@@ -7165,7 +7167,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 np->decoded.payload.size = pb_encode_to_bytes(np->decoded.payload.bytes, sizeof(np->decoded.payload.bytes), &meshtastic_User_msg, &user);
 
                 if (service) service->sendToMesh(np);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: NodeInfo injected for !%08x on Ch:%d (%s)%s",
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: NodeInfo injected for !%08x on Ch:%d (%s)%s",
                          targetId, targetCh, channels.getByIndex(targetCh).settings.name, isMqtt ? " [MQTT]" : "");
             }
         }
@@ -7174,12 +7176,12 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         // NAME <long_name>: everything after the command is the long name, spaces included.
         const char *newName = skipToken(cmd);
         if (*newName == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - NAME <long_name>");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - NAME <long_name>");
         } else {
             memset(owner.long_name, 0, sizeof(owner.long_name));
             strncpy(owner.long_name, newName, sizeof(owner.long_name) - 1);
             nodeDB->pickNewNodeNum();
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Name set to '%s'. New NodeNum.", owner.long_name);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Name set to '%s'. New NodeNum.", owner.long_name);
         }
     }
     else if (strncasecmp(cmd, "OWNER ", 6) == 0) {
@@ -7197,9 +7199,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             memset(owner.long_name, 0, sizeof(owner.long_name));
             strncpy(owner.long_name, second, sizeof(owner.long_name) - 1);
             nodeDB->pickNewNodeNum();
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Owner updated to %s / %s. New NodeNum.", owner.short_name, owner.long_name);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Owner updated to %s / %s. New NodeNum.", owner.short_name, owner.long_name);
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - OWNER <short> <long>");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - OWNER <short> <long>");
         }
     }
     else if (strncasecmp(cmd, "TRACE ", 6) == 0 || strncasecmp(cmd, "TR ", 3) == 0) {
@@ -7232,7 +7234,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
         if (targetId != 0 && traceRouteModule) {
             if (trace_active) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Trace busy. Try again.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Trace busy. Try again.");
             } else {
                 // Nexus: Store context for the asynchronous reply.
                 trace_active = true;
@@ -7242,15 +7244,15 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 traceReply = {isDM ? mp.from : 0xFFFFFFFF, mp.channel, replyId, toPhoneOnly, toPhoneOnly || !isDM};
                 traceRouteModule->setNexusTraceCallback(onNexusTraceResult);
                 if (traceRouteModule->startTraceRoute(targetId)) {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Starting trace to !%08x...", targetId);
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Starting trace to !%08x...", targetId);
                 } else {
                     trace_active = false;
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Trace failed to start");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Trace failed to start");
                     trace_reply_to = 0;
                 }
             }
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid trace target '%s'", target);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid trace target '%s'", target);
         }
     }
     else if (strncasecmp(cmd, "GROUP ", 6) == 0) {
@@ -7261,7 +7263,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             const char *name = p + 4;
             while (*name == ' ') name++;
             if (*name == '\0') {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage GROUP ADD <name>");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage GROUP ADD <name>");
             } else {
                 // Trim trailing whitespace (\r, \n, space, tab) so that a
                 // name stored with a stray newline can still be matched by
@@ -7273,7 +7275,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 }
                 size_t nameLen = end - name;
                 if (nameLen == 0) {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage GROUP ADD <name>");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage GROUP ADD <name>");
                 } else {
                     // Dedup: if the name (case-insensitive, exact length) is
                     // already in a slot, report the existing slot and skip
@@ -7291,7 +7293,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     }
                     if (existing != -1) {
                         snprintf(replyMsg, sizeof(replyMsg),
-                                 "MTC: Group '%.*s' already in slot %d",
+                                 "MESHTACORE: Group '%.*s' already in slot %d",
                                  (int)nameLen, name, existing);
                     } else {
                         int slot = -1;
@@ -7299,12 +7301,12 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                             if (nexus_groups[i][0] == '\0') { slot = i; break; }
                         }
                         if (slot == -1) {
-                            snprintf(replyMsg, sizeof(replyMsg), "MTC: Group slots full (max 4)");
+                            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Group slots full (max 4)");
                         } else {
                             size_t copyLen = (nameLen < 8) ? nameLen : 8;
                             memcpy(nexus_groups[slot], name, copyLen);
                             nexus_groups[slot][copyLen] = '\0';
-                            snprintf(replyMsg, sizeof(replyMsg), "MTC: Group '%s' ADDED to slot %d", nexus_groups[slot], slot);
+                            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Group '%s' ADDED to slot %d", nexus_groups[slot], slot);
                         }
                     }
                 }
@@ -7322,17 +7324,17 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 }
             }
             if (found != -1) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Group slot %d REMOVED", found);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Group slot %d REMOVED", found);
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Group '%s' not found", name);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Group '%s' not found", name);
             }
         }
         else if (strcasecmp(p, "CLEAR") == 0) {
             for (int i=0; i<4; i++) nexus_groups[i][0] = '\0';
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: All groups CLEARED");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: All groups CLEARED");
         }
         else if (strcasecmp(p, "LIST") == 0 || *p == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC Groups: [%s] [%s] [%s] [%s]",
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE Groups: [%s] [%s] [%s] [%s]",
                      nexus_groups[0], nexus_groups[1], nexus_groups[2], nexus_groups[3]);
         }
     }
@@ -7350,7 +7352,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             uint32_t wallClock = getTime(false);
             if (!nexus::parseCron(modeStr, wallClock, mode, value, command)) {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MTC: CRON expects PER >=60, SCH HH:MM UTC, or future AT timestamp; command 1-63 bytes");
+                         "MESHTACORE: CRON expects PER >=60, SCH HH:MM UTC, or future AT timestamp; command 1-63 bytes");
             } else {
                 int slot = -1;
                 for (int i = 0; i < 8; ++i)
@@ -7359,7 +7361,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                         break;
                     }
                 if (slot < 0) {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: CRON table full (max 8)");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: CRON table full (max 8)");
                 } else {
                     auto &job = cron_table[slot];
                     job.active = 1;
@@ -7368,7 +7370,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     job.last_run = mode == 0 ? static_cast<uint32_t>(Time::getUptimeSecs()) : wallClock;
                     cronLastRunMs[slot] = Time::getMillis();
                     strcpy(job.command, command);
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: CRON Job %d ADDED.", slot);
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: CRON Job %d ADDED.", slot);
                 }
             }
         }
@@ -7376,8 +7378,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             int id = tokenInt(p + 4);
             if (id >= 0 && id < 8) {
                 cron_table[id].active = 0;
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: CRON Job %d REMOVED.", id);
-            } else snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid CRON ID");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: CRON Job %d REMOVED.", id);
+            } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid CRON ID");
         }
         else if (strcasecmp(p, "LIST") == 0 || *p == '\0') {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "CRON Table");
@@ -7390,7 +7392,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 appendPaging(line);
             }
             memset(line, 0, sizeof(line));
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging CRON list...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging CRON list...");
         }
     }
     else if (strncasecmp(cmd, "NIGN ", 5) == 0 || strcasecmp(cmd, "NIGN") == 0) {
@@ -7400,17 +7402,17 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (strncasecmp(p, "ADD ", 4) == 0) {
             uint32_t targetNum = parseNexusID(p + 4);
             if (targetNum == 0) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid node ID");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid node ID");
             } else if (nexus_ignore_count >= 64) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: NIGN list full (64)");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: NIGN list full (64)");
             } else {
                 bool exists = false;
                 for (int i=0; i<nexus_ignore_count; i++) if (nexus_ignore_list[i] == targetNum) exists = true;
                 if (exists) {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: !%08x already ignored", (unsigned int)targetNum);
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: !%08x already ignored", (unsigned int)targetNum);
                 } else {
                     nexus_ignore_list[nexus_ignore_count++] = targetNum;
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: !%08x ADDED to ignores", (unsigned int)targetNum);
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: !%08x ADDED to ignores", (unsigned int)targetNum);
                 }
             }
         }
@@ -7419,17 +7421,17 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             int idx = -1;
             for (int i=0; i<nexus_ignore_count; i++) if (nexus_ignore_list[i] == targetNum) { idx = i; break; }
             if (idx == -1) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: !%08x not in list", (unsigned int)targetNum);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: !%08x not in list", (unsigned int)targetNum);
             } else {
                 if (idx < nexus_ignore_count - 1) {
                     memmove(&nexus_ignore_list[idx], &nexus_ignore_list[idx + 1], (nexus_ignore_count - idx - 1) * sizeof(uint32_t));
                 }
                 nexus_ignore_count--;
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: !%08x REMOVED", (unsigned int)targetNum);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: !%08x REMOVED", (unsigned int)targetNum);
             }
         }
         else if (strcasecmp(p, "LIST") == 0 || *p == '\0') {
-            startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "MTC Ignores");
+            startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "MESHTACORE Ignores");
             if (nexus_ignore_count == 0) {
                 appendPaging("List empty.\n");
             } else {
@@ -7441,7 +7443,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     appendPaging(line);
                 }
             }
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging ignore list (%d nodes)...", nexus_ignore_count);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging ignore list (%d nodes)...", nexus_ignore_count);
         }
     }
     else if (strncasecmp(cmd, "HELP ", 5) == 0 || strcasecmp(cmd, "HELP") == 0) {
@@ -7451,26 +7453,26 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (*sub == '\0') {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Global Help");
             appendPaging("STEALTH: REBROADCAST, BASETEXTS\n");
-            appendPaging("FIREWALL: DROPS, DROP, OUTDROP, PRALLOW, PRBLOCK, SS, SETHEX, SETHEXOUT, RL, FSIG\n");
+            appendPaging("FIREWALL: DROPS, DROP, OUTDROP, PRALLOW, PRBLOCK, SS, HEX, HEXOUT, RL, FSIG\n");
             appendPaging("SIGINT: RSSILOG (PL), NETSCAN, CLIENTSCAN, FREQSCAN, NOISE, PPING, CHASH, DBINFO, MODULES, INFRA, RY, SEARCHKEY, HOPSTATS, TRANSSTATS, CHS, PS, LCS\n");
             appendPaging("SEND: TEXTC, DM, REDIRECT (R), SENDPOS, SENDNODE\n");
-            appendPaging("ADMIN: SKEY, DM-FORWARD, SAVE, LOAD, BD, SETCHNAME, SETCHPSK, ADDCH, DELCH, ROLE, POWER, OKTOMQTT, PLAY, FULLCONFIGDUMP\n");
+            appendPaging("ADMIN: SKEY, DM-FORWARD, SAVE, LOAD, BD, CHNAME, CHPSK, ADDCH, DELCH, ROLE, POWER, OKTOMQTT, PLAY, FULLCONFIGDUMP\n");
             appendPaging("SYSTEM: HEALTH (SYS/UPTIME/UTIL), HW, TELEMETRY, POS, INFO (COMP), VAULT, STATS, SS, VS, RAM (MEM/HEAP), NODES, FNODE, GROUP, TIME, VECINOS, PHONE, PMGT, SMI, GPIO, WIFIOTA, MCUINFO, SENSORS\n");
-            appendPaging("MESHCORE: MESHCORE [INFO|STATS|RELAY|ADVERT|VECINOS|KEY <hex>|RESET] (alias MCORE); SAVE keeps settings; ADDCH/SETCHPSK take hex key\n");
+            appendPaging("MESHCORE: MESHCORE [INFO|STATS|RELAY|ADVERT|VECINOS|KEY <hex>|RESET] (alias MCORE); SAVE keeps settings; ADDCH/CHPSK take hex key\n");
             appendPaging("TARGETS: FAV, UNFAV, IGNORE, UNIGNORE, NIGN\n");
             appendPaging("STORAGE: LS, RM, CAT, FS\n");
             appendPaging("Try: HELP <topic> (e.g. HELP DROP)");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging help categories...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging help categories...");
         } else if (strcasecmp(sub, "DROPS") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help DROPS");
             appendPaging("Usage: DROP <tag> | UNDROP <tag>\nTags:\n");
             appendPaging("NI:NodeInfo PO:Pos TL:Tele\nNB:Neighbr TR:Trace (All)\nTRR:TR Rem TRL:TR Loc PV:Priv\nH6:H6 H7:H7 AK:ACKs FB:Fav\nPK:PKI PKR:Rem PKL:Loc PH:PHop\nSF:S&F AD:Admin TX:Text\nKV:KeyV AL:Alert WP:Waypoint\nTRD:TR Dir TDR:Rem TDL:Loc\nSS:SS-Handle TA:TraceAlt\nMA:MetaAlt REQ:Requests\nPos sub: PM:Manual PG:GPS POO:Other\nTele sub: TD:Dev TP:Pwr TE:Env TO:Oth\nRL: RLTX RLTR RLOT RLNI RLPO RLTL RLPR\nBcast REQ: BRNI BRTL BRPO (broadcast-only)");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging DROPS list help...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging DROPS list help...");
         } else if (strcasecmp(sub, "TEXT") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help TEXT/SEND");
             appendPaging("TEXTC <ch> <msg>: Standard on ch.\n");
             appendPaging("DM [!id|name] [msg]: Direct message.");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging TEXT/SEND help...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging TEXT/SEND help...");
         } else if (strcasecmp(sub, "FW") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help FIREWALL");
             appendPaging("Usage: FIREWALL | FW   -> Aggregated status (DROPS, OUTDROPS, HEX, INVALID, PRALLOW, PRBLOCK)\n");
@@ -7478,15 +7480,15 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging("Sections: DROPS, OUTDROPS, INVALIDS, PRALLOW, PRBLOCK\n");
             appendPaging("Output: paged (P1:, P2:, ...). Sub-sections run via internal handler dispatch.\n");
             appendPaging("Note: HEXDROPS / HEXOUTDROPS / FIREWALLSTATS are still standalone.");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging FW help...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging FW help...");
         } else if (strcasecmp(sub, "DROP") == 0 || strcasecmp(sub, "FIREWALL") == 0 || strcasecmp(sub, "OUTDROP") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help FIREWALL");
             appendPaging("Usage: [UN]DROP <target> | [UN]OUTDROP <target>\n");
             appendPaging("Targets: NI, PO, TL, NB, TR, PV, AD, TX, KV, AL, WP, SF, ACKS, FB, SS, PK, RNI, RPO, RTL, BRNI, BRTL, BRPO, H6, H7, TO, RL_*\n");
             appendPaging("Trace: TRR, TRL, TRD, TRDR, TRDL\n");
             appendPaging("OutTargets: NI, PO, TL, TR, AD\n");
-            appendPaging("Bulk: SETHEX [hex] | SETHEXOUT [hex]");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging FIREWALL help...");
+            appendPaging("Bulk: HEX [hex] | HEXOUT [hex]");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging FIREWALL help...");
         } else if (strcasecmp(sub, "FEATURES") == 0) {
             // Nexus v66: FEATURES help. Four bits today (FORWARD_OPAQUE_TO_PHONE,
             // FORWARD_FOREIGN_PKI_TO_PHONE, DISABLE_AGC_RESET, LATEBASE). RAM-only — persist via /nexus SAVE.
@@ -7497,7 +7499,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging("Usage: FEATURES <NAME> [ON|OFF]         -> Toggle named bit (default ON)\n");
             appendPaging("Names: FORWARD_OPAQUE_TO_PHONE (alias OPAQUE), FORWARD_FOREIGN_PKI_TO_PHONE (alias PKI), DISABLE_AGC_RESET (alias AGC), LATEBASE (alias LB)\n");
             appendPaging("Persistence: RAM-only. /nexus SAVE to write features_mask to /nexus.bin vault.");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging FEATURES help...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging FEATURES help...");
         } else if (strcasecmp(sub, "SIGINT") == 0 || strcasecmp(sub, "SCAN") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help SIGINT/SCAN");
             appendPaging("RSSILOG: Signal ring buffer.\nNETSCAN: Tactical survey.\nCLIENTSCAN [!id]: Repeat mapping.\n");
@@ -7505,52 +7507,52 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging("RELAYS: Global relay ID stats.\nSRELAY <*hex>: Search relay ID names.\n");
             appendPaging("SEARCHKEY <base64>: Find nodes by PK.\n");
             appendPaging("HOPSTATS: Hop distribution.\nPPING: Public ping config (EMOJI <OFF|INDIRECT|ALWAYS>).\nMODULES: List loaded Meshtastic modules.");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging SIGINT help...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging SIGINT help...");
         } else if (strcasecmp(sub, "ADMIN") == 0 || strcasecmp(sub, "SYSTEM") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help ADMIN/SYS");
-            appendPaging("SKEY [1|2] [Key]: Dynamic keys.\nROLE [role]: Get/set role.\nSETPOWER [dBm]: Get/set TX power.\n");
-            appendPaging("SETCHNAME <idx> <name>.\nSETCHPSK <idx> <psk>.\nADDCH <name> [psk].\nDELCH <idx>.\nSAVE/LOAD: Vault/backup.\n");
+            appendPaging("SKEY [1|2] [Key]: Dynamic keys.\nROLE [role]: Get/set role.\nPOWER [dBm]: Get/set TX power.\n");
+            appendPaging("CHNAME <idx> <name>.\nCHPSK <idx> <psk>.\nADDCH <name> [psk].\nDELCH <idx>.\nSAVE/LOAD: Vault/backup.\n");
             appendPaging("HEALTH: Full health report (Up/Boot/Bat/Heap/Temp/ChU/Noise).\nHW: Radio/Clock info.\nTELEMETRY: Power/Env report.\nINFO: Node/Firmware info.\nRAM: Heap and PSRAM info.\nWIFIOTA: ESP32 OTA loader info.\nMCUINFO: MCU identity + runtime state.\nSENSORS: Detected I2C/sensors + GPS.");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging ADMIN/SYS help...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging ADMIN/SYS help...");
         } else if (strcasecmp(sub, "BD") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help BD");
             appendPaging("BD SET <1..300>: Broadcast reply / paging max delay (seconds).\n");
             appendPaging("BD GET: Report current value.\n");
             appendPaging("Jitter floor stays at 100ms; range scales to N*1000ms.\n");
             appendPaging("Default 5. Persisted to vault on SAVE.");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging ADMIN/SYS help...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging ADMIN/SYS help...");
         } else if (strcasecmp(sub, "IDENTITY") == 0 || strcasecmp(sub, "NAME") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help IDENTITY");
             appendPaging("NAME <name>: Identity rotation + reboot.");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging IDENTITY help...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging IDENTITY help...");
         } else if (strcasecmp(sub, "GPIO") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help GPIO");
             appendPaging("W <pin> <H|L>: Write digital value.\n");
             appendPaging("R <pin>: Read digital value (INPUT_PULLUP).\n");
             appendPaging("M <pin> <IN|OUT|PU>: Set pin mode.\n");
             appendPaging("WATCH <pin|OFF>: Alert on pin change.");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging GPIO help...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging GPIO help...");
         } else if (strcasecmp(sub, "PPING") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help PPING");
             appendPaging("SubCmds: ON, OFF, CMD [cmd|DEFAULT], RSSI, SNR, FREQERR, FLAGS, DIRECT IGNORE, REMOTE IGNORE, CHAN [ON/OFF] [ID], HEADER [text|OFF|DEFAULT|NONE|CUSTOM], EMOJI [OFF|INDIRECT|ALWAYS], SETHEX [hex]");
             appendPaging("CMD: Define el comando disparador (def: /ping, ej: !ping). Sin alias adicionales.\n");
             appendPaging("EMOJI: OFF=texto completo, INDIRECT=emoji si hops>0, ALWAYS=emoji siempre.");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging PPING help...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging PPING help...");
         } else if (strcasecmp(sub, "SKEY") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help SKEY");
             appendPaging("Usage: SKEY [1|2|3|4] [Base64|Hex|OFF]\nSet secondary dynamic master keys for remote auth.");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging SKEY help...");
-        } else if (strcasecmp(sub, "LORA") == 0 || strcasecmp(sub, "PRESET") == 0 || strcasecmp(sub, "SETLORA") == 0) {
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging SKEY help...");
+        } else if (strcasecmp(sub, "LORA") == 0 || strcasecmp(sub, "PRESET") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help LORA");
             appendPaging("PRESET <name>: EU_868 (LF, MS, MF, SS, SF, LM, LS, ST, LT, P1, P7, SP, SPM, NARROWPROMAX)\n");
             appendPaging("EU_N_868 (NarrowFast/NF, NarrowSlow/NS) | EU_866 (LiteFast, LiteSlow, NAP-1..5, NAPN-1..5, Mini-1..8)\n");
             appendPaging("LORA_24 (Madrid24, LF24, MS24, MF24, SS24, SF24, LM24, LS24, ST24, LT24)\n");
-            appendPaging("SETLORA: [SF] [BW] [CR] [Freq]");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging LORA help...");
+            appendPaging("LORA: [SF] [BW] [CR] [Freq]");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging LORA help...");
         } else if (strcasecmp(sub, "TM") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help TM");
             appendPaging("Config Keys: ENABLE, DEDUP, DEDUP_PREC, DEDUP_INT, CACHE_REPLY, CACHE_HOPS, RATELIMIT, RATELIMIT_WIN, RATELIMIT_MAX, UNKNOWN, UNKNOWN_TH, EXHAUST_TELE, EXHAUST_POS, PRESERVE");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging TM help...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging TM help...");
         } else if (strcasecmp(sub, "RL") == 0 || strcasecmp(sub, "RATELIMIT") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help RATELIMIT (Nexus)");
             appendPaging("Usage: RATELIMIT <TYPE> <pkts/hora>");
@@ -7558,7 +7560,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging("Sin argumento: muestra los 7 límites actuales.");
             appendPaging("STATUS/STAT/BUCKETS: estado live de los buckets (igual que RATELIMITSTAT).");
             appendPaging("IMPORTANTE: Activar también DROP RL_<TYPE> (bits 29-31, 42-45) para que el filtro aplique.");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging RATELIMIT help...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging RATELIMIT help...");
         } else if (strcasecmp(sub, "RLS") == 0 || strcasecmp(sub, "RATELIMITSTAT") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help RATELIMITSTAT");
             appendPaging("Usage: RATELIMITSTAT (alias RLS)");
@@ -7567,7 +7569,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging("Une los contadores de FWS (Seen/Pass/Drop) con el estado de tokens en tiempo real.");
             appendPaging("El shortcut 'RL' pertenece a RATELIMIT (no a RSSILOG como se decía antes).");
             appendPaging("RLS = 3-char mnemonic para esta vista de estado (mismo prefijo RL pero específico).");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging RATELIMITSTAT help...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging RATELIMITSTAT help...");
         } else if (strcasecmp(sub, "PL") == 0 || strcasecmp(sub, "RSSILOG") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help RSSILOG");
             appendPaging("Usage: RSSILOG (alias PL) [N]");
@@ -7575,7 +7577,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging("Formato: ID,Hops,HopsTotal,RSSI,SNR,Relay,Age");
             appendPaging("El shortcut 'PL' (Ping Log) reemplaza al antiguo 'RL' que estaba en dead code.");
             appendPaging("El shortcut 'RL' actual pertenece a RATELIMIT (no a este comando).");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging RSSILOG help...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging RSSILOG help...");
         } else if (strcasecmp(sub, "FSIG") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help FSIG");
             appendPaging("Signature firewall: drops decoded packets whose payload contains a configured byte sequence.");
@@ -7584,21 +7586,21 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging("       FSIG OFF <1-8>");
             appendPaging("Detecta automáticamente el tipo (hex/base64/texto) y lo recuerda para el display.");
             appendPaging("Max 16 bytes por firma. Aplica a TODOS los canales decoded (excepto canales Nexus).");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging FSIG help...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging FSIG help...");
         } else if (strcasecmp(sub, "CRON") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help CRON");
             appendPaging("PER <secs> <cmd>: Periodic interval.\nSCH <HH:MM> <cmd>: Daily wall-clock.\nAT <unix_ts> <cmd>: One-shot schedule.\nLIST: Show jobs.\nREM <id>: Delete job.");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging CRON help...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging CRON help...");
         } else if (strcasecmp(sub, "NIGN") == 0 || strcasecmp(sub, "IGNORE") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help NIGN/IGNORE");
             appendPaging("IGNORE <!id|name>: RAM-only ignore.\nNIGN ADD <!id>: Persistent ignore (Vault).\nNIGN REM <!id>: Remove from vault.\nNIGN LIST: Show all persistent ignores.");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging NIGN help...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging NIGN help...");
         } else if (strcasecmp(sub, "NODE") == 0 || strcasecmp(sub, "TARGET") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help TARGETS");
             appendPaging("FAV <!id|name>: Set favorite.\nUNFAV <!id|name>: Unset favorite.\nIGNORE <!id|name>: RAM-only ignore.\nNIGN ADD <!id>: Persistent ignore.");
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging TARGET help...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging TARGET help...");
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: No help for '%s'", sub);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: No help for '%s'", sub);
         }
     }
     else if (strcasecmp(cmd, "TIME") == 0) {
@@ -7611,23 +7613,23 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         char timeStr[32];
         strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", tm_local);
 
-        snprintf(replyMsg, sizeof(replyMsg), "MTC TIME (%s):\nUTC: %u\nLOC: %s",
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE TIME (%s):\nUTC: %u\nLOC: %s",
                  RtcName(q), (unsigned int)utc, timeStr);
     }
-    else if (strncasecmp(cmd, "SETTIME", 7) == 0) {
+    else if (isCommandWord(cmd, "TIME")) {
         const char *p = skipToken(cmd);
         if (*p == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage SETTIME <unix_ts>");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage TIME <unix_ts>");
         } else {
             uint32_t newTs = 0;
             if (!parseUInt(p, newTs) || newTs < 1700000000) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid timestamp");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid timestamp");
             } else {
                 struct timeval tv;
                 tv.tv_sec = newTs;
                 tv.tv_usec = 0;
                 perhapsSetRTC(RTCQualityNTP, &tv, true);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Time set to %u", (unsigned int)newTs);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Time set to %u", (unsigned int)newTs);
             }
         }
     }
@@ -7680,7 +7682,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         appendPaging(infoLine);
         snprintf(infoLine, sizeof(infoLine), "Repo: %s\nBuilt: %s\nFlags: %s", optstr(APP_REPO), buildDate, buildFlags);
         appendPaging(infoLine);
-        snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging INFO...");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging INFO...");
         memset(infoLine, 0, sizeof(infoLine));
     }
     // Nexus-28006 (2026-09-16) — code review 3.2 fix: a dead
@@ -7689,15 +7691,15 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     else if (strncasecmp(cmd, "TX ", 3) == 0 || strcasecmp(cmd, "TX") == 0) {
         const char *p = skipToken(cmd);
         if (*p == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: LoRa TX %s", config.lora.tx_enabled ? "ENABLED" : "DISABLED");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: LoRa TX %s", config.lora.tx_enabled ? "ENABLED" : "DISABLED");
         } else {
             bool on = false;
             if (!parseOnOff(p, on)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - TX [ON|OFF]");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - TX [ON|OFF]");
             } else {
                 config.lora.tx_enabled = on;
                 nodeDB->saveToDisk(SEGMENT_CONFIG);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: LoRa TX %s", on ? "ENABLED" : "DISABLED (Silent)");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: LoRa TX %s", on ? "ENABLED" : "DISABLED (Silent)");
             }
         }
     }
@@ -7721,7 +7723,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (service) service->configChanged.notifyObservers(nullptr);
 
         snprintf(replyMsg, sizeof(replyMsg),
-                 "MTC: GP applied: NI=72h, POS=72h, SmartPos=OFF, TelemBumped=%d", telemBumped);
+                 "MESHTACORE: GP applied: NI=72h, POS=72h, SmartPos=OFF, TelemBumped=%d", telemBumped);
     }
     else if (strcasecmp(cmd, "OKTOMQTT") == 0 ||
              strncasecmp(cmd, "OKTOMQTT ", 9) == 0 ||
@@ -7746,7 +7748,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (*p == '\0' || strcasecmp(p, "STATUS") == 0 || strcasecmp(p, "STAT") == 0) {
             // Bare or explicit STATUS: print current state.
             snprintf(replyMsg, sizeof(replyMsg),
-                "MTC OKTOMQTT: %s (LoRa config bit 105, ok_to_mqtt on outgoing packets)",
+                "MESHTACORE OKTOMQTT: %s (LoRa config bit 105, ok_to_mqtt on outgoing packets)",
                 config.lora.config_ok_to_mqtt ? "ON" : "OFF");
         } else if (strcasecmp(p, "ON") == 0 || strcasecmp(p, "TRUE") == 0 ||
                    strcasecmp(p, "ENABLE") == 0 || strcasecmp(p, "1") == 0) {
@@ -7754,32 +7756,32 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             config.lora.config_ok_to_mqtt = true;
             nodeDB->saveToDisk(SEGMENT_CONFIG);
             snprintf(replyMsg, sizeof(replyMsg),
-                "MTC: OKTOMQTT set to ON (saved; next outgoing packet will carry ok_to_mqtt=1)");
+                "MESHTACORE: OKTOMQTT set to ON (saved; next outgoing packet will carry ok_to_mqtt=1)");
         } else if (strcasecmp(p, "OFF") == 0 || strcasecmp(p, "FALSE") == 0 ||
                    strcasecmp(p, "DISABLE") == 0 || strcasecmp(p, "0") == 0) {
             LOG_INFO("Nexus: OKTOMQTT set to OFF");
             config.lora.config_ok_to_mqtt = false;
             nodeDB->saveToDisk(SEGMENT_CONFIG);
             snprintf(replyMsg, sizeof(replyMsg),
-                "MTC: OKTOMQTT set to OFF (saved; next outgoing packet will carry ok_to_mqtt=0)");
+                "MESHTACORE: OKTOMQTT set to OFF (saved; next outgoing packet will carry ok_to_mqtt=0)");
         } else {
             snprintf(replyMsg, sizeof(replyMsg),
-                "MTC OKTOMQTT: unknown arg '%s'\nUsage: OKTOMQTT [ON|OFF|STATUS]", p);
+                "MESHTACORE OKTOMQTT: unknown arg '%s'\nUsage: OKTOMQTT [ON|OFF|STATUS]", p);
         }
     }
     else if (strncasecmp(cmd, "PLAY ", 5) == 0 || strcasecmp(cmd, "PLAY") == 0 || strcasecmp(cmd, "BELL") == 0) {
         if (!externalNotificationModule) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: ExtNotification unavailable");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: ExtNotification unavailable");
         } else if (strcasecmp(cmd, "BELL") == 0 || strcasecmp(skipToken(cmd), "BELL") == 0) {
             // BELL and PLAY BELL both ring the bell; any other PLAY argument is an RTTTL melody.
             externalNotificationModule->triggerNexusBell();
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Local BELL triggered");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Local BELL triggered");
         } else if (*skipToken(cmd) == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - PLAY [BELL|<rtttl melody>]");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - PLAY [BELL|<rtttl melody>]");
         } else {
             const char *melody = skipToken(cmd);
             externalNotificationModule->playRTTTL(melody);
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Playing custom RTTTL...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Playing custom RTTTL...");
         }
     }
     else if (strncasecmp(cmd, "PPING", 5) == 0) {
@@ -7791,7 +7793,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (strncasecmp(sub, "ADD ", 4) == 0) {
             uint32_t targetId = findNodeByShortNameOrHex(sub + 4);
             if (targetId == 0) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Target node not found.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Target node not found.");
             } else {
                 bool exists = false;
                 int freeIdx = -1;
@@ -7800,9 +7802,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     if (targetWatchlist[i].nodeID == 0 && freeIdx == -1) freeIdx = i;
                 }
                 if (exists) {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Node %08x already in watchlist.", targetId);
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Node %08x already in watchlist.", targetId);
                 } else if (freeIdx == -1) {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Watchlist full (8 max).");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Watchlist full (8 max).");
                 } else {
                     memset(&targetWatchlist[freeIdx], 0, sizeof(NexusTargetStats));
                     targetWatchlist[freeIdx].nodeID = targetId;
@@ -7816,7 +7818,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     targetWatchlist[freeIdx].maxRssi = -128;
 
                     watchlistCount++;
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Added %08x to watchlist.", targetId);
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Added %08x to watchlist.", targetId);
                 }
             }
         }
@@ -7825,7 +7827,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             // An unresolvable name returns 0, which used to match the empty
             // slots and decrement watchlistCount spuriously (A13 in the audit).
             if (targetId == 0) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Node not in list.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Node not in list.");
             } else {
                 bool found = false;
                 for (int i = 0; i < 8; i++) {
@@ -7836,13 +7838,13 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                         break;
                     }
                 }
-                snprintf(replyMsg, sizeof(replyMsg), found ? "MTC: Removed %08x." : "MTC: Node not in list.", targetId);
+                snprintf(replyMsg, sizeof(replyMsg), found ? "MESHTACORE: Removed %08x." : "MESHTACORE: Node not in list.", targetId);
             }
         }
         else if (strcasecmp(sub, "CLEAR") == 0) {
             for (int i = 0; i < 8; i++) targetWatchlist[i].nodeID = 0;
             watchlistCount = 0;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Watchlist cleared.");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Watchlist cleared.");
         }
         else if (strcasecmp(sub, "RESET") == 0) {
             for (int i = 0; i < 8; i++) {
@@ -7858,7 +7860,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     targetWatchlist[i].maxRssi = -128;
                 }
             }
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Watchlist stats reset.");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Watchlist stats reset.");
         }
         else if (strcasecmp(sub, "LIST") == 0) {
             // Static buffers (BSS, not stack). Was 128B+32B stack-local.
@@ -7886,7 +7888,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     count++;
                 }
             }
-            if (count == 0) snprintf(replyMsg, sizeof(replyMsg), "MTC: Watchlist empty.");
+            if (count == 0) snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Watchlist empty.");
             else snprintf(replyMsg, sizeof(replyMsg), "%s", buf);
             memset(buf, 0, sizeof(buf));
             memset(entry, 0, sizeof(entry));
@@ -7902,7 +7904,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
 
             if (!all && idx == -1) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Node not in watchlist.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Node not in watchlist.");
             } else {
                 bool headerStarted = false;
                 // Format buffer is a member of cmdBuf (typed array view of the
@@ -7914,7 +7916,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
                     NexusTargetStats &s = targetWatchlist[i];
                     if (s.packetCount == 0 && !all) {
-                        snprintf(replyMsg, sizeof(replyMsg), "MTC: No packets seen from %08x.", targetWatchlist[i].nodeID);
+                        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: No packets seen from %08x.", targetWatchlist[i].nodeID);
                         continue;
                     }
                     if (s.packetCount == 0 && all) continue;
@@ -7969,19 +7971,19 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 memset(cmdBuf.pbuf, 0, sizeof(cmdBuf.pbuf));
 
                 if (!headerStarted) {
-                     snprintf(replyMsg, sizeof(replyMsg), all ? "MTC: Watchlist empty or no packets." : "MTC: Node not in watchlist.");
+                     snprintf(replyMsg, sizeof(replyMsg), all ? "MESHTACORE: Watchlist empty or no packets." : "MESHTACORE: Node not in watchlist.");
                 } else {
-                    snprintf(replyMsg, sizeof(replyMsg), "MTC: Sending paged stats%s...", all ? " for all" : "");
+                    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Sending paged stats%s...", all ? " for all" : "");
                 }
             }
         }
         else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC WATCH: ADD|DEL|LIST|CLEAR|RESET|STATS|ALL");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE WATCH: ADD|DEL|LIST|CLEAR|RESET|STATS|ALL");
         }
     }
     else if (strcasecmp(cmd, "NETSCAN") == 0) {
         if (netscan_active) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Scan already in progress (%us left)",
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Scan already in progress (%us left)",
                      60 - (uint32_t)((Time::getMillis() - netscan_start) / 1000));
         } else {
             netscan_active = true;
@@ -8002,13 +8004,13 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 tp->decoded.request_id = generatePacketId();
                 tp->decoded.payload.size = 0; // Standard Traceroute Start
                 if (service) service->sendToMesh(tp);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: NETSCAN started. Collecting for 60s...");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: NETSCAN started. Collecting for 60s...");
             }
         }
     }
     else if (strncasecmp(cmd, "CLIENTSCAN", 10) == 0) {
         if (clientscan_active) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: ClientScan in progress (%us left)",
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: ClientScan in progress (%us left)",
                      (uint32_t)((clientscan_duration_ms - (Time::getMillis() - clientscan_start)) / 1000));
         } else {
             const char *p = cmd + 10;
@@ -8035,7 +8037,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                                    toPhoneOnly || !isDM};
 
                 // 1. Generate the confirmation message
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: CLIENTSCAN Start (%us)", (unsigned int)duration);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: CLIENTSCAN Start (%us)", (unsigned int)duration);
 
                 // 2. Allocate the confirmation packet
                 meshtastic_MeshPacket *reply = (router) ? router->allocForSending() : nullptr;
@@ -8067,7 +8069,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     replyMsg[0] = '\0';
                 }
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid ClientScan duration (1-600s)");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid ClientScan duration (1-600s)");
             }
         }
     }
@@ -8077,31 +8079,31 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         while (*p == ' ') p++;
         if (strcasecmp(p, "OFF") == 0) {
             nexus_airtag_enabled = false;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: AirTag Beacon DISABLED");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: AirTag Beacon DISABLED");
         } else if (strcasecmp(p, "ON") == 0) {
             if (nexus_airtag_key[0] == 0) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: AirTag Error - No Key set (use AIRTAG !key)");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: AirTag Error - No Key set (use AIRTAG !key)");
             } else {
                 nexus_airtag_enabled = true;
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: AirTag Beacon ENABLED (Key active)");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: AirTag Beacon ENABLED (Key active)");
             }
         } else if (*p == '!') {
             // Decoding the 28-byte public key (OpenHaystack keys are base64 encoded strings)
             size_t written = 0;
             if (nexus_base64_decode(nexus_airtag_key, sizeof(nexus_airtag_key), &written, p + 1) == 0) {
                 nexus_airtag_enabled = true;
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: AirTag Key SET and Beacon ENABLED");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: AirTag Key SET and Beacon ENABLED");
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: AirTag Error - Base64 Decode Failed");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: AirTag Error - Base64 Decode Failed");
             }
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: AirTag usage: AIRTAG ON|OFF|!<base64>");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: AirTag usage: AIRTAG ON|OFF|!<base64>");
         }
     }
 #endif
     else if (strncasecmp(cmd, "FREQSCAN ", 9) == 0) {
         if (freqscan_active || noise_sampling_active) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Radio busy.");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Radio busy.");
         } else {
             // Syntax: FREQSCAN <freq_mhz> <bw_khz>
             const char *p = cmd + 9;
@@ -8132,7 +8134,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
                 if (service) service->configChanged.notifyObservers(nullptr);
 
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: FreqScan START (%.2fM/%uk). Deaf for 15s.", targetFreq, targetBw);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: FreqScan START (%.2fM/%uk). Deaf for 15s.", targetFreq, targetBw);
 
                 // Trigger noise sampling
                 noise_sampling_active = true;
@@ -8147,13 +8149,13 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
                 setIntervalFromNow(50);
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid Params (Freq: 100-2500, BW: 31|62|125|250|500)");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid Params (Freq: 100-2500, BW: 31|62|125|250|500)");
             }
         }
     }
     else if (strcasecmp(cmd, "NOISE") == 0) {
         if (noise_sampling_active) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Noise sampling already in progress.");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Noise sampling already in progress.");
         } else {
             noise_sampling_active = true;
             noise_sampling_start = Time::getMillis();
@@ -8165,7 +8167,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             noise_sampling_reply_id = replyId;
             noiseReply = {isDM ? mp.from : 0xFFFFFFFF, mp.channel, replyId, toPhoneOnly, toPhoneOnly || !isDM};
 
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Noise snapshot started...");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Noise snapshot started...");
             setIntervalFromNow(10); // High-speed snapshot
         }
     }
@@ -8176,10 +8178,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 #if HAS_TRAFFIC_MANAGEMENT
         if (*p == '\0') {
             if (!trafficManagementModule) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC TM: Module compiled but DISABLED in config.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE TM: Module compiled but DISABLED in config.");
             } else {
                 auto stats = trafficManagementModule->getStats();
-                snprintf(replyMsg, sizeof(replyMsg), "MTC TM Stats:\nDP:%u RL:%u CH:%u\nRP:%u",
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE TM Stats:\nDP:%u RL:%u CH:%u\nRP:%u",
                          (unsigned int)stats.position_dedup_drops,
                          (unsigned int)stats.rate_limit_drops,
                          (unsigned int)stats.nodeinfo_cache_hits,
@@ -8192,7 +8194,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             // "enable" / "precision" / "exhaust hop" / "preserve hops" fields were removed.
             // "Enable" is now implicit (non-zero field => enabled). Dump only what's left.
             auto &c = moduleConfig.traffic_management;
-            snprintf(replyMsg, sizeof(replyMsg), "MTC TM Config:\nIN:%u CR:%d RLW:%u RLM:%u\nUK:%d",
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE TM Config:\nIN:%u CR:%d RLW:%u RLM:%u\nUK:%d",
                      (unsigned int)c.position_min_interval_secs, (int)c.nodeinfo_direct_response_max_hops,
                      (unsigned int)c.rate_limit_window_secs, (unsigned int)c.rate_limit_max_packets,
                      (unsigned int)c.unknown_packet_threshold);
@@ -8221,13 +8223,13 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
 
             if (valid && adminModule) {
                 adminModule->handleSetModuleConfig(mc);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: TM Config Updated.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: TM Config Updated.");
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC TM: Unknown sub-command or Admin disabled.");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE TM: Unknown sub-command or Admin disabled.");
             }
         }
 #else
-        snprintf(replyMsg, sizeof(replyMsg), "MTC TM: Module NOT compiled in.");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE TM: Module NOT compiled in.");
 #endif
     }
     else if (strncasecmp(cmd, "SKEY ", 5) == 0) {
@@ -8238,11 +8240,11 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
         while (*p == ' ') p++;
 
         if (idx < 1 || idx > 4) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Invalid SKEY index (1-4)");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid SKEY index (1-4)");
         } else if (strcasecmp(p, "OFF") == 0 || strcasecmp(p, "WIPE") == 0) {
             memset(nexus_secondary_keys[idx - 1], 0, 32);
             // saveVault();
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: SKEY %d wiped.", idx);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: SKEY %d wiped.", idx);
         } else {
             // Check if input is Base64 (starts with !) or Hex
             const char *input = p;
@@ -8270,9 +8272,9 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
 
             if (success) {
                 // saveVault();
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: SKEY %d updated.", idx);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: SKEY %d updated.", idx);
             } else {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: SKEY Error - Invalid Hex (64) or Base64 format");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: SKEY Error - Invalid Hex (64) or Base64 format");
             }
         }
     }
@@ -8285,15 +8287,15 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
         else p = (strlen(cmd) > 11) ? cmd + 11 : "";
         while (*p == ' ') p++;
         if (*p == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC DM Forwarding: %s", dm_forward ? "ENABLED" : "DISABLED");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE DM Forwarding: %s", dm_forward ? "ENABLED" : "DISABLED");
         } else {
             bool enable = false;
             if (!parseOnOff(p, enable)) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage - DMF [ON|OFF]");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage - DMF [ON|OFF]");
             } else {
                 dm_forward = enable;
                 // saveVault();
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: DM Forwarding set to %s", dm_forward ? "ON" : "OFF");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: DM Forwarding set to %s", dm_forward ? "ON" : "OFF");
             }
         }
     }
@@ -8313,7 +8315,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
         p = msgStart;
 
         if (targetId == 0 || !p || *p == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Usage DM !id|name message");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Usage DM !id|name message");
         } else {
             meshtastic_MeshPacket *tp = (router) ? router->allocForSending() : nullptr;
             if (tp) {
@@ -8325,7 +8327,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
                 memcpy(tp->decoded.payload.bytes, p, mLen);
                 tp->decoded.payload.size = mLen;
                 if (service) service->sendToMesh(tp);
-                snprintf(replyMsg, sizeof(replyMsg), "MTC: DM sent to !%08x", (unsigned int)targetId);
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: DM sent to !%08x", (unsigned int)targetId);
             }
         }
     }
@@ -8375,7 +8377,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
             clock = "TCXO";
         }
 
-        snprintf(replyMsg, sizeof(replyMsg), "MTC HW:\nBoard: %s\nMCU: %s\nRadio: %s (%s)", board, mcu, radio, clock);
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE HW:\nBoard: %s\nMCU: %s\nRadio: %s (%s)", board, mcu, radio, clock);
     }
     else if (strncasecmp(cmd, "HOPSCALE ", 9) == 0 || strncasecmp(cmd, "HSC ", 4) == 0) {
         // Nexus-28002 (2026-08-22): HSC WANTS prints the per-portnum hop-limit
@@ -8390,7 +8392,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
         while (*sub == ' ') sub++;
         if (strcasecmp(sub, "WANTS") == 0) {
             if (!hopScalingModule) {
-                snprintf(replyMsg, sizeof(replyMsg), "MTC HSC WANTS: module not active (HAS_VARIABLE_HOPS excluded?)");
+                snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE HSC WANTS: module not active (HAS_VARIABLE_HOPS excluded?)");
             } else {
                 const uint8_t userHop = config.lora.hop_limit ? config.lora.hop_limit : 3;
                 const uint8_t want = hopScalingModule->getLastRequiredHop();
@@ -8400,7 +8402,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
                 // Compact format — every appendPaging() is a LoRa packet, keep it tight.
                 startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "HSC WANTS");
                 static char line[160];
-                snprintf(line, sizeof(line), "MTC HSC WANTS: user=%u want=%u cap=%u", (unsigned)userHop, (unsigned)want, (unsigned)cap);
+                snprintf(line, sizeof(line), "MESHTACORE HSC WANTS: user=%u want=%u cap=%u", (unsigned)userHop, (unsigned)want, (unsigned)cap);
                 appendPaging(line);
                 snprintf(line, sizeof(line), "POSITION:%u", (unsigned)cap); appendPaging(line);
                 snprintf(line, sizeof(line), "TELEMETRY:%u", (unsigned)cap); appendPaging(line);
@@ -8408,7 +8410,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
                 snprintf(line, sizeof(line), "NEIGHBORINFO:%u", (unsigned)cap); appendPaging(line);
             }
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Unknown HSC subcommand '%s' (try WANTS)", sub);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Unknown HSC subcommand '%s' (try WANTS)", sub);
         }
     }
     else if (strcasecmp(cmd, "HOPSCALE") == 0 || strcasecmp(cmd, "HSC") == 0) {
@@ -8421,7 +8423,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
         // Paginated output (5 pages max). Each line is a separate appendPaging() call
         // so the pager chunks naturally. Read-only, no setters (yet).
         if (!hopScalingModule) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC HOPSCALE: module not active (HAS_VARIABLE_HOPS excluded?)");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE HOPSCALE: module not active (HAS_VARIABLE_HOPS excluded?)");
         } else {
             const auto &perHop = hopScalingModule->getLastPerHopCounts();
             const auto &trend = hopScalingModule->getLastTrendStats();
@@ -8435,7 +8437,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
             static char line[160];
             // 1. Header + status
             snprintf(line, sizeof(line),
-                     "MTC HOPSCALE: status=%s  entries=%u/128 (%u%%)  samp=1/%u  filt=1/%u",
+                     "MESHTACORE HOPSCALE: status=%s  entries=%u/128 (%u%%)  samp=1/%u  filt=1/%u",
                      hopScalingModule->getEntryCount() > 0 ? "ACTIVE" : "EMPTY",
                      (unsigned)hopScalingModule->getEntryCount(),
                      (unsigned)hopScalingModule->getFillPercentage(),
@@ -8523,7 +8525,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
         // confirmation that the operator's config is healthy).
         size_t totalNodes = nodeDB->getNumMeshNodes();
         if (totalNodes == 0) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC NODES28: empty nodeDB");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE NODES28: empty nodeDB");
         } else {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF,
                         mp.channel, replyId, "NODES28");
@@ -8572,7 +8574,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
             // Send the count summary via the primary replyMsg (paging handles
             // the body). Mirrors the /nexus FAVS, IGNORED, ADMINS pattern.
             snprintf(replyMsg, sizeof(replyMsg),
-                     "MTC NODES28: %u/%u matched (P=structural2.8, V=XEdDSA-signed)",
+                     "MESHTACORE NODES28: %u/%u matched (P=structural2.8, V=XEdDSA-signed)",
                      (unsigned)matched, (unsigned)totalNodes);
         }
     }
@@ -8586,19 +8588,19 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
         uint32_t ageMs = 0;
         float x = 0, y = 0, z = 0;
         if (MotionSensor::getLatestCompassAccelSample(x, y, z, ageMs) && ageMs < 10000) {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC Motion (cached %ums):\nX: %.2fg\nY: %.2fg\nZ: %.2fg", (unsigned)ageMs, x/9.80665f, y/9.80665f, z/9.80665f);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE Motion (cached %ums):\nX: %.2fg\nY: %.2fg\nZ: %.2fg", (unsigned)ageMs, x/9.80665f, y/9.80665f, z/9.80665f);
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC Motion: No recent sample (ageMs=%u, sensor present=%d)", (unsigned)ageMs, accelerometerThread ? 1 : 0);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE Motion: No recent sample (ageMs=%u, sensor present=%d)", (unsigned)ageMs, accelerometerThread ? 1 : 0);
         }
 #else
-        snprintf(replyMsg, sizeof(replyMsg), "MTC Motion: Feature excluded.");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE Motion: Feature excluded.");
 #endif
     }
     // Nexus-28002 (2026-08-20): /nexus CHECKSIG — inspect the
     // signature state of the command packet itself. Compact 4-line
     // output with inline emoji (same convention as the auto-prefix
     // below: ✅ verified, 🚫 not verified, 📄 no signature field):
-    //   <emoji> JT CHECKSIG:
+    //   <emoji> MESHTACORE CHECKSIG:
     //     <sig bytes>
     //     Upstream: <emoji>
     //     Trusted:  <emoji> [M<n>|S<n>|A<n>]
@@ -8655,7 +8657,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
         // char is signed (x86, ARM). The previous logic therefore
         // ALWAYS fell through to the 📄 branch regardless of the actual
         // upstreamEmoji value, producing output like:
-        //   📄 JT CHECKSIG:
+        //   📄 MESHTACORE CHECKSIG:
         //     64 B
         //     Upstream: ✅    <- upstream is correctly ✅
         //     Trusted: ✅ M3
@@ -8684,7 +8686,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
             snprintf(trustedLine, sizeof(trustedLine), "%s", trustedEmoji);
 
         snprintf(replyMsg, sizeof(replyMsg),
-                 "%s MTC CHECKSIG:\n"
+                 "%s MESHTACORE CHECKSIG:\n"
                  "  %u B\n"
                  "  Upstream: %s\n"
                  "  Trusted:  %s",
@@ -8706,9 +8708,9 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
 #endif
     else {
         if (!cmd || cmd[0] == '\0') {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Ready. Send HELP for command list.");
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Ready. Send HELP for command list.");
         } else {
-            snprintf(replyMsg, sizeof(replyMsg), "MTC: Unknown command '%s'", cmd);
+            snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Unknown command '%s'", cmd);
         }
     }
 
@@ -8745,16 +8747,10 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
     // Nexus-28002: skip auto-prefix for CHECKSIG — it emits its own
     // leading emoji inline with the upstream/trusted state. Adding
     // a 🔒/🟢/🟠/🔴 on top would produce redundant double-emoji output
-    // (e.g. "🔒 ✅ MTC CHECKSIG:"). Detection: replyMsg starts with
+    // (e.g. "🔒 ✅ MESHTACORE CHECKSIG:"). Detection: replyMsg starts with
     // one of three CHECKSIG-prefix emojis (UTF-8 byte counts: ✅=3,
-    // 🚫=4, 📄=4) + " " (1 byte) + "MTC CHECKSIG" (12 bytes). We
-    // compare against 16 bytes (covers "✅ MTC CHECKSIG" exactly,
-    // and the first 16 bytes of "🚫/📄 MTC CHECKSIG" which still
-    // uniquely identifies the command).
-    const bool isChecksigReply =
-        strncmp(replyMsg, "✅ MTC CHECKSIG", 16) == 0 ||
-        strncmp(replyMsg, "🚫 MTC CHECKSIG", 16) == 0 ||
-        strncmp(replyMsg, "📄 MTC CHECKSIG", 16) == 0;
+    // 🚫=4, 📄=4) + " " (1 byte) + "MESHTACORE CHECKSIG" (12 bytes). We
+    const bool isChecksigReply = isChecksigReplyText(replyMsg);
     if (replyMsg[0] != '\0' && !isChecksigReply) {
         const char *sigEmoji;
         if (mp.decoded.xeddsa_signature.size == XEDDSA_SIGNATURE_SIZE) {
@@ -9040,17 +9036,17 @@ void NexusModule::handlePpingCommand(const char *args, char *reply, size_t reply
                 chLen += snprintf(chBuf + chLen, sizeof(chBuf) - chLen, "%d ", i);
         }
         snprintf(reply, replyLen,
-                 "MTC PPING:\nGlobal:%d RSSI:%d SNR:%d FE:%d Flags:%d DI:%d RI:%d DM:%d EM:%d\nChans:%s Hdr:%s Cmd:%s",
+                 "MESHTACORE PPING:\nGlobal:%d RSSI:%d SNR:%d FE:%d Flags:%d DI:%d RI:%d DM:%d EM:%d\nChans:%s Hdr:%s Cmd:%s",
                  public_ping, ping_rssi, ping_snr, ping_freqerr, ping_bitmask, ping_ignore_direct, ping_ignore_remote,
                  ping_allow_dm, ping_emoji_mode, chBuf, pingHeaderModeName(mt_ping_header_mode), ping_trigger);
     } else if (strcasecmp(args, "ON") == 0) {
         public_ping = true;
-        snprintf(reply, replyLen, "MTC: Public Ping ENABLED");
+        snprintf(reply, replyLen, "MESHTACORE: Public Ping ENABLED");
     } else if (strcasecmp(args, "OFF") == 0) {
         public_ping = false;
-        snprintf(reply, replyLen, "MTC: Public Ping DISABLED");
-    } else if (!applyPpingSetting(args, false, "MTC", reply, replyLen)) {
+        snprintf(reply, replyLen, "MESHTACORE: Public Ping DISABLED");
+    } else if (!applyPpingSetting(args, false, "MESHTACORE", reply, replyLen)) {
         snprintf(reply, replyLen,
-                 "MTC PPING: ON|OFF|RSSI|SNR|FREQERR|FLAGS|OM|CMD|HEADER [text|OFF|DEFAULT|NONE|CUSTOM]|EMOJI|CHAN|DIRECT IGNORE|IGNORE REMOTE|ALLOWDM|SETHEX|GETHEX");
+                 "MESHTACORE PPING: ON|OFF|RSSI|SNR|FREQERR|FLAGS|OM|CMD|HEADER [text|OFF|DEFAULT|NONE|CUSTOM]|EMOJI|CHAN|DIRECT IGNORE|IGNORE REMOTE|ALLOWDM|SETHEX|GETHEX");
     }
 }

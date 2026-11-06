@@ -304,7 +304,7 @@ void NexusModule::listVoltRules(const meshtastic_MeshPacket &mp, uint32_t replyI
     startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "VOLT Rules");
     char line[96];
     const uint16_t batteryMv = getVoltageReadingMv(0);
-    snprintf(line, sizeof(line), "JT VOLT (Bat: %u.%02uV, Hib: %s):\n", batteryMv / 1000, (batteryMv % 1000) / 10,
+    snprintf(line, sizeof(line), "MESHTACORE VOLT (Bat: %u.%02uV, Hib: %s):\n", batteryMv / 1000, (batteryMv % 1000) / 10,
              is_hibernating ? "YES" : "NO");
     appendPaging(line);
     for (uint8_t i = 0; i < VOLT_RULE_COUNT; i++) {
@@ -320,18 +320,18 @@ void NexusModule::listVoltRules(const meshtastic_MeshPacket &mp, uint32_t replyI
         }
         appendPaging(line);
     }
-    snprintf(replyMsg, sizeof(replyMsg), "JT: Paging VOLT rules...");
+    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging VOLT rules...");
 }
 
 void NexusModule::showVoltRule(uint8_t slot)
 {
     const NexusVoltRule &rule = volt_rules[slot - 1];
     if (!isRuleActive(rule)) {
-        snprintf(replyMsg, sizeof(replyMsg), "JT VOLT [%d]: OFF", slot);
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE VOLT [%d]: OFF", slot);
         return;
     }
-    snprintf(replyMsg, sizeof(replyMsg), "JT VOLT [%d]: %u.%02uV %s %s [%s] %s%s", slot, rule.mv / 1000, (rule.mv % 1000) / 10,
-             directionName(rule.direction), actionName(rule.action), channelName(rule.channel),
+    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE VOLT [%d]: %u.%02uV %s %s [%s] %s%s", slot, rule.mv / 1000,
+             (rule.mv % 1000) / 10, directionName(rule.direction), actionName(rule.action), channelName(rule.channel),
              volt_triggered[slot - 1] ? "[TRIG] " : "[ARMED] ", rule.command);
 }
 
@@ -340,7 +340,7 @@ void NexusModule::clearVoltRule(uint8_t slot)
     memset(&volt_rules[slot - 1], 0, sizeof(NexusVoltRule));
     volt_debounce_count[slot - 1] = 0;
     volt_triggered[slot - 1] = false;
-    snprintf(replyMsg, sizeof(replyMsg), "JT: Volt slot [%d] cleared (RAM). /nexus SAVE to persist.", slot);
+    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Volt slot [%d] cleared (RAM). /nexus SAVE to persist.", slot);
 }
 
 // <voltage> <HIGH|LOW> <CMD|HIB|WAKE> [CH1..3|BAT] [command...]
@@ -353,22 +353,23 @@ void NexusModule::configureVoltRule(uint8_t slot, const char *args)
     args = takeWord(args, directionToken, sizeof(directionToken));
     args = takeWord(args, actionToken, sizeof(actionToken));
     if (voltageToken[0] == '\0' || directionToken[0] == '\0' || actionToken[0] == '\0') {
-        snprintf(replyMsg, sizeof(replyMsg), "JT VOLT: Usage: VOLT <1..4> <V|mV> <HIGH|LOW> <CMD|HIB|WAKE> [CH1..3] [cmd...]");
+        snprintf(replyMsg, sizeof(replyMsg),
+                 "MESHTACORE VOLT: Usage: VOLT <1..4> <V|mV> <HIGH|LOW> <CMD|HIB|WAKE> [CH1..3] [cmd...]");
         return;
     }
     const uint16_t targetMv = parseMillivolts(voltageToken);
     if (targetMv < VOLT_MIN_MV || targetMv > VOLT_MAX_MV) {
-        snprintf(replyMsg, sizeof(replyMsg), "JT VOLT: Invalid voltage '%s' (range 500..30000 mV)", voltageToken);
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE VOLT: Invalid voltage '%s' (range 500..30000 mV)", voltageToken);
         return;
     }
     uint8_t direction = 0;
     if (!parseDirection(directionToken, &direction)) {
-        snprintf(replyMsg, sizeof(replyMsg), "JT VOLT: Invalid direction '%s' (HIGH or LOW)", directionToken);
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE VOLT: Invalid direction '%s' (HIGH or LOW)", directionToken);
         return;
     }
     uint8_t action = 0;
     if (!parseAction(actionToken, &action)) {
-        snprintf(replyMsg, sizeof(replyMsg), "JT VOLT: Invalid action '%s' (CMD, HIB, or WAKE)", actionToken);
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE VOLT: Invalid action '%s' (CMD, HIB, or WAKE)", actionToken);
         return;
     }
     uint8_t channel = 0;
@@ -384,8 +385,9 @@ void NexusModule::configureVoltRule(uint8_t slot, const char *args)
     volt_debounce_count[slot - 1] = 0;
     volt_triggered[slot - 1] = false;
 
-    snprintf(replyMsg, sizeof(replyMsg), "JT VOLT: [%d] %u.%02uV %s %s [%s]%s%.16s configured (RAM). Run /nexus SAVE to persist.",
-             slot, targetMv / 1000, (targetMv % 1000) / 10, directionName(direction), actionName(action), channelName(channel),
+    snprintf(replyMsg, sizeof(replyMsg),
+             "MESHTACORE VOLT: [%d] %u.%02uV %s %s [%s]%s%.16s configured (RAM). Run /nexus SAVE to persist.", slot,
+             targetMv / 1000, (targetMv % 1000) / 10, directionName(direction), actionName(action), channelName(channel),
              rule.command[0] ? " : " : "", rule.command);
 }
 
@@ -407,12 +409,12 @@ void NexusModule::handleVoltCommand(const meshtastic_MeshPacket &mp, uint32_t re
     }
     if (strcasecmp(args, "WAKE") == 0) {
         setHibernating(false);
-        snprintf(replyMsg, sizeof(replyMsg), "JT: Hibernation cleared in RAM.");
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Hibernation cleared in RAM.");
         return;
     }
     // The slot is one digit followed by a space or the end: "VOLT 40" is not slot 4 plus a clear token.
     if (*args < '1' || *args > '4' || (args[1] != '\0' && args[1] != ' ')) {
-        snprintf(replyMsg, sizeof(replyMsg), "JT VOLT: Invalid slot '%s'. Use 1..4.", args);
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE VOLT: Invalid slot '%s'. Use 1..4.", args);
         return;
     }
     const uint8_t slot = *args - '0';

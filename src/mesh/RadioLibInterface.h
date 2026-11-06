@@ -166,9 +166,9 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
      * this code for a long time.
      *
      * Nexus port (Nexus-28001, 2026-08-16): the `const` was removed so NexusModule can override the
-     * sync word at runtime via /nexus SETSYNCWORD. The override is applied at the top of
+     * sync word at runtime via /nexus SYNCWORD. The override is applied at the top of
      * RadioInterface::applyModemConfig() (which runs at boot AND on every LoRa config change,
-     * including the deferred apply triggered by SETSYNCWORD itself). Nexus persists the value
+     * including the deferred apply triggered by SYNCWORD itself). Nexus persists the value
      * in vault v40 and loads it via NexusModule::loadVault() during setupModules() — which
      * runs before initLoRa() per main.cpp ordering, so the override is in place before
      * rIf->init() reads syncWord for the first time.
@@ -801,7 +801,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     // case (the class member is already initialized to 0x2b).
     void applyNexusSyncwordOverride() override;
 
-    /** True while the Nexus alternate modem (SETFSK/SETFLRC) is active. Defined in the .cpp to keep NexusModule.h out of this header. */
+    /** True while the Nexus alternate modem (FSK/FLRC) is active. Defined in the .cpp to keep NexusModule.h out of this header. */
     static bool altModemActive();
 
     /**
@@ -816,7 +816,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
      */
     template <typename T> uint32_t computePacketTime(T &lora, uint32_t pl, bool received, bool useRxHeaderInfo = true)
     {
-        // Nexus SETFSK/SETFLRC: When alternate modem is active, calculate airtime directly
+        // Nexus FSK/FLRC: When alternate modem is active, calculate airtime directly
         // from the active modem driver parameters rather than applying LoRa DR math.
         if (altModemActive()) {
             if (uint32_t ms = altModemPacketTime(pl, lora.getTimeOnAir(pl)))

@@ -188,14 +188,14 @@ bool clear()
 void describe(char *out, size_t outLen)
 {
     if (!loadStored()) {
-        snprintf(out, outLen, "MTC: RESCUE no copy stored");
+        snprintf(out, outLen, "MESHTACORE: RESCUE no copy stored");
         return;
     }
     unsigned channelsUsed = 0;
     for (pb_size_t i = 0; i < stored.channels.channels_count; i++)
         if (stored.channels.channels[i].role != meshtastic_Channel_Role_DISABLED)
             channelsUsed++;
-    snprintf(out, outLen, "MTC: RESCUE keys %u, channels %u, region %d preset %d role %d, owner %.8s",
+    snprintf(out, outLen, "MESHTACORE: RESCUE keys %u, channels %u, region %d preset %d role %d, owner %.8s",
              (unsigned)stored.adminKeyCount, channelsUsed, (int)stored.lora.region, (int)stored.lora.modem_preset,
              (int)stored.role, stored.shortName);
 }

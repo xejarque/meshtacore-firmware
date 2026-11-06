@@ -4,7 +4,7 @@
 #include "configuration.h"
 #include "error.h"
 #include "mesh/NodeDB.h"
-#include "modules/NexusModule.h" // Nexus SETFSK: altModem state (Phase 2: LR11x0/T1000-E GFSK)
+#include "modules/NexusModule.h" // Nexus FSK: altModem state (Phase 2: LR11x0/T1000-E GFSK)
 
 // A variant may define LR11X0_UPDATE_FIRMWARE_TO to a Semtech transceiver firmware version (e.g. 0x0402) to
 // bake that image in and update the radio on first boot. Every supported image is 61320 words, so this costs
@@ -312,7 +312,7 @@ template <typename T> int16_t LR11x0Interface<T>::programAltModemFSK()
     // beginGFSK(freq, br, freqDev, rxBw, ...) chip-level overload with no
     // `using LR11x0::beginGFSK`, so name hiding would bind an unqualified 4-arg
     // call to that one with our bit rate read as the FREQUENCY (same bug as
-    // SX126x SETFSK, bench 2026-10-17 -> INVALID_FREQUENCY, radio down).
+    // SX126x FSK, bench 2026-10-17 -> INVALID_FREQUENCY, radio down).
     // Floor preamble at 32 bits for reliable bit-sync lock at higher data rates
     uint16_t preambleBits = max(m.preambleBits, (uint16_t)32);
     int16_t err = lora.LR11x0::beginGFSK(m.brKbps, m.freqDevKHz, m.rxBwKHz, preambleBits);
@@ -393,7 +393,7 @@ template <typename T> int16_t LR11x0Interface<T>::applyOutputPower()
 
 template <typename T> int16_t LR11x0Interface<T>::programModemParams()
 {
-    // Nexus SETFSK (Phase 2): GFSK armed -> program GFSK instead of LoRa; re-read on
+    // Nexus FSK (Phase 2): GFSK armed -> program GFSK instead of LoRa; re-read on
     // every reconfigure (persist-until-disabled ruling, 2026-10-14).
     if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode == 1) {
         return programAltModemFSK();
@@ -401,7 +401,7 @@ template <typename T> int16_t LR11x0Interface<T>::programModemParams()
 
     // configure publicly accessible settings
     int16_t err = lora.setSpreadingFactor(sf);
-    // Nexus SETFSK: Returning to LoRa from FSK modem triggers RADIOLIB_ERR_WRONG_MODEM
+    // Nexus FSK: Returning to LoRa from FSK modem triggers RADIOLIB_ERR_WRONG_MODEM
     // because hardware packet type is still GFSK. Re-init chip cleanly to restore LoRa
     // packet mode without triggering a spurious critical error.
     if (err == RADIOLIB_ERR_WRONG_MODEM) {
@@ -579,7 +579,7 @@ template <typename T> void LR11x0Interface<T>::setStandby()
 template <typename T> void LR11x0Interface<T>::addReceiveMetadata(meshtastic_MeshPacket *mp)
 {
     // LOG_DEBUG("PacketStatus %x", lora.getPacketStatus());
-    // Nexus SETFSK: no chirp SNR in GFSK — RSSI-based pseudo-SNR (Jenny ruling 2026-10-14).
+    // Nexus FSK: no chirp SNR in GFSK — RSSI-based pseudo-SNR (Jenny ruling 2026-10-14).
     if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
         mp->rx_snr = meshtastic::NexusModule::altPseudoSnr(lora.getRSSI());
     } else {
@@ -861,7 +861,7 @@ template <typename T> bool LR11x0Interface<T>::isChannelActive()
                                        .timeout = cadRxTimeoutUsec,
                                        .irqFlags = cadIrqFlags,
                                        .irqMask = cadIrqFlags}}; // ignored: startChannelScan() sends irqFlags twice
-    // Nexus SETFSK: GFSK has no LoRa CAD — RSSI energy sniff instead (Jenny ruling
+    // Nexus FSK: GFSK has no LoRa CAD — RSSI energy sniff instead (Jenny ruling
     // 2026-10-14): an active FSK carrier sits well above -100 dBm.
     // MUST sample instantaneous RSSI while still in continuous RX mode: entering standby
     // drops getRSSI to the standby floor and makes channel activity detection blind.
@@ -902,7 +902,7 @@ template <typename T> bool LR11x0Interface<T>::isActivelyReceiving()
 {
     // The IRQ status will be cleared when we start our read operation. Check if we've started a header, but haven't yet
     // received and handled the interrupt for reading the packet/handling errors.
-    // Nexus SETFSK: the shared sync/header bit also covers GFSK sync-word detection, so the
+    // Nexus FSK: the shared sync/header bit also covers GFSK sync-word detection, so the
     // LoRa flags stay valid in alt mode — but the stale-latch hazard (bench 2026-10-17,
     // same as SX126x FSK) applies there: clear false-detection latches.
     if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {

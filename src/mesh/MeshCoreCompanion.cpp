@@ -1230,10 +1230,10 @@ size_t MeshCoreCompanion::formatNodeList(uint8_t typeFilter, char *out, size_t c
                         : (typeFilter == MeshCoreNode::REPEATER) ? "Repeaters"
                                                                  : "Nodes";
     if (count == 0) {
-        snprintf(out, cap, "JT MESHCORE: no %s learned yet", title);
+        snprintf(out, cap, "MESHTACORE: no %s learned yet", title);
         return strlen(out);
     }
-    size_t len = snprintf(out, cap, "JT MESHCORE %s (%u):\n", title, (unsigned)count);
+    size_t len = snprintf(out, cap, "MESHTACORE %s (%u):\n", title, (unsigned)count);
 
     nodes.forEach([&](const MeshCoreNode &n) {
         if (!n.lastMod || len >= cap - 1)
@@ -1321,7 +1321,7 @@ size_t MeshCoreCompanion::listDrops(char *out, size_t cap) const
 {
     if (!out || cap == 0)
         return 0;
-    size_t len = snprintf(out, cap, "JT MESHCORE drops: ");
+    size_t len = snprintf(out, cap, "MESHTACORE drops: ");
     size_t count = 0;
     for (size_t i = 0; i < MAX_MC_DROPS; i++) {
         if (drops[i].len > 0) {
@@ -1335,7 +1335,7 @@ size_t MeshCoreCompanion::listDrops(char *out, size_t cap) const
         }
     }
     if (count == 0)
-        snprintf(out, cap, "JT MESHCORE drops: none");
+        snprintf(out, cap, "MESHTACORE drops: none");
     return strlen(out);
 }
 
@@ -1357,7 +1357,7 @@ bool MeshCoreCompanion::startTrace(const char *args, uint32_t fromNum, uint32_t 
 {
     if (activeTrace.active) {
         if (statusReply && statusCap)
-            snprintf(statusReply, statusCap, "JT MESHCORE: trace already in progress");
+            snprintf(statusReply, statusCap, "MESHTACORE: trace already in progress");
         else
             injectText(fromNum, to, channel, "🛰️ *Trace en curso*: espera a que termine.", replyId, direct, c, 0, 0, 0);
         return true;
@@ -1433,7 +1433,7 @@ bool MeshCoreCompanion::startTrace(const char *args, uint32_t fromNum, uint32_t 
 
     if (targetCount == 0) {
         if (statusReply && statusCap) {
-            snprintf(statusReply, statusCap, "JT MESHCORE: TRACE expects target node/repeater");
+            snprintf(statusReply, statusCap, "MESHTACORE: TRACE expects target node/repeater");
         } else {
             char help[128];
             snprintf(help, sizeof(help), "🛰️ *Uso*: ..trace @nodo1 @nodo2 ... (termina en ... para vuelta simétrica)");
@@ -1446,7 +1446,7 @@ bool MeshCoreCompanion::startTrace(const char *args, uint32_t fromNum, uint32_t 
         targets[i] = findNodeForTrace(nodes, targetNames[i]);
         if (!targets[i]) {
             if (statusReply && statusCap) {
-                snprintf(statusReply, statusCap, "JT MESHCORE: node not found '%s'", targetNames[i]);
+                snprintf(statusReply, statusCap, "MESHTACORE: node not found '%s'", targetNames[i]);
             } else {
                 char err[128];
                 snprintf(err, sizeof(err), "🛰️ *Nodo no encontrado*: @%s", targetNames[i]);
@@ -1499,7 +1499,7 @@ bool MeshCoreCompanion::startTrace(const char *args, uint32_t fromNum, uint32_t 
     RadioInterface *iface = router ? router->getRadioIface() : nullptr;
     if (!iface || !iface->queueMeshCoreFrame(frame, flen)) {
         if (statusReply && statusCap) {
-            snprintf(statusReply, statusCap, "JT MESHCORE: radio not available or TX not allowed");
+            snprintf(statusReply, statusCap, "MESHTACORE: radio not available or TX not allowed");
         } else {
             char err[128];
             snprintf(err, sizeof(err), "🛰️ *Error*: Radio no disponible o transmisión no permitida.");
@@ -1528,7 +1528,7 @@ bool MeshCoreCompanion::startTrace(const char *args, uint32_t fromNum, uint32_t 
     }
 
     if (statusReply && statusCap) {
-        snprintf(statusReply, statusCap, "JT MESHCORE: trace started (%u hops%s)", (unsigned)totalHops,
+        snprintf(statusReply, statusCap, "MESHTACORE: trace started (%u hops%s)", (unsigned)totalHops,
                  symmetric ? ", symmetric" : "");
     } else {
         char startMsg[128];

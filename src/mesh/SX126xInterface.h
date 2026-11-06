@@ -171,7 +171,7 @@ template <class T> class SX126xInterface : public RadioLibInterface
     /** Program all modem parameters into the chip; returns the first RadioLib error, or RADIOLIB_ERR_NONE */
     int16_t programModemParams();
 
-    // Nexus SETFSK (Phase 1, Jenny rulings 2026-10-14): FSK/GFSK programming path,
+    // Nexus FSK (Phase 1, Jenny rulings 2026-10-14): FSK/GFSK programming path,
     // chosen by programModemParams() when NexusModule::altModem.mode == 1.
     int16_t programAltModemFSK();
     uint8_t altModemCaps() const override { return 0x01; } // FSK yes, FLRC no (no FLRC hw)

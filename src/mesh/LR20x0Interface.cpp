@@ -6,7 +6,7 @@
 #include "LR2021Interface.h" // Nexus-28005: apply hook for /nexus LR2021_SF uses LR2021Interface accessors
 #include "error.h"
 #include "mesh/NodeDB.h"
-#include "modules/NexusModule.h" // Nexus SETFSK/SETFLRC: altModem state (Phase 2: LR2021/X1)
+#include "modules/NexusModule.h" // Nexus FSK/FLRC: altModem state (Phase 2: LR2021/X1)
 
 #if defined(LR2021_DCDC_WORKAROUND) && RADIOLIB_GODMODE
 // The DCDC sensitivity workaround pokes RadioLib-internal DCDC registers that are NOT exposed via the
@@ -410,7 +410,7 @@ template <typename T> bool LR20x0Interface<T>::reconfigure()
         limitPower(LR2021_MAX_POWER);
     }
 
-    // Nexus SETFSK/SETFLRC (Phase 2): alt modem armed -> program GFSK/FLRC instead of
+    // Nexus FSK/FLRC (Phase 2): alt modem armed -> program GFSK/FLRC instead of
     // the incremental LoRa path below (persist-until-disabled ruling, 2026-10-14).
     // Mirrors the bandHop path: fullBegin() handles RF-switch GPIOs + resolved TCXO,
     // then the alt begin() switches packet type, then startReceive.
@@ -459,7 +459,7 @@ template <typename T> bool LR20x0Interface<T>::reconfigure()
         }
 
         err = lora.setSpreadingFactor(sf);
-        // Nexus SETFSK/SETFLRC: Returning to LoRa from FSK/FLRC modem triggers RADIOLIB_ERR_WRONG_MODEM
+        // Nexus FSK/FLRC: Returning to LoRa from FSK/FLRC modem triggers RADIOLIB_ERR_WRONG_MODEM
         // because hardware packet type is still GFSK/FLRC. fullBegin() re-initializes the chip cleanly.
         if (err == RADIOLIB_ERR_WRONG_MODEM) {
             LOG_INFO("LR2021 wrong modem (returning to LoRa), full begin");
@@ -536,7 +536,7 @@ template <typename T> bool LR20x0Interface<T>::reconfigure()
     // reconfigures via per-parameter setters (setFrequency,
     // setSpreadingFactor, setBandwidth, etc.) — none of which touch the
     // side detector slots. Without this call, /nexus LR2021_SF 7 followed
-    // by /nexus SETLORA leaves the chip in single-SF RX even though the
+    // by /nexus LORA leaves the chip in single-SF RX even though the
     // table is stored in RAM. The band-hop path (line 230) and recovery
     // path (line 297) both call fullBegin() which already applies; this
     // covers the fast per-parameter-setter path. Same source of truth
@@ -783,7 +783,7 @@ template <typename T> void LR20x0Interface<T>::setStandby()
 template <typename T> void LR20x0Interface<T>::addReceiveMetadata(meshtastic_MeshPacket *mp)
 {
     // LOG_DEBUG("PacketStatus %x", lora.getPacketStatus());
-    // Nexus SETFSK/SETFLRC: no chirp SNR in GFSK/FLRC — RSSI-based pseudo-SNR (2026-10-14).
+    // Nexus FSK/FLRC: no chirp SNR in GFSK/FLRC — RSSI-based pseudo-SNR (2026-10-14).
     if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
         mp->rx_snr = meshtastic::NexusModule::altPseudoSnr(lora.getRSSI());
     } else {
@@ -1097,7 +1097,7 @@ template <typename T> bool LR20x0Interface<T>::isChannelActive()
     // fastCad is not in ChannelScanConfig_t - scanChannel() reads it off the radio object - so pin it.
     // false is pnr_delta 0: the scan runs the full nb_symbols, which is what the slot time assumes.
     lora.fastCad = false;
-    // Nexus SETFSK/SETFLRC: no LoRa CAD in GFSK/FLRC — RSSI energy sniff (2026-10-14).
+    // Nexus FSK/FLRC: no LoRa CAD in GFSK/FLRC — RSSI energy sniff (2026-10-14).
     // MUST sample instantaneous RSSI while still in continuous RX mode: entering standby
     // drops getRSSI to the standby floor and makes channel activity detection blind.
     if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
@@ -1139,7 +1139,7 @@ template <typename T> bool LR20x0Interface<T>::isActivelyReceiving()
 {
     // The IRQ status will be cleared when we start our read operation. Check if we've started a header, but haven't yet
     // received and handled the interrupt for reading the packet/handling errors.
-    // Nexus SETFSK/SETFLRC: the shared header/sync bit also covers alt-modem packet start,
+    // Nexus FSK/FLRC: the shared header/sync bit also covers alt-modem packet start,
     // so the LoRa flags stay valid there — but the stale-latch hazard (bench 2026-10-17,
     // same as SX126x FSK) applies: clear false-detection latches in alt mode.
     if (meshtastic::nexusModule && meshtastic::nexusModule->altModem.mode != 0) {
