@@ -86,6 +86,20 @@
 #include <MeshtasticOTA.h>
 #endif
 
+#ifdef FSCom
+namespace
+{
+// A bare FILE_O_WRITE appends on nRF52 LittleFS, so small values are replaced through SafeFile.
+void writeUint32File(const char *path, uint32_t value)
+{
+    SafeFile f(path);
+    f.write(reinterpret_cast<const uint8_t *>(&value), sizeof(value));
+    if (!f.close())
+        LOG_WARN("Can't write %s", path);
+}
+} // namespace
+#endif
+
 NodeDB *nodeDB = nullptr;
 
 // we have plenty of ram so statically alloc this tempbuf (for now)
@@ -689,11 +703,7 @@ NodeDB::NodeDB()
     counter++;
     myNodeInfo.reboot_count = counter;
     FSCom.mkdir("/prefs");
-    auto f = FSCom.open("/prefs/rebootCount", FILE_O_WRITE);
-    if (f) {
-        f.write(reinterpret_cast<const uint8_t *>(&counter), sizeof(counter));
-        f.close();
-    }
+    writeUint32File("/prefs/rebootCount", counter);
     LOG_DEBUG("Device reboots: %d", myNodeInfo.reboot_count);
 #endif
 
@@ -1168,11 +1178,7 @@ bool NodeDB::applyRequestedCleanInstall()
 #endif
     factoryReset(false); // keeps the PKI private key the loaded config still holds in RAM
 
-    auto out = FSCom.open(stampFile, FILE_O_WRITE);
-    if (out) {
-        out.write((const uint8_t *)&epoch, sizeof(epoch));
-        out.close();
-    }
+    writeUint32File(stampFile, epoch);
     return true;
 #endif
 }
