@@ -8,6 +8,9 @@
 #include "CryptoEngine.h"
 #include "Default.h"
 #include "FSCommon.h"
+#ifdef ARCH_NRF52
+#include "platform/nrf52/QspiFlashFS.h"
+#endif
 #include "MeshRadio.h"
 #include "MeshService.h"
 #include "MessageStore.h"
@@ -1097,6 +1100,11 @@ bool NodeDB::factoryReset(bool eraseBleBonds)
     // didn't touch it; clear it and persist the empty store.
     warmStore.clear();
     warmStore.saveIfDirty();
+#endif
+#ifdef HAS_QSPI_FLASH_FS
+    // The external flash holds data the internal wipe above never reaches.
+    if (!QspiFS.eraseAll())
+        LOG_WARN("QSPI flash not erased");
 #endif
 #if HAS_TRAFFIC_MANAGEMENT
     // Factory reset forgets everything; TMM's RAM caches must not survive to resurrect
