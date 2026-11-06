@@ -14,6 +14,8 @@
 //   so `SDS abc` or `ZH ADD zz` cannot write 0 into a setting or touch node 00.
 // - SETHEX zz must not read as mask 0 (it would switch every drop filter off) and a 64-char key with non-hex digits is refused.
 // - `*` and `0x` need a hex digit behind them, and non-hex text such as `zz` is never read as relay 00.
+// - The local-only shortcuts `/nl` and `/ml` (see matchLocalShortcut()) match only as a whole root: `/nlist` is not LIST and
+//   `/mlx` is not MX, so a longer word can never be swallowed and run against the local node.
 #include "Arduino.h"
 #include "modules/NexusCommandParse.h"
 #include <climits>
@@ -218,6 +220,46 @@ static void test_relay_id_leaves_counts_and_text_to_the_stats_handler()
     TEST_ASSERT_FALSE(isRelayIdArg(""));
 }
 
+// /nl and /ml are the local-only shortcuts for /nexus-local and /mcore-local. What matters is that the root ends where the
+// command begins: a root followed by anything but a space or the end of the line is a different word and must not be eaten, or
+// `/nlist` would run LIST and `/mlx` would run MX against the local node.
+static void test_local_shortcuts_read_nl_and_ml()
+{
+    const char *tail = nullptr;
+    bool mcore = false;
+
+    TEST_ASSERT_TRUE(matchLocalShortcut("/nl INFO", &tail, &mcore));
+    TEST_ASSERT_EQUAL_STRING("INFO", tail);
+    TEST_ASSERT_FALSE(mcore);
+
+    TEST_ASSERT_TRUE(matchLocalShortcut("/mL INFO", &tail, &mcore));
+    TEST_ASSERT_EQUAL_STRING("INFO", tail);
+    TEST_ASSERT_TRUE(mcore);
+
+    TEST_ASSERT_TRUE(matchLocalShortcut("/nl", &tail, &mcore));
+    TEST_ASSERT_EQUAL_STRING("", tail);
+    TEST_ASSERT_FALSE(mcore);
+
+    TEST_ASSERT_TRUE(matchLocalShortcut("/ml   stats", &tail, &mcore));
+    TEST_ASSERT_EQUAL_STRING("stats", tail);
+    TEST_ASSERT_TRUE(mcore);
+}
+
+static void test_local_shortcuts_reject_longer_words_and_full_roots()
+{
+    const char *tail = nullptr;
+    bool mcore = false;
+
+    TEST_ASSERT_FALSE(matchLocalShortcut("/nlist", &tail, &mcore));
+    TEST_ASSERT_FALSE(matchLocalShortcut("/mlx", &tail, &mcore));
+    TEST_ASSERT_FALSE(matchLocalShortcut("/nl-local INFO", &tail, &mcore));
+    TEST_ASSERT_FALSE(matchLocalShortcut("/nexus-local INFO", &tail, &mcore));
+    TEST_ASSERT_FALSE(matchLocalShortcut("/mcore-local INFO", &tail, &mcore));
+    TEST_ASSERT_FALSE(matchLocalShortcut("nl INFO", &tail, &mcore));
+    TEST_ASSERT_FALSE(matchLocalShortcut("", &tail, &mcore));
+    TEST_ASSERT_FALSE(matchLocalShortcut(nullptr, &tail, &mcore));
+}
+
 void setup()
 {
     UNITY_BEGIN();
@@ -235,6 +277,8 @@ void setup()
     RUN_TEST(test_auto_base_and_hex_masks_need_the_whole_argument);
     RUN_TEST(test_relay_id_accepts_star_0x_and_hex_bytes);
     RUN_TEST(test_relay_id_leaves_counts_and_text_to_the_stats_handler);
+    RUN_TEST(test_local_shortcuts_read_nl_and_ml);
+    RUN_TEST(test_local_shortcuts_reject_longer_words_and_full_roots);
     exit(UNITY_END());
 }
 

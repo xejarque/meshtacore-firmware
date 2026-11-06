@@ -39,7 +39,10 @@ The `/nexus` command engine processes commands received over Meshtastic mesh pac
 | `/nexus-node <short> <cmd>`   | Targeted Node   | Directly targeted to a node by 4-char short name (e.g. `/nexus-node JNT1 RSSI`). Bypasses broadcast cooldown.                |
 | `/nexus-mac <mac2> <cmd>`     | Targeted MAC    | Targeted by the **last 2 bytes** of the MAC as a hex suffix (e.g. `/nexus-mac 1a2b INFO`). A full 6-byte MAC will not match. |
 | `/nexus-group <grp> <cmd>`    | Group Target    | Targeted to all nodes assigned to `<grp>`.                                                                                   |
-| `/nexus-local <cmd>`          | Local Interface | Executes locally without retransmitting over the mesh.                                                                       |
+| `/nexus-local <cmd>`          | Local Interface | Executes locally without retransmitting over the mesh. Works on any channel, MeshCore (`MC:`) included.                      |
+| `/nl <cmd>`                   | Local Interface | Short form of `/nexus-local`.                                                                                                |
+| `/mcore-local <cmd>`          | Local Interface | `/nexus-local` for the MeshCore and region commands (same as `/mcore <cmd>` run locally).                                    |
+| `/ml <cmd>`                   | Local Interface | Short form of `/mcore-local`.                                                                                                |
 | `/mtc`                        | Alias Roots     | Fully equivalent alias for `/nexus`.                                                                                         |
 
 ### Command Redirection (`/nexus R`)

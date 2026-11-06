@@ -16,6 +16,30 @@ inline bool isCommandWord(const char *cmd, const char *word)
     return strncasecmp(cmd, word, n) == 0 && (cmd[n] == '\0' || isspace((unsigned char)cmd[n]));
 }
 
+// Short local-only roots: `/nl` is `/nexus-local`, `/ml` is `/mcore-local`. They carry no -device/-node/-mac/-group suffixes,
+// so they are matched here and not in NEXUS_PREFIX_ROOTS (adding them there would mint /nl-device and friends).
+// Returns the command body in *tail (never null; empty when the alias carries no arguments), or false when cmd is not one.
+inline bool matchLocalShortcut(const char *cmd, const char **tail, bool *mcoreRoot)
+{
+    static const char *const ROOTS[] = {"/nl", "/ml"};
+    if (!cmd)
+        return false;
+    for (size_t i = 0; i < sizeof(ROOTS) / sizeof(ROOTS[0]); i++) {
+        const size_t n = strlen(ROOTS[i]);
+        if (strncasecmp(cmd, ROOTS[i], n) != 0 || (cmd[n] != '\0' && cmd[n] != ' '))
+            continue;
+        const char *p = cmd + n;
+        while (*p == ' ')
+            p++;
+        if (tail)
+            *tail = p;
+        if (mcoreRoot)
+            *mcoreRoot = (i == 1);
+        return true;
+    }
+    return false;
+}
+
 // A RELAYS argument naming one relay by hex: `*AB`, `0xAB` or a bare two-digit hex byte. A pair of decimal digits is a top-N
 // count, so a bare byte must hold a letter (`5A`, `A5`, `FF`).
 inline bool isRelayIdArg(const char *p)

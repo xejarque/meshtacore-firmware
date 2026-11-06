@@ -7,6 +7,7 @@
 // NexusModule — remote CLI module for Meshtastic firmware
 //
 
+#include "modules/NexusCommandParse.h"
 #include "modules/NexusModule.h"
 #include "SafeFile.h"
 #include "modules/NexusRescue.h"
@@ -2686,7 +2687,15 @@ ProcessMessage NexusModule::handleLocal(const meshtastic_MeshPacket &mp) {
         return ProcessMessage::CONTINUE;
     memset(cmdBuf, 0, sizeof(cmdBuf));
     memcpy(cmdBuf, mp.decoded.payload.bytes, std::min<size_t>(mp.decoded.payload.size, sizeof(cmdBuf) - 1));
-    for (size_t r = 0; r < NEXUS_PREFIX_ROOTS_COUNT; ++r) {
+    // Every local interface (BLE, serial, TCP, API) lands here before sendToMesh(), so the command runs on whatever channel
+    // the client typed it in - a Meshtastic one or an "MC:" MeshCore one - and never leaves the radio. The reply is queued on
+    // mp.channel, so it comes back where it was asked. The nexusIsInternal() guard above is what keeps -local off RF.
+
+    // Short local-only roots first: /nl and /ml are the same commands as /nexus-local and /mcore-local.
+    const char *shortTail = nullptr;
+    bool shortIsMcore = false;
+    bool hasShortcut = matchLocalShortcut(cmdBuf, &shortTail, &shortIsMcore);
+    for (size_t r = 0; r < NEXUS_PREFIX_ROOTS_COUNT && !hasShortcut; ++r) {
         size_t rootLength = strlen(NEXUS_PREFIX_ROOTS[r]);
         if (strncasecmp(cmdBuf, NEXUS_PREFIX_ROOTS[r], rootLength) != 0)
             continue;
@@ -2696,33 +2705,38 @@ ProcessMessage NexusModule::handleLocal(const meshtastic_MeshPacket &mp) {
         tail += 6;
         while (*tail == ' ')
             ++tail;
-        meshtastic_MeshPacket local = mp;
-        if (local.from == 0)
-            local.from = nodeDB->getNodeNum();
-        if (local.to == 0)
-            local.to = NODENUM_BROADCAST;
-        if (router && service) {
-            meshtastic_QueueStatus qs = router->getQueueStatus();
-            service->sendQueueStatusToPhone(qs, ERRNO_OK, mp.id);
-        }
-        // isBroadcast stays false for local ingress: -local never arrives over RF, so the
-        // broadcast NAME/OWNER safety gate ("prevent mass-wiping a network") and the 5s
-        // broadcast rate limit must not fire on local commands. Routing/paging read mp.to
-        // directly, so nothing is lost by not passing the broadcast flag here.
-        static char mcoreLocal[160];
-        const char *finalTail = tail;
-        if (strcasecmp(NEXUS_PREFIX_ROOTS[r], "/mcore") == 0) {
-            if (tail[0] == '\0') {
-                finalTail = "MCORE";
-            } else {
-                snprintf(mcoreLocal, sizeof(mcoreLocal), "MCORE %s", tail);
-                finalTail = mcoreLocal;
-            }
-        }
-        handleNexusCommand(local, finalTail, false, mp.id, true);
-        return ProcessMessage::STOP;
+        shortTail = tail;
+        shortIsMcore = (strcasecmp(NEXUS_PREFIX_ROOTS[r], "/mcore") == 0);
+        hasShortcut = true;
     }
-    return ProcessMessage::CONTINUE;
+    if (!hasShortcut)
+        return ProcessMessage::CONTINUE;
+
+    meshtastic_MeshPacket local = mp;
+    if (local.from == 0)
+        local.from = nodeDB->getNodeNum();
+    if (local.to == 0)
+        local.to = NODENUM_BROADCAST;
+    if (router && service) {
+        meshtastic_QueueStatus qs = router->getQueueStatus();
+        service->sendQueueStatusToPhone(qs, ERRNO_OK, mp.id);
+    }
+    // isBroadcast stays false for local ingress: -local never arrives over RF, so the
+    // broadcast NAME/OWNER safety gate ("prevent mass-wiping a network") and the 5s
+    // broadcast rate limit must not fire on local commands. Routing/paging read mp.to
+    // directly, so nothing is lost by not passing the broadcast flag here.
+    static char mcoreLocal[160];
+    const char *finalTail = shortTail;
+    if (shortIsMcore) {
+        if (shortTail[0] == '\0') {
+            finalTail = "MCORE";
+        } else {
+            snprintf(mcoreLocal, sizeof(mcoreLocal), "MCORE %s", shortTail);
+            finalTail = mcoreLocal;
+        }
+    }
+    handleNexusCommand(local, finalTail, false, mp.id, true);
+    return ProcessMessage::STOP;
 }
 
 
