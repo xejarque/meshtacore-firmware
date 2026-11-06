@@ -881,7 +881,8 @@ struct ReportWriter {
     }
 };
 
-bool MeshCoreCompanion::formatRouteLine(const HeardPath &route, char *out, size_t cap, float freqErr, uint8_t signal) const
+bool MeshCoreCompanion::formatRouteLine(const HeardPath &route, char *out, size_t cap, float freqErr, uint8_t signal,
+                                        const char *header) const
 {
     if (!out || cap == 0)
         return false;
@@ -911,15 +912,19 @@ bool MeshCoreCompanion::formatRouteLine(const HeardPath &route, char *out, size_
         return n;
     };
 
+    // The header, when there is one, shares the first line with the hop count: the route itself starts below.
+    const char *lead = (header && header[0]) ? header : "";
+    const bool direct = route.hopCount == 0;
     size_t len = 0;
-    if (route.hopCount == 0) {
-        int n = snprintf(out, cap, "⚡ directo\n");
+    if (direct) {
+        int n = lead[0] ? snprintf(out, cap, "%s · ⚡ directo\n", lead) : snprintf(out, cap, "⚡ directo\n");
         if (n > 0)
             len = (size_t)n < cap ? (size_t)n : cap - 1;
         if (cap - len > 1)
             len += formatSignal(out + len, cap - len, true);
     } else {
-        int n = snprintf(out, cap, "%u hops:\n", (unsigned)route.hopCount);
+        int n = lead[0] ? snprintf(out, cap, "%s · 📡 %u hops\n", lead, (unsigned)route.hopCount)
+                        : snprintf(out, cap, "📡 %u hops\n", (unsigned)route.hopCount);
         if (n > 0)
             len = (size_t)n < cap ? (size_t)n : cap - 1;
 
@@ -986,12 +991,13 @@ bool MeshCoreCompanion::formatRouteLine(const HeardPath &route, char *out, size_
     return len > 0 && len < cap;
 }
 
-bool MeshCoreCompanion::formatRouteForPacket(uint32_t packetId, char *out, size_t cap, float freqErr, uint8_t signal) const
+bool MeshCoreCompanion::formatRouteForPacket(uint32_t packetId, char *out, size_t cap, float freqErr, uint8_t signal,
+                                             const char *header) const
 {
     const HeardPath *entry = heardFind(packetId);
     if (!entry)
         return false;
-    return formatRouteLine(*entry, out, cap, freqErr, signal);
+    return formatRouteLine(*entry, out, cap, freqErr, signal, header);
 }
 
 size_t MeshCoreCompanion::formatPathReport(const HeardPath *const *routes, size_t count, const char *sender, ReportSink sink,
@@ -1793,7 +1799,7 @@ bool MeshCoreCompanion::cachedChannelHash(ChannelIndex ch, const uint8_t *key, s
     return true;
 }
 
-void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, int32_t rssi)
+void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, int32_t rssi, float freqErr)
 {
     if (!raw || !router)
         return;
@@ -1823,13 +1829,13 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
 
     switch (info.payload_type) {
     case 0x05: // GRP_TXT
-        handleGroupText(raw, len, info, snr, rssi);
+        handleGroupText(raw, len, info, snr, rssi, freqErr);
         break;
     case 0x04: // ADVERT
         handleAdvert(raw, len, info, snr, rssi);
         break;
     case 0x02: // TXT_MSG
-        handleDirectText(raw, len, info, snr, rssi);
+        handleDirectText(raw, len, info, snr, rssi, freqErr);
         break;
     case 0x03: // ACK
         handleAck(raw, len, info);
@@ -1848,7 +1854,7 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
 }
 
 void MeshCoreCompanion::handleGroupText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr,
-                                        int32_t rssi)
+                                        int32_t rssi, float freqErr)
 {
     rxSeen++;
     if (info.header_len >= len || info.payload_len < 1 + 2 + 16) {
@@ -1915,7 +1921,7 @@ void MeshCoreCompanion::handleGroupText(const uint8_t *raw, size_t len, const Me
         // Looked up before this text is noted, so a text can never quote itself.
         const uint32_t replyId = replyTarget(body, nullptr);
         const uint32_t packetId =
-            injectText(fromNum, NODENUM_BROADCAST, i, body, replyId, false, nullptr, info.path_hash_count, snr, rssi);
+            injectText(fromNum, NODENUM_BROADCAST, i, body, replyId, false, nullptr, info.path_hash_count, snr, rssi, freqErr);
         if (!packetId)
             return;
 
@@ -2181,7 +2187,8 @@ void MeshCoreCompanion::retireKeyedNode(const uint8_t pub[32], uint32_t keepNum)
 }
 
 uint32_t MeshCoreCompanion::injectText(uint32_t fromNum, uint32_t to, uint8_t channel, const char *text, uint32_t replyId,
-                                       bool direct, const MeshCoreNode *contact, uint8_t pathHashCount, float snr, int32_t rssi)
+                                       bool direct, const MeshCoreNode *contact, uint8_t pathHashCount, float snr, int32_t rssi,
+                                       float freqErr)
 {
     meshtastic_MeshPacket *p = packetPool.allocZeroed();
     if (!p)
@@ -2223,6 +2230,9 @@ uint32_t MeshCoreCompanion::injectText(uint32_t fromNum, uint32_t to, uint8_t ch
             p->next_hop = 1;
     }
     p->transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
+    // The frequency error the radio measured for this frame, so PPING's Δf is the real one. Set for every frame, direct
+    // or relayed: the metrics line reports it either way.
+    p->rx_frequency_error = freqErr;
     // Clients show signal strength only for a direct frame; a relayed one shows its hop count.
     if (pathHashCount == 0) {
         p->rx_snr = snr;
@@ -2235,12 +2245,12 @@ uint32_t MeshCoreCompanion::injectText(uint32_t fromNum, uint32_t to, uint8_t ch
 }
 
 uint32_t MeshCoreCompanion::injectDirectText(const MeshCoreNode &c, const char *text, const MeshCoreRepeater::FrameInfo &info,
-                                             float snr, int32_t rssi)
+                                             float snr, int32_t rssi, float freqErr)
 {
     // A node-DB reset or eviction may have removed it.
     ensureSenderNode(c.nodeNum, c.name, true, c.pub, meshtastic_Config_DeviceConfig_Role_CLIENT,
                      MeshCoreRx(info.path_hash_count, snr, rssi));
-    return injectText(c.nodeNum, nodeDB->getNodeNum(), 0, text, 0, true, &c, info.path_hash_count, snr, rssi);
+    return injectText(c.nodeNum, nodeDB->getNodeNum(), 0, text, 0, true, &c, info.path_hash_count, snr, rssi, freqErr);
 }
 
 void MeshCoreCompanion::queueAck(uint32_t hash)
@@ -2253,7 +2263,7 @@ void MeshCoreCompanion::queueAck(uint32_t hash)
 }
 
 void MeshCoreCompanion::handleDirectText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr,
-                                         int32_t rssi)
+                                         int32_t rssi, float freqErr)
 {
     // TXT_MSG payload: dest hash (1), source hash (1), MAC (2), ciphertext.
     if (!identityReady || info.header_len >= len || info.payload_len < 1 + 1 + 2 + 16)
@@ -2302,7 +2312,7 @@ void MeshCoreCompanion::handleDirectText(const uint8_t *raw, size_t len, const M
         nodes.noteDirectMessage(c);
         dmRx++;
         LOG_INFO("MeshCore direct text from %s ts=%u len=%u", c->name, timestamp, (unsigned)strlen(text));
-        const uint32_t packetId = injectDirectText(*c, text, info, snr, rssi);
+        const uint32_t packetId = injectDirectText(*c, text, info, snr, rssi, freqErr);
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
         if (packetId)
             noteHeardRoute(packetId, hash, c->nodeNum, HeardPath::DIRECT_CHANNEL, pathOf(raw, info), info.path_hash_size,

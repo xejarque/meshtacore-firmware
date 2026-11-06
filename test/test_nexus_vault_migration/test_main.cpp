@@ -100,6 +100,45 @@ void test_noteLoadedVault_defaults_ping_trigger_for_v68()
     TEST_ASSERT_EQUAL_STRING("/ping", module.ping_trigger);
 }
 
+// v71 splits the PPING header mode per layer. MeshCore ships with none of its own banner; Meshtastic keeps its Derpy
+// branding unless a custom header is set.
+void test_v71_vault_restores_each_layer_header_mode()
+{
+    TestNexusModule module;
+    meshtastic::NexusModule::NexusVault v = {};
+    v.version = 71;
+    v.ping_header_modes = (uint8_t)(meshtastic::PING_HEADER_NONE | (meshtastic::PING_HEADER_CUSTOM << 2));
+    strncpy(v.pping_header, "My Ping", sizeof(v.pping_header) - 1);
+
+    module.noteLoadedVault(v);
+
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_NONE, module.mt_ping_header_mode);
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_CUSTOM, module.mc_ping_header_mode);
+    // The vault flag older builds read stays a mirror of the Meshtastic mode, not of MeshCore's.
+    TEST_ASSERT_FALSE(module.custom_pping_active);
+    TEST_ASSERT_EQUAL_STRING("My Ping", module.pping_header);
+}
+
+// An older vault only carries the shared custom_pping_active flag: Meshtastic honours it, and MeshCore keeps a custom
+// header that was in use instead of dropping it, falling back to no banner (its factory default) when none was set.
+void test_pre_v71_vault_maps_the_shared_flag_onto_both_layers()
+{
+    TestNexusModule custom;
+    meshtastic::NexusModule::NexusVault v = {};
+    v.version = 70;
+    v.custom_pping_active = 1;
+    custom.noteLoadedVault(v);
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_CUSTOM, custom.mt_ping_header_mode);
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_CUSTOM, custom.mc_ping_header_mode);
+
+    TestNexusModule plain;
+    meshtastic::NexusModule::NexusVault w = {};
+    w.version = 70;
+    plain.noteLoadedVault(w);
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_DEFAULT, plain.mt_ping_header_mode);
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_NONE, plain.mc_ping_header_mode);
+}
+
 void test_migrates_v67_vault_on_router_role()
 {
     TestNexusModule module;
@@ -231,6 +270,8 @@ void setup()
     RUN_TEST(test_noteLoadedVault_records_version_without_applying_v68_fields_for_older_vault);
     RUN_TEST(test_noteLoadedVault_records_version_and_applies_v69);
     RUN_TEST(test_noteLoadedVault_defaults_ping_trigger_for_v68);
+    RUN_TEST(test_v71_vault_restores_each_layer_header_mode);
+    RUN_TEST(test_pre_v71_vault_maps_the_shared_flag_onto_both_layers);
     RUN_TEST(test_migrates_v67_vault_on_router_role);
     RUN_TEST(test_v68_vault_on_router_preserves_operator_choice);
     RUN_TEST(test_v67_vault_on_client_role_does_not_migrate);

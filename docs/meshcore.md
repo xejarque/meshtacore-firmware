@@ -363,7 +363,16 @@ Text with a non-plain type is ignored.
 
 `FAV <hex_prefix> [ON|OFF]` keeps a contact across reboots by setting its `FAVORITE` flag, which is what the flash save order ranks first (see _Persistence_). The prefix is 1-4 bytes of the public key, written the way `DROP` takes it (`4d`, `!a1b2`, `0xA1B2`, `a1:b2`); a prefix matching more than one contact lists them instead of guessing. With no argument it lists the favourites already kept.
 
-`MESHCORE PPING` (alias `MCORE PPING`) and `/nexus PPING` are independent: `PPING ON|OFF` under MESHCORE only switches the MeshCore ping channels (`MC:#bot`), and `/nexus PPING ON|OFF` only switches the Meshtastic public ping (`public_ping`). A MeshCore ping is answered whenever its channel is on, whatever `public_ping` says. The reporting settings (`RSSI`, `SNR`, `FREQERR`, `HEADER`, `EMOJI`, `CMD`, `FLAGS`, `ALLOWDM`, `CHAN`, `SETHEX`, `GETHEX`) are one shared set, and the route line of a MeshCore reply prints only the metrics that are on. The `CMD` / `TRIGGER` value is the same trigger `/nexus PPING CMD` sets: any leading character is accepted (`.ping` works, there is no `/` requirement), the incoming text must match it exactly, it is at most 15 characters, and `MESHCORE PING <target>` sends it as the ping body.
+`MESHCORE PPING` (alias `MCORE PPING`) and `/nexus PPING` are independent: `PPING ON|OFF` under MESHCORE only switches the MeshCore ping channels (`MC:#bot`), and `/nexus PPING ON|OFF` only switches the Meshtastic public ping (`public_ping`). A MeshCore ping is answered whenever its channel is on, whatever `public_ping` says. The reporting settings (`RSSI`, `SNR`, `FREQERR`, `EMOJI`, `CMD`, `FLAGS`, `ALLOWDM`, `CHAN`, `SETHEX`, `GETHEX`) are one shared set, and the route line of a MeshCore reply prints only the metrics that are on. `HEADER` is the exception: the custom text is shared, but the mode it applies is per layer, so `MESHCORE PPING HEADER NONE` leaves the Meshtastic header where it was. A MeshCore reply ships with no header at all (`NONE`), since its first line already carries the hop count:
+
+```
+📡 2 hops
+Montjuic RPT
+Tibidabo RPT
+SNR: -3.2 dB · RSSI: -88 dBm · Δf -12Hz
+```
+
+`HEADER <text>` puts that text in front of the hop count on the first line (`Relay Under Test · 📡 2 hops`), and `HEADER DEFAULT` restores the `🤖MeshCore Ping🤖` banner. The `CMD` / `TRIGGER` value is the same trigger `/nexus PPING CMD` sets: any leading character is accepted (`.ping` works, there is no `/` requirement), the incoming text must match it exactly, it is at most 15 characters, and `MESHCORE PING <target>` sends it as the ping body.
 
 ## Threads, timers and coexistence
 

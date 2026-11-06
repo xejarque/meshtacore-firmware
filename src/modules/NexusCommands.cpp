@@ -4689,6 +4689,15 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 appendPaging(line);
                 diffs++;
             }
+            // Ping header mode per layer (v71)
+            const uint8_t ramModes = (uint8_t)((mt_ping_header_mode & 0x03) | ((mc_ping_header_mode & 0x03) << 2));
+            if (ramModes != v->ping_header_modes) {
+                char line[64];
+                snprintf(line, sizeof(line), "ping_header_modes: RAM=%u Vault=%u", (unsigned)ramModes,
+                         (unsigned)v->ping_header_modes);
+                appendPaging(line);
+                diffs++;
+            }
 
             // trusted_ch (2 slots, active+name)
             for (int i = 0; i < 2; i++) {
@@ -7523,7 +7532,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging GPIO help...");
         } else if (strcasecmp(sub, "PPING") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help PPING");
-            appendPaging("SubCmds: ON, OFF, CMD [cmd|DEFAULT], RSSI, SNR, FREQERR, FLAGS, DIRECT IGNORE, REMOTE IGNORE, CHAN [ON/OFF] [ID], HEADER [text|OFF], EMOJI [OFF|INDIRECT|ALWAYS], SETHEX [hex]");
+            appendPaging("SubCmds: ON, OFF, CMD [cmd|DEFAULT], RSSI, SNR, FREQERR, FLAGS, DIRECT IGNORE, REMOTE IGNORE, CHAN [ON/OFF] [ID], HEADER [text|OFF|DEFAULT|NONE|CUSTOM], EMOJI [OFF|INDIRECT|ALWAYS], SETHEX [hex]");
             appendPaging("CMD: Define el comando disparador (def: /ping, ej: !ping). Sin alias adicionales.\n");
             appendPaging("EMOJI: OFF=texto completo, INDIRECT=emoji si hops>0, ALWAYS=emoji siempre.");
             snprintf(replyMsg, sizeof(replyMsg), "MTC: Paging PPING help...");
@@ -8835,7 +8844,7 @@ static bool ppingMatchToggle(const char *args, const char *name, bool &value)
 
 // Mask layout (unchanged since the first release): bit0 public_ping, 1 rssi, 2 snr, 3 freqerr, 4 ignore direct,
 // 5 ignore remote, 6 flags, 7..14 channels 0..7, 15 allow DM.
-bool NexusModule::applyPpingSetting(const char *args, const char *prefix, char *reply, size_t replyLen)
+bool NexusModule::applyPpingSetting(const char *args, bool meshcore, const char *prefix, char *reply, size_t replyLen)
 {
     struct Toggle {
         const char *name;
@@ -8871,15 +8880,25 @@ bool NexusModule::applyPpingSetting(const char *args, const char *prefix, char *
         const char *h = args + 7;
         while (*h == ' ')
             h++;
-        if (strcasecmp(h, "OFF") == 0) {
-            custom_pping_active = false;
-            snprintf(reply, replyLen, "%s: Custom Header DISABLED", prefix);
+        // The mode is per layer; the custom text is shared, so setting it on one layer does not touch the other's mode.
+        uint8_t &mode = meshcore ? mc_ping_header_mode : mt_ping_header_mode;
+        if (strcasecmp(h, "OFF") == 0 || strcasecmp(h, "DEFAULT") == 0) {
+            mode = PING_HEADER_DEFAULT;
+            snprintf(reply, replyLen, "%s: Header DEFAULT (%s)", prefix, meshcore ? "MeshCore" : "Meshtastic");
+        } else if (strcasecmp(h, "NONE") == 0) {
+            mode = PING_HEADER_NONE;
+            snprintf(reply, replyLen, "%s: Header NONE (%s)", prefix, meshcore ? "MeshCore" : "Meshtastic");
+        } else if (strcasecmp(h, "CUSTOM") == 0) {
+            mode = PING_HEADER_CUSTOM;
+            snprintf(reply, replyLen, "%s: Header CUSTOM '%s' (%s)", prefix, pping_header, meshcore ? "MeshCore" : "Meshtastic");
         } else {
             memset(pping_header, 0, sizeof(pping_header));
             strncpy(pping_header, h, sizeof(pping_header) - 1);
-            custom_pping_active = true;
-            snprintf(reply, replyLen, "%s: Custom Header set to '%s'", prefix, pping_header);
+            mode = PING_HEADER_CUSTOM;
+            snprintf(reply, replyLen, "%s: Custom Header set to '%s' (%s)", prefix, pping_header,
+                     meshcore ? "MeshCore" : "Meshtastic");
         }
+        custom_pping_active = (mt_ping_header_mode == PING_HEADER_CUSTOM);
     } else if (strncasecmp(args, "EMOJI ", 6) == 0) {
         const char *e = args + 6;
         while (*e == ' ')
@@ -9010,17 +9029,17 @@ void NexusModule::handlePpingCommand(const char *args, char *reply, size_t reply
                 chLen += snprintf(chBuf + chLen, sizeof(chBuf) - chLen, "%d ", i);
         }
         snprintf(reply, replyLen,
-                 "MTC PPING:\nGlobal:%d RSSI:%d SNR:%d FE:%d Flags:%d DI:%d RI:%d DM:%d EM:%d\nChans:%s Custom:%d Cmd:%s",
+                 "MTC PPING:\nGlobal:%d RSSI:%d SNR:%d FE:%d Flags:%d DI:%d RI:%d DM:%d EM:%d\nChans:%s Hdr:%s Cmd:%s",
                  public_ping, ping_rssi, ping_snr, ping_freqerr, ping_bitmask, ping_ignore_direct, ping_ignore_remote,
-                 ping_allow_dm, ping_emoji_mode, chBuf, custom_pping_active, ping_trigger);
+                 ping_allow_dm, ping_emoji_mode, chBuf, pingHeaderModeName(mt_ping_header_mode), ping_trigger);
     } else if (strcasecmp(args, "ON") == 0) {
         public_ping = true;
         snprintf(reply, replyLen, "MTC: Public Ping ENABLED");
     } else if (strcasecmp(args, "OFF") == 0) {
         public_ping = false;
         snprintf(reply, replyLen, "MTC: Public Ping DISABLED");
-    } else if (!applyPpingSetting(args, "MTC", reply, replyLen)) {
+    } else if (!applyPpingSetting(args, false, "MTC", reply, replyLen)) {
         snprintf(reply, replyLen,
-                 "MTC PPING: ON|OFF|RSSI|SNR|FREQERR|FLAGS|OM|CMD|HEADER|EMOJI|CHAN|DIRECT IGNORE|IGNORE REMOTE|ALLOWDM|SETHEX|GETHEX");
+                 "MTC PPING: ON|OFF|RSSI|SNR|FREQERR|FLAGS|OM|CMD|HEADER [text|OFF|DEFAULT|NONE|CUSTOM]|EMOJI|CHAN|DIRECT IGNORE|IGNORE REMOTE|ALLOWDM|SETHEX|GETHEX");
     }
 }

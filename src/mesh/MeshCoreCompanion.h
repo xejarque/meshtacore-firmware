@@ -207,11 +207,14 @@ class MeshCoreCompanion
     enum : uint8_t { SIGNAL_SNR = 1, SIGNAL_RSSI = 2, SIGNAL_FREQERR = 4, SIGNAL_ALL = 7 };
 
     /// Format a single route line, unified across .path and MeshCore PPING replies. signal picks the metrics shown, so PPING
-    /// can honour its SNR/RSSI/FREQERR toggles and .path can omit the frequency error it does not have.
-    bool formatRouteLine(const HeardPath &route, char *out, size_t cap, float freqErr = 0.0f, uint8_t signal = SIGNAL_ALL) const;
+    /// can honour its SNR/RSSI/FREQERR toggles and .path can omit the frequency error it does not have. header, when set,
+    /// shares the first line with the hop count ("<header> · 📡 N hops"); the hop names follow one per line.
+    bool formatRouteLine(const HeardPath &route, char *out, size_t cap, float freqErr = 0.0f, uint8_t signal = SIGNAL_ALL,
+                         const char *header = nullptr) const;
 
     /// Format route for a given packet id into out. Returns true on success.
-    bool formatRouteForPacket(uint32_t packetId, char *out, size_t cap, float freqErr = 0.0f, uint8_t signal = SIGNAL_ALL) const;
+    bool formatRouteForPacket(uint32_t packetId, char *out, size_t cap, float freqErr = 0.0f, uint8_t signal = SIGNAL_ALL,
+                              const char *header = nullptr) const;
 
     /// Find contact by name, prefix, or !hex number.
     const MeshCoreNode *findContact(const char *nameOrHex) const;
@@ -302,8 +305,9 @@ class MeshCoreCompanion
     uint32_t nextTxTimestamp(uint32_t now);
 
     /// Consume a received MeshCore frame: GRP_TXT on any MC: channel and TXT_MSG for us are injected into the
-    /// router, an ACK settles a pending direct message, an ADVERT teaches us a contact.
-    void handleFrame(const uint8_t *raw, size_t len, float snr, int32_t rssi);
+    /// router, an ACK settles a pending direct message, an ADVERT teaches us a contact. freqErr is the frequency
+    /// error the radio measured for the frame, carried onto the injected packet so PPING reports a real Δf.
+    void handleFrame(const uint8_t *raw, size_t len, float snr, int32_t rssi, float freqErr = 0.0f);
 
     /// Install our MeshCore identity (Ed25519 seed and public key); direct messages need it.
     void setIdentity(const uint8_t seed[32], const uint8_t pub[32]);
@@ -392,9 +396,11 @@ class MeshCoreCompanion
     static constexpr size_t PENDING_ACKS = 8;
     PendingAck pending[PENDING_ACKS];
 
-    void handleGroupText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi);
+    void handleGroupText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi,
+                         float freqErr);
     void handleAdvert(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi);
-    void handleDirectText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi);
+    void handleDirectText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi,
+                          float freqErr);
     void handleAck(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info);
     void handlePathAck(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info);
     /// An ACK with this hash arrived (plain or inside a PATH): report the matching direct message delivered.
@@ -425,10 +431,10 @@ class MeshCoreCompanion
     /// Inject a bridged text as received: the one place that builds the synthetic packet, for both channels and DMs.
     /// contact is the sender when direct; hop count and signal mirror the frame being reported.
     uint32_t injectText(uint32_t fromNum, uint32_t to, uint8_t channel, const char *text, uint32_t replyId, bool direct,
-                        const MeshCoreNode *contact, uint8_t pathHashCount, float snr, int32_t rssi);
+                        const MeshCoreNode *contact, uint8_t pathHashCount, float snr, int32_t rssi, float freqErr = 0.0f);
     /// Inject a received direct text; returns the packet id the client sees, or 0 when it could not be injected.
     uint32_t injectDirectText(const MeshCoreNode &c, const char *text, const MeshCoreRepeater::FrameInfo &info, float snr,
-                              int32_t rssi);
+                              int32_t rssi, float freqErr);
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
     HeardPath heard[PATH_MEMORY];
     size_t heardNext = 0;

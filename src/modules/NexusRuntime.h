@@ -51,6 +51,9 @@ template <typename Vault> bool decodeVault(Vault &out, size_t fileSize, size_t b
         payloadSize = offsetof(Vault, volt_rules);
         break;
     case 70:
+        payloadSize = offsetof(Vault, ping_header_modes);
+        break;
+    case 71:
         payloadSize = offsetof(Vault, crc32);
         break;
     default:

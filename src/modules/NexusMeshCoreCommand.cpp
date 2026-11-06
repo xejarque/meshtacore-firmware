@@ -1292,10 +1292,13 @@ bool NexusModule::formatMeshCorePingReply(const meshtastic_MeshPacket &mp, char 
         if ((size_t)l >= rMsgLen)
             l = (int)rMsgLen - 1;
     };
-    if (custom_pping_active && pping_header[0] != '\0')
-        grew(snprintf(rMsg, rMsgLen, "%s\n", pping_header));
-    else
-        grew(snprintf(rMsg, rMsgLen, "🤖MeshCore Ping🤖\n"));
+    // MeshCore has its own header mode (PING_HEADER_DEFAULT / CUSTOM / NONE), set by /nexus MESHCORE PPING HEADER.
+    // NONE, the factory setting, leaves the line to the hop count alone.
+    const char *header = nullptr;
+    if (mc_ping_header_mode == PING_HEADER_CUSTOM && pping_header[0] != '\0')
+        header = pping_header;
+    else if (mc_ping_header_mode != PING_HEADER_NONE)
+        header = "🤖MeshCore Ping🤖";
 
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
     static char routeLine[200];
@@ -1303,20 +1306,22 @@ bool NexusModule::formatMeshCorePingReply(const meshtastic_MeshPacket &mp, char 
     const float fErr = mp.rx_frequency_error;
     const uint8_t signal = (ping_snr ? MeshCoreCompanion::SIGNAL_SNR : 0) | (ping_rssi ? MeshCoreCompanion::SIGNAL_RSSI : 0) |
                            (ping_freqerr ? MeshCoreCompanion::SIGNAL_FREQERR : 0);
-    if (meshCoreCompanion.formatRouteForPacket(mp.id, routeLine, sizeof(routeLine), fErr, signal)) {
-        grew(snprintf(rMsg + l, room(), "%s", routeLine));
+    if (meshCoreCompanion.formatRouteForPacket(mp.id, routeLine, sizeof(routeLine), fErr, signal, header)) {
+        grew(snprintf(rMsg, rMsgLen, "%s", routeLine));
         return true;
     }
 #endif
 
-    // Each metric is printed only while its PPING toggle is on (SNR, RSSI, FREQERR), joined by " · ". Direct frames lead
-    // with the signal icon; a metric that is off leaves no separator behind.
+    // No route was heard for this packet: the same shape, with the hop count taken from the packet itself. Each metric is
+    // printed only while its PPING toggle is on (SNR, RSSI, FREQERR), joined by " · ". Direct frames lead with the signal
+    // icon; a metric that is off leaves no separator behind.
     uint32_t hopsUsed = (mp.hop_start >= mp.hop_limit) ? (mp.hop_start - mp.hop_limit) : 0;
     const bool direct = hopsUsed == 0;
     if (direct)
-        grew(snprintf(rMsg + l, room(), "⚡ directo\n"));
+        grew(header ? snprintf(rMsg, rMsgLen, "%s · ⚡ directo\n", header) : snprintf(rMsg, rMsgLen, "⚡ directo\n"));
     else
-        grew(snprintf(rMsg + l, room(), "%u hops:\n", (unsigned)hopsUsed));
+        grew(header ? snprintf(rMsg, rMsgLen, "%s · 📡 %u hops\n", header, (unsigned)hopsUsed)
+                    : snprintf(rMsg, rMsgLen, "📡 %u hops\n", (unsigned)hopsUsed));
 
     const char *lead = direct ? "📶 " : "";
     const char *sep = "";
@@ -1353,9 +1358,9 @@ void NexusModule::handleMeshCorePpingCommand(const char *args, char *reply, size
         if (botCh >= 0) {
             snprintf(botStatus, sizeof(botStatus), "Ch %d (%s)", botCh, ping_channels[botCh] ? "ON" : "OFF");
         }
-        snprintf(reply, replyLen, "JT MESHCORE PPING:\nGlobal:%d MC:#bot:%s RSSI:%d SNR:%d FE:%d Emoji:%d DM:%d Custom:%d Cmd:%s",
+        snprintf(reply, replyLen, "JT MESHCORE PPING:\nGlobal:%d MC:#bot:%s RSSI:%d SNR:%d FE:%d Emoji:%d DM:%d Hdr:%s Cmd:%s",
                  public_ping ? 1 : 0, botStatus, ping_rssi ? 1 : 0, ping_snr ? 1 : 0, ping_freqerr ? 1 : 0, (int)ping_emoji_mode,
-                 ping_allow_dm ? 1 : 0, custom_pping_active ? 1 : 0, ping_trigger);
+                 ping_allow_dm ? 1 : 0, pingHeaderModeName(mc_ping_header_mode), ping_trigger);
     } else if (strcasecmp(args, "ON") == 0) {
         // Only the MeshCore side: /nexus PPING owns public_ping.
         if (botCh >= 0) {
@@ -1370,11 +1375,12 @@ void NexusModule::handleMeshCorePpingCommand(const char *args, char *reply, size
                 ping_channels[i] = false;
         }
         snprintf(reply, replyLen, "JT MESHCORE: PPING OFF on MeshCore channels");
-    } else if (applyPpingSetting(args, "JT MESHCORE", reply, replyLen)) {
+    } else if (applyPpingSetting(args, true, "JT MESHCORE", reply, replyLen)) {
         // Shared reporting settings: see NexusCommands.cpp.
     } else {
         snprintf(reply, replyLen,
-                 "JT MESHCORE: PPING ON|OFF|CMD <cmd>|RSSI|SNR|FREQERR|EMOJI|HEADER|ALLOWDM|CHAN|FLAGS|SETHEX|GETHEX");
+                 "JT MESHCORE: PPING ON|OFF|CMD <cmd>|RSSI|SNR|FREQERR|EMOJI|HEADER "
+                 "[text|OFF|DEFAULT|NONE|CUSTOM]|ALLOWDM|CHAN|FLAGS|SETHEX|GETHEX");
     }
 }
 

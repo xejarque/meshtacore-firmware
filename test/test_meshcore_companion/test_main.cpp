@@ -2158,8 +2158,9 @@ void test_unified_vecinos_formatting(void)
 
 /**
  * Pins MeshCore PPING formatting:
- * Guards against regression of newline separators per hop, "N hops:" header,
- * direct bolt + emojis on direct pings, and delta frequency error reporting.
+ * Guards against regression of the hop count on the first line, one hop name per line,
+ * direct bolt + emojis on direct pings, delta frequency error reporting, and the header
+ * sharing the first line with the hop count.
  */
 void test_meshcore_ping_formatting(void)
 {
@@ -2184,8 +2185,20 @@ void test_meshcore_ping_formatting(void)
 
     char hopOut[128];
     TEST_ASSERT_TRUE(s.c.formatRouteLine(hopRoute, hopOut, sizeof(hopOut), -12.0f));
-    TEST_ASSERT_NOT_NULL(strstr(hopOut, "2 hops:\n"));
+    // The hop count opens the line; the names keep their own lines and the metrics close the block.
+    TEST_ASSERT_NOT_NULL(strstr(hopOut, "📡 2 hops\n"));
+    TEST_ASSERT_NULL(strstr(hopOut, "2 hops:"));
+    TEST_ASSERT_NOT_NULL(strstr(hopOut, "\n`AA`\n`BB`\n"));
     TEST_ASSERT_NOT_NULL(strstr(hopOut, "SNR: -3.2 dB · RSSI: -88 dBm · Δf -12Hz"));
+
+    // A header, when the layer has one, shares the first line with the hop count; with none the line is the counter alone.
+    char headOut[128];
+    TEST_ASSERT_TRUE(
+        s.c.formatRouteLine(hopRoute, headOut, sizeof(headOut), -12.0f, MeshCoreCompanion::SIGNAL_ALL, "🤖MeshCore Ping🤖"));
+    TEST_ASSERT_TRUE(strncmp(headOut, "🤖MeshCore Ping🤖 · 📡 2 hops\n", strlen("🤖MeshCore Ping🤖 · 📡 2 hops\n")) == 0);
+    char directHead[128];
+    TEST_ASSERT_TRUE(s.c.formatRouteLine(directRoute, directHead, sizeof(directHead), 50.0f, MeshCoreCompanion::SIGNAL_ALL, "T"));
+    TEST_ASSERT_TRUE(strncmp(directHead, "T · ⚡ directo\n", strlen("T · ⚡ directo\n")) == 0);
 }
 
 // PPING's SNR / RSSI / FREQERR toggles choose which metrics the route line prints.
@@ -2235,9 +2248,36 @@ void test_a_long_route_keeps_its_signal_line(void)
 
     char out[60];
     TEST_ASSERT_TRUE(s.c.formatRouteLine(route, out, sizeof(out), 125.0f));
-    TEST_ASSERT_NOT_NULL(strstr(out, "8 hops:"));
+    TEST_ASSERT_NOT_NULL(strstr(out, "📡 8 hops\n"));
     TEST_ASSERT_NOT_NULL(strstr(out, "SNR: 9.5 dB · RSSI: -75 dBm · Δf 125Hz"));
     TEST_ASSERT_LESS_THAN(sizeof(out), strlen(out)); // fits, NUL included
+}
+
+/**
+ * The frequency error the radio measured must reach the injected packet, or PPING's Δf reads 0Hz on every MeshCore reply.
+ * Regression guard: the bridge built its synthetic packet with allocZeroed() and only copied SNR/RSSI, so the field the
+ * reply formats stayed at zero on both the heard-route and the fallback paths.
+ */
+void test_handle_frame_carries_the_frequency_error(void)
+{
+    GroupSetup s;
+    uint8_t frame[255];
+    const size_t len =
+        MeshCoreCompanion::encodeGroupText(kPublicKey, sizeof(kPublicKey), "Alice", 0x01020304, "ping", frame, sizeof(frame));
+    TEST_ASSERT_GREATER_THAN(0, len);
+
+    const size_t before = s.capture.received.size();
+    s.c.handleFrame(frame, len, -3.5f, -90, -12.0f);
+    TEST_ASSERT_TRUE(s.capture.received.size() > before);
+    TEST_ASSERT_EQUAL_FLOAT(-12.0f, s.capture.received.back().rx_frequency_error);
+
+    // A second, distinct text carries its own value: the field is per frame, not a leftover of the first one.
+    uint8_t other[255];
+    const size_t otherLen =
+        MeshCoreCompanion::encodeGroupText(kPublicKey, sizeof(kPublicKey), "Alice", 0x01020305, "ping2", other, sizeof(other));
+    TEST_ASSERT_GREATER_THAN(0, otherLen);
+    s.c.handleFrame(other, otherLen, -3.5f, -90, 47.0f);
+    TEST_ASSERT_EQUAL_FLOAT(47.0f, s.capture.received.back().rx_frequency_error);
 }
 
 void setup()
@@ -2330,6 +2370,7 @@ void setup()
     RUN_TEST(test_advert_with_position_announces_real_hops);
     RUN_TEST(test_unified_vecinos_formatting);
     RUN_TEST(test_meshcore_ping_formatting);
+    RUN_TEST(test_handle_frame_carries_the_frequency_error);
 #endif
     exit(UNITY_END());
 }

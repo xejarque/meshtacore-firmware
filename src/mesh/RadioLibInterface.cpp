@@ -988,8 +988,11 @@ void RadioLibInterface::handleReceiveInterrupt(const CapturedRxInfo *captured)
             // seconds after boot. A frame heard before that must already be handled with them.
             ensureMeshCoreConfigLoaded();
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
-            meshCoreCompanion.handleFrame((const uint8_t *)&radioBuffer, length, iface->getSNR(),
-                                          (int32_t)lround(iface->getRSSI()));
+            // The frequency error comes with the captured frame when the readout task took it; on the thread path the
+            // chip still holds this frame's status, so it is read here, as addReceiveMetadata() does for Meshtastic.
+            const float mcFreqErr = captured ? captured->frequencyError : readFrequencyError();
+            meshCoreCompanion.handleFrame((const uint8_t *)&radioBuffer, length, iface->getSNR(), (int32_t)lround(iface->getRSSI()),
+                                          mcFreqErr);
 #endif
             meshCoreRepeater.handleReceivedFrame((const uint8_t *)&radioBuffer, length, iface->getSNR(),
                                                  getPacketTime(length, false));

@@ -2293,9 +2293,11 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                     formatMeshCorePingReply(mp, rMsg, sizeof(rMsg));
                 } else {
 #endif
-                if (custom_pping_active && pping_header[0] != '\0') {
+                // Meshtastic keeps its own header mode: DEFAULT prints the Derpy branding, CUSTOM the shared text, and
+                // NONE starts the reply with the hop line.
+                if (mt_ping_header_mode == PING_HEADER_CUSTOM && pping_header[0] != '\0') {
                     l = appendClamped(rMsg, sizeof(rMsg), 0, "%s\n", pping_header);
-                } else {
+                } else if (mt_ping_header_mode != PING_HEADER_NONE) {
                     l = appendClamped(rMsg, sizeof(rMsg), 0, "🤖Derpy Ping🤖\n");
                 }
 
@@ -4914,7 +4916,7 @@ bool NexusModule::saveVault()
     }
     memset(v, 0, sizeof(NexusVault));
     memcpy(v->magic, "JenT", 4);
-    v->version = 70; // v70: volt_rules (v69: custom PPING command, ping_trigger)
+    v->version = 71; // v71: ping_header_modes (v70: volt_rules, v69: custom PPING command, ping_trigger)
     // v67: nexusVariantBits (generic variant-bitmask pool — station-g3 PA/LNA today, future variants tomorrow)
     // - v66 was: features_mask + secondary_keys[4] (4 slots)
     v->drop_mask = getNexusDropHex();
@@ -4990,8 +4992,10 @@ bool NexusModule::saveVault()
         v->cron_table[i] = cron_table[i];
     }
 
-    // Custom PPING Header (v15)
-    v->custom_pping_active = custom_pping_active ? 1 : 0;
+    // Custom PPING Header (v15). v71 splits the mode per layer into ping_header_modes; custom_pping_active stays as the
+    // Meshtastic mirror so an older build reading this vault still sees the header it knows.
+    v->custom_pping_active = (mt_ping_header_mode == PING_HEADER_CUSTOM) ? 1 : 0;
+    v->ping_header_modes = (uint8_t)((mt_ping_header_mode & 0x03) | ((mc_ping_header_mode & 0x03) << 2));
     strncpy(v->pping_header, pping_header, 64);
     v->pping_header[63] = '\0';
 
@@ -5181,7 +5185,6 @@ bool NexusModule::loadVault()
             cronLastRunMs[i] = Time::getMillis();
         }
 
-        custom_pping_active = (v->custom_pping_active != 0);
         strncpy(pping_header, v->pping_header, 64);
         pping_header[63] = '\0';
 

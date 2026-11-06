@@ -137,6 +137,61 @@ void test_cmd_sets_the_trigger_up_to_the_first_space()
     TEST_ASSERT_EQUAL_STRING("/ping", m.ping_trigger);
 }
 
+// The header mode is per layer: acting on one leaves the other where it was, and the custom text is shared.
+void test_header_modes_are_per_layer()
+{
+    TestNexusModule m;
+    m.mt_ping_header_mode = meshtastic::PING_HEADER_DEFAULT;
+    m.mc_ping_header_mode = meshtastic::PING_HEADER_NONE;
+
+    m.run("HEADER NONE");
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_NONE, m.mt_ping_header_mode);
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_NONE, m.mc_ping_header_mode); // untouched
+
+    m.run("HEADER DEFAULT");
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_DEFAULT, m.mt_ping_header_mode);
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_NONE, m.mc_ping_header_mode);
+
+    // OFF is the spelling the first release documented for "back to the default header".
+    m.run("HEADER OFF");
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_DEFAULT, m.mt_ping_header_mode);
+}
+
+void test_a_custom_header_applies_to_the_layer_it_was_typed_on()
+{
+    TestNexusModule m;
+    m.mt_ping_header_mode = meshtastic::PING_HEADER_DEFAULT;
+    m.mc_ping_header_mode = meshtastic::PING_HEADER_NONE;
+
+    m.run("HEADER Relay Under Test");
+    TEST_ASSERT_EQUAL_STRING("Relay Under Test", m.pping_header);
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_CUSTOM, m.mt_ping_header_mode);
+    TEST_ASSERT_TRUE(m.custom_pping_active); // the mirror older builds read
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_NONE, m.mc_ping_header_mode);
+
+    // CUSTOM reuses the stored text without retyping it.
+    m.run("HEADER DEFAULT");
+    m.run("HEADER CUSTOM");
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_CUSTOM, m.mt_ping_header_mode);
+    TEST_ASSERT_EQUAL_STRING("Relay Under Test", m.pping_header);
+}
+
+// The vault mirror tracks the Meshtastic mode alone, so a MeshCore-only custom header does not light it up.
+void test_the_vault_mirror_follows_the_meshtastic_mode()
+{
+    TestNexusModule m;
+    m.custom_pping_active = false;
+    m.mt_ping_header_mode = meshtastic::PING_HEADER_DEFAULT;
+    m.mc_ping_header_mode = meshtastic::PING_HEADER_CUSTOM;
+
+    m.run("HEADER NONE");
+    TEST_ASSERT_FALSE(m.custom_pping_active);
+    m.run("HEADER CUSTOM");
+    TEST_ASSERT_TRUE(m.custom_pping_active);
+    m.run("HEADER DEFAULT");
+    TEST_ASSERT_FALSE(m.custom_pping_active);
+}
+
 } // namespace
 
 void setup()
@@ -150,6 +205,9 @@ void setup()
     RUN_TEST(test_reporting_toggles_reach_the_shared_flags);
     RUN_TEST(test_a_toggle_without_on_or_off_is_not_applied);
     RUN_TEST(test_cmd_sets_the_trigger_up_to_the_first_space);
+    RUN_TEST(test_header_modes_are_per_layer);
+    RUN_TEST(test_a_custom_header_applies_to_the_layer_it_was_typed_on);
+    RUN_TEST(test_the_vault_mirror_follows_the_meshtastic_mode);
     exit(UNITY_END());
 }
 
