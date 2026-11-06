@@ -180,6 +180,26 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #error "MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC requires MESHTASTIC_ENABLE_MESHCORE_SNIFFER"
 #endif
 
+// ===== Nexus BaseUI weight reduction (DEFAULT OFF) =====
+// Unlike MESHTASTIC_EXCLUDE_SCREEN, these leave the display in place and drop
+// individual feature frames from the legacy BaseUI frame loop. A variant opts
+// in per feature with -DNEXUS_EXCLUDE_UI_<FEATURE>=1.
+#ifndef NEXUS_EXCLUDE_UI_DEBUG_FRAMES
+#define NEXUS_EXCLUDE_UI_DEBUG_FRAMES 0 // LoRa / System / Chirpy / WiFi diagnostic frames
+#endif
+#ifndef NEXUS_EXCLUDE_UI_CLOCK
+#define NEXUS_EXCLUDE_UI_CLOCK 0 // digital + analog clock frames
+#endif
+#ifndef NEXUS_EXCLUDE_UI_CHIRPY
+#define NEXUS_EXCLUDE_UI_CHIRPY 0 // hidden Chirpy easter-egg frame
+#endif
+#ifndef NEXUS_EXCLUDE_UI_NUMBER_PICKER
+#define NEXUS_EXCLUDE_UI_NUMBER_PICKER 0 // Hidden Test Menu "Verify Nodenum" picker
+#endif
+#ifndef NEXUS_EXCLUDE_UI_FAVORITES
+#define NEXUS_EXCLUDE_UI_FAVORITES 0 // per-favorite node frames and their menu
+#endif
+
 // Reticulum RNode master gate (from JenTastic 2.8.105). NEXUS_ENABLE_RNODE compiles the RNode subsystem
 // (engine, KISS framing, TCP server, BLE NUS persona) in (=1) or out (=0). DEFAULT OFF: enable per variant
 // (-DNEXUS_ENABLE_RNODE=1 in build_flags) or at build time.
