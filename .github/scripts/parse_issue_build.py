@@ -48,6 +48,8 @@ def main():
     github_output = os.getenv("GITHUB_OUTPUT")
 
     def write_output(key: str, val: str):
+        # Requester-controlled values must not inject extra GITHUB_OUTPUT keys.
+        val = str(val).replace("\r", " ").replace("\n", " ")
         if github_output:
             with open(github_output, "a", encoding="utf-8") as out:
                 out.write(f"{key}={val}\n")

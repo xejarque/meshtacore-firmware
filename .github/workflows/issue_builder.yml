@@ -71,10 +71,11 @@ jobs:
 
       - name: Handle Invalid Configuration
         if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid != 'true'
+        env:
+          MSG: ${{ steps.parse-step.outputs.error_message }}
         run: |
           ISSUE_NUM="${{ github.event.issue.number }}"
           REPO="${{ github.repository }}"
-          MSG="${{ steps.parse-step.outputs.error_message }}"
           gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "❌ **Error en la solicitud:** $MSG"
           gh issue edit "$ISSUE_NUM" --repo "$REPO" --add-label "build-failed" || true
           gh issue close "$ISSUE_NUM" --repo "$REPO" --reason "not planned"
@@ -96,8 +97,9 @@ jobs:
       - name: Resolve Architecture
         id: arch-step
         if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
+        env:
+          TARGET: ${{ steps.parse-step.outputs.target }}
         run: |
-          TARGET="${{ steps.parse-step.outputs.target }}"
           ALL_TARGETS=$(~/.platformio/penv/bin/python ./bin/generate_ci_matrix.py all --level extra)
           ARCH=$(echo "$ALL_TARGETS" | jq --arg T "$TARGET" -r '.[] | select(.board==$T) | .platform')
           if [ -z "$ARCH" ] || [ "$ARCH" = "null" ]; then
@@ -191,8 +193,8 @@ jobs:
         env:
           PLATFORMIO_BUILD_FLAGS: "-DHAS_NEXUS=1 -DAPP_REPO=\\\"meshtacore-firmware\\\" ${{ steps.parse-step.outputs.extra_build_flags }}"
           PIP_BREAK_SYSTEM_PACKAGES: "1"
+          TARGET: ${{ steps.parse-step.outputs.target }}
         run: |
-          TARGET="${{ steps.parse-step.outputs.target }}"
           ARCH="${{ steps.arch-step.outputs.arch }}"
           case "$ARCH" in
             esp32|esp32s3|esp32c3|esp32c6) SCRIPT=bin/build-esp32.sh ;;
@@ -227,9 +229,12 @@ jobs:
 
       - name: Prepare Release Bundle
         if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
+        env:
+          TARGET: ${{ steps.parse-step.outputs.target }}
+          RAW_SHORT_NAME: ${{ steps.parse-step.outputs.owner_short_name }}
         run: |
-          TARGET="${{ steps.parse-step.outputs.target }}"
-          SHORT_NAME="${{ steps.parse-step.outputs.owner_short_name }}"
+          # The short name ends up in a file name and in GITHUB_ENV: keep only safe characters.
+          SHORT_NAME="$(printf '%s' "$RAW_SHORT_NAME" | tr -cd 'A-Za-z0-9_-')"
           mkdir -p release
           cp userPrefs.jsonc release/config_used.jsonc
 
@@ -284,13 +289,14 @@ jobs:
 
       - name: Publish to Releases and Notify in Issue
         if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
+        env:
+          TARGET: ${{ steps.parse-step.outputs.target }}
+          LONG_NAME: ${{ steps.parse-step.outputs.owner_long_name }}
+          SHORT_NAME: ${{ steps.parse-step.outputs.owner_short_name }}
         run: |
           ISSUE_NUM="${{ github.event.issue.number }}"
           REPO="${{ github.repository }}"
-          TARGET="${{ steps.parse-step.outputs.target }}"
           ARCH="${{ steps.arch-step.outputs.arch }}"
-          LONG_NAME="${{ steps.parse-step.outputs.owner_long_name }}"
-          SHORT_NAME="${{ steps.parse-step.outputs.owner_short_name }}"
           RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
           # Create rolling custom-builds release if missing
