@@ -119,8 +119,8 @@ void test_v71_vault_restores_each_layer_header_mode()
     TEST_ASSERT_EQUAL_STRING("My Ping", module.pping_header);
 }
 
-// An older vault only carries the shared custom_pping_active flag: Meshtastic honours it, and MeshCore keeps a custom
-// header that was in use instead of dropping it, falling back to no banner (its factory default) when none was set.
+// An older vault only carries the shared custom_pping_active flag: both layers honour it, and without one each keeps the
+// banner it printed before the split, so an upgrade changes no reply.
 void test_pre_v71_vault_maps_the_shared_flag_onto_both_layers()
 {
     TestNexusModule custom;
@@ -136,7 +136,22 @@ void test_pre_v71_vault_maps_the_shared_flag_onto_both_layers()
     w.version = 70;
     plain.noteLoadedVault(w);
     TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_DEFAULT, plain.mt_ping_header_mode);
-    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_NONE, plain.mc_ping_header_mode);
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_DEFAULT, plain.mc_ping_header_mode);
+}
+
+// A vault older than v68 skips the v68 fields, but its custom header must still be restored.
+void test_v67_vault_still_restores_the_custom_header()
+{
+    TestNexusModule module;
+    meshtastic::NexusModule::NexusVault v = {};
+    v.version = 67;
+    v.custom_pping_active = 1;
+    strncpy(v.pping_header, "Old Header", sizeof(v.pping_header) - 1);
+
+    module.noteLoadedVault(v);
+
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_CUSTOM, module.mt_ping_header_mode);
+    TEST_ASSERT_EQUAL_STRING("Old Header", module.pping_header);
 }
 
 void test_migrates_v67_vault_on_router_role()
@@ -272,6 +287,7 @@ void setup()
     RUN_TEST(test_noteLoadedVault_defaults_ping_trigger_for_v68);
     RUN_TEST(test_v71_vault_restores_each_layer_header_mode);
     RUN_TEST(test_pre_v71_vault_maps_the_shared_flag_onto_both_layers);
+    RUN_TEST(test_v67_vault_still_restores_the_custom_header);
     RUN_TEST(test_migrates_v67_vault_on_router_role);
     RUN_TEST(test_v68_vault_on_router_preserves_operator_choice);
     RUN_TEST(test_v67_vault_on_client_role_does_not_migrate);

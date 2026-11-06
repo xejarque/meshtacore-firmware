@@ -1167,7 +1167,7 @@ size_t MeshCoreRepeater::finishDiscover(DiscoveredPeer *out, size_t max)
 
 void MeshCoreRepeater::handleDiscoverResponse(const uint8_t *raw, const FrameInfo &info, float snr)
 {
-    if (!discoverActive || Time::getMillis() > discoverUntilMs) {
+    if (!discoverActive || Throttle::deadlinePassed(discoverUntilMs)) {
         if (discoverActive) { // the window ran out with nobody closing the scan: end it here
             discoverActive = false;
             discoverActiveTag = 0;
@@ -1185,10 +1185,8 @@ void MeshCoreRepeater::handleDiscoverResponse(const uint8_t *raw, const FrameInf
         return;
 
     const size_t keyLen = (size_t)info.payload_len - 6;
-    if (keyLen < 8) // a prefix is not enough to know who answered
-        return;
     if (keyLen < MC_PUB_KEY_SIZE)
-        return; // MeshCore's own initiator drops prefix-only answers too
+        return; // a prefix is not enough to know who answered; MeshCore's own initiator drops those too
 
     uint8_t pub[MC_PUB_KEY_SIZE];
     memcpy(pub, &resp[6], MC_PUB_KEY_SIZE);

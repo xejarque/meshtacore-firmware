@@ -77,7 +77,7 @@ void test_upsert_if_room_refuses_when_the_table_is_full()
 }
 
 // A known key still refreshes its record when the table is full: only new keys are turned away.
-void test_upsert_if_room_still_touches_a_known_node_when_full()
+void test_upsert_if_room_leaves_the_recency_of_a_known_node_alone()
 {
     MeshCoreNodeStore<4> store;
     MeshCoreNode *a = addNode(store, 0xA0);
@@ -87,7 +87,10 @@ void test_upsert_if_room_still_touches_a_known_node_when_full()
 
     uint8_t pub[32];
     makeKey(pub, 0xA0);
+    const uint32_t before = a->lastMod;
     TEST_ASSERT_EQUAL_PTR(a, store.upsertIfRoom(pub));
+    // A scan answer is no conversation: it must not lift the node above the contacts the operator really used.
+    TEST_ASSERT_EQUAL_UINT32(before, a->lastMod);
 }
 
 void test_free_slot_reports_the_first_free_index()
@@ -274,8 +277,8 @@ void test_a_new_record_is_all_zeros()
 
 void test_record_fits_the_ram_budget()
 {
-    // 350 records were budgeted at about 36 KB of RAM; a field added here costs 350 times its size.
-    TEST_ASSERT_LESS_OR_EQUAL_UINT32(108, sizeof(MeshCoreNode));
+    // 350 records are budgeted at about 42 KB of RAM; a field added here costs 350 times its size.
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32(120, sizeof(MeshCoreNode));
 }
 
 void setup()
@@ -284,7 +287,7 @@ void setup()
     UNITY_BEGIN();
     RUN_TEST(test_upsert_if_room_creates_in_a_free_slot);
     RUN_TEST(test_upsert_if_room_refuses_when_the_table_is_full);
-    RUN_TEST(test_upsert_if_room_still_touches_a_known_node_when_full);
+    RUN_TEST(test_upsert_if_room_leaves_the_recency_of_a_known_node_alone);
     RUN_TEST(test_free_slot_reports_the_first_free_index);
     RUN_TEST(test_free_slot_is_negative_when_the_table_is_full);
     RUN_TEST(test_upsert_creates_once_and_find_returns_it);

@@ -239,6 +239,9 @@ class MeshCoreRepeater
     /** The tag of the running scan (0 when none); answers carrying another tag are ignored. */
     uint32_t discoverTag() const { return discoverActive ? discoverActiveTag : 0; }
 
+    /** When the running scan stops taking answers (compare with Throttle::deadlinePassed). Meaningless without a scan. */
+    uint32_t discoverDeadlineMs() const { return discoverUntilMs; }
+
     /** Copy the collected peers into out, end the scan and clear the table. Returns how many were copied. */
     size_t finishDiscover(DiscoveredPeer *out, size_t max);
 

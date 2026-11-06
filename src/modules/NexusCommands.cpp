@@ -8882,21 +8882,32 @@ bool NexusModule::applyPpingSetting(const char *args, bool meshcore, const char 
             h++;
         // The mode is per layer; the custom text is shared, so setting it on one layer does not touch the other's mode.
         uint8_t &mode = meshcore ? mc_ping_header_mode : mt_ping_header_mode;
-        if (strcasecmp(h, "OFF") == 0 || strcasecmp(h, "DEFAULT") == 0) {
+        const char *layer = meshcore ? "MeshCore" : "Meshtastic";
+        // A text that is also a keyword goes between double quotes: HEADER "none" sets the literal header none.
+        const size_t hLen = strlen(h);
+        const bool quoted = hLen >= 2 && h[0] == '"' && h[hLen - 1] == '"';
+        if (hLen == 0) {
+            snprintf(reply, replyLen, "%s: Usage: PPING HEADER <text>|DEFAULT|NONE|CUSTOM", prefix);
+        } else if (!quoted && (strcasecmp(h, "OFF") == 0 || strcasecmp(h, "DEFAULT") == 0)) {
             mode = PING_HEADER_DEFAULT;
-            snprintf(reply, replyLen, "%s: Header DEFAULT (%s)", prefix, meshcore ? "MeshCore" : "Meshtastic");
-        } else if (strcasecmp(h, "NONE") == 0) {
+            snprintf(reply, replyLen, "%s: Header DEFAULT (%s)", prefix, layer);
+        } else if (!quoted && strcasecmp(h, "NONE") == 0) {
             mode = PING_HEADER_NONE;
-            snprintf(reply, replyLen, "%s: Header NONE (%s)", prefix, meshcore ? "MeshCore" : "Meshtastic");
-        } else if (strcasecmp(h, "CUSTOM") == 0) {
-            mode = PING_HEADER_CUSTOM;
-            snprintf(reply, replyLen, "%s: Header CUSTOM '%s' (%s)", prefix, pping_header, meshcore ? "MeshCore" : "Meshtastic");
+            snprintf(reply, replyLen, "%s: Header NONE (%s)", prefix, layer);
+        } else if (!quoted && strcasecmp(h, "CUSTOM") == 0) {
+            if (pping_header[0] == '\0') {
+                snprintf(reply, replyLen, "%s: No custom header yet: PPING HEADER <text>", prefix);
+            } else {
+                mode = PING_HEADER_CUSTOM;
+                snprintf(reply, replyLen, "%s: Header CUSTOM '%s' (%s)", prefix, pping_header, layer);
+            }
         } else {
+            const char *text = quoted ? h + 1 : h;
+            const size_t textLen = quoted ? hLen - 2 : hLen;
             memset(pping_header, 0, sizeof(pping_header));
-            strncpy(pping_header, h, sizeof(pping_header) - 1);
+            memcpy(pping_header, text, textLen < sizeof(pping_header) ? textLen : sizeof(pping_header) - 1);
             mode = PING_HEADER_CUSTOM;
-            snprintf(reply, replyLen, "%s: Custom Header set to '%s' (%s)", prefix, pping_header,
-                     meshcore ? "MeshCore" : "Meshtastic");
+            snprintf(reply, replyLen, "%s: Custom Header set to '%s' (%s)", prefix, pping_header, layer);
         }
         custom_pping_active = (mt_ping_header_mode == PING_HEADER_CUSTOM);
     } else if (strncasecmp(args, "EMOJI ", 6) == 0) {

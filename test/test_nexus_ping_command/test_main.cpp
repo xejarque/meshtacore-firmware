@@ -176,11 +176,28 @@ void test_a_custom_header_applies_to_the_layer_it_was_typed_on()
     TEST_ASSERT_EQUAL_STRING("Relay Under Test", m.pping_header);
 }
 
+// A keyword needs quotes to be a literal header; an empty text and CUSTOM with nothing stored are refused.
+void test_header_keywords_can_be_quoted_and_empty_text_is_refused()
+{
+    TestNexusModule m;
+    m.mt_ping_header_mode = meshtastic::PING_HEADER_DEFAULT;
+
+    m.run("HEADER CUSTOM");
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_DEFAULT, m.mt_ping_header_mode); // nothing stored to show
+    m.run("HEADER ");
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_DEFAULT, m.mt_ping_header_mode);
+
+    m.run("HEADER \"none\"");
+    TEST_ASSERT_EQUAL_STRING("none", m.pping_header);
+    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_CUSTOM, m.mt_ping_header_mode);
+}
+
 // The vault mirror tracks the Meshtastic mode alone, so a MeshCore-only custom header does not light it up.
 void test_the_vault_mirror_follows_the_meshtastic_mode()
 {
     TestNexusModule m;
     m.custom_pping_active = false;
+    strncpy(m.pping_header, "Shared Text", sizeof(m.pping_header) - 1); // CUSTOM needs a stored text to show
     m.mt_ping_header_mode = meshtastic::PING_HEADER_DEFAULT;
     m.mc_ping_header_mode = meshtastic::PING_HEADER_CUSTOM;
 
@@ -207,6 +224,7 @@ void setup()
     RUN_TEST(test_cmd_sets_the_trigger_up_to_the_first_space);
     RUN_TEST(test_header_modes_are_per_layer);
     RUN_TEST(test_a_custom_header_applies_to_the_layer_it_was_typed_on);
+    RUN_TEST(test_header_keywords_can_be_quoted_and_empty_text_is_refused);
     RUN_TEST(test_the_vault_mirror_follows_the_meshtastic_mode);
     exit(UNITY_END());
 }

@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include <string.h>
 
-// About 108 B a node, all in RAM. LARGE matches MeshCore's own MAX_CONTACTS; the rest follow the class budgets.
+// About 120 B a node, all in RAM. LARGE matches MeshCore's own MAX_CONTACTS; the rest follow the class budgets.
 #ifndef MESHCORE_NODES_MAX
 #if MESHTASTIC_MEM_CLASS <= MEM_CLASS_TINY
 #define MESHCORE_NODES_MAX 16
@@ -42,7 +42,8 @@ struct MeshCoreNode {
     char name[NAME_LEN] = {};
     uint8_t type = 0;
     uint8_t flags = 0;
-    uint8_t outPathLen = 0; // meaningful with HAS_OUT_PATH: 0 is a valid zero-hop route
+    uint8_t outPathLen = 0;  // meaningful with HAS_OUT_PATH: 0 is a valid zero-hop route
+    uint8_t hopsPlusOne = 0; // hops heard over RF, plus one: 0 keeps "unknown" the all-zero default (see hops())
     uint8_t outPath[MAX_PATH_HOPS] = {};
     uint32_t lastAdvert = 0; // the advert timestamp, by THEIR clock
     uint32_t lastMod = 0;    // recency stamp, by our clock; 0 marks a free slot
@@ -51,8 +52,12 @@ struct MeshCoreNode {
     uint32_t nodeNum = 0;
     float snr = 0.0f;
     int32_t rssi = 0;
-    uint8_t hops = 0xFF;    // 0 = direct RF neighbor (zero hops)
     uint32_t lastHeard = 0; // epoch seconds when last heard over RF
+
+    static constexpr uint8_t HOPS_UNKNOWN = 0xFF;
+    /// Hops the last advert travelled: 0 is a direct RF neighbour, HOPS_UNKNOWN means never heard over RF.
+    uint8_t hops() const { return hopsPlusOne ? hopsPlusOne - 1 : HOPS_UNKNOWN; }
+    void setHops(uint8_t h) { hopsPlusOne = (h == HOPS_UNKNOWN) ? 0 : h + 1; }
 
     bool isFavorite() const { return flags & FAVORITE; }
     bool hadDm() const { return flags & HAD_DM; }
@@ -129,7 +134,9 @@ template <size_t N> class MeshCoreNodeStore
 
     /**
      * The node with this key, created only when the table has a free slot. A full table leaves the contact store
-     * untouched and returns null: a discovery scan must not evict a node the operator saved or talked to.
+     * untouched and returns null: a discovery scan must not evict a node the operator saved or talked to. A node
+     * that already exists is returned as it is, recency included: answering a scan says nothing about the operator
+     * having talked to it, so it must not climb above the contacts that were.
      */
     MeshCoreNode *upsertIfRoom(const uint8_t pub[32])
     {
@@ -141,8 +148,8 @@ template <size_t N> class MeshCoreNodeStore
             n = &entries[(size_t)slot];
             *n = MeshCoreNode();
             memcpy(n->pub, pub, 32);
+            touch(n);
         }
-        touch(n);
         return n;
     }
 

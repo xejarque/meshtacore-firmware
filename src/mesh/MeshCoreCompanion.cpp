@@ -1243,10 +1243,10 @@ size_t MeshCoreCompanion::formatNodeList(uint8_t typeFilter, char *out, size_t c
         char hexPub[9];
         snprintf(hexPub, sizeof(hexPub), "%02x%02x%02x%02x", n.pub[0], n.pub[1], n.pub[2], n.pub[3]);
         char route[16] = "";
-        if (n.hops == 0) {
+        if (n.hops() == 0) {
             snprintf(route, sizeof(route), "⚡");
-        } else if (n.hops != 0xFF) {
-            snprintf(route, sizeof(route), "%uh", (unsigned)n.hops);
+        } else if (n.hops() != MeshCoreNode::HOPS_UNKNOWN) {
+            snprintf(route, sizeof(route), "%uh", (unsigned)n.hops());
         }
         int nChars = snprintf(out + len, cap - len, "!%08x %s [%s] %s SNR:%.1f RSSI:%d\n", (unsigned)n.nodeNum, n.name, hexPub,
                               route, (double)n.snr, (int)n.rssi);
@@ -1277,7 +1277,7 @@ bool MeshCoreCompanion::formatNodeDetail(const char *nameOrHex, char *out, size_
                                                                  : "OTHER";
 
     snprintf(out, cap, "!%08x %s (%s) key:%s.. hops:%u SNR:%.1f RSSI:%d", (unsigned)n->nodeNum, n->name, typeName, hexPub,
-             (unsigned)(n->hops == 0xFF ? 0 : n->hops), (double)n->snr, (int)n->rssi);
+             (unsigned)(n->hops() == MeshCoreNode::HOPS_UNKNOWN ? 0 : n->hops()), (double)n->snr, (int)n->rssi);
     return true;
 }
 
@@ -1902,7 +1902,7 @@ void MeshCoreCompanion::handleGroupText(const uint8_t *raw, size_t len, const Me
             MeshCoreNode *contact = nodes.findUniqueByName(sender, MeshCoreNode::CHAT);
             if (contact) {
                 fromNum = contact->nodeNum;
-                contact->hops = info.path_hash_count;
+                contact->setHops(info.path_hash_count);
                 contact->snr = snr;
                 contact->rssi = rssi;
                 contact->lastHeard = getTime(false);
@@ -2052,7 +2052,7 @@ void MeshCoreCompanion::noteAdvert(MeshCoreNode *n, uint32_t advertTime, int32_t
     n->lastAdvert = advertTime;
     n->snr = snr;
     n->rssi = rssi;
-    n->hops = hops;
+    n->setHops(hops);
     uint32_t now = getTime(false);
     n->lastHeard = now ? now : 1;
     nodes.touch(n);
@@ -2119,7 +2119,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
     // The same advert flood reaches us once per route. A copy that is no closer than the one already taken adds nothing, and
     // would overwrite the better hops/SNR, re-announce the node and repeat the signature check.
     auto isWorseCopy = [&](const MeshCoreNode *heard) {
-        return heard && advertTime != 0 && heard->lastAdvert == advertTime && info.path_hash_count >= heard->hops;
+        return heard && advertTime != 0 && heard->lastAdvert == advertTime && info.path_hash_count >= heard->hops();
     };
     if (repeater) {
         // A repeater is not someone to message: numbered from its key, and announced unmessagable.
@@ -2304,7 +2304,7 @@ void MeshCoreCompanion::handleDirectText(const uint8_t *raw, size_t len, const M
             continue;
 
         rememberFrame(hash);
-        c->hops = info.path_hash_count;
+        c->setHops(info.path_hash_count);
         c->snr = snr;
         c->rssi = rssi;
         c->lastHeard = getTime(false);
@@ -2533,9 +2533,9 @@ size_t MeshCoreCompanion::importContacts(const uint8_t *buf, size_t len)
             return;
         if (n.nodeNum == 0) // migrated from the contacts file, which kept no numbers
             nodes.assignNodeNum(&n, MeshCoreNodeStore<1>::nodeNumForName(n.name), PSEUDO_NODE_NUM);
-        const MeshCoreRx rx = (n.hops != 0xFF) ? MeshCoreRx(n.hops, n.snr, n.rssi)
-                              : n.hasOutPath() ? MeshCoreRx::unmeasured(n.outPathLen)
-                                               : MeshCoreRx();
+        const MeshCoreRx rx = (n.hops() != MeshCoreNode::HOPS_UNKNOWN) ? MeshCoreRx(n.hops(), n.snr, n.rssi)
+                              : n.hasOutPath()                         ? MeshCoreRx::unmeasured(n.outPathLen)
+                                                                       : MeshCoreRx();
         ensureSenderNode(n.nodeNum, n.name, true, n.pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
         retireGroupNode(n.name);
         retireKeyedNode(n.pub, n.nodeNum);

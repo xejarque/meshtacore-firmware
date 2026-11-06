@@ -198,8 +198,16 @@ private:
     void formatNeighbors(char *reply, size_t replyLen);
     // /nexus MESHCORE VECINOS: direct MeshCore neighbours.
     void formatMeshCoreNeighbors(char *reply, size_t replyLen);
+    // Where a delayed reply goes: the requester's chat, or the phone alone.
+    struct ReplyContext {
+        uint32_t to = 0xFFFFFFFF;
+        uint32_t channel = 0;
+        uint32_t replyId = 0;
+        bool phoneOnly = false;
+        bool copyToPhone = true;
+    };
     // /nexus MESHCORE DESCUBRIR [secs]: send a zero-hop NODE_DISCOVER_REQ and collect the answers.
-    void handleMeshCoreDiscoverCommand(const char *args, char *reply, size_t replyLen);
+    void handleMeshCoreDiscoverCommand(const char *args, const ReplyContext &requester, char *reply, size_t replyLen);
     // /nexus MESHCORE FAV <hex_prefix> [ON|OFF]: keep a MeshCore contact across restarts.
     void handleMeshCoreFavCommand(const char *args, char *reply, size_t replyLen);
     // Called from runOnce() when the discovery window closes: stores the answers and replies to the requester.
@@ -565,13 +573,6 @@ public:
     NexusTargetStats targetWatchlist[8];
     uint8_t watchlistCount = 0;
 
-    struct ReplyContext {
-        uint32_t to = 0xFFFFFFFF;
-        uint32_t channel = 0;
-        uint32_t replyId = 0;
-        bool phoneOnly = false;
-        bool copyToPhone = true;
-    };
     ReplyContext traceReply, netscanReply, clientscanReply, noiseReply;
     // /nexus MESHCORE DESCUBRIR: where the delayed neighbour listing goes once the scan window closes.
     ReplyContext meshCoreDiscoverReply;
