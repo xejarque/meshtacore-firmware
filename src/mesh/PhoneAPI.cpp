@@ -1301,9 +1301,9 @@ meshtastic_MeshPacket makeReplayMeshCorePacket(const MeshCoreNode &n, meshtastic
     const meshtastic_NodeInfoLite *header = nodeDB ? nodeDB->getMeshNode(n.nodeNum) : nullptr;
     if (header && header->has_hops_away) {
         setReplayHopFields(pkt, header);
-    } else if (n.hops != 0xFF) {
+    } else if (n.hops() != MeshCoreNode::HOPS_UNKNOWN) {
         uint8_t hopLimit = Default::getConfiguredOrDefaultHopLimit(config.lora.hop_limit);
-        uint8_t hopsAway = n.hops;
+        uint8_t hopsAway = n.hops();
         pkt.hop_start = hopLimit;
         pkt.hop_limit = hopsAway < hopLimit ? (uint8_t)(hopLimit - hopsAway) : 0;
         pkt.decoded.has_bitfield = true;
@@ -1311,7 +1311,7 @@ meshtastic_MeshPacket makeReplayMeshCorePacket(const MeshCoreNode &n, meshtastic
     } else {
         setReplayHopFields(pkt, nullptr);
     }
-    if (n.hops == 0) {
+    if (n.hops() == 0) {
         pkt.rx_snr = n.snr;
         pkt.has_rx_rssi = true;
         pkt.rx_rssi = n.rssi;

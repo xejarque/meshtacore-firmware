@@ -13,6 +13,7 @@
 #include "gps/RTC.h"
 #include "mesh/PathReport.h"
 #include "mesh/RadioLibInterface.h"
+#include "mesh/Throttle.h"
 #include "modules/NexusModule.h"
 #include <stdio.h>
 #include <stdlib.h>
