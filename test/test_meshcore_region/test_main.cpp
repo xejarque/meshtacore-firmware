@@ -230,7 +230,8 @@ static void test_process_def_bulk_definition()
     MeshCoreRegionMap map;
     char reply[64] = {0};
 
-    // Bulk define: ES -> MADRID, BCN; FR -> PARIS
+    // Bulk define, ZephCore semantics: "|X" jumps the cursor to X after the segment,
+    // so FR lands under ES and PARIS under FR.
     const char *def = "ES MADRID|ES BCN|ES FR PARIS|FR";
     TEST_ASSERT_TRUE(map.processDef(def, reply, sizeof(reply)));
     TEST_ASSERT_EQUAL_INT(5, map.getCount());
@@ -250,7 +251,7 @@ static void test_process_def_bulk_definition()
     TEST_ASSERT_EQUAL_UINT16(0, es->parent);
     TEST_ASSERT_EQUAL_UINT16(es->id, mad->parent);
     TEST_ASSERT_EQUAL_UINT16(es->id, bcn->parent);
-    TEST_ASSERT_EQUAL_UINT16(0, fr->parent);
+    TEST_ASSERT_EQUAL_UINT16(es->id, fr->parent);
     TEST_ASSERT_EQUAL_UINT16(fr->id, paris->parent);
 
     // Empty definition returns error
