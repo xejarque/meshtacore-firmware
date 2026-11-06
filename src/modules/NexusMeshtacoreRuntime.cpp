@@ -61,7 +61,8 @@ bool NexusModule::deferLowBatterySleep(uint32_t batteryMv)
     char msg[96];
     uint32_t wakeMv = 0;
 #ifdef ARCH_NRF52
-    wakeMv = nrf52EstimateBatteryLpcompWakeMv();
+    if (nrf52ArmsBatteryLpcompWake())
+        wakeMv = nrf52EstimateBatteryLpcompWakeMv();
 #endif
     if (wakeMv)
         snprintf(msg, sizeof(msg), "JT: [Sleep] battery %lu mV, wakes at ~%lu mV", (unsigned long)batteryMv,

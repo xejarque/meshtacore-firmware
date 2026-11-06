@@ -116,7 +116,7 @@ static void lowBattSDSEnter()
     const uint32_t sleepMs = lowBatterySleepMs();
 #ifdef ARCH_NRF52
     // System OFF ignores the timer: without a battery LPCOMP wake the timed sleep is the only way back.
-    if (sleepMs != portMAX_DELAY && !nrf52HasBatteryLpcompWake())
+    if (sleepMs != portMAX_DELAY && !nrf52ArmsBatteryLpcompWake())
         nrf52RequestTimedSleep();
 #endif
     doDeepSleep(sleepMs, false, true);

@@ -515,6 +515,11 @@ bool nrf52HasBatteryLpcompWake()
 #endif
 }
 
+bool nrf52ArmsBatteryLpcompWake()
+{
+    return nrf52HasBatteryLpcompWake() && variant_enableBatteryLpcompWake();
+}
+
 bool nrf52SetBatteryLpcompWakeFraction(uint8_t num, uint8_t den)
 {
 #ifdef BATTERY_LPCOMP_INPUT
