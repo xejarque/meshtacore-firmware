@@ -27,7 +27,7 @@ class LR2021Interface : public LR20x0Interface<LR2021>
     // the apply hooks in LR20x0Interface::init(), ::reconfigure(), and
     // ::fullBegin(). RAM-only persistence (the table is lost on reboot;
     // operators re-set with /nexus LR2021_SF). A future vault bump could
-    // persist this — Nexus-28005 keeps it RAM-only because the apply runs
+    // persist this - Nexus-28005 keeps it RAM-only because the apply runs
     // before vault-load validation.
     static constexpr uint8_t MAX_SF_TABLE = 3;
     const uint8_t *sideDetectors() const { return sideSFs_; }

@@ -5,7 +5,7 @@
 **Branch:** `feature/nexus-preset-overhaul`  
 **Commit:** `7b3099f1d` (`feat(nexus): overhaul PRESET with LORA_24, Madrid24, Narrow, Lite, Mini-1..8 and band guards`)  
 **Base Commit:** `9a696ee2f` (`fix/nexus-local-commands`)  
-**Date:** 2026-10-20  
+**Date:** 2026-10-20
 
 ---
 
@@ -49,6 +49,7 @@ The `PRESET` / `SETPRESET` command handler in `src/modules/NexusCommands.cpp` ha
 ### A. NAP, Lite, and Mini Frequency Allocations (`EU_866`)
 
 The 4 NAP channels are spaced at 600 kHz intervals starting at 865.700 MHz:
+
 - Channel span per band: 200 kHz
 - LoRaWAN / Lite channel width: 125 kHz centered on channel center frequency
 - Unallocated guardband: $(200 - 125) / 2 = 37.5\text{ kHz}$ on the left and right
@@ -56,18 +57,19 @@ The 4 NAP channels are spaced at 600 kHz intervals starting at 865.700 MHz:
   $$\text{Center}_{\text{left}} = F_{\text{NAP}} - \frac{125 + 37.5}{2}\text{ kHz} = F_{\text{NAP}} - 81.25\text{ kHz}$$
   $$\text{Center}_{\text{right}} = F_{\text{NAP}} + \frac{125 + 37.5}{2}\text{ kHz} = F_{\text{NAP}} + 81.25\text{ kHz}$$
 
-| Band | Channel Center | Lite / NAP (125 kHz) Span | Mini Preset (Left) | Mini Left Center | Mini Left Span (31.25 kHz) | Mini Preset (Right) | Mini Right Center | Mini Right Span (31.25 kHz) |
-|---|---|---|---|---|---|---|---|---|
-| **NAP 1** | `865.7000 MHz` | 865.6375 - 865.7625 | `Mini-1` | **`865.6188 MHz`** | 865.6031 - 865.6344 | `Mini-2` | **`865.7812 MHz`** | 865.7656 - 865.7969 |
-| **NAP 2** | `866.3000 MHz` | 866.2375 - 866.3625 | `Mini-3` | **`866.2188 MHz`** | 866.2031 - 866.2344 | `Mini-4` | **`866.3812 MHz`** | 866.3656 - 866.3969 |
-| **NAP 3** | `866.9000 MHz` | 866.8375 - 866.9625 | `Mini-5` | **`866.8188 MHz`** | 866.8031 - 866.8344 | `Mini-6` | **`866.9812 MHz`** | 866.9656 - 866.9969 |
-| **NAP 4** | `867.5000 MHz` | 867.4375 - 867.5625 | `Mini-7` | **`867.4188 MHz`** | 867.4031 - 867.4344 | `Mini-8` | **`867.5812 MHz`** | 867.5656 - 867.5969 |
+| Band      | Channel Center | Lite / NAP (125 kHz) Span | Mini Preset (Left) | Mini Left Center   | Mini Left Span (31.25 kHz) | Mini Preset (Right) | Mini Right Center  | Mini Right Span (31.25 kHz) |
+| --------- | -------------- | ------------------------- | ------------------ | ------------------ | -------------------------- | ------------------- | ------------------ | --------------------------- |
+| **NAP 1** | `865.7000 MHz` | 865.6375 - 865.7625       | `Mini-1`           | **`865.6188 MHz`** | 865.6031 - 865.6344        | `Mini-2`            | **`865.7812 MHz`** | 865.7656 - 865.7969         |
+| **NAP 2** | `866.3000 MHz` | 866.2375 - 866.3625       | `Mini-3`           | **`866.2188 MHz`** | 866.2031 - 866.2344        | `Mini-4`            | **`866.3812 MHz`** | 866.3656 - 866.3969         |
+| **NAP 3** | `866.9000 MHz` | 866.8375 - 866.9625       | `Mini-5`           | **`866.8188 MHz`** | 866.8031 - 866.8344        | `Mini-6`            | **`866.9812 MHz`** | 866.9656 - 866.9969         |
+| **NAP 4** | `867.5000 MHz` | 867.4375 - 867.5625       | `Mini-7`           | **`867.4188 MHz`** | 867.4031 - 867.4344        | `Mini-8`            | **`867.5812 MHz`** | 867.5656 - 867.5969         |
 
-*(Note: `LiteSlow` shares `865.7000 MHz` with `NAP-1`; `LiteFast` shares `866.3000 MHz` with `NAP-2`).*
+_(Note: `LiteSlow` shares `865.7000 MHz` with `NAP-1`; `LiteFast` shares `866.3000 MHz` with `NAP-2`)._
 
 ### B. Upstream Narrow Presets (`EU_N_868`)
 
 Meshtastic's `EU_N_868` region defaults to `869.441666... MHz` (frequency slot: `869.4417 MHz`) with $62.5\text{ kHz}$ bandwidth and CR 4/6:
+
 - `NarrowFast` (`NF`): SF7, BW 62, CR 6, `869.4417 MHz`, Region `EU_N_868`
 - `NarrowSlow` (`NS`): SF8, BW 62, CR 6, `869.4417 MHz`, Region `EU_N_868`
 
@@ -75,54 +77,54 @@ Meshtastic's `EU_N_868` region defaults to `869.441666... MHz` (frequency slot: 
 
 ## 3. Comprehensive Master Preset Reference Table
 
-| Group | Preset Command | Aliases | SF | BW Code | CR | Override Freq | Target Region |
-|---|---|---|---|---|---|---|---|
-| **2.4 GHz Tactical** | `PRESET MADRID24` | `MADRID-24`, `MADRID_24` | 9 | 400 | 4/5 | `2482.0000 MHz` | `LORA_24` |
-| **2.4 GHz Standard** | `PRESET LF24` | `LONGFAST24`, `LONGFAST_24`, `LF` (on 2.4G) | 11 | 800 | 4/5 | `2482.0000 MHz` | `LORA_24` |
-| 2.4 GHz Standard | `PRESET MS24` | `MEDSLOW24`, `MEDSLOW_24`, `MS` (on 2.4G) | 10 | 800 | 4/5 | `2482.0000 MHz` | `LORA_24` |
-| 2.4 GHz Standard | `PRESET MF24` | `MEDFAST24`, `MEDFAST_24`, `MF` (on 2.4G) | 9 | 800 | 4/5 | `2482.0000 MHz` | `LORA_24` |
-| 2.4 GHz Standard | `PRESET SS24` | `SHORTSLOW24`, `SHORTSLOW_24`, `SS` (on 2.4G) | 8 | 800 | 4/5 | `2482.0000 MHz` | `LORA_24` |
-| 2.4 GHz Standard | `PRESET SF24` | `SHORTFAST24`, `SHORTFAST_24`, `SF` (on 2.4G) | 7 | 800 | 4/5 | `2482.0000 MHz` | `LORA_24` |
-| 2.4 GHz Standard | `PRESET LM24` | `LONGMODERATE24`, `LONGMODERATE_24`, `LM` (on 2.4G) | 11 | 400 | 4/8 | `2482.0000 MHz` | `LORA_24` |
-| 2.4 GHz Standard | `PRESET LS24` | `LONGSLOW24`, `LONGSLOW_24`, `LS` (on 2.4G) | 12 | 400 | 4/8 | `2482.0000 MHz` | `LORA_24` |
-| 2.4 GHz Standard | `PRESET ST24` | `SHORTTURBO24`, `SHORTTURBO_24`, `ST` (on 2.4G) | 7 | 1600 | 4/5 | `2482.0000 MHz` | `LORA_24` |
-| 2.4 GHz Standard | `PRESET LT24` | `LONGTURBO24`, `LONGTURBO_24`, `LT` (on 2.4G) | 11 | 1600 | 4/8 | `2482.0000 MHz` | `LORA_24` |
-| **EU_868 Standard** | `PRESET LF` | `LF868`, `LONGFAST`, `LONGFAST868` | 11 | 250 | 4/5 | `869.5250 MHz` | `EU_868` |
-| EU_868 Standard | `PRESET MS` | `MS868`, `MEDSLOW`, `MEDSLOW868` | 10 | 250 | 4/5 | `869.5250 MHz` | `EU_868` |
-| EU_868 Standard | `PRESET MF` | `MF868`, `MEDFAST`, `MEDFAST868` | 9 | 250 | 4/5 | `869.5250 MHz` | `EU_868` |
-| EU_868 Standard | `PRESET SS` | `SS868`, `SHORTSLOW`, `SHORTSLOW868` | 8 | 250 | 4/5 | `869.5250 MHz` | `EU_868` |
-| EU_868 Standard | `PRESET SF` | `SF868`, `SHORTFAST`, `SHORTFAST868` | 7 | 250 | 4/5 | `869.5250 MHz` | `EU_868` |
-| EU_868 Standard | `PRESET LM` | `LM868`, `LONGMODERATE`, `LONGMODERATE868` | 11 | 125 | 4/8 | `869.5250 MHz` | `EU_868` |
-| EU_868 Standard | `PRESET LS` | `LS868`, `LONGSLOW`, `LONGSLOW868` | 12 | 125 | 4/8 | `869.5250 MHz` | `EU_868` |
-| EU_868 Standard | `PRESET ST` | `ST868`, `SHORTTURBO`, `SHORTTURBO868` | 7 | 500 | 4/5 | `869.5250 MHz` | `EU_868` |
-| EU_868 Standard | `PRESET LT` | `LT868`, `LONGTURBO`, `LONGTURBO868` | 11 | 500 | 4/8 | `869.5250 MHz` | `EU_868` |
-| **Tactical 868** | `PRESET P1` | `SFNARROW` | 7 | 62 | 4/5 | `869.6180 MHz` | `EU_868` |
-| Tactical 868 | `PRESET P7` | `NARROWPLUS` | 6 | 62 | 4/5 | `869.6180 MHz` | `EU_868` |
-| Tactical 868 | `PRESET NARROWPROMAX` | `NARROWPREMIUM` | 5 | 62 | 4/5 | `869.6180 MHz` | `EU_868` |
-| Tactical 868 | `PRESET SP` | `SHORTPLUS` | 6 | 250 | 4/5 | `869.5250 MHz` | `EU_868` |
-| Tactical 868 | `PRESET SPM` | `SHORTPROMAX` | 5 | 250 | 4/5 | `869.5250 MHz` | `EU_868` |
-| **Narrow (EU_N_868)** | `PRESET NF` | `NARROWFAST`, `NARF`, `NARROW_FAST`, `NARROW-FAST` | 7 | 62 | 4/6 | `869.4417 MHz` | `EU_N_868` |
-| Narrow (EU_N_868) | `PRESET NS` | `NARROWSLOW`, `NARS`, `NARROW_SLOW`, `NARROW-SLOW` | 8 | 62 | 4/6 | `869.4417 MHz` | `EU_N_868` |
-| **Lite (EU_866)** | `PRESET LITEFAST` | `LITEF`, `LITE_FAST`, `LITE-FAST` | 9 | 125 | 4/5 | `866.3000 MHz` | `EU_866` |
-| Lite (EU_866) | `PRESET LITESLOW` | `LITES`, `LITE_SLOW`, `LITE-SLOW` | 10 | 125 | 4/5 | `865.7000 MHz` | `EU_866` |
-| **NAP (EU_866)** | `PRESET NAP-1` | `NAP1` | 7 | 125 | 4/5 | `865.7000 MHz` | `EU_866` |
-| NAP (EU_866) | `PRESET NAP-2` | `NAP2` | 7 | 125 | 4/5 | `866.3000 MHz` | `EU_866` |
-| NAP (EU_866) | `PRESET NAP-3` | `NAP3` | 7 | 125 | 4/5 | `866.9000 MHz` | `EU_866` |
-| NAP (EU_866) | `PRESET NAP-4` | `NAP4` | 7 | 125 | 4/5 | 867.5000 MHz | `EU_866` |
-| NAP (EU_866) | `PRESET NAP-5` | `NAP5` | 7 | 125 | 4/5 | 871.0000 MHz | `EU_866` |
-| **NAPN (EU_866)** | `PRESET NAPN-1` | `NAPN1` | 7 | 62 | 4/5 | `865.7000 MHz` | `EU_866` |
-| NAPN (EU_866) | `PRESET NAPN-2` | `NAPN2` | 7 | 62 | 4/5 | `866.3000 MHz` | `EU_866` |
-| NAPN (EU_866) | `PRESET NAPN-3` | `NAPN3` | 7 | 62 | 4/5 | `866.9000 MHz` | `EU_866` |
-| NAPN (EU_866) | `PRESET NAPN-4` | `NAPN4` | 7 | 62 | 4/5 | 867.5000 MHz | `EU_866` |
-| NAPN (EU_866) | `PRESET NAPN-5` | `NAPN5` | 7 | 62 | 4/5 | 871.0000 MHz | `EU_866` |
-| **Mini (EU_866)** | `PRESET MINI-1` | `MINI1`, `MICRO-1`, `MICRO1` | 6 | 31 | 4/5 | **`865.6188 MHz`** | `EU_866` |
-| Mini (EU_866) | `PRESET MINI-2` | `MINI2`, `MICRO-2`, `MICRO2` | 6 | 31 | 4/5 | **`865.7812 MHz`** | `EU_866` |
-| Mini (EU_866) | `PRESET MINI-3` | `MINI3`, `MICRO-3`, `MICRO3` | 6 | 31 | 4/5 | **`866.2188 MHz`** | `EU_866` |
-| Mini (EU_866) | `PRESET MINI-4` | `MINI4`, `MICRO-4`, `MICRO4` | 6 | 31 | 4/5 | **`866.3812 MHz`** | `EU_866` |
-| Mini (EU_866) | `PRESET MINI-5` | `MINI5`, `MICRO-5`, `MICRO5` | 6 | 31 | 4/5 | **`866.8188 MHz`** | `EU_866` |
-| Mini (EU_866) | `PRESET MINI-6` | `MINI6`, `MICRO-6`, `MICRO6` | 6 | 31 | 4/5 | **`866.9812 MHz`** | `EU_866` |
-| Mini (EU_866) | `PRESET MINI-7` | `MINI7`, `MICRO-7`, `MICRO7` | 6 | 31 | 4/5 | **`867.4188 MHz`** | `EU_866` |
-| Mini (EU_866) | `PRESET MINI-8` | `MINI8`, `MICRO-8`, `MICRO8` | 6 | 31 | 4/5 | **`867.5812 MHz`** | `EU_866` |
+| Group                 | Preset Command        | Aliases                                             | SF  | BW Code | CR  | Override Freq      | Target Region |
+| --------------------- | --------------------- | --------------------------------------------------- | --- | ------- | --- | ------------------ | ------------- |
+| **2.4 GHz Tactical**  | `PRESET MADRID24`     | `MADRID-24`, `MADRID_24`                            | 9   | 400     | 4/5 | `2482.0000 MHz`    | `LORA_24`     |
+| **2.4 GHz Standard**  | `PRESET LF24`         | `LONGFAST24`, `LONGFAST_24`, `LF` (on 2.4G)         | 11  | 800     | 4/5 | `2482.0000 MHz`    | `LORA_24`     |
+| 2.4 GHz Standard      | `PRESET MS24`         | `MEDSLOW24`, `MEDSLOW_24`, `MS` (on 2.4G)           | 10  | 800     | 4/5 | `2482.0000 MHz`    | `LORA_24`     |
+| 2.4 GHz Standard      | `PRESET MF24`         | `MEDFAST24`, `MEDFAST_24`, `MF` (on 2.4G)           | 9   | 800     | 4/5 | `2482.0000 MHz`    | `LORA_24`     |
+| 2.4 GHz Standard      | `PRESET SS24`         | `SHORTSLOW24`, `SHORTSLOW_24`, `SS` (on 2.4G)       | 8   | 800     | 4/5 | `2482.0000 MHz`    | `LORA_24`     |
+| 2.4 GHz Standard      | `PRESET SF24`         | `SHORTFAST24`, `SHORTFAST_24`, `SF` (on 2.4G)       | 7   | 800     | 4/5 | `2482.0000 MHz`    | `LORA_24`     |
+| 2.4 GHz Standard      | `PRESET LM24`         | `LONGMODERATE24`, `LONGMODERATE_24`, `LM` (on 2.4G) | 11  | 400     | 4/8 | `2482.0000 MHz`    | `LORA_24`     |
+| 2.4 GHz Standard      | `PRESET LS24`         | `LONGSLOW24`, `LONGSLOW_24`, `LS` (on 2.4G)         | 12  | 400     | 4/8 | `2482.0000 MHz`    | `LORA_24`     |
+| 2.4 GHz Standard      | `PRESET ST24`         | `SHORTTURBO24`, `SHORTTURBO_24`, `ST` (on 2.4G)     | 7   | 1600    | 4/5 | `2482.0000 MHz`    | `LORA_24`     |
+| 2.4 GHz Standard      | `PRESET LT24`         | `LONGTURBO24`, `LONGTURBO_24`, `LT` (on 2.4G)       | 11  | 1600    | 4/8 | `2482.0000 MHz`    | `LORA_24`     |
+| **EU_868 Standard**   | `PRESET LF`           | `LF868`, `LONGFAST`, `LONGFAST868`                  | 11  | 250     | 4/5 | `869.5250 MHz`     | `EU_868`      |
+| EU_868 Standard       | `PRESET MS`           | `MS868`, `MEDSLOW`, `MEDSLOW868`                    | 10  | 250     | 4/5 | `869.5250 MHz`     | `EU_868`      |
+| EU_868 Standard       | `PRESET MF`           | `MF868`, `MEDFAST`, `MEDFAST868`                    | 9   | 250     | 4/5 | `869.5250 MHz`     | `EU_868`      |
+| EU_868 Standard       | `PRESET SS`           | `SS868`, `SHORTSLOW`, `SHORTSLOW868`                | 8   | 250     | 4/5 | `869.5250 MHz`     | `EU_868`      |
+| EU_868 Standard       | `PRESET SF`           | `SF868`, `SHORTFAST`, `SHORTFAST868`                | 7   | 250     | 4/5 | `869.5250 MHz`     | `EU_868`      |
+| EU_868 Standard       | `PRESET LM`           | `LM868`, `LONGMODERATE`, `LONGMODERATE868`          | 11  | 125     | 4/8 | `869.5250 MHz`     | `EU_868`      |
+| EU_868 Standard       | `PRESET LS`           | `LS868`, `LONGSLOW`, `LONGSLOW868`                  | 12  | 125     | 4/8 | `869.5250 MHz`     | `EU_868`      |
+| EU_868 Standard       | `PRESET ST`           | `ST868`, `SHORTTURBO`, `SHORTTURBO868`              | 7   | 500     | 4/5 | `869.5250 MHz`     | `EU_868`      |
+| EU_868 Standard       | `PRESET LT`           | `LT868`, `LONGTURBO`, `LONGTURBO868`                | 11  | 500     | 4/8 | `869.5250 MHz`     | `EU_868`      |
+| **Tactical 868**      | `PRESET P1`           | `SFNARROW`                                          | 7   | 62      | 4/5 | `869.6180 MHz`     | `EU_868`      |
+| Tactical 868          | `PRESET P7`           | `NARROWPLUS`                                        | 6   | 62      | 4/5 | `869.6180 MHz`     | `EU_868`      |
+| Tactical 868          | `PRESET NARROWPROMAX` | `NARROWPREMIUM`                                     | 5   | 62      | 4/5 | `869.6180 MHz`     | `EU_868`      |
+| Tactical 868          | `PRESET SP`           | `SHORTPLUS`                                         | 6   | 250     | 4/5 | `869.5250 MHz`     | `EU_868`      |
+| Tactical 868          | `PRESET SPM`          | `SHORTPROMAX`                                       | 5   | 250     | 4/5 | `869.5250 MHz`     | `EU_868`      |
+| **Narrow (EU_N_868)** | `PRESET NF`           | `NARROWFAST`, `NARF`, `NARROW_FAST`, `NARROW-FAST`  | 7   | 62      | 4/6 | `869.4417 MHz`     | `EU_N_868`    |
+| Narrow (EU_N_868)     | `PRESET NS`           | `NARROWSLOW`, `NARS`, `NARROW_SLOW`, `NARROW-SLOW`  | 8   | 62      | 4/6 | `869.4417 MHz`     | `EU_N_868`    |
+| **Lite (EU_866)**     | `PRESET LITEFAST`     | `LITEF`, `LITE_FAST`, `LITE-FAST`                   | 9   | 125     | 4/5 | `866.3000 MHz`     | `EU_866`      |
+| Lite (EU_866)         | `PRESET LITESLOW`     | `LITES`, `LITE_SLOW`, `LITE-SLOW`                   | 10  | 125     | 4/5 | `865.7000 MHz`     | `EU_866`      |
+| **NAP (EU_866)**      | `PRESET NAP-1`        | `NAP1`                                              | 7   | 125     | 4/5 | `865.7000 MHz`     | `EU_866`      |
+| NAP (EU_866)          | `PRESET NAP-2`        | `NAP2`                                              | 7   | 125     | 4/5 | `866.3000 MHz`     | `EU_866`      |
+| NAP (EU_866)          | `PRESET NAP-3`        | `NAP3`                                              | 7   | 125     | 4/5 | `866.9000 MHz`     | `EU_866`      |
+| NAP (EU_866)          | `PRESET NAP-4`        | `NAP4`                                              | 7   | 125     | 4/5 | 867.5000 MHz       | `EU_866`      |
+| NAP (EU_866)          | `PRESET NAP-5`        | `NAP5`                                              | 7   | 125     | 4/5 | 871.0000 MHz       | `EU_866`      |
+| **NAPN (EU_866)**     | `PRESET NAPN-1`       | `NAPN1`                                             | 7   | 62      | 4/5 | `865.7000 MHz`     | `EU_866`      |
+| NAPN (EU_866)         | `PRESET NAPN-2`       | `NAPN2`                                             | 7   | 62      | 4/5 | `866.3000 MHz`     | `EU_866`      |
+| NAPN (EU_866)         | `PRESET NAPN-3`       | `NAPN3`                                             | 7   | 62      | 4/5 | `866.9000 MHz`     | `EU_866`      |
+| NAPN (EU_866)         | `PRESET NAPN-4`       | `NAPN4`                                             | 7   | 62      | 4/5 | 867.5000 MHz       | `EU_866`      |
+| NAPN (EU_866)         | `PRESET NAPN-5`       | `NAPN5`                                             | 7   | 62      | 4/5 | 871.0000 MHz       | `EU_866`      |
+| **Mini (EU_866)**     | `PRESET MINI-1`       | `MINI1`, `MICRO-1`, `MICRO1`                        | 6   | 31      | 4/5 | **`865.6188 MHz`** | `EU_866`      |
+| Mini (EU_866)         | `PRESET MINI-2`       | `MINI2`, `MICRO-2`, `MICRO2`                        | 6   | 31      | 4/5 | **`865.7812 MHz`** | `EU_866`      |
+| Mini (EU_866)         | `PRESET MINI-3`       | `MINI3`, `MICRO-3`, `MICRO3`                        | 6   | 31      | 4/5 | **`866.2188 MHz`** | `EU_866`      |
+| Mini (EU_866)         | `PRESET MINI-4`       | `MINI4`, `MICRO-4`, `MICRO4`                        | 6   | 31      | 4/5 | **`866.3812 MHz`** | `EU_866`      |
+| Mini (EU_866)         | `PRESET MINI-5`       | `MINI5`, `MICRO-5`, `MICRO5`                        | 6   | 31      | 4/5 | **`866.8188 MHz`** | `EU_866`      |
+| Mini (EU_866)         | `PRESET MINI-6`       | `MINI6`, `MICRO-6`, `MICRO6`                        | 6   | 31      | 4/5 | **`866.9812 MHz`** | `EU_866`      |
+| Mini (EU_866)         | `PRESET MINI-7`       | `MINI7`, `MICRO-7`, `MICRO7`                        | 6   | 31      | 4/5 | **`867.4188 MHz`** | `EU_866`      |
+| Mini (EU_866)         | `PRESET MINI-8`       | `MINI8`, `MICRO-8`, `MICRO8`                        | 6   | 31      | 4/5 | **`867.5812 MHz`** | `EU_866`      |
 
 ---
 

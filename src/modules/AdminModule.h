@@ -19,7 +19,10 @@ struct AdminModule_ObserverData {
 };
 
 // Nexus port (Nexus-28001): forward-declare NexusModule at file scope (see NodeDB.h for rationale).
-namespace meshtastic { class NexusModule; }
+namespace meshtastic
+{
+class NexusModule;
+}
 
 /**
  * Admin module for admin messages
@@ -30,9 +33,10 @@ class AdminModule : public ProtobufModule<meshtastic_AdminMessage>, public Obser
     // Nexus port: NexusModule reaches into AdminModule's protected/private handlers
     // (handleSetConfig, handleSetModuleConfig, reboot) to drive /nexus SETCONFIG,
     // /nexus REBOOT, and similar internal operators. Friend is preferred over moving
-    // the methods to public — they're internal AdminModule plumbing that Nexus orchestrates
+    // the methods to public - they're internal AdminModule plumbing that Nexus orchestrates
     // on behalf of the operator.
     friend class meshtastic::NexusModule;
+
   public:
     /** Constructor
      * name is for debugging output

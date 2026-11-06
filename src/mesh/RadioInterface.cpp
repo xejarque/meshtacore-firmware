@@ -16,10 +16,10 @@
 #include "SX1280Interface.h"
 #include "UptimeClock.h"
 #include "configuration.h"
-#include "modules/NexusModule.h"
 #include "detect/LoRaRadioType.h"
 #include "main.h"
 #include "meshUtils.h" // for pow_of_2
+#include "modules/NexusModule.h"
 #include "sleep.h"
 #include <assert.h>
 #include <pb_decode.h>
@@ -883,8 +883,10 @@ uint32_t RadioInterface::getTxDelayMsecWeightedWorst(float snr)
 bool RadioInterface::shouldRebroadcastEarlyLikeRouter(meshtastic_MeshPacket *p)
 {
     if (meshtastic::nexusModule) {
-        if (meshtastic::nexusModule->t_m == 1) return true;  
-        if (meshtastic::nexusModule->t_m == 2) return false; 
+        if (meshtastic::nexusModule->t_m == 1)
+            return true;
+        if (meshtastic::nexusModule->t_m == 2)
+            return false;
     }
 
     // If we are a ROUTER, we always rebroadcast early
@@ -1375,7 +1377,7 @@ void RadioInterface::applyModemConfig()
     // operator's override. The NexusModule instance exists by the time this runs (Modules.cpp
     // creates it before initLoRa; NexusModule::setup -> loadVault runs in setupModules() before
     // initLoRa too, so vault v40 is already populated for the boot path). The actual write
-    // to the driver-specific syncWord member happens in the virtual hook below — subclasses
+    // to the driver-specific syncWord member happens in the virtual hook below - subclasses
     // (RadioLibInterface) override it to read from NexusModule directly. Non-Nexus
     // subclasses get the no-op default.
     applyNexusSyncwordOverride();
@@ -1489,7 +1491,7 @@ void RadioInterface::applyModemConfig()
     // The hook was added in commit 0f5d4832b (Jun 25, "fix: correctly trigger radio
     // re-init for preamble change"), survived into the first Nexus-269 squash
     // (e8af82c86, Aug 15), then died in the Nexus-269→Nexus-269-resync merge
-    // (commit 4e0a2c57d, Aug 16) — 31 upstream-merge commits came in and the
+    // (commit 4e0a2c57d, Aug 16) - 31 upstream-merge commits came in and the
     // rebaser silently dropped it from both init() and reconfigure(). Nexus-28001
     // rebase inherited the broken state. /nexus SETPREAMBLE writes
     // NexusModule::preamble_override to RAM and vault v35; the deferred apply

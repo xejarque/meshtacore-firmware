@@ -4,8 +4,8 @@
 #include "configuration.h"
 #include "mesh-pb-constants.h"
 #include "meshUtils.h"
-#include "modules/TextMessageModule.h"
 #include "modules/NexusModule.h"
+#include "modules/TextMessageModule.h"
 #if !MESHTASTIC_EXCLUDE_TRACEROUTE
 #include "modules/TraceRouteModule.h"
 #endif
@@ -30,9 +30,8 @@ static inline bool nexusFirewallDrops(const meshtastic_MeshPacket &p)
 {
     if (!meshtastic::nexusModule)
         return false;
-    return (p.which_payload_variant == meshtastic_MeshPacket_encrypted_tag)
-               ? meshtastic::nexusModule->shouldDropPrivate(p)
-               : meshtastic::nexusModule->shouldDropPacket(p);
+    return (p.which_payload_variant == meshtastic_MeshPacket_encrypted_tag) ? meshtastic::nexusModule->shouldDropPrivate(p)
+                                                                            : meshtastic::nexusModule->shouldDropPacket(p);
 }
 
 FloodingRouter::FloodingRouter() {}
@@ -171,8 +170,7 @@ bool FloodingRouter::roleAllowsCancelingDupe(const meshtastic_MeshPacket *p)
             return false; // Force router behavior for IDR nodes
         }
 
-        if (meshtastic::nexusModule->base_texts && 
-            p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
+        if (meshtastic::nexusModule->base_texts && p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
             return false; // Force router behavior for TEXT messages only
         }
     }
@@ -191,7 +189,6 @@ bool FloodingRouter::roleAllowsCancelingDupe(const meshtastic_MeshPacket *p)
         // even if we've heard another station rebroadcast it already.
         return !nodeDB->isFromOrToFavoritedNode(*p);
     }
-   
 
     // All other roles (such as CLIENT) should cancel a rebroadcast if they hear another station's rebroadcast.
     return true;
@@ -210,12 +207,11 @@ void FloodingRouter::perhapsCancelDupe(const meshtastic_MeshPacket *p)
     }
 #if HAS_NEXUS
     // Nexus LATEBASE (2026-10-07): upstream v2.8.1 also clamps CLIENT_BASE
-    // (favorited from/to) into the late-rebroadcast window — i.e. CLIENT_BASE
+    // (favorited from/to) into the late-rebroadcast window - i.e. CLIENT_BASE
     // repeats with ROUTER_LATE timing. JT removed that block so CLIENT_BASE
     // repeats in the client/router window instead; feature bit LATEBASE restores
     // the upstream behavior on demand (default OFF = current JT behavior).
-    if (meshtastic::nexusModule &&
-        (meshtastic::nexusModule->getNexusFeaturesHex() & meshtastic::FEATURE_LATEBASE) &&
+    if (meshtastic::nexusModule && (meshtastic::nexusModule->getNexusFeaturesHex() & meshtastic::FEATURE_LATEBASE) &&
         config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_BASE && iface && nodeDB &&
         nodeDB->isFromOrToFavoritedNode(*p)) {
         iface->clampToLateRebroadcastWindow(getFrom(p), p->id);
