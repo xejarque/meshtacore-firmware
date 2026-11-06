@@ -5,6 +5,7 @@
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 
 #include "Channels.h"
+#include "HeardRouteArchive.h"
 #include "MeshCoreDedup.h"
 #include "MeshCoreNodeFile.h"
 #include "MeshCoreNodeStore.h"
@@ -130,7 +131,8 @@ class MeshCoreCompanion
     static void hopFields(uint8_t pathHashCount, uint8_t *hopStart, uint8_t *hopLimit);
 
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
-    /// How a bridged text was heard, kept so ".path" can report it. RAM only: the ring evicts it, a reboot loses it.
+    /// How a bridged text was heard, kept so ".path" can report it. The ring evicts it; with an external flash the evicted
+    /// route goes to the route log, otherwise it is lost, and a reboot loses what the ring held.
     struct HeardPath {
         static constexpr uint8_t DIRECT_CHANNEL = 0xFF; // channel of a direct message: no MeshCore channel has this index
 
@@ -145,10 +147,19 @@ class MeshCoreCompanion
         uint8_t hashSize = 0;
         uint8_t hopCount = 0;
         bool own = false;      // our own transmission: the echoes of it borrow its id, but it is no route itself
+        bool ageKnown = true;  // false for a route read from the log by a node that had no wall clock when it was heard
         uint8_t path[64] = {}; // MeshCore MAX_PATH_SIZE, so every hop of the route is kept and reported
     };
-    /// One route per copy of a text: a flood reaches us over several, and ".path" lists them all.
+    /// One route per copy of a text: a flood reaches us over several, and ".path" lists them all. With an external flash
+    /// only the latest are kept here and the rest go to the route log; without one they all stay in RAM.
+#ifdef HAS_HEARD_ROUTE_ARCHIVE
+    static constexpr size_t PATH_MEMORY = 8;
+    /// Routes read back from the log for one ".path" report, on top of those still in RAM.
+    static constexpr size_t ARCHIVED_ROUTES_MAX = 16;
+#else
     static constexpr size_t PATH_MEMORY = 32;
+    static constexpr size_t ARCHIVED_ROUTES_MAX = 0;
+#endif
 
     /**
      * Record one route by which a bridged text was heard, so ".path" can report it. The same route heard again only
@@ -196,6 +207,11 @@ class MeshCoreCompanion
     /// Render every known route, shortest first, into client-sized pieces through sink. Names come from the node DB
     /// and the contact table; several candidates for one hash are listed. Public for tests.
     size_t formatPathReport(const HeardPath *const *routes, size_t count, const char *sender, ReportSink sink, void *ctx) const;
+
+#ifdef HAS_HEARD_ROUTE_ARCHIVE
+    /// Move a route the ring is about to overwrite to the route log. Empty slots are ignored.
+    static void archiveRoute(const HeardPath &h);
+#endif
 
     /// Look up a heard route entry by packet id.
     const HeardPath *heardFind(uint32_t packetId) const;

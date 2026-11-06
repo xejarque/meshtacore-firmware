@@ -125,6 +125,8 @@ class RouteStorage
     virtual size_t read(uint8_t slot, uint32_t offset, uint8_t *out, size_t len) = 0;
     /// Empty the slot.
     virtual bool reset(uint8_t slot) = 0;
+    /// A run of reads is over: the storage may let go of whatever it kept open for them.
+    virtual void release() {}
 };
 
 class Log
@@ -140,6 +142,7 @@ class Log
     /// Find the current slot, or start a fresh log. False when the storage refuses.
     bool begin()
     {
+        const Release release{fs};
         uint32_t seq[SLOTS] = {};
         bool valid[SLOTS] = {};
         for (uint8_t s = 0; s < SLOTS; s++)
@@ -165,6 +168,7 @@ class Log
     /// Call visit for every record, the older slot first; it returns false to stop. Returns the records visited.
     template <typename Visitor> size_t forEach(Visitor visit)
     {
+        const Release release{fs};
         size_t visited = 0;
         for (uint8_t i = 0; i < SLOTS; i++) {
             const uint8_t slot = i == 0 ? 1 - current : current;
@@ -198,7 +202,14 @@ class Log
     }
 
   private:
-    static constexpr size_t WINDOW = RECORD_MAX + 64;
+    /// Tells the storage a run of reads has ended, whichever way the function that made them returns.
+    struct Release {
+        RouteStorage &fs;
+        ~Release() { fs.release(); }
+    };
+
+    // Several records a read: each read on the flash costs a seek, so fewer and larger is much faster.
+    static constexpr size_t WINDOW = RECORD_MAX + 256;
 
     bool readHeader(uint8_t slot, uint32_t *seq)
     {

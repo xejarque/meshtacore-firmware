@@ -21,6 +21,8 @@
 #include <SHA256.h>
 #include <SHA512.h>
 #include <math.h>
+#include <memory>
+#include <new>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -671,6 +673,9 @@ void MeshCoreCompanion::noteHeardRoute(uint32_t packetId, uint32_t frameHash, ui
 
     HeardPath &h = heard[heardNext];
     heardNext = (heardNext + 1) % PATH_MEMORY;
+#ifdef HAS_HEARD_ROUTE_ARCHIVE
+    archiveRoute(h);
+#endif
     h = HeardPath();
     h.packetId = packetId;
     h.frameHash = frameHash;
@@ -690,6 +695,9 @@ void MeshCoreCompanion::noteSentText(uint32_t packetId, uint32_t frameHash, uint
 {
     HeardPath &h = heard[heardNext];
     heardNext = (heardNext + 1) % PATH_MEMORY;
+#ifdef HAS_HEARD_ROUTE_ARCHIVE
+    archiveRoute(h);
+#endif
     h = HeardPath();
     h.packetId = packetId;
     h.frameHash = frameHash;
@@ -698,6 +706,75 @@ void MeshCoreCompanion::noteSentText(uint32_t packetId, uint32_t frameHash, uint
     h.heardMs = millis();
     h.own = true;
 }
+
+#ifdef HAS_HEARD_ROUTE_ARCHIVE
+void MeshCoreCompanion::archiveRoute(const HeardPath &h)
+{
+    if (!h.packetId)
+        return;
+    HeardRouteLog::Route r;
+    r.packetId = h.packetId;
+    r.frameHash = h.frameHash;
+    r.fromNum = h.fromNum;
+    // The ring keeps uptime milliseconds, which mean nothing after a reboot: the log keeps the wall clock, when there is one.
+    const uint32_t now = getValidTime(RTCQualityFromNet);
+    const uint32_t ageSecs = (millis() - h.heardMs) / 1000;
+    r.epochSecs = now && now >= ageSecs ? now - ageSecs : 0;
+    r.snr = h.snr;
+    r.rssi = h.rssi;
+    r.channel = h.channel;
+    r.routeType = h.routeType;
+    r.hashSize = h.hashSize;
+    r.hopCount = h.hopCount;
+    r.own = h.own;
+    memcpy(r.path, h.path, sizeof(r.path) < sizeof(h.path) ? sizeof(r.path) : sizeof(h.path));
+    HeardRouteArchive::add(r);
+}
+
+/// A route read back from the log, as the ring would hold it.
+static MeshCoreCompanion::HeardPath heardFromArchive(const HeardRouteLog::Route &r)
+{
+    MeshCoreCompanion::HeardPath h;
+    h.packetId = r.packetId;
+    h.frameHash = r.frameHash;
+    h.fromNum = r.fromNum;
+    h.snr = r.snr;
+    h.rssi = r.rssi;
+    h.channel = r.channel;
+    h.routeType = r.routeType;
+    h.hashSize = r.hashSize;
+    h.hopCount = r.hopCount;
+    h.own = r.own;
+    memcpy(h.path, r.path, sizeof(h.path) < sizeof(r.path) ? sizeof(h.path) : sizeof(r.path));
+    const uint32_t now = getValidTime(RTCQualityFromNet);
+    h.ageKnown = now && r.epochSecs && now >= r.epochSecs;
+    h.heardMs = h.ageKnown ? millis() - (now - r.epochSecs) * 1000 : millis();
+    return h;
+}
+
+/// What a ".path" search of the log is after, and what it found.
+struct ArchiveSearch {
+    uint32_t packetId;  // the text being replied to; finds its entry
+    uint32_t frameHash; // every copy of that text; 0 when only the entry is wanted
+    MeshCoreCompanion::HeardPath *routes;
+    size_t routeCap;
+    size_t routeCount;
+    MeshCoreCompanion::HeardPath entry;
+    bool entryFound;
+};
+
+static bool archiveSearchVisit(const HeardRouteLog::Route &r, void *ctx)
+{
+    auto *q = static_cast<ArchiveSearch *>(ctx);
+    if (q->packetId && r.packetId == q->packetId && !q->entryFound) {
+        q->entry = heardFromArchive(r);
+        q->entryFound = true;
+    }
+    if (q->frameHash && !r.own && r.frameHash == q->frameHash && q->routeCount < q->routeCap)
+        q->routes[q->routeCount++] = heardFromArchive(r);
+    return true;
+}
+#endif
 
 const MeshCoreCompanion::HeardPath *MeshCoreCompanion::heardFind(uint32_t packetId) const
 {
@@ -1011,13 +1088,16 @@ size_t MeshCoreCompanion::formatPathReport(const HeardPath *const *routes, size_
     char header[128];
     formatReportHeader(header, sizeof(header), sender, count);
     w.token(header, true);
-    uint32_t firstHeardMs = routes[0]->heardMs;
+    uint32_t firstHeardMs = 0;
+    bool ageKnown = false; // a route read from the log by a node with no clock has no age; the report then omits it
 
     for (size_t r = 0; r < count; r++) {
         const HeardPath &route = *routes[r];
         char token[128];
-        if ((int32_t)(route.heardMs - firstHeardMs) < 0)
+        if (route.ageKnown && (!ageKnown || (int32_t)(route.heardMs - firstHeardMs) < 0)) {
             firstHeardMs = route.heardMs; // the text is as old as its first copy
+            ageKnown = true;
+        }
 
         // The glyph is the hop count: no "N salto(s)" text to repeat it.
         if (route.hopCount == 0) {
@@ -1049,7 +1129,7 @@ size_t MeshCoreCompanion::formatPathReport(const HeardPath *const *routes, size_
     const bool direct = routes[0]->channel == HeardPath::DIRECT_CHANNEL;
     char where[96];
     formatHeardWhere(where, sizeof(where), direct, direct ? nullptr : channels.getName(routes[0]->channel), routes[0]->channel,
-                     false, (millis() - firstHeardMs) / 1000);
+                     false, ageKnown ? (millis() - firstHeardMs) / 1000 : PATH_REPORT_UNKNOWN_AGE);
     w.token(where, true);
     w.flush();
     return w.parts;
@@ -1085,13 +1165,38 @@ bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool d
     // The text being replied to: every copy heard of it is a route. Our own transmission is the entry they hang from, not one.
     const HeardPath *entry = heardFind(p->decoded.reply_id);
 
+    // A text older than the few routes the ring holds is in the route log, if the board has one.
+    constexpr size_t ROUTES_MAX = PATH_MEMORY + ARCHIVED_ROUTES_MAX;
+#ifdef HAS_HEARD_ROUTE_ARCHIVE
+    std::unique_ptr<ArchiveSearch> search(new (std::nothrow) ArchiveSearch());
+    std::unique_ptr<HeardPath[]> archived(new (std::nothrow) HeardPath[ARCHIVED_ROUTES_MAX]);
+    if (search && archived && !entry) {
+        search->packetId = p->decoded.reply_id;
+        HeardRouteArchive::forEach(archiveSearchVisit, search.get());
+        if (search->entryFound)
+            entry = &search->entry;
+    }
+#endif
+
     // Every copy of that text is a separate route: the report lists them all, the shortest first.
-    const HeardPath *routes[PATH_MEMORY];
+    const HeardPath *routes[ROUTES_MAX];
     size_t routeCount = 0;
     if (entry) {
         for (const HeardPath &h : heard)
             if (h.packetId && !h.own && h.frameHash == entry->frameHash && routeCount < PATH_MEMORY)
                 routes[routeCount++] = &h;
+#ifdef HAS_HEARD_ROUTE_ARCHIVE
+        if (search && archived) {
+            search->packetId = 0;
+            search->frameHash = entry->frameHash;
+            search->routes = archived.get();
+            search->routeCap = ARCHIVED_ROUTES_MAX;
+            search->routeCount = 0;
+            HeardRouteArchive::forEach(archiveSearchVisit, search.get());
+            for (size_t i = 0; i < search->routeCount && routeCount < ROUTES_MAX; i++)
+                routes[routeCount++] = &archived[i];
+        }
+#endif
         for (size_t i = 1; i < routeCount; i++) { // insertion sort: tiny, and stable on equal hop counts
             const HeardPath *key = routes[i];
             size_t j = i;

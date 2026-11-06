@@ -25,6 +25,7 @@ class RamStorage : public RouteStorage
   public:
     std::vector<uint8_t> files[2];
     bool failAppends = false;
+    int releases = 0;
 
     uint32_t size(uint8_t slot) override { return files[slot].size(); }
     bool append(uint8_t slot, const uint8_t *data, size_t len) override
@@ -47,6 +48,7 @@ class RamStorage : public RouteStorage
         files[slot].clear();
         return true;
     }
+    void release() override { releases++; }
 };
 
 static Route makeRoute(uint32_t id, uint8_t hops = 2, uint8_t hashSize = 1)
@@ -147,6 +149,20 @@ void test_records_come_back_in_order()
         TEST_ASSERT_EQUAL_UINT32(i + 1, all[i].packetId);
 }
 
+void test_every_search_lets_the_storage_go()
+{
+    RamStorage fs;
+    Log log(fs, 4096);
+    log.begin();
+    log.append(makeRoute(1));
+    const int afterBegin = fs.releases;
+
+    log.forEach([](const Route &) { return true; });
+    TEST_ASSERT_EQUAL_INT(afterBegin + 1, fs.releases);
+    log.forEach([](const Route &) { return false; }); // stopped early: still released
+    TEST_ASSERT_EQUAL_INT(afterBegin + 2, fs.releases);
+}
+
 void test_search_stops_when_asked()
 {
     RamStorage fs;
@@ -244,6 +260,7 @@ void setup()
     RUN_TEST(test_longest_path_and_extreme_signal_survive);
     RUN_TEST(test_path_longer_than_the_record_is_refused);
     RUN_TEST(test_records_come_back_in_order);
+    RUN_TEST(test_every_search_lets_the_storage_go);
     RUN_TEST(test_search_stops_when_asked);
     RUN_TEST(test_full_slot_rotates_and_drops_the_oldest);
     RUN_TEST(test_restart_continues_in_the_newest_slot);

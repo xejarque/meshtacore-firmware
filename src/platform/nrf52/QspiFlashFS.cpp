@@ -6,6 +6,7 @@
 
 #include "DebugConfiguration.h"
 #include "concurrency/OSThread.h"
+#include "mesh/HeardRouteArchive.h"
 #include "mesh/Throttle.h"
 // The core does not build the nrfx drivers it ships; main-nrf52.cpp pulls nrfx_wdt.c in the same way.
 #ifndef NRFX_QSPI_DEFAULT_CONFIG_IRQ_PRIORITY
@@ -315,6 +316,7 @@ static void runSelfTest()
     }
     f.close();
     LOG_INFO("QSPIFS slept=%d wokeByRead=%d read=%u ms bad=%u", sleptAfterIdle, QspiFS.isAwake(), millis() - t0, bad);
+    HeardRouteArchive::heardRouteArchiveSelfTest();
 }
 
 /// The log API only attaches after boot, so a result printed from nrf52Setup() is never seen: run the test once the node is up,

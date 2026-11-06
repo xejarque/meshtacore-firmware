@@ -111,7 +111,11 @@ inline void formatSignal(char *out, size_t cap, float snr, bool hasRssi, int32_t
         snprintf(out, cap, " · SNR %.1f dB", (double)snr);
 }
 
-/// Last line of a report: where the text was heard and how long ago. channelName may be null (shown by number).
+/// ageSecs of a text whose age is not known: a route kept on flash by a node that had no clock yet.
+static constexpr uint32_t PATH_REPORT_UNKNOWN_AGE = UINT32_MAX;
+
+/// Last line of a report: where the text was heard and how long ago, left out when the age is unknown. channelName may be
+/// null (shown by number).
 inline void formatHeardWhere(char *out, size_t cap, bool direct, const char *channelName, unsigned channel, bool viaMqtt,
                              uint32_t ageSecs)
 {
@@ -125,7 +129,7 @@ inline void formatHeardWhere(char *out, size_t cap, bool direct, const char *cha
         n = snprintf(out, cap, "Canal %u", channel);
     if (n > 0 && (size_t)n < cap && viaMqtt)
         n += snprintf(&out[n], cap - n, " · vía MQTT");
-    if (n > 0 && (size_t)n < cap)
+    if (n > 0 && (size_t)n < cap && ageSecs != PATH_REPORT_UNKNOWN_AGE)
         snprintf(&out[n], cap - n, " · hace %u s", (unsigned)ageSecs);
 }
 
