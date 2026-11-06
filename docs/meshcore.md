@@ -359,7 +359,7 @@ Text with a non-plain type is ignored.
 
 `HELP` lists the rest: `STATS`, `NODES`, `CONTACTS`, `REPEATERS`, `NODE`, `PATH`, `TRACE`, `SEND`, `DROP`, `UNDROP`, `DROPS`, `REGION`, `VECINOS`, `KEY`, `PPING` and `PING`.
 
-`MESHCORE PPING` (alias `MCORE PPING`) and `/nexus PPING` are independent: `PPING ON|OFF` under MESHCORE only switches the MeshCore ping channels (`MC:#bot`), and `/nexus PPING ON|OFF` only switches the Meshtastic public ping (`public_ping`). A MeshCore ping is answered whenever its channel is on, whatever `public_ping` says. The reporting settings (`RSSI`, `SNR`, `FREQERR`, `HEADER`, `EMOJI`, `CMD`, `FLAGS`, `ALLOWDM`, `CHAN`, `SETHEX`, `GETHEX`) are one shared set, and the route line of a MeshCore reply prints only the metrics that are on.
+`MESHCORE PPING` (alias `MCORE PPING`) and `/nexus PPING` are independent: `PPING ON|OFF` under MESHCORE only switches the MeshCore ping channels (`MC:#bot`), and `/nexus PPING ON|OFF` only switches the Meshtastic public ping (`public_ping`). A MeshCore ping is answered whenever its channel is on, whatever `public_ping` says. The reporting settings (`RSSI`, `SNR`, `FREQERR`, `HEADER`, `EMOJI`, `CMD`, `FLAGS`, `ALLOWDM`, `CHAN`, `SETHEX`, `GETHEX`) are one shared set, and the route line of a MeshCore reply prints only the metrics that are on. The `CMD` / `TRIGGER` value is the same trigger `/nexus PPING CMD` sets: any leading character is accepted (`.ping` works, there is no `/` requirement), the incoming text must match it exactly, it is at most 15 characters, and `MESHCORE PING <target>` sends it as the ping body.
 
 ## Threads, timers and coexistence
 
