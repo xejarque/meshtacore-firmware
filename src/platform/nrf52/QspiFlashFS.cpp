@@ -266,7 +266,7 @@ bool QspiFlashFS::eraseAll()
 }
 
 #ifdef MESHTASTIC_QSPI_FS_SELFTEST
-void qspiFlashFsSelfTest()
+static void runSelfTest()
 {
     uint32_t t0 = millis();
     const bool mounted = QspiFS.acquire();
@@ -315,6 +315,26 @@ void qspiFlashFsSelfTest()
     }
     f.close();
     LOG_INFO("QSPIFS slept=%d wokeByRead=%d read=%u ms bad=%u", sleptAfterIdle, QspiFS.isAwake(), millis() - t0, bad);
+}
+
+/// The log API only attaches after boot, so a result printed from nrf52Setup() is never seen: run the test once the node is up,
+/// and again every minute so a client that connects late still catches one.
+class SelfTestThread : public concurrency::OSThread
+{
+  public:
+    SelfTestThread() : OSThread("QspiSelfTest", 20000) {}
+
+  protected:
+    int32_t runOnce() override
+    {
+        runSelfTest();
+        return 60000;
+    }
+};
+
+void qspiFlashFsSelfTest()
+{
+    new SelfTestThread();
 }
 #endif
 
