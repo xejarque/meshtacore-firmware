@@ -92,8 +92,8 @@ static_assert(sizeof(meshtastic_NodeInfoLite) <= 130, "NodeInfoLite size increas
 #endif // MESHTASTIC_EXCLUDE_STATUSDB
 
 /// Max nodes in the hot store (full NodeInfoLite). Evicted nodes' identities
-/// live in the warm tier (WARM_NODE_COUNT). nRF52840 caps at 120 to keep
-/// nodes.proto inside the stock 28 KB LittleFS; flash-rich platforms (ESP32-S3,
+/// live in the warm tier (WARM_NODE_COUNT). nRF52840 caps at 80 to keep
+/// nodes.proto, its same-size temporary copy and the Nexus files inside the stock 28 KB LittleFS; flash-rich platforms (ESP32-S3,
 /// portduino) keep their larger hot store and lean on warm only for the tail.
 #ifndef MAX_NUM_NODES
 #if defined(ARCH_STM32WL)
@@ -116,8 +116,13 @@ static inline int get_max_num_nodes()
 // Unreachable: the ARCH_PORTDUINO include at the top of this header defines it from variant.h.
 // Reaching here means that stopped working - still refuse to invent a divergent compile-time cap.
 #error "ARCH_PORTDUINO: configuration.h did not define MAX_NUM_NODES - check variants/native/portduino/variant.h"
+#elif defined(ARCH_NRF52)
+// 28 KB LittleFS: nodes.proto (about 85 B a node) is replaced through a same-size temporary file, so a save needs it twice.
+// Beside the Nexus vault (2.6 KB, also written through a temporary), the rescue copy and the MeshCore contacts, 120 nodes
+// left under 2 KB free on a ThinkNode M1 and every SAVE failed. 80 keeps a full save well inside the volume.
+#define MAX_NUM_NODES 80
 #else
-#define MAX_NUM_NODES 120 // nRF52840 and generic ESP32 (inc. ESP32C3 etc.)
+#define MAX_NUM_NODES 120 // generic ESP32 (inc. ESP32C3 etc.)
 #endif                    // platform
 #endif                    // MAX_NUM_NODES
 
