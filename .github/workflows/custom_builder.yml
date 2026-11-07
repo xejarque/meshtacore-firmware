@@ -117,13 +117,12 @@ on:
         description: "Pantalla activa (desmarca para nodos headless)"
       device_role:
         type: choice
-        description: "Rol del dispositivo"
+        description: "Rol del dispositivo (ROUTER solo se aplica si la petición lleva USERPREFS_ALLOW_ROUTER_ROLE: lo añade el builder web en el perfil solar)"
         options:
           - CLIENT
           - CLIENT_BASE
           - CLIENT_MUTE
           - ROUTER
-          - REPEATER
         default: CLIENT
       lora_region:
         type: choice

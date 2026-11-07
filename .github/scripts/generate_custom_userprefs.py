@@ -51,11 +51,15 @@ def format_psk(psk_val: str) -> str:
     else:
         raw = base64.b64decode(psk_str, validate=True)  # binascii.Error is a ValueError
     if len(raw) not in VALID_PSK_LENGTHS:
-        raise ValueError(f"PSK is {len(raw)} bytes, expected one of {VALID_PSK_LENGTHS}")
+        raise ValueError(
+            f"PSK is {len(raw)} bytes, expected one of {VALID_PSK_LENGTHS}"
+        )
     return "{ " + ", ".join(f"0x{b:02x}" for b in raw) + " }"
 
 
-BYTE_ARRAY = re.compile(r"\{\s*0[xX][0-9a-fA-F]{1,2}(\s*,\s*0[xX][0-9a-fA-F]{1,2}){0,63}\s*\}")
+BYTE_ARRAY = re.compile(
+    r"\{\s*0[xX][0-9a-fA-F]{1,2}(\s*,\s*0[xX][0-9a-fA-F]{1,2}){0,63}\s*\}"
+)
 # Keys the builder (or a hand-written request) may set. Anything else would end up as a -D flag in the CI compiler.
 ALLOWED_KEY = re.compile(
     r"USERPREFS_[A-Z0-9_]+|NEXUS_MASTER_KEY_[0-9]+|MESHTASTIC_EXCLUDE_(SCREEN|BLUETOOTH)|HAS_(SCREEN|BLUETOOTH)"
@@ -76,10 +80,27 @@ def sanitize_custom_prefs(extra: dict) -> list:
         if not ALLOWED_KEY.fullmatch(str(key)):
             dropped.append(f"{key} dropped: not an allowed userPrefs key")
             del extra[key]
-        elif value is not None and str(value).startswith("{") and not BYTE_ARRAY.fullmatch(str(value)):
+        elif (
+            value is not None
+            and str(value).startswith("{")
+            and not BYTE_ARRAY.fullmatch(str(value))
+        ):
             dropped.append(f"{key} dropped: only byte arrays may start with a brace")
             del extra[key]
     return dropped
+
+
+def router_role_warning(prefs: dict):
+    """Why the firmware will turn the requested ROUTER role into CLIENT, or None when it will not (see NodeDB.cpp)."""
+    if (
+        prefs.get("USERPREFS_CONFIG_DEVICE_ROLE", "").endswith("_Role_ROUTER")
+        and "USERPREFS_ALLOW_ROUTER_ROLE" not in prefs
+    ):
+        return (
+            "ROUTER role requested without USERPREFS_ALLOW_ROUTER_ROLE: the firmware will fall back to CLIENT. "
+            "The web builder adds the flag for the solar repeater profile."
+        )
+    return None
 
 
 DEFAULT_MANIFEST = (
@@ -107,16 +128,26 @@ def option_value_error(opt: dict, value: str):
         return None if len(value) <= opt["maxLen"] else f"longer than {opt['maxLen']}"
     if kind == "enum":
         # `emit` is the text the firmware gets for a choice; `prefix` is prepended to every choice.
-        allowed = [opt.get("prefix", "") + v.get("emit", v["value"]) for v in opt["values"]]
+        allowed = [
+            opt.get("prefix", "") + v.get("emit", v["value"]) for v in opt["values"]
+        ]
         return None if value in allowed else f"expected one of {allowed}"
     if kind == "bitmask":
         try:
             number = int(value, 0)
         except ValueError:
             return "expected a decimal or 0x.. number"
-        return None if 0 <= number < (1 << opt["width"]) else f"does not fit in {opt['width']} bits"
+        return (
+            None
+            if 0 <= number < (1 << opt["width"])
+            else f"does not fit in {opt['width']} bits"
+        )
     if kind == "key":
-        return None if value.startswith("{") and value.endswith("}") else "expected {0x.., ...}"
+        return (
+            None
+            if value.startswith("{") and value.endswith("}")
+            else "expected {0x.., ...}"
+        )
     return None
 
 
@@ -350,7 +381,9 @@ def main():
         if k in NEXUS_PREDEFINED_KEYS:
             prefs["NEXUS_MASTER_KEY_1"] = NEXUS_PREDEFINED_KEYS[k]
         elif k.startswith("{") and k.endswith("}"):
-            prefs["NEXUS_MASTER_KEY_1"] = check_byte_array(args.nexus_master_key.strip())
+            prefs["NEXUS_MASTER_KEY_1"] = check_byte_array(
+                args.nexus_master_key.strip()
+            )
         else:
             try:
                 prefs["NEXUS_MASTER_KEY_1"] = b64_to_c_array(args.nexus_master_key)
@@ -463,9 +496,13 @@ def main():
         for i, ch in enumerate(active[:8]):
             prefs[f"USERPREFS_CHANNEL_{i}_NAME"] = str(ch.get("name", ""))[:11]
             try:
-                prefs[f"USERPREFS_CHANNEL_{i}_PSK"] = format_psk(str(ch.get("psk", "AQ==")))
+                prefs[f"USERPREFS_CHANNEL_{i}_PSK"] = format_psk(
+                    str(ch.get("psk", "AQ=="))
+                )
             except ValueError as e:
-                sys.exit(f"::error::Channel {i} ({ch.get('name', '')!r}): invalid PSK ({e})")
+                sys.exit(
+                    f"::error::Channel {i} ({ch.get('name', '')!r}): invalid PSK ({e})"
+                )
             prefs[f"USERPREFS_CHANNEL_{i}_PRECISION"] = str(ch.get("precision", 0))
             prefs[f"USERPREFS_CHANNEL_{i}_IS_MUTED"] = (
                 "true" if ch.get("muted", False) else "false"
@@ -605,6 +642,10 @@ def main():
 
     for message in drop_invalid_manifest_options(prefs, Path(args.manifest)):
         print(f"::warning::{message}", file=sys.stderr)
+
+    role_warning = router_role_warning(prefs)
+    if role_warning:
+        print(f"::warning::{role_warning}", file=sys.stderr)
 
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(prefs, f, indent=2)
