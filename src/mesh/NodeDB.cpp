@@ -18,6 +18,8 @@
 #include "Router.h"
 #include "SPILock.h"
 #include "SafeFile.h"
+#include <memory>
+#include <new>
 #include "TransmitHistory.h"
 #include "TypeConversions.h"
 #include "UptimeClock.h"
@@ -2963,6 +2965,25 @@ void NodeDB::loadFromDisk()
         }
     }
 #endif
+#if defined(FSCom) && !defined(MESHTASTIC_ENCRYPTED_STORAGE)
+    if (state == LoadFileResult::DECODE_FAILED) {
+        // A node on a mountain cannot wait for someone to reflash it: try the last known good copy before degrading.
+        // The copy carries the same security keys, so the identity (NodeNum) is preserved.
+        String backupName = configFileName;
+        backupName += ".bak";
+        LOG_ERROR("Config decode failed, trying %s", backupName.c_str());
+        const LoadFileResult backupState = loadProto(backupName.c_str(), meshtastic_LocalConfig_size,
+                                                     sizeof(meshtastic_LocalConfig), &meshtastic_LocalConfig_msg, &config);
+        if (backupState == LoadFileResult::LOAD_SUCCESS) {
+            LOG_WARN("Config restored from %s", backupName.c_str());
+            configRestoredFromBackup = true;
+            state = LoadFileResult::LOAD_SUCCESS;
+        } else {
+            // loadProto() zeroed `config` again; the degraded path below reinstalls defaults on top of it.
+            state = LoadFileResult::DECODE_FAILED;
+        }
+    }
+#endif
     if (state == LoadFileResult::DECODE_FAILED) {
         // Config file present but undecodable this boot (corruption / torn write / transient decrypt fail).
         // loadProto() already zeroed `config`, so the keypair is gone from RAM; minting a new one would change
@@ -2986,6 +3007,12 @@ void NodeDB::loadFromDisk()
         LOG_INFO("Loaded saved config v%d", config.version);
     }
     configLoadComplete = true;
+
+    if (configRestoredFromBackup) {
+        saveToDisk(SEGMENT_CONFIG); // rewrite the damaged config.proto from the restored copy
+    } else if (!configDecodeFailed && !configWasMissing) {
+        refreshConfigBackup();
+    }
 
     // Coerce LoRa config fields derived from presets while bootstrapping.
     // Some clients/UI components display bandwidth/spread_factor directly from config even in preset mode.
@@ -3380,6 +3407,58 @@ bool NodeDB::disableLockdownToPlaintext()
 #endif
 
 /** Save a protobuf from a file, return true for success */
+void NodeDB::refreshConfigBackup()
+{
+#if defined(FSCom) && !defined(MESHTASTIC_ENCRYPTED_STORAGE)
+    String backupName = configFileName;
+    backupName += ".bak";
+
+    const size_t cap = meshtastic_LocalConfig_size;
+    std::unique_ptr<uint8_t[]> cur(new (std::nothrow) uint8_t[cap]);
+    std::unique_ptr<uint8_t[]> old(new (std::nothrow) uint8_t[cap]);
+    if (!cur || !old)
+        return;
+
+    size_t mainLen = 0;
+    size_t bakLen = 0;
+    {
+        concurrency::LockGuard g(spiLock);
+        auto in = FSCom.open(configFileName, FILE_O_READ);
+        if (!in)
+            return;
+        // Anything bigger than the protobuf maximum is not a config we want to preserve.
+        mainLen = in.read(cur.get(), cap);
+        const bool tooBig = in.available() > 0;
+        in.close();
+        if (mainLen == 0 || tooBig)
+            return;
+        auto prev = FSCom.open(backupName.c_str(), FILE_O_READ);
+        if (prev) {
+            bakLen = prev.read(old.get(), cap);
+            prev.close();
+        }
+    }
+    if (bakLen == mainLen && memcmp(cur.get(), old.get(), mainLen) == 0)
+        return; // already identical: no flash wear
+
+    // Only preserve a copy that decodes, or the backup would be as broken as the file it protects.
+    meshtastic_LocalConfig check = meshtastic_LocalConfig_init_zero;
+    pb_istream_t stream = pb_istream_from_buffer(cur.get(), mainLen);
+    if (!pb_decode(&stream, &meshtastic_LocalConfig_msg, &check))
+        return;
+
+    auto f = SafeFile(backupName.c_str(), true);
+    {
+        concurrency::LockGuard g(spiLock);
+        f.write(cur.get(), mainLen);
+    }
+    if (f.close())
+        LOG_INFO("Config backup refreshed (%u bytes)", (unsigned)mainLen);
+    else
+        LOG_WARN("Can't refresh the config backup");
+#endif
+}
+
 bool NodeDB::saveProto(const char *filename, size_t protoSize, const pb_msgdesc_t *fields, const void *dest_struct,
                        bool fullAtomic)
 {
@@ -3660,6 +3739,8 @@ bool NodeDB::saveToDiskNoRetry(int saveWhat)
         config.has_security = true;
 
         success &= saveProto(configFileName, meshtastic_LocalConfig_size, &meshtastic_LocalConfig_msg, &config, true);
+        if (success)
+            refreshConfigBackup(); // keep a last known good copy next to the one just verified
     }
 
     if (saveWhat & SEGMENT_MODULECONFIG) {

@@ -739,6 +739,12 @@ class NodeDB
     /// skip boot keygen and skip persisting defaults, so a transient read failure can't change our NodeNum
     /// or overwrite the on-disk config. Cleared at the top of every loadFromDisk() run.
     bool configDecodeFailed = false;
+    /// True when config.proto could not be decoded and the last known good copy (config.proto.bak) was used instead.
+    bool configRestoredFromBackup = false;
+
+    /// Keeps /prefs/config.proto.bak equal to the config that just loaded fine, so a torn or corrupt config.proto can be
+    /// recovered on the next boot instead of leaving an unattended node radio-silent. No-op if already identical.
+    void refreshConfigBackup();
     // Defer automatic writes until config load is healthy to protect device and node data from damaged configs.
     bool bootInitializationInProgress = true;
     bool configLoadComplete = false;
