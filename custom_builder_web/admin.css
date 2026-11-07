@@ -28,11 +28,11 @@ body.connected .admin .capture-bar { display: flex; margin-top: 0.5rem; }
 .admin .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
 .admin .card { border: 1px solid rgba(127,127,127,.3); border-radius: 10px; padding: 1rem; background: rgba(127,127,127,.05); }
 .admin .card h3 { margin: 0 0 .75rem; font-size: .85rem; text-transform: uppercase; letter-spacing: .05em; opacity: .7; }
-.admin .card:has(.radar-wrap), .admin .card:has(.bars) { grid-column: span 2; }
-@media (max-width: 700px) { .admin .card:has(.radar-wrap), .admin .card:has(.bars) { grid-column: span 1; } }
+.admin .card:has(.radar-wrap) { grid-column: span 2; }
+@media (max-width: 700px) { .admin .card:has(.radar-wrap) { grid-column: span 1; } }
 .admin .big { font-size: 1.6rem; font-weight: 700; margin: 0; }
 .admin .gauges { display: flex; gap: .5rem; justify-content: space-around; flex-wrap: wrap; }
-.admin .gauge { width: 112px; text-align: center; }
+.admin .gauge { width: 30%; min-width: 96px; text-align: center; }
 .admin .gauge svg { width: 100%; }
 .admin .gauge-track { fill: none; stroke: rgba(127,127,127,.25); stroke-width: 10; stroke-linecap: round; }
 .admin .gauge-fill { fill: none; stroke-width: 10; stroke-linecap: round; transition: all .6s ease; }
@@ -51,7 +51,10 @@ body.connected .admin .capture-bar { display: flex; margin-top: 0.5rem; }
 .admin .radar-dot:hover { opacity: 1; stroke-width: 2; }
 .admin .bars { flex: 1; min-width: 220px; }
 .admin .bar-row { display: grid; grid-template-columns: 8.5rem 1fr 2.5rem; gap: .5rem; align-items: center; font-size: .8rem; margin: .25rem 0; }
-.admin .bar { height: 8px; background: rgba(127,127,127,.2); border-radius: 4px; overflow: hidden; }
-.admin .bar i { display: block; height: 100%; background: var(--ok); transition: width .6s ease; }
+.admin .meter { height: 8px; background: rgba(127,127,127,.2); border-radius: 4px; overflow: hidden; }
+.admin .meter i { display: block; height: 100%; background: var(--ok); transition: width .6s ease; }
 .admin .bar-row b { text-align: right; }
 .admin [hidden] { display: none !important; }
+.admin .bar button, .admin .capture-bar button { padding: .5rem 1rem; border-radius: 8px; border: 1px solid rgba(127,127,127,.4); background: transparent; color: inherit; cursor: pointer; font: inherit; }
+.admin .bar button.run { background: var(--ok); border-color: var(--ok); color: #fff; font-weight: 600; }
+.admin .bar button:disabled { opacity: .5; cursor: wait; }

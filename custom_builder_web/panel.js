@@ -92,7 +92,7 @@ function hopHistogram(nodes) {
   const box = html("div", { className: "bars" });
   [...counts.keys()].sort((a, b) => a - b).forEach((h) => {
     const n = counts.get(h);
-    box.append(html("div", { className: "bar-row" }, html("span", {}, h === 0 ? "directos" : `${h} salto${h > 1 ? "s" : ""}`), html("div", { className: "bar" }, html("i", { style: `width:${(n / peak) * 100}%` })), html("b", {}, String(n))));
+    box.append(html("div", { className: "bar-row" }, html("span", {}, h === 0 ? "directos" : `${h} salto${h > 1 ? "s" : ""}`), html("div", { className: "meter" }, html("i", { style: `width:${(n / peak) * 100}%` })), html("b", {}, String(n))));
   });
   return box;
 }
@@ -103,7 +103,7 @@ function channelBars(stats) {
   const box = html("div", { className: "bars" });
   top.forEach((c) =>
     box.append(
-      html("div", { className: "bar-row" }, html("span", { title: `Canal ${c.index}` }, c.known ? c.name : `Ch${c.index} (sin clave)`), html("div", { className: "bar" }, html("i", { style: `width:${(c.packets / peak) * 100}%` })), html("b", {}, `${c.packets}`)),
+      html("div", { className: "bar-row" }, html("span", { title: `Canal ${c.index}` }, c.known ? c.name : `Ch${c.index} (sin clave)`), html("div", { className: "meter" }, html("i", { style: `width:${(c.packets / peak) * 100}%` })), html("b", {}, `${c.packets}`)),
     ),
   );
   return box;
