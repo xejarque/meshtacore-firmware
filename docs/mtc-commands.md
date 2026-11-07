@@ -98,6 +98,23 @@ The Nexus Firewall provides granular inbound and outbound drop rules, rate limit
 | `HEXOUT`          | `HEXOUT <hex>`       | Set all outbound drop rules directly from a 64-bit hex mask.                                                                                                                                                      | `MESHTACORE: Output Drops updated to 0x<HEX16>`                                    |
 | `FIREWALL` / `FW` | `FIREWALL` / `FW`    | Paged aggregated status of inbound drops, outbound drops, hex masks, invalid filters, and PR lists.                                                                                                               | `MESHTACORE: Paging firewall status...`                                            |
 |                   | `FW <sec>`           | Query a single firewall section (`DROPS`, `OUTDROPS`, `INVALIDS` - all five delegate to the section handler).                                                                                                     | Delegates to the section handler.                                                  |
+| `MCGAP`           | `MCGAP [<minutes>]`  | MeshCore firewall: keep one ADVERT per key per window (0 = off, 0-255). Without a value it shows the current one. Saved with `SAVE`.                                                                              | `MESHTACORE: MCGAP <n> (off)` / `MESHTACORE: MCGAP <n> min (0 = off), one advert per key in that time` |
+| `MCRATE`          | `MCRATE [<frames>]`  | MeshCore firewall: at most this many frames a minute from one neighbouring repeater, named by the last 2- or 3-byte hop of the path (0 = off, 0-255). Saved with `SAVE`.                                         | `MESHTACORE: MCRATE <n> (off)` / `MESHTACORE: MCRATE <n> frames/min (0 = off) from one neighbouring repeater` |
+
+**MeshCore firewall.** `DROP` / `UNDROP`, `DROPS`, `FW` and `FWS` also cover MeshCore frames, with their own tags. A dropped frame reaches neither the relay nor the MeshCore companion. The rules are kept in the MeshCore config (`SAVE`), not in the Nexus drop mask, and a node upgraded from an older file starts with all of them off. Nodes in the `NIGN` list are always dropped, whatever the rules say.
+
+| Tag     | Drops                                                                                                                                  |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `MCAD`  | ADVERTs (also empties the relay's neighbour list)                                                                                       |
+| `MCRQ`  | Requests, responses and anonymous requests                                                                                              |
+| `MCTX`  | Direct text messages                                                                                                                    |
+| `MCGR`  | Group text and data                                                                                                                     |
+| `MCAK`  | Acknowledgements                                                                                                                        |
+| `MCPA`  | Returned paths                                                                                                                          |
+| `MCTR`  | Traces                                                                                                                                  |
+| `MCSRC` | Also cut an ignored node's direct messages, requests, responses and paths by the **1-byte source hash** it learned from its advert. That hash is shared by 1 in 256 senders, so a few innocent senders are cut too. Off by default. |
+
+What `NIGN` cuts in MeshCore: the node's ADVERTs and anonymous requests (exact key), and floods whose last path hop is its 2- or 3-byte hash once its advert has been heard since boot. Group messages carry no readable sender and cannot be attributed.
 
 ### 3.2 Recognized `DROP` / `UNDROP` Tags
 
@@ -840,6 +857,8 @@ A rule fires after three consecutive readings, taken 15 s apart, and re-arms onc
 | `LR2021_SF` / `MULTISF` / `MSF`                   | §7 Radio & RF Control            | LR2021 multi-SF concurrent channels                                            |
 | `LS`                                              | §16 Filesystem & Utilities       | List LittleFS files                                                            |
 | `MACRO` / `MC`                                    | §15 Aliases, Macros & Automation | Stored command macro execution                                                 |
+| `MCGAP`                                           | §3 Firewall & Filtering          | MeshCore: one advert per key per time window                                   |
+| `MCRATE`                                          | §3 Firewall & Filtering          | MeshCore: frames a minute from one neighbouring repeater                       |
 | `MCUINFO` / `MCU`                                 | §13 Hardware & Sensors           | Detailed MCU core and flash info                                               |
 | `META_ALERT` / `MA`                               | §13 Hardware & Sensors           | Alert on metadata request receipt                                              |
 | `METRICS`                                         | §13 Hardware & Sensors           | Another node's battery / channel-utilization metrics                           |

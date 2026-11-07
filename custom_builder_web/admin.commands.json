@@ -1255,6 +1255,30 @@
    ]
   },
   {
+   "name": "MCGAP",
+   "aliases": [],
+   "category": "3 Firewall & Filtering",
+   "summary": "MeshCore: one advert per key per time window",
+   "usage": [
+    {
+     "syntax": "MCGAP [<minutes>]",
+     "description": "MeshCore firewall: keep one ADVERT per key per window (0 = off, 0-255). Without a value it shows the current one. Saved with `SAVE`."
+    }
+   ]
+  },
+  {
+   "name": "MCRATE",
+   "aliases": [],
+   "category": "3 Firewall & Filtering",
+   "summary": "MeshCore: frames a minute from one neighbouring repeater",
+   "usage": [
+    {
+     "syntax": "MCRATE [<frames>]",
+     "description": "MeshCore firewall: at most this many frames a minute from one neighbouring repeater, named by the last 2- or 3-byte hop of the path (0 = off, 0-255). Saved with `SAVE`."
+    }
+   ]
+  },
+  {
    "name": "NIGN",
    "aliases": [],
    "category": "3 Firewall & Filtering",
