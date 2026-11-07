@@ -1,0 +1,9 @@
+{
+ "note": "NOT captured from a node: reply shapes written from the snprintf formats in src/modules/NexusCommands.cpp (PMGT line 3379, TA 1442, META_ALERT 1510). Replace with a real capture when the node answers over USB.",
+ "node": "!f3a45b84",
+ "outputs": [
+  { "command": "PMGT", "response": "🔴 MESHTACORE PMGT:\nPS:0 SD:0 BT:0\nSDS:4294967295 LS:300 MW:10" },
+  { "command": "TA", "response": "🔴 MESHTACORE: Trace Alert OFF (Mode: 0)" },
+  { "command": "META_ALERT", "response": "🔴 MESHTACORE: Meta Alert ON (Mode: 2)" }
+ ]
+}

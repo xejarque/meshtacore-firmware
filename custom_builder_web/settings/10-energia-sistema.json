@@ -1,0 +1,104 @@
+{
+  "id": "10",
+  "title": "Energía y sistema",
+  "icon": "🔋",
+  "intro": "Ahorro de batería, alertas de curiosos, la hora del nodo y diagnósticos. Los temporizadores de sueño pueden dejar el nodo sin Bluetooth durante largos periodos: cámbialos con cuidado y solo si sabes cómo despertarlo. Los cambios viven en la memoria del nodo hasta que pulses Guardar y el nodo puede reiniciarse al aplicarlos.",
+  "entries": [
+    {
+      "id": "sys.power_saving",
+      "type": "flags",
+      "title": "Ahorro de energía",
+      "help": "Activa el modo de bajo consumo del nodo. Pensado para nodos a batería o solares.",
+      "risk": "write",
+      "read": { "cmd": "PMGT", "mode": "pairs" },
+      "flags": [
+        {
+          "key": "SAVING",
+          "readPattern": "PS:(0|1)",
+          "write": { "on": "PMGT SAVING ON", "off": "PMGT SAVING OFF" },
+          "title": "Modo de ahorro",
+          "help": "El nodo reduce su consumo apagando partes cuando no las necesita."
+        }
+      ]
+    },
+    {
+      "id": "sys.power_timers",
+      "type": "values",
+      "title": "Temporizadores de energía",
+      "help": "Segundos de cada temporizador. Un valor enorme (por ejemplo 4294967295) significa «nunca». Con SDS o LS bajos el nodo duerme y puede dejar de responder por Bluetooth hasta que despierte.",
+      "risk": "danger",
+      "read": { "cmd": "PMGT", "pattern": "SD:(\\d+) BT:(\\d+)\\s+SDS:(\\d+) LS:(\\d+) MW:(\\d+)" },
+      "fields": [
+        { "key": "sd", "title": "Apagar con batería tras (s)", "min": 0, "max": 86400, "write": "PMGT SHUTDOWN {value}" },
+        { "key": "bt", "title": "Esperar a Bluetooth (s)", "min": 0, "max": 3600, "write": "PMGT BT_WAIT {value}" },
+        { "key": "sds", "title": "Sueño profundo (SDS, s)", "min": 0, "max": 604800, "write": "PMGT SDS {value}" },
+        { "key": "ls", "title": "Sueño ligero (LS, s)", "min": 0, "max": 604800, "write": "PMGT LS {value}" },
+        { "key": "mw", "title": "Despierto como mínimo (s)", "min": 0, "max": 3600, "write": "PMGT MIN_WAKE {value}" }
+      ]
+    },
+    {
+      "id": "sys.trace_alert",
+      "type": "enum",
+      "title": "Aviso de traceroute",
+      "help": "El nodo te avisa cuando otro nodo le hace un traceroute, es decir, cuando alguien traza la ruta hasta ti.",
+      "risk": "write",
+      "read": { "cmd": "TA", "pattern": "Trace Alert (OFF|ON \\(Mode: \\d)" },
+      "options": [
+        { "value": "OFF", "read": "OFF", "title": "Apagado", "help": "No avisa." },
+        { "value": "ON 0", "read": "ON (Mode: 0", "title": "Solo directos", "help": "Avisa cuando el traceroute llega directo, sin pasar por repetidores." },
+        { "value": "ON 1", "read": "ON (Mode: 1", "title": "Solo retransmitidos", "help": "Avisa solo cuando el traceroute llega por otros nodos." },
+        { "value": "ON 2", "read": "ON (Mode: 2", "title": "Todos", "help": "Avisa de cualquier traceroute dirigido a tu nodo." }
+      ],
+      "write": { "set": "TA {value}" }
+    },
+    {
+      "id": "sys.meta_alert",
+      "type": "enum",
+      "title": "Aviso de consulta de metadatos",
+      "help": "El nodo te avisa cuando otro nodo le pide sus metadatos (versión, modelo, etc.).",
+      "risk": "write",
+      "read": { "cmd": "META_ALERT", "pattern": "Meta Alert (OFF|ON \\(Mode: \\d)" },
+      "options": [
+        { "value": "OFF", "read": "OFF", "title": "Apagado", "help": "No avisa." },
+        { "value": "ON 0", "read": "ON (Mode: 0", "title": "Solo directos", "help": "Avisa solo de peticiones que llegan directas." },
+        { "value": "ON 1", "read": "ON (Mode: 1", "title": "Solo retransmitidas", "help": "Avisa solo de peticiones que llegan por otros nodos." },
+        { "value": "ON 2", "read": "ON (Mode: 2", "title": "Todas", "help": "Avisa de cualquier petición de metadatos." }
+      ],
+      "write": { "set": "META_ALERT {value}" }
+    },
+    {
+      "id": "sys.time",
+      "type": "actions",
+      "title": "Hora del nodo",
+      "help": "Los nodos sin GPS ni red pierden la hora al reiniciar. Aquí puedes ver la hora actual del nodo y ajustarla con la de este equipo.",
+      "risk": "write",
+      "actions": [
+        { "title": "Ver hora del nodo", "cmd": "TIME", "readonly": true, "help": "Muestra la hora UTC y local del nodo y de dónde la ha sacado." },
+        { "title": "Poner la hora de este equipo", "cmd": "TIME {epoch}", "readonly": true, "help": "Envía la hora actual de tu ordenador o móvil al nodo." }
+      ]
+    },
+    {
+      "id": "sys.diagnostics",
+      "type": "actions",
+      "title": "Diagnósticos",
+      "help": "Consultas de solo lectura. La respuesta aparece justo debajo del botón.",
+      "risk": "write",
+      "actions": [
+        { "title": "Salud del sistema", "cmd": "HEALTH", "readonly": true, "help": "Tiempo encendido, motivo del último reinicio, batería, memoria, temperatura, uso del canal y ruido." },
+        { "title": "Memoria", "cmd": "RAM", "readonly": true, "help": "Memoria libre (heap y PSRAM) y reserva de pila." },
+        { "title": "Almacenamiento", "cmd": "FS", "readonly": true, "help": "Espacio total, usado y libre en la memoria flash del nodo." },
+        { "title": "Chip y placa", "cmd": "MCUINFO", "readonly": true, "help": "Modelo de chip, flash, temperatura, MAC y tiempo encendido." },
+        { "title": "Sensores detectados", "cmd": "SENSORS", "readonly": true, "help": "Sensores I2C encontrados y sus lecturas." },
+        { "title": "Telemetría", "cmd": "TELEMETRY", "readonly": true, "help": "Informe de uso del canal, batería, potencia y ambiente." }
+      ]
+    },
+    {
+      "id": "sys.reboot",
+      "type": "actions",
+      "title": "Reiniciar el nodo",
+      "help": "Reinicia el nodo tras 20 segundos. Se perderá lo que no hayas guardado y la conexión Bluetooth se cortará.",
+      "risk": "danger",
+      "actions": [{ "title": "Reiniciar en 20 s", "cmd": "REBOOT", "risk": "danger", "readonly": true, "help": "Guarda antes lo que quieras conservar." }]
+    }
+  ]
+}

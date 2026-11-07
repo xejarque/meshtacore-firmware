@@ -222,7 +222,8 @@ export class SettingsPanel {
     const row = h("div", { className: "sx-actions" });
     for (const a of entry.actions) {
       const b = h("button", { className: (a.risk || entry.risk) === "danger" ? "sx-clear" : "sx-add", textContent: a.title, title: a.help, disabled: !this.isConnected() || this.busy.has(entry.id) });
-      b.onclick = () => this.write(entry, a.cmd, a.risk || entry.risk, a.readonly === true);
+      // {epoch}: the current time of this computer, in Unix seconds (for TIME)
+      b.onclick = () => this.write(entry, a.cmd.replace("{epoch}", () => String(Math.floor(Date.now() / 1000))), a.risk || entry.risk, a.readonly === true);
       row.append(h("div", { className: "sx-action" }, b, h("small", {}, a.help)));
     }
     box.append(row);

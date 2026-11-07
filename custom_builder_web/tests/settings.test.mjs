@@ -8,8 +8,8 @@ const here = (p) => new URL(p, import.meta.url);
 const json = (p) => JSON.parse(readFileSync(here(p)));
 const manifest = json("../admin.commands.json").commands;
 // INVALID / UNINVALID are defined in section 3.3 of the reference but the section 17 index only lists INVALIDS.
-// IGNORMQTT and TXPOWER are documented in section 7 but the manifest parser misses them (checked in NexusCommands.cpp).
-const DOCUMENTED_OUTSIDE_THE_INDEX = ["INVALID", "UNINVALID", "IGNORMQTT", "TXPOWER"];
+// These exist in the firmware (NexusCommands.cpp / NexusMeshtacoreCommands.cpp) but the manifest parser misses them.
+const DOCUMENTED_OUTSIDE_THE_INDEX = ["INVALID", "UNINVALID", "IGNORMQTT", "TXPOWER", "HEALTH", "SENSORS"];
 const known = new Set([...manifest.flatMap((c) => [c.name, ...c.aliases]), ...DOCUMENTED_OUTSIDE_THE_INDEX].map((n) => n.toUpperCase()));
 const catalogues = readdirSync(here("../settings/")).filter((f) => f.endsWith(".json") && f !== "index.json").map((f) => json("../settings/" + f));
 const entries = catalogues.flatMap((c) => c.entries);
@@ -202,6 +202,20 @@ test("read-only actions are marked, and LOAD (which throws away unsaved work) is
   const acts = entry("vault.tools").actions;
   assert.ok(acts.filter((a) => a.readonly).every((a) => !a.risk));
   assert.equal(acts.find((a) => a.cmd === "LOAD").risk, "danger");
+});
+
+const fromSource = json("./fixtures/from-firmware-source-system.json");
+const srcReply = (cmd) => fromSource.outputs.find((o) => o.command === cmd).response;
+
+test("PMGT / TA / META_ALERT (shapes taken from the firmware source, not yet from a capture)", () => {
+  assert.deepEqual(S.readFlags(entry("sys.power_saving"), srcReply("PMGT")), { SAVING: false });
+  const timers = S.readValues(entry("sys.power_timers"), srcReply("PMGT")).values;
+  assert.deepEqual(timers, { sd: 0, bt: 0, sds: 4294967295, ls: 300, mw: 10 });
+  assert.equal(S.fieldCommand(entry("sys.power_timers").fields[3], "600"), "PMGT LS 600");
+  const ta = entry("sys.trace_alert");
+  assert.equal(S.readEnum(ta, srcReply("TA")).current.title, "Apagado");
+  assert.equal(S.readEnum(entry("sys.meta_alert"), srcReply("META_ALERT")).current.title, "Todas");
+  assert.equal(S.enumCommand(ta, "ON 1"), "TA ON 1", "the mode digit alone would read as OFF");
 });
 
 test("fill refuses an empty value, safeArg refuses a second command smuggled in", () => {

@@ -173,7 +173,7 @@ async function init() {
   if (isDemo) {
     ui.status.textContent = "Modo demo (capturas de ejemplo, sin nodo)";
     try {
-      for (const file of ["gat562-capture.json", "gat562-firewall.json", "gat562-radio.json", "gat562-system.json", "gat562-keys.json"]) {
+      for (const file of ["gat562-capture.json", "gat562-firewall.json", "gat562-radio.json", "gat562-system.json", "gat562-keys.json", "from-firmware-source-system.json"]) {
         const rec = await (await fetch("tests/fixtures/" + file)).json();
         rec.outputs.forEach((o) => demoReplies.set(o.command, o.response));
         if (file === "gat562-capture.json") panel.loadRecording(rec);
