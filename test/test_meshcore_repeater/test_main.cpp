@@ -1882,6 +1882,31 @@ void test_neighbor_advertising_again_is_one_entry_with_the_newest_snr()
     TEST_ASSERT_EQUAL_FLOAT(4.0f, view[0].snr);
 }
 
+// 40 neighbours fit; the 41st takes the place of the one heard longest ago, and the list reads newest first.
+void test_forty_neighbors_rotate_by_last_heard_and_list_newest_first()
+{
+    MeshCoreRepeater repeater;
+    MeshCoreRepeater::NeighborView view[MeshCoreRepeater::NEIGHBOR_MAX];
+    uint8_t keys[MeshCoreRepeater::NEIGHBOR_MAX + 1][32];
+    for (size_t i = 0; i <= MeshCoreRepeater::NEIGHBOR_MAX; i++) {
+        MeshCoreRepeater sender;
+        uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+        const size_t len = makeNeighborAdvert(sender, (uint8_t)(0x40 + i), "N", frame);
+        memcpy(keys[i], sender.getIdentityPub(), 32);
+        repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs);
+        drainQueue(repeater);
+        Time::advanceTestMillis(2000);
+        repeater.serviceNeighbors();
+    }
+    TEST_ASSERT_EQUAL(MeshCoreRepeater::NEIGHBOR_MAX, repeater.copyNeighbors(view, MeshCoreRepeater::NEIGHBOR_MAX));
+    TEST_ASSERT_EQUAL_MEMORY(keys[MeshCoreRepeater::NEIGHBOR_MAX], view[0].pub, 32); // newest first
+    TEST_ASSERT_EQUAL_MEMORY(keys[1], view[MeshCoreRepeater::NEIGHBOR_MAX - 1].pub, 32);
+    for (size_t i = 1; i < MeshCoreRepeater::NEIGHBOR_MAX; i++)
+        TEST_ASSERT_TRUE(view[i - 1].ageSecs <= view[i].ageSecs);
+    for (size_t i = 0; i < MeshCoreRepeater::NEIGHBOR_MAX; i++)
+        TEST_ASSERT_TRUE(memcmp(view[i].pub, keys[0], 32) != 0); // the oldest gave way
+}
+
 void test_ignored_node_advert_is_dropped_and_never_listed()
 {
     MeshCoreRepeater repeater, sender;
@@ -2059,6 +2084,7 @@ void setup()
     RUN_TEST(test_forged_advert_is_never_a_neighbor);
     RUN_TEST(test_advert_that_crossed_a_repeater_is_not_a_neighbor);
     RUN_TEST(test_neighbor_advertising_again_is_one_entry_with_the_newest_snr);
+    RUN_TEST(test_forty_neighbors_rotate_by_last_heard_and_list_newest_first);
     RUN_TEST(test_ignored_node_advert_is_dropped_and_never_listed);
     RUN_TEST(test_neighbor_disappears_from_the_list_once_ignored);
     RUN_TEST(test_traffic_forwarded_by_an_ignored_node_is_dropped_by_its_path_hash);

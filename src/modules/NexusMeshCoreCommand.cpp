@@ -119,7 +119,7 @@ void NexusModule::cleanNeighborName(const char *src, char *out, size_t cap, size
     ::cleanNeighborName(src, out, cap, maxBytes);
 }
 
-NexusModule::DirectNeighborEntry NexusModule::neighborEntries[32];
+NexusModule::DirectNeighborEntry NexusModule::neighborEntries[40];
 
 size_t NexusModule::formatNeighborLine(const DirectNeighborEntry &entry, uint32_t now, char *out, size_t outLen)
 {

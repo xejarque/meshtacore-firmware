@@ -1364,16 +1364,26 @@ void MeshCoreRepeater::storeNeighbor(const PendingAdvert &adv)
 size_t MeshCoreRepeater::copyNeighbors(NeighborView *out, size_t max) const
 {
     size_t count = 0;
+    uint32_t ageMs[NEIGHBOR_MAX];
     const uint32_t now = Time::getMillis();
     for (const Neighbor &n : neighbors) {
         if (!n.used || count >= max || nodeIgnored(MeshCoreNodeStore<1>::nodeNumForKey(n.pub)))
             continue;
-        NeighborView &v = out[count++];
+        const uint32_t age = now - n.heardMs;
+        // Insertion sort by age: the most recently heard ends up first.
+        size_t at = count++;
+        while (at > 0 && ageMs[at - 1] > age) {
+            out[at] = out[at - 1];
+            ageMs[at] = ageMs[at - 1];
+            at--;
+        }
+        ageMs[at] = age;
+        NeighborView &v = out[at];
         memcpy(v.pub, n.pub, sizeof(v.pub));
         memcpy(v.name, n.name, sizeof(v.name));
         v.type = n.type;
         v.snr = n.snr;
-        v.ageSecs = (uint32_t)(now - n.heardMs) / 1000;
+        v.ageSecs = age / 1000;
     }
     return count;
 }

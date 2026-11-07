@@ -266,9 +266,9 @@ class MeshCoreRepeater
         float snr;
         uint32_t ageSecs;
     };
-    static constexpr size_t NEIGHBOR_MAX = 16;
+    static constexpr size_t NEIGHBOR_MAX = 40; // MeshCore's own repeater remembers 40 neighbours
 
-    /** Copy the neighbours that are not ignored into out (most recent first is not promised). Returns how many. */
+    /** Copy the neighbours that are not ignored into out, most recently heard first. Returns how many. */
     size_t copyNeighbors(NeighborView *out, size_t max) const;
 
     /**
