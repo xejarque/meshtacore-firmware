@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="es" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Administración remota paso a paso | Meshtacore</title>
+    <meta
+      name="description"
+      content="Guía sencilla y con dibujos para administrar un nodo Meshtacore a distancia, por radio: claves, mensajes privados, canal Nexus, opciones de seguridad y solución de errores."
+    />
+    <link rel="icon" type="image/svg+xml" href="../logo.svg" />
+    <link rel="stylesheet" href="docs.css" />
+    <link rel="stylesheet" href="tutorial.css" />
+    <script src="../theme.js"></script>
+  </head>
+  <body class="tutorial">
+    <header class="site-nav docs-nav">
+      <div class="nav-content docs-nav-content">
+        <a href="../index.html" class="brand-logo">
+          <img src="../logo.svg" alt="Meshtacore" class="brand-logo-img" width="28" height="28" />
+          <span>Meshtacore</span>
+          <span class="brand-badge">Guía</span>
+        </a>
+        <nav>
+          <ul class="nav-links">
+            <li><a href="../index.html">← Inicio</a></li>
+            <li><a href="index.html">Todos los comandos</a></li>
+            <li>
+              <a href="https://github.com/xejarque/meshtacore-firmware" target="_blank" rel="noopener">GitHub</a>
+            </li>
+            <li>
+              <button class="theme-toggle-btn" type="button" aria-label="Cambiar tema de color">🌙 Oscuro</button>
+            </li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <div class="docs-layout">
+      <aside class="docs-sidebar" aria-label="Índice de la guía">
+        <div class="sidebar-category">
+          <div class="sidebar-cat-title">Para empezar</div>
+          <ul class="sidebar-menu">
+            <li><a href="#que-es">1. Qué es y para qué sirve</a></li>
+            <li><a href="#palabras">2. Palabras que vas a ver</a></li>
+            <li><a href="#necesitas">3. Lo que necesitas</a></li>
+            <li><a href="#caminos">4. Elige tu camino</a></li>
+          </ul>
+        </div>
+        <div class="sidebar-category">
+          <div class="sidebar-cat-title">Paso a paso</div>
+          <ul class="sidebar-menu">
+            <li><a href="#camino-a">A. Administración normal</a></li>
+            <li><a href="#camino-b">B. Comandos por mensaje privado</a></li>
+            <li><a href="#camino-c">C. Canal Nexus con firma</a></li>
+          </ul>
+        </div>
+        <div class="sidebar-category">
+          <div class="sidebar-cat-title">Consulta</div>
+          <ul class="sidebar-menu">
+            <li><a href="#decision">Cómo decide el nodo</a></li>
+            <li><a href="#opciones">Todas las opciones</a></li>
+            <li><a href="#errores">Si algo falla</a></li>
+            <li><a href="#seguridad">Consejos de seguridad</a></li>
+            <li><a href="#probado">Qué hemos comprobado</a></li>
+          </ul>
+        </div>
+      </aside>
+
+      <main class="docs-main">
+        <!-- 1 -->
+        <section class="docs-section" id="que-es">
+          <h1>Administrar un nodo a distancia</h1>
+          <p class="docs-lead">
+            Esta guía te explica, con dibujos y pasos cortos, cómo cambiar los ajustes de un nodo
+            Meshtacore <strong>sin tener que ir hasta él</strong>: el nodo lejano recibe tu orden por
+            radio y la cumple.
+          </p>
+
+          <h2>1. Qué es y para qué sirve</h2>
+          <p>
+            Imagina que tienes un nodo en lo alto de una montaña. Si quieres cambiarle un ajuste, no hace
+            falta subir: lo haces desde tu casa con otro nodo, por radio.
+          </p>
+          <p>
+            Para que nadie más pueda dar órdenes a tu nodo, él <strong>solo obedece a quien conoce</strong>.
+            Reconoce a la gente por su <strong>clave</strong>, como un portero que tiene una lista de
+            personas autorizadas.
+          </p>
+
+          <p>
+            <strong>Los dibujos de esta guía</strong> salen pequeños dentro de la página. Debajo de cada uno
+            hay un botón azul, <em>«Ver el dibujo grande»</em>, para verlo a pantalla completa.
+          </p>
+
+          <figure class="diagram">
+            <iframe
+              src="diagramas/mapa.html"
+              title="Dibujo: quién da las órdenes y quién las obedece"
+              loading="lazy"
+            ></iframe>
+            <figcaption>
+              El nodo administrador manda una orden por radio. El nodo remoto mira en sus tres listas de
+              claves si conoce a quien la manda.
+              <a href="diagramas/mapa.html" target="_blank" rel="noopener">🔍 Ver el dibujo grande</a>
+            </figcaption>
+          </figure>
+        </section>
+
+        <!-- 2 -->
+        <section class="docs-section" id="palabras">
+          <h2>2. Palabras que vas a ver</h2>
+          <p>Si alguna no la conoces, vuelve aquí.</p>
+          <dl class="glossary">
+            <div>
+              <dt>Nodo</dt>
+              <dd>Cada radio de la red. Por ejemplo, un ThinkNode M1 o un GAT562.</dd>
+            </div>
+            <div>
+              <dt>Nodo administrador</dt>
+              <dd>El que da las órdenes. Es el que tienes a mano.</dd>
+            </div>
+            <div>
+              <dt>Nodo remoto</dt>
+              <dd>El que recibe las órdenes. Está lejos.</dd>
+            </div>
+            <div>
+              <dt>Clave pública</dt>
+              <dd>
+                Es como tu nombre y apellidos para la radio. Se puede compartir sin miedo. Es una línea larga
+                de letras y números que acaba casi siempre en <code>=</code>.
+              </dd>
+            </div>
+            <div>
+              <dt>Clave privada</dt>
+              <dd><strong>Nunca la enseñes ni la copies en un mensaje.</strong> Es tu contraseña secreta.</dd>
+            </div>
+            <div>
+              <dt>Lista de confianza</dt>
+              <dd>Las claves públicas que el nodo remoto acepta. Quien no esté en la lista, no manda.</dd>
+            </div>
+            <div>
+              <dt>Mensaje privado</dt>
+              <dd>Un mensaje dirigido a un solo nodo. Va cifrado y solo él lo puede leer.</dd>
+            </div>
+            <div>
+              <dt>Canal</dt>
+              <dd>Un grupo de conversación con su propia contraseña. Todos los que la tienen oyen los mensajes.</dd>
+            </div>
+            <div>
+              <dt>Firma</dt>
+              <dd>
+                Un sello que prueba que el mensaje lo ha escrito de verdad quien dice ser, y que nadie lo ha
+                cambiado por el camino.
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <!-- 3 -->
+        <section class="docs-section" id="necesitas">
+          <h2>3. Lo que necesitas</h2>
+          <ul>
+            <li>
+              <strong>Dos nodos</strong> con el firmware Meshtacore actual (versión <code>2.8.201</code> o
+              posterior), que se oigan por radio.
+            </li>
+            <li>
+              <strong>Un ordenador</strong> con el programa <code>meshtastic</code> (versión 2.7 o más
+              reciente) o la app del móvil, para dar las órdenes. Nuestras pruebas usan la versión 2.7.11.
+            </li>
+            <li>El <strong>identificador</strong> del nodo remoto: una palabra que empieza por <code>!</code>, como <code>!1a2b3c4d</code>.</li>
+            <li>Un cable USB para el primer ajuste de cada nodo.</li>
+          </ul>
+          <div class="callout callout-warning">
+            <strong>Antes de empezar</strong>
+            Apunta en un papel el nombre de cada nodo y su identificador. Cuando sepas cuál es cuál, todo es
+            más fácil.
+          </div>
+        </section>
+
+        <!-- 4 -->
+        <section class="docs-section" id="caminos">
+          <h2>4. Elige tu camino</h2>
+          <p>Hay tres formas de dar órdenes. Empieza por la A: es la más sencilla.</p>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr><th>Camino</th><th>Para qué sirve</th><th>Dificultad</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong><a href="#camino-a">A. Administración normal</a></strong></td>
+                  <td>Cambiar los ajustes del nodo remoto (radio, nombre, canales…) como si lo tuvieras delante.</td>
+                  <td><span class="badge badge-ok">Fácil · probado</span></td>
+                </tr>
+                <tr>
+                  <td><strong><a href="#camino-b">B. Comandos por mensaje privado</a></strong></td>
+                  <td>Usar los comandos propios de Meshtacore (<code>/mtc …</code>) en un solo nodo.</td>
+                  <td><span class="badge badge-ok">Medio · probado</span></td>
+                </tr>
+                <tr>
+                  <td><strong><a href="#camino-c">C. Canal Nexus con firma</a></strong></td>
+                  <td>Mandar órdenes por un canal compartido, con firma obligatoria.</td>
+                  <td><span class="badge badge-adv">Avanzado · probado</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- A -->
+        <section class="docs-section" id="camino-a">
+          <h2>Camino A · Administración normal</h2>
+          <p>
+            Aquí primero le dices al nodo remoto <em>«fíate de mi clave»</em> y después le mandas ajustes por
+            radio.
+          </p>
+
+          <ol class="steps">
+            <li>
+              <strong>Conecta el nodo administrador al ordenador por USB.</strong>
+              Mira cuál es su puerto (en Mac es algo como <code>/dev/cu.usbmodem2101</code>) y copia su
+              <em>clave pública</em>:
+              <div class="code-block">meshtastic --port /dev/cu.usbmodem2101 --get security.public_key</div>
+              Te devuelve una línea como <code>base64:AbC…=</code>. Guárdala.
+            </li>
+            <li>
+              <strong>Conecta el nodo remoto por USB y apunta la clave en su lista.</strong>
+              Esto solo se hace una vez, estando junto al nodo remoto:
+              <div class="code-block">meshtastic --port /dev/cu.usbmodem11401 --set security.admin_key base64:LA_CLAVE_COPIADA</div>
+              Cambia <code>LA_CLAVE_COPIADA</code> por la clave del paso 1. Puedes apuntar hasta
+              <strong>3 claves</strong>.
+            </li>
+            <li>
+              <strong>Desconecta el nodo remoto y llévalo a su sitio.</strong>
+              Los dos nodos tienen que conocer la clave pública del otro. Se la intercambian solos al oírse
+              en la malla; puede tardar un rato.
+            </li>
+            <li>
+              <strong>Desde el nodo administrador, pide un dato al remoto.</strong>
+              Sustituye <code>!1a2b3c4d</code> por el identificador del remoto:
+              <div class="code-block">meshtastic --port /dev/cu.usbmodem2101 --dest '!1a2b3c4d' --get lora.hop_limit</div>
+              Si te contesta con el valor, ¡ya funciona!
+            </li>
+            <li>
+              <strong>Cambia un ajuste.</strong>
+              Este ejemplo pone los «saltos» en 6:
+              <div class="code-block">meshtastic --port /dev/cu.usbmodem2101 --dest '!1a2b3c4d' --set lora.hop_limit 6</div>
+              Si todo va bien verás <code>Received an ACK.</code> (el nodo remoto confirma que lo ha hecho).
+            </li>
+          </ol>
+
+          <figure class="diagram">
+            <iframe
+              src="diagramas/pasos.html"
+              title="Dibujo: una orden remota, paso a paso"
+              loading="lazy"
+            ></iframe>
+            <figcaption>
+              Primero los nodos se conocen. Después, la orden viaja cifrada y el remoto responde.
+              <a href="diagramas/pasos.html" target="_blank" rel="noopener">🔍 Ver el dibujo grande</a>
+            </figcaption>
+          </figure>
+
+          <div class="callout callout-info">
+            <strong>El nodo no deja pasar a quien no está en su lista</strong>
+            Si pruebas con un nodo cuya clave no está apuntada, el remoto contesta
+            <code>ADMIN_PUBLIC_KEY_UNAUTHORIZED</code>. Es lo correcto: te está protegiendo.
+          </div>
+          <div class="callout callout-warning">
+            <strong>Si el programa pone «KeyError: 'id'» en rojo</strong>
+            A veces sale mientras el programa lee la lista de nodos. En nuestras pruebas no impidió que los
+            cambios se guardaran. Comprueba siempre el resultado.
+          </div>
+        </section>
+
+        <!-- B -->
+        <section class="docs-section" id="camino-b">
+          <h2>Camino B · Comandos Meshtacore por mensaje privado</h2>
+          <p>
+            Meshtacore tiene sus propios comandos, que empiezan por <code>/mtc</code>. Hay más de cien; la
+            lista completa está en el <a href="index.html">manual de comandos</a>. Aquí aprendes a mandar uno a
+            otro nodo.
+          </p>
+          <p>
+            Por seguridad, <strong>de fábrica el nodo no acepta comandos en mensajes privados</strong>. Hay que
+            activarlo. Los comandos que empiezan por <code>/mtcl</code> (la <strong>l</strong> final es de
+            «local») <strong>solo funcionan en el nodo al que estás conectado</strong>: nunca salen por radio.
+          </p>
+
+          <ol class="steps">
+            <li>
+              <strong>Haz el Camino A completo.</strong>
+              Hace falta que la clave del nodo administrador esté en la lista del remoto.
+            </li>
+            <li>
+              <strong>En el nodo remoto, activa los mensajes privados.</strong>
+              Conectado a él (USB o app), escribe este mensaje:
+              <div class="code-block">/mtcl SECURITY ALLOW_DM on</div>
+              El nodo contesta con una lista donde aparece <code>ALLOW_DM:ON</code>.
+            </li>
+            <li>
+              <strong>Manda un comando desde el administrador.</strong>
+              Escribe un <em>mensaje privado</em> al nodo remoto (en la app, abre la conversación con ese
+              nodo) con este texto:
+              <div class="code-block">/mtc-device !1a2b3c4d VERSION</div>
+              Sustituye <code>!1a2b3c4d</code> por el identificador del remoto.
+            </li>
+            <li>
+              <strong>Lee la respuesta.</strong>
+              Al cabo de unos segundos te llega, en la misma conversación, algo como
+              <code>MESHTACORE VERSION: 2.8.201.a0260fb</code>.
+            </li>
+            <li>
+              <strong>Guarda los cambios si quieres que sobrevivan a un reinicio.</strong>
+              En el nodo remoto escribe:
+              <div class="code-block">/mtcl SAVE</div>
+              Debe responder <code>Nexus vault saved and verified.</code>
+            </li>
+          </ol>
+
+          <div class="callout callout-info">
+            <strong>El sello de la respuesta</strong>
+            Delante de la respuesta puede salir <code>🔒</code> (lleva firma) o <code>🔴</code> (sin firma).
+            En mensajes privados es normal ver <code>🔴</code>; el cifrado ya protege el mensaje.
+          </div>
+          <div class="callout callout-warning">
+            <strong>No guardes lo que solo quieres probar</strong>
+            Si activas algo para una prueba y no haces <code>/mtcl SAVE</code>, al reiniciar el nodo vuelve a
+            su estado anterior. Es una red de seguridad.
+          </div>
+
+          <h3>Dar y quitar permisos extra sin tocar el nodo (SKEY)</h3>
+          <p>
+            Además de las 3 claves del Camino A, el nodo guarda <strong>4 claves extra</strong> que puedes
+            poner y quitar por radio. Son ideales para dar un permiso a alguien y retirárselo más tarde.
+          </p>
+          <ol class="steps">
+            <li>
+              <strong>Convierte la clave pública a hexadecimal.</strong>
+              La necesitas con 64 letras y números. En Mac o Linux:
+              <div class="code-block">echo -n 'LA_CLAVE_PUBLICA=' | base64 -d | xxd -p -c 64</div>
+            </li>
+            <li>
+              <strong>Dásela al nodo remoto en el hueco 1.</strong>
+              <div class="code-block">/mtcl SKEY 1 LA_CLAVE_EN_HEXADECIMAL</div>
+              Contesta <code>SKEY 1 updated.</code>
+            </li>
+            <li>
+              <strong>Para quitarla:</strong>
+              <div class="code-block">/mtcl SKEY 1 OFF</div>
+              Contesta <code>SKEY 1 wiped.</code> Desde ese momento esa persona deja de mandar.
+            </li>
+          </ol>
+        </section>
+
+        <!-- decisión -->
+        <section class="docs-section" id="decision">
+          <h2>Cómo decide el nodo si te obedece</h2>
+          <p>
+            Cada vez que llega una orden, el nodo remoto se hace unas preguntas, una detrás de otra. Si una
+            respuesta es «no», rechaza la orden y te lo dice.
+          </p>
+          <figure class="diagram">
+            <iframe
+              src="diagramas/decision.html"
+              title="Dibujo: las preguntas que se hace el nodo remoto antes de obedecer"
+              loading="lazy"
+            ></iframe>
+            <figcaption>
+              Arriba, el camino por mensaje privado. Abajo, el camino por el canal Nexus.
+              <a href="diagramas/decision.html" target="_blank" rel="noopener">🔍 Ver el dibujo grande</a>
+            </figcaption>
+          </figure>
+        </section>
+
+        <!-- C -->
+        <section class="docs-section" id="camino-c">
+          <h2>Camino C · Canal Nexus con firma <span class="badge badge-adv">Avanzado</span></h2>
+          <p>
+            Un <strong>canal Nexus</strong> es un canal normal, pero con un nombre especial:
+            <code>Nexus</code> (o <code>Nexus2</code>). El nodo trata las órdenes que llegan por él como
+            órdenes de administración. Sirve para mandar el mismo comando a varios nodos.
+          </p>
+          <div class="callout callout-warning">
+            <strong>Cuidado con este camino</strong>
+            Si no activas la firma, <strong>cualquiera que conozca la contraseña del canal</strong> puede dar
+            órdenes a tus nodos. Activa siempre la firma.
+          </div>
+          <ol class="steps">
+            <li>
+              <strong>Crea el canal en los dos nodos.</strong>
+              Un canal secundario llamado exactamente <code>Nexus</code>, con <strong>la misma contraseña</strong>
+              en los dos. Un nodo admite 8 canales: si están todos ocupados, libera uno.
+            </li>
+            <li>
+              <strong>En el nodo remoto, exige firma.</strong>
+              <div class="code-block">/mtcl SECURITY REQ_SIG on</div>
+              Ahora solo valen las órdenes firmadas por una clave de su lista de confianza.
+            </li>
+            <li>
+              <strong>En el nodo administrador, activa que firme.</strong>
+              Hay que poner el ajuste de seguridad <em>política de firma de paquetes</em>
+              (<code>packet_signature_policy</code>) en <code>BALANCED</code>. Con el programa
+              <code>meshtastic</code> 2.7.11 ese ajuste todavía no existe: hace falta una app o un cliente más
+              reciente. Si no lo encuentras, pide ayuda antes de seguir.
+            </li>
+            <li>
+              <strong>Manda la orden por el canal Nexus.</strong>
+              Escribe en el canal:
+              <div class="code-block">/mtc-device !1a2b3c4d VERSION</div>
+              Si todo está bien, la respuesta llega con <code>🔒</code>.
+            </li>
+          </ol>
+          <p>
+            Si la firma no es de confianza, el nodo contesta
+            <code>rejected — signature required (REQ_SIG)</code>. Aunque la orden vaya firmada, se rechaza si
+            esa clave no está en su lista.
+          </p>
+        </section>
+
+        <!-- opciones -->
+        <section class="docs-section" id="opciones">
+          <h2>Todas las opciones de seguridad</h2>
+          <p>
+            Se miran y se cambian con <code>/mtcl SECURITY</code>. Sin nada más, te enseña cómo está cada una.
+            Para cambiar una: <code>/mtcl SECURITY NOMBRE on</code> u <code>off</code>.
+          </p>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr><th>Opción</th><th>Qué hace cuando está activada</th><th>De fábrica</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><span class="cmd-badge">ALLOW_DM</span></td><td>Acepta comandos <code>/mtc</code> recibidos como mensaje privado, pero solo de claves de la lista de confianza.</td><td>apagada</td></tr>
+                <tr><td><span class="cmd-badge">REQ_SIG</span></td><td>Por el canal Nexus, solo acepta órdenes firmadas por una clave de confianza.</td><td>apagada</td></tr>
+                <tr><td><span class="cmd-badge">SILENT_LOG</span></td><td>Cuando rechaza una orden, no contesta. Así nadie descubre cómo tienes configurado el nodo.</td><td>apagada</td></tr>
+                <tr><td><span class="cmd-badge">BYPASS_RP</span></td><td>Apaga la protección contra mensajes repetidos. <strong>Está al revés:</strong> «activada» significa menos protección. No la toques.</td><td>apagada</td></tr>
+                <tr><td><span class="cmd-badge">AUTO_FAV_NEXUS</span></td><td>Marca como favorito a quien habla por un canal Nexus.</td><td>apagada</td></tr>
+                <tr><td><span class="cmd-badge">AUTO_FAV_TRUSTED</span></td><td>Marca como favorito solo a quien habla por un canal Nexus y firma con una clave de confianza.</td><td>apagada</td></tr>
+                <tr><td><span class="cmd-badge">AUTO_FAV_EXTRA</span></td><td>Como la anterior, pero para un canal que tú elijas (0 a 7).</td><td>apagada</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Las tres listas de claves de confianza</h3>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr><th>Lista</th><th>Cuántas</th><th>Cómo se cambia</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><strong>Claves de administrador</strong></td><td>hasta 3</td><td>Con el programa <code>meshtastic</code> o la app, conectado al nodo (Camino A).</td></tr>
+                <tr><td><strong>Claves extra (SKEY)</strong></td><td>hasta 4</td><td>Por radio, con <code>/mtcl SKEY</code>. Se pueden quitar cuando quieras.</td></tr>
+                <tr><td><strong>Claves de fábrica</strong></td><td>hasta 4</td><td>Van grabadas dentro del programa. <strong>No se pueden quitar</strong>: para cambiarlas hay que volver a grabar el nodo. Las versiones públicas no traen ninguna.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Otras cosas útiles</h3>
+          <ul>
+            <li><code>/mtcl SAVE</code>: guarda los ajustes de Meshtacore para que sobrevivan a un reinicio.</li>
+            <li><code>/mtc-device !ID COMANDO</code>: manda un comando a un nodo concreto, sin límite de uso.</li>
+            <li>Si lo mandas con <code>/mtc COMANDO</code> sin más, llega a <strong>todos</strong> los nodos del canal y hay un límite de uno cada 5 segundos.</li>
+          </ul>
+        </section>
+
+        <!-- errores -->
+        <section class="docs-section" id="errores">
+          <h2>Si algo falla</h2>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr><th>El nodo contesta…</th><th>Qué significa</th><th>Qué hacer</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>PKI_SEND_FAIL_PUBLIC_KEY</code></td><td>Tu nodo no conoce la clave pública del remoto.</td><td>Espera a que se oigan, o pide que se envíen su información. Después repite.</td></tr>
+                <tr><td><code>ADMIN_PUBLIC_KEY_UNAUTHORIZED</code></td><td>La clave de tu nodo no está en la lista del remoto.</td><td>Repite el Camino A (pasos 1 y 2).</td></tr>
+                <tr><td><code>DM not authorized (ALLOW_DM=OFF)</code></td><td>El remoto no acepta comandos por mensaje privado.</td><td>En el remoto: <code>/mtcl SECURITY ALLOW_DM on</code>.</td></tr>
+                <tr><td><code>DM not authorized (ALLOW_DM, pubkey not in trust list)</code></td><td>Lo acepta, pero tu clave no está en ninguna de sus tres listas.</td><td>Añade tu clave como administrador o con <code>SKEY</code>.</td></tr>
+                <tr><td><code>signature required (REQ_SIG)</code></td><td>Por el canal Nexus, tu orden no lleva firma válida de una clave de confianza.</td><td>Revisa el Camino C: firma activada y tu clave en la lista.</td></tr>
+                <tr><td><code>replay detected</code></td><td>Ha recibido otra vez exactamente el mismo mensaje.</td><td>Vuelve a escribirlo como mensaje nuevo.</td></tr>
+                <tr><td><em>Nada</em></td><td>El comando está mal escrito, o el remoto está fuera de alcance.</td><td>Mira que el comando empieza por <code>/mtc</code> y que el identificador es el correcto (empieza por <code>!</code>). Prueba otra vez más tarde.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- seguridad -->
+        <section class="docs-section" id="seguridad">
+          <h2>Consejos de seguridad</h2>
+          <ul>
+            <li><strong>Nunca compartas la clave privada.</strong> Cuando pegues ajustes en un grupo o un correo, comprueba que no aparece <code>private_key</code>.</li>
+            <li>Apunta como administrador <strong>solo</strong> las claves de personas o nodos de tu total confianza.</li>
+            <li>Para permisos temporales, usa <code>SKEY</code> y quítalo cuando termine.</li>
+            <li>No actives la opción <code>BYPASS_RP</code>.</li>
+            <li>Si usas el canal Nexus, activa siempre <code>REQ_SIG</code> y usa una contraseña de canal larga que solo tengan tus nodos.</li>
+            <li>Haz primero los cambios en un nodo que tengas a mano. Si algo sale mal, puedes arreglarlo con el cable.</li>
+          </ul>
+        </section>
+
+        <!-- probado -->
+        <section class="docs-section" id="probado">
+          <h2>Qué hemos comprobado</h2>
+          <p>
+            Todo lo anterior se ha probado el <strong>7 de noviembre de 2026</strong> con dos nodos reales, un
+            ThinkNode M1 y un GAT562, con el firmware <code>2.8.201.a0260fb</code> de la rama principal.
+          </p>
+          <div class="docs-table-wrapper">
+            <table class="docs-table">
+              <thead>
+                <tr><th>Prueba</th><th>Resultado</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Leer y cambiar un ajuste del remoto por radio (Camino A)</td><td>Funciona. Confirmado por el remoto y comprobado por USB.</td></tr>
+                <tr><td>Un nodo cuya clave no está en la lista intenta administrar</td><td>Rechazado.</td></tr>
+                <tr><td>Comando <code>/mtc-device</code> por mensaje privado con <code>ALLOW_DM</code></td><td>Funciona, incluso un cambio de ajuste y su vuelta atrás.</td></tr>
+                <tr><td>Mismo comando sin <code>ALLOW_DM</code>, y con <code>ALLOW_DM</code> pero sin clave de confianza</td><td>Rechazado en los dos casos, con su motivo.</td></tr>
+                <tr><td>Comando por canal <code>Nexus</code> sin exigir firma</td><td>Funciona.</td></tr>
+                <tr><td>Con <code>REQ_SIG</code>: sin firma, y firmado por una clave que no es de confianza</td><td>Rechazado en los dos casos.</td></tr>
+                <tr><td>Con <code>REQ_SIG</code>: firmado por una clave de confianza</td><td>Funciona (respuesta con <code>🔒</code>).</td></tr>
+                <tr><td><code>SKEY</code>: poner, usar, quitar</td><td>Funciona. Al quitarla, el nodo vuelve a rechazar.</td></tr>
+                <tr><td><code>/mtcl SAVE</code> y reinicio</td><td><code>SKEY</code> y <code>REQ_SIG</code> se conservaron. En un primer intento <code>REQ_SIG</code> apareció apagado tras reiniciar y no pudimos repetirlo: comprueba tus ajustes después de reiniciar.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="callout callout-info">
+            <strong>Lo que no hemos podido comprobar</strong>
+            El antiguo <em>canal «admin»</em> (la opción <code>admin_channel_enabled</code>). Entre nuestros
+            dos nodos, el administrador siempre prefiere el cifrado de mensaje privado cuando conoce la clave
+            del otro, así que esa vía no llega a usarse. No la recomendamos: usa el Camino A.
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        const links = document.querySelectorAll(".sidebar-menu a");
+        const sections = document.querySelectorAll(".docs-section[id]");
+        window.addEventListener("scroll", () => {
+          let current = "";
+          sections.forEach((sec) => {
+            if (window.pageYOffset >= sec.offsetTop - 140) current = sec.id;
+          });
+          if (!current) return;
+          links.forEach((link) => {
+            link.classList.toggle("active", link.getAttribute("href") === `#${current}`);
+          });
+        });
+      });
+    </script>
+  </body>
+</html>
