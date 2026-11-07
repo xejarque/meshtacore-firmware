@@ -17,3 +17,4 @@
 .admin .when-connected, .admin .usage .run { display: none; }
 body.connected .admin .when-connected, body.connected .admin .usage .run { display: inline-block; }
 body.connected #connect { display: none; }
+body.connected .admin .capture-bar { display: flex; margin-top: 0.5rem; }

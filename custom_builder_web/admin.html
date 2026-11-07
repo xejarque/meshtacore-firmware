@@ -35,6 +35,11 @@
         <span id="status">Desconectado</span>
         <span class="muted">Nodo: <code id="node">—</code></span>
       </section>
+      <section class="bar when-connected capture-bar">
+        <button id="capture" class="run">Capturar salidas del nodo</button>
+        <button id="download">Descargar grabación (<span id="recCount">0</span>)</button>
+        <span class="muted">Ejecuta solo comandos de lectura y descarga un JSON con las respuestas reales.</span>
+      </section>
       <p class="muted">
         Requiere Chrome o Edge (escritorio o Android) con el Bluetooth del nodo activo y emparejado. Los comandos se
         ejecutan en local con <code>/mtcl</code>: no salen por radio.
@@ -52,6 +57,6 @@
         </section>
       </div>
     </main>
-    <script src="admin.js"></script>
+    <script type="module" src="admin.js"></script>
   </body>
 </html>
