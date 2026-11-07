@@ -413,6 +413,27 @@ void RadioLibInterface::reloadMeshCoreConfig()
 #ifdef USERPREFS_MESHCORE_ADVERT_HOURS
         meshCoreConfig.advertHours = USERPREFS_MESHCORE_ADVERT_HOURS;
 #endif
+        // Path hash size and flood depth limits: a value outside the range the commands accept is ignored (0 = built-in).
+#ifdef USERPREFS_MESHCORE_PATH_HASH_SIZE
+        if (MeshCoreConfig::validPathHashSize(USERPREFS_MESHCORE_PATH_HASH_SIZE))
+            meshCoreConfig.pathHashSize = USERPREFS_MESHCORE_PATH_HASH_SIZE;
+#endif
+#ifdef USERPREFS_MESHCORE_FLOOD_MAX
+        if (MeshCoreConfig::validFloodMax(USERPREFS_MESHCORE_FLOOD_MAX))
+            meshCoreConfig.floodMax = USERPREFS_MESHCORE_FLOOD_MAX;
+#endif
+#ifdef USERPREFS_MESHCORE_FLOOD_MAX_UNSCOPED
+        if (MeshCoreConfig::validFloodMax(USERPREFS_MESHCORE_FLOOD_MAX_UNSCOPED))
+            meshCoreConfig.floodMaxUnscoped = USERPREFS_MESHCORE_FLOOD_MAX_UNSCOPED;
+#endif
+#ifdef USERPREFS_MESHCORE_FLOOD_MAX_ADVERT
+        if (MeshCoreConfig::validFloodMax(USERPREFS_MESHCORE_FLOOD_MAX_ADVERT))
+            meshCoreConfig.floodMaxAdvert = USERPREFS_MESHCORE_FLOOD_MAX_ADVERT;
+#endif
+#if defined(USERPREFS_MESHCORE_PATH_HASH_SIZE) || defined(USERPREFS_MESHCORE_FLOOD_MAX) ||                                      \
+    defined(USERPREFS_MESHCORE_FLOOD_MAX_UNSCOPED) || defined(USERPREFS_MESHCORE_FLOOD_MAX_ADVERT)
+        applyMeshCoreConfig();
+#endif
         LOG_INFO("MeshCore config: no valid %s, settings unchanged", meshCoreConfigPath);
         return;
     }

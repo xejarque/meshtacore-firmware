@@ -162,6 +162,9 @@ public:
     // wins. An older vault (v65-v67) predates the defaults: they are applied once and saved as v68. With no vault they
     // apply in RAM until the first SAVE.
     void applyZeroHopRoleDefaults(bool vaultHasV68);
+    // Build-time starting values (USERPREFS_NEXUS_*, NexusUserPrefs.cpp). Only for a device with no vault: a saved vault
+    // is the operator's choice and wins. Runs before applyZeroHopRoleDefaults so the role defaults add to it.
+    void applyFactoryUserPrefs();
     // /mtc PPING (NexusCommands.cpp): the Meshtastic public ping. Independent from /mtc MESHCORE PPING, which only
     // switches the MeshCore channels; both share the reporting settings through applyPpingSetting, but each keeps its own
     // header mode (meshcore picks which one HEADER acts on).

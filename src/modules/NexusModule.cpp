@@ -384,7 +384,8 @@ NexusModule::NexusModule()
     for(int i=0; i<8; i++) targetWatchlist[i].nodeID = 0;
 
     // Nexus: Capture boot parameters and restore vault
-    loadVault();
+    if (!loadVault() && vaultVersionLoaded == 0)
+        applyFactoryUserPrefs();
     // Before initLoRa(), so the radio starts on the restored settings; otherwise make sure a copy exists.
     if (!NexusRescue::restoreIfConfigWasMissing())
         NexusRescue::snapshot();
