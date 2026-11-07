@@ -35,6 +35,16 @@ RTC_DATA_ATTR bool rtcNexusHibernating = false;
 bool rtcNexusHibernating = false;
 #endif
 
+// nRF52 System OFF has no timer: without a battery LPCOMP wake, the 60 s sniff only happens if the sleep is a timed one.
+void sleepUntilNextHibernateSniff()
+{
+#ifdef ARCH_NRF52
+    if (!nrf52ArmsBatteryLpcompWake())
+        nrf52RequestTimedSleep();
+#endif
+    doDeepSleep(HIBERNATE_SNIFF_INTERVAL_MS, true, true);
+}
+
 bool isRuleActive(const NexusModule::NexusVoltRule &rule)
 {
     return rule.action != NexusModule::NEXUS_VOLT_ACT_NONE && rule.mv > 0;
@@ -262,7 +272,7 @@ void NexusModule::applyRuleAction(const NexusVoltRule &rule)
         LOG_INFO("MTC: Entering voltage-induced hibernation (sniff interval 60s)...");
         // skipSaveNodeDb: saveToDisk() has no dirty check, so saving on every ~75 s cycle would wear the flash, and nothing new
         // was heard since the node went into hibernation.
-        doDeepSleep(HIBERNATE_SNIFF_INTERVAL_MS, true, true);
+        sleepUntilNextHibernateSniff();
         break;
     case NEXUS_VOLT_ACT_WAKE:
         setHibernating(false);
@@ -296,7 +306,7 @@ void NexusModule::continueHibernation()
         }
     }
     LOG_INFO("MTC: Hibernating sniff complete, returning to deep sleep (60s)...");
-    doDeepSleep(HIBERNATE_SNIFF_INTERVAL_MS, true, true);
+    sleepUntilNextHibernateSniff();
 }
 
 void NexusModule::listVoltRules(const meshtastic_MeshPacket &mp, uint32_t replyId)
