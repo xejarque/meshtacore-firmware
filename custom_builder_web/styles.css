@@ -804,3 +804,16 @@ details.collapsible[open] summary {
   color: var(--text-muted);
   font-size: 0.8rem;
 }
+
+/* Opciones avanzadas de Nexus (nexus-options.js): casillas de máscaras en rejilla */
+.nx-bits {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0.35rem 0.75rem;
+}
+.nx-bit {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+}

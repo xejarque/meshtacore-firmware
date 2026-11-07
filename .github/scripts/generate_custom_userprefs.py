@@ -49,6 +49,64 @@ def format_psk(psk_val: str) -> str:
             return "{ 0x01 }"
 
 
+DEFAULT_MANIFEST = (
+    Path(__file__).resolve().parents[2] / "custom_builder_web" / "options.manifest.json"
+)
+
+
+def option_value_error(opt: dict, value: str):
+    """Why `value` is not valid for a manifest option, or None when it is.
+
+    Same rules as emitOption() in custom_builder_web/nexus-options.js: the web builder only emits valid values, so a
+    failure here means a hand-written custom_userprefs_json.
+    """
+    kind = opt["type"]
+    if kind == "bool":
+        return None if value in ("true", "false") else "expected true or false"
+    if kind == "int":
+        if not re.fullmatch(r"-?\d+", value):
+            return "expected a whole number"
+        if not opt["min"] <= int(value) <= opt["max"]:
+            return f"expected {opt['min']}..{opt['max']}"
+        return None
+    if kind == "string":
+        return None if len(value) <= opt["maxLen"] else f"longer than {opt['maxLen']}"
+    if kind == "enum":
+        # `emit` is the text the firmware gets for a choice; `prefix` is prepended to every choice.
+        allowed = [opt.get("prefix", "") + v.get("emit", v["value"]) for v in opt["values"]]
+        return None if value in allowed else f"expected one of {allowed}"
+    if kind == "bitmask":
+        try:
+            number = int(value, 0)
+        except ValueError:
+            return "expected a decimal or 0x.. number"
+        return None if 0 <= number < (1 << opt["width"]) else f"does not fit in {opt['width']} bits"
+    if kind == "key":
+        return None if value.startswith("{") and value.endswith("}") else "expected {0x.., ...}"
+    return None
+
+
+def drop_invalid_manifest_options(prefs: dict, manifest_path: Path) -> list:
+    """Removes the manifest options whose value is out of range, so a typo cannot reach the firmware build.
+
+    Returns one message per dropped key.
+    """
+    if not manifest_path.exists():
+        return []
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        manifest = json.load(f)
+    dropped = []
+    for opt in manifest["options"]:
+        key = opt["key"]
+        if key not in prefs:
+            continue
+        error = option_value_error(opt, str(prefs[key]))
+        if error:
+            dropped.append(f"{key}={prefs[key]!r} dropped: {error}")
+            del prefs[key]
+    return dropped
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Customize userPrefs.jsonc for firmware build"
@@ -172,6 +230,11 @@ def main():
         help="Complete custom userPrefs JSON string to merge/override",
     )
     parser.add_argument("--output", default="userPrefs.jsonc")
+    parser.add_argument(
+        "--manifest",
+        default=str(DEFAULT_MANIFEST),
+        help="Builder options manifest used to validate the Nexus options",
+    )
 
     args = parser.parse_args()
     prefs = load_userprefs(Path(args.file))
@@ -497,6 +560,9 @@ def main():
             print(
                 f"Warning: could not merge custom_userprefs_json: {e}", file=sys.stderr
             )
+
+    for message in drop_invalid_manifest_options(prefs, Path(args.manifest)):
+        print(f"::warning::{message}", file=sys.stderr)
 
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(prefs, f, indent=2)

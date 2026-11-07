@@ -359,6 +359,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Role Restrictions (e.g. CLIENT_MUTE must not repeat or force base texts)
+  let nexusManifest = null; // options.manifest.json, cargado por loadNexusOptions()
   let prevBaseTexts = nexusBaseTexts ? nexusBaseTexts.checked : true;
   let prevRebroadcast = rebroadcastMode ? rebroadcastMode.value : "ALL";
   let prevMeshcoreRelay = meshcoreRelayMode ? meshcoreRelayMode.value : "AUTO";
@@ -1256,33 +1257,7 @@ ${encryptedConfig}
       prefs["USERPREFS_FORCE_CLEAN_INSTALL"] = "1";
     }
 
-    // MeshCore is always enabled in Meshtacore firmware
-    if (data.meshcore_advert_hours) {
-      prefs["USERPREFS_MESHCORE_ADVERT_HOURS"] = data.meshcore_advert_hours;
-    }
-    const modeVal =
-      { AUTO: "0", OFF: "1", ON: "2" }[data.meshcore_relay_mode] || "0";
-    prefs["USERPREFS_MESHCORE_RELAY_MODE"] = modeVal;
-
-    // Regions: only define if non-empty (empty = all permitted)
-    if (data.meshcore_regions_def && data.meshcore_regions_def.trim()) {
-      prefs["USERPREFS_MESHCORE_REGIONS_DEF"] =
-        data.meshcore_regions_def.trim();
-    }
-    if (data.meshcore_home_region && data.meshcore_home_region.trim()) {
-      prefs["USERPREFS_MESHCORE_HOME_REGION"] =
-        data.meshcore_home_region.trim();
-    }
-    if (data.meshcore_default_region && data.meshcore_default_region.trim()) {
-      prefs["USERPREFS_MESHCORE_DEFAULT_REGION"] =
-        data.meshcore_default_region.trim();
-    }
-
-    if (data.nexus_base_texts !== undefined) {
-      prefs["USERPREFS_NEXUS_BASE_TEXTS"] = data.nexus_base_texts
-        ? "true"
-        : "false";
-    }
+    // MeshCore advert/relay/regions and Nexus base texts are emitted from options.manifest.json (see the end of this function).
 
     if (data.nexus_master_key) {
       const k = data.nexus_master_key.toLowerCase();
@@ -1334,34 +1309,7 @@ ${encryptedConfig}
         `meshtastic_Config_LoRaConfig_ModemPreset_${p}`;
     }
 
-    // Timezone configuration (Auto-detected or custom POSIX)
-    if (data.timezone_string) {
-      prefs["USERPREFS_TZ_STRING"] = data.timezone_string;
-    }
-
-    // Advanced behavior options (Rebroadcast, intervals, BLE PIN)
-    if (data.rebroadcast_mode) {
-      prefs["USERPREFS_CONFIG_DEVICE_REBROADCAST_MODE"] =
-        `meshtastic_Config_DeviceConfig_RebroadcastMode_${data.rebroadcast_mode}`;
-    }
-    if (data.fixed_ble_pin) {
-      prefs["USERPREFS_FIXED_BLUETOOTH"] = data.fixed_ble_pin;
-    }
-    if (data.node_info_broadcast_secs) {
-      prefs["USERPREFS_CONFIG_DEVICE_NODE_INFO_BROADCAST_SECS"] =
-        data.node_info_broadcast_secs;
-    }
-    if (data.position_broadcast_interval) {
-      prefs["USERPREFS_CONFIG_POSITION_BROADCAST_INTERVAL"] =
-        data.position_broadcast_interval;
-    }
-    if (data.device_telem_interval) {
-      prefs["USERPREFS_CONFIG_DEVICE_TELEM_UPDATE_INTERVAL"] =
-        data.device_telem_interval;
-    }
-    if (data.smart_position) {
-      prefs["USERPREFS_CONFIG_SMART_POSITION_ENABLED"] = "true";
-    }
+    // Timezone, rebroadcast mode, BLE PIN, intervals and smart position also come from options.manifest.json.
 
     // Write channels
     const activeChannels = channelsData.filter((c) => c.enabled);
@@ -1420,6 +1368,17 @@ ${encryptedConfig}
       prefs["USERPREFS_NETWORK_WIFI_PSK"] = data.wifi_password;
     }
 
+    // Opciones avanzadas de Nexus (manifest). Un formulario sin tocar no añade nada.
+    if (nexusManifest && window.NexusOptions) {
+      Object.assign(
+        prefs,
+        window.NexusOptions.emitNexusPrefs(
+          nexusManifest,
+          window.NexusOptions.readValues(nexusManifest, data),
+        ),
+      );
+    }
+
     return prefs;
   }
 
@@ -1464,6 +1423,22 @@ ${encryptedConfig}
     a.click();
     URL.revokeObjectURL(url);
   });
+
+  // Opciones avanzadas de Nexus: se dibujan desde options.manifest.json y se emiten con el mismo módulo.
+  async function loadNexusOptions() {
+    const container = document.getElementById("nexusOptionsContainer");
+    if (!container || !window.NexusOptions) return;
+    try {
+      const res = await fetch("options.manifest.json", { cache: "no-cache" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      nexusManifest = await res.json();
+      window.NexusOptions.render(nexusManifest, container);
+      updateLivePreview();
+    } catch (err) {
+      container.textContent = `No se pudieron cargar las opciones avanzadas: ${err.message}`;
+    }
+  }
+  loadNexusOptions();
 
   // Initial UI state (board-dependent availability) + preview
   applyBoardCapabilities();

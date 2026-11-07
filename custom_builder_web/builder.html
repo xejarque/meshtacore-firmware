@@ -834,6 +834,21 @@
                   </div>
                 </div>
               </div>
+
+              <div class="subcard mt-3">
+                <div class="subcard-header">
+                  <strong>Opciones avanzadas de Nexus (Opcional)</strong>
+                </div>
+                <p class="helper-text">
+                  Valores iniciales de bots, firewall, Zero-Hop y radio. Solo
+                  se aplican en el primer arranque o tras un factory reset: un
+                  vault guardado con <code>/mtc SAVE</code> manda siempre. Lo
+                  que no toques no se añade a la configuración.
+                </p>
+                <div id="nexusOptionsContainer">
+                  <p class="helper-text">Cargando opciones…</p>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -1523,6 +1538,7 @@
       crossorigin=""
     ></script>
     <script src="crypto.js"></script>
+    <script src="nexus-options.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

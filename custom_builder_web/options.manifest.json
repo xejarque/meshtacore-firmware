@@ -1,0 +1,1053 @@
+{
+ "version": 1,
+ "note": "Fuente única de las opciones Nexus del builder. La leen app.js y generate_custom_userprefs.py. Una opción con su valor por defecto (o vacía) no se emite.",
+ "groups": [
+  {
+   "id": "bots",
+   "title": "Bots (PPING)",
+   "description": "Bot de ping público de Meshtastic (/mt PPING) y de MeshCore (/mc PPING). Valores iniciales: solo se aplican en el primer arranque o tras un factory reset; un vault guardado (/mtc SAVE) manda siempre."
+  },
+  {
+   "id": "firewall",
+   "title": "Firewall",
+   "description": "Filtros de entrada y salida, límites por hora y retardo de respuestas (/mtc DROP, OUTDROP, INVALID, RATELIMIT, BD)."
+  },
+  {
+   "id": "system",
+   "title": "Zero-Hop, features y seguridad",
+   "description": "Zero-Hop (/mtc ZH), features (/mtc FEATURES) y seguridad de comandos (/mtc SECURITY)."
+  },
+  {
+   "id": "meshcore",
+   "title": "MeshCore avanzado",
+   "description": "Ruta y profundidad de inundación de MeshCore (/mc). Solo valen mientras no exista /prefs/meshcore_config.bin."
+  },
+  {
+   "id": "radio",
+   "title": "Radio y claves",
+   "description": "Preámbulo y claves maestras adicionales."
+  },
+  {
+   "id": "device",
+   "title": "Dispositivo",
+   "description": "Opciones con control propio en builder.html."
+  }
+ ],
+ "options": [
+  {
+   "id": "pping_enabled",
+   "group": "bots",
+   "type": "bool",
+   "key": "USERPREFS_NEXUS_PPING_ENABLED",
+   "label": "Bot PPING de Meshtastic activo",
+   "cmd": "/mt PPING ON",
+   "default": false
+  },
+  {
+   "id": "pping_channels",
+   "group": "bots",
+   "type": "bitmask",
+   "key": "USERPREFS_NEXUS_PPING_CHANNELS",
+   "label": "Canales donde responde el bot",
+   "cmd": "/mt PPING CHAN",
+   "default": 1,
+   "width": 8,
+   "format": "dec",
+   "bits": [
+    {
+     "bit": 0,
+     "id": "ch0",
+     "label": "Canal 0"
+    },
+    {
+     "bit": 1,
+     "id": "ch1",
+     "label": "Canal 1"
+    },
+    {
+     "bit": 2,
+     "id": "ch2",
+     "label": "Canal 2"
+    },
+    {
+     "bit": 3,
+     "id": "ch3",
+     "label": "Canal 3"
+    },
+    {
+     "bit": 4,
+     "id": "ch4",
+     "label": "Canal 4"
+    },
+    {
+     "bit": 5,
+     "id": "ch5",
+     "label": "Canal 5"
+    },
+    {
+     "bit": 6,
+     "id": "ch6",
+     "label": "Canal 6"
+    },
+    {
+     "bit": 7,
+     "id": "ch7",
+     "label": "Canal 7"
+    }
+   ]
+  },
+  {
+   "id": "pping_trigger",
+   "group": "bots",
+   "type": "string",
+   "key": "USERPREFS_NEXUS_PPING_TRIGGER",
+   "label": "Comando disparador",
+   "cmd": "/mt PPING CMD",
+   "default": "/ping",
+   "maxLen": 15
+  },
+  {
+   "id": "pping_rssi",
+   "group": "bots",
+   "type": "bool",
+   "key": "USERPREFS_NEXUS_PPING_RSSI",
+   "label": "Incluir RSSI",
+   "cmd": "/mt PPING RSSI",
+   "default": true
+  },
+  {
+   "id": "pping_snr",
+   "group": "bots",
+   "type": "bool",
+   "key": "USERPREFS_NEXUS_PPING_SNR",
+   "label": "Incluir SNR",
+   "cmd": "/mt PPING SNR",
+   "default": true
+  },
+  {
+   "id": "pping_freqerr",
+   "group": "bots",
+   "type": "bool",
+   "key": "USERPREFS_NEXUS_PPING_FREQERR",
+   "label": "Incluir error de frecuencia",
+   "cmd": "/mt PPING FREQERR",
+   "default": true
+  },
+  {
+   "id": "pping_flags",
+   "group": "bots",
+   "type": "bool",
+   "key": "USERPREFS_NEXUS_PPING_FLAGS",
+   "label": "Incluir flags",
+   "cmd": "/mt PPING FLAGS",
+   "default": true
+  },
+  {
+   "id": "pping_ignore_direct",
+   "group": "bots",
+   "type": "bool",
+   "key": "USERPREFS_NEXUS_PPING_IGNORE_DIRECT",
+   "label": "Ignorar pings directos",
+   "cmd": "/mt PPING DIRECT IGNORE",
+   "default": false
+  },
+  {
+   "id": "pping_ignore_remote",
+   "group": "bots",
+   "type": "bool",
+   "key": "USERPREFS_NEXUS_PPING_IGNORE_REMOTE",
+   "label": "Ignorar pings remotos",
+   "cmd": "/mt PPING IGNORE REMOTE",
+   "default": false
+  },
+  {
+   "id": "pping_allow_dm",
+   "group": "bots",
+   "type": "bool",
+   "key": "USERPREFS_NEXUS_PPING_ALLOW_DM",
+   "label": "Responder también por mensaje directo",
+   "cmd": "/mt PPING ALLOWDM",
+   "default": false
+  },
+  {
+   "id": "pping_emoji_mode",
+   "group": "bots",
+   "type": "enum",
+   "key": "USERPREFS_NEXUS_PPING_EMOJI_MODE",
+   "label": "Modo emoji",
+   "cmd": "/mt PPING EMOJI",
+   "default": "0",
+   "values": [
+    {
+     "value": "0",
+     "label": "Texto"
+    },
+    {
+     "value": "1",
+     "label": "Emoji si es indirecto"
+    },
+    {
+     "value": "2",
+     "label": "Siempre emoji"
+    }
+   ]
+  },
+  {
+   "id": "pping_mt_header_mode",
+   "group": "bots",
+   "type": "enum",
+   "key": "USERPREFS_NEXUS_PPING_MT_HEADER_MODE",
+   "label": "Cabecera del bot de Meshtastic",
+   "cmd": "/mt PPING HEADER",
+   "default": "0",
+   "values": [
+    {
+     "value": "0",
+     "label": "Por defecto"
+    },
+    {
+     "value": "1",
+     "label": "Texto propio"
+    },
+    {
+     "value": "2",
+     "label": "Sin cabecera"
+    }
+   ]
+  },
+  {
+   "id": "pping_mc_header_mode",
+   "group": "bots",
+   "type": "enum",
+   "key": "USERPREFS_NEXUS_PPING_MC_HEADER_MODE",
+   "label": "Cabecera del bot de MeshCore",
+   "cmd": "/mc PPING HEADER",
+   "default": "2",
+   "values": [
+    {
+     "value": "0",
+     "label": "Por defecto"
+    },
+    {
+     "value": "1",
+     "label": "Texto propio"
+    },
+    {
+     "value": "2",
+     "label": "Sin cabecera"
+    }
+   ]
+  },
+  {
+   "id": "pping_header",
+   "group": "bots",
+   "type": "string",
+   "key": "USERPREFS_NEXUS_PPING_HEADER",
+   "label": "Texto de cabecera propio (ambas capas)",
+   "cmd": "/mt PPING HEADER <texto>",
+   "default": "",
+   "maxLen": 63
+  },
+  {
+   "id": "drop_mask",
+   "group": "firewall",
+   "type": "bitmask",
+   "key": "USERPREFS_NEXUS_DROP_MASK",
+   "label": "Filtros de entrada (DROP)",
+   "cmd": "/mtc DROP <TAG>",
+   "default": 0,
+   "width": 64,
+   "format": "hex",
+   "bits": [
+    {
+     "bit": 0,
+     "id": "nodeinfo",
+     "label": "NODEINFO"
+    },
+    {
+     "bit": 1,
+     "id": "position",
+     "label": "POSITION"
+    },
+    {
+     "bit": 2,
+     "id": "telemetry",
+     "label": "TELEMETRY"
+    },
+    {
+     "bit": 3,
+     "id": "neighbor",
+     "label": "NEIGHBOR"
+    },
+    {
+     "bit": 4,
+     "id": "traceroute",
+     "label": "TRACEROUTE"
+    },
+    {
+     "bit": 5,
+     "id": "traceroute_remote",
+     "label": "TRACEROUTE_REMOTE"
+    },
+    {
+     "bit": 6,
+     "id": "traceroute_local",
+     "label": "TRACEROUTE_LOCAL"
+    },
+    {
+     "bit": 7,
+     "id": "private",
+     "label": "PRIVATE"
+    },
+    {
+     "bit": 8,
+     "id": "hop6",
+     "label": "HOP6"
+    },
+    {
+     "bit": 9,
+     "id": "hop7",
+     "label": "HOP7"
+    },
+    {
+     "bit": 10,
+     "id": "req_nodeinfo",
+     "label": "REQ_NODEINFO"
+    },
+    {
+     "bit": 11,
+     "id": "req_telemetry",
+     "label": "REQ_TELEMETRY"
+    },
+    {
+     "bit": 12,
+     "id": "req_position",
+     "label": "REQ_POSITION"
+    },
+    {
+     "bit": 13,
+     "id": "acks",
+     "label": "ACKS"
+    },
+    {
+     "bit": 14,
+     "id": "pki",
+     "label": "PKI"
+    },
+    {
+     "bit": 15,
+     "id": "pki_remote",
+     "label": "PKI_REMOTE"
+    },
+    {
+     "bit": 16,
+     "id": "pki_local",
+     "label": "PKI_LOCAL"
+    },
+    {
+     "bit": 17,
+     "id": "fav_bypass",
+     "label": "FAV_BYPASS"
+    },
+    {
+     "bit": 18,
+     "id": "prehop",
+     "label": "PREHOP"
+    },
+    {
+     "bit": 19,
+     "id": "store_forward",
+     "label": "STORE_FORWARD"
+    },
+    {
+     "bit": 20,
+     "id": "admin",
+     "label": "ADMIN"
+    },
+    {
+     "bit": 21,
+     "id": "text",
+     "label": "TEXT"
+    },
+    {
+     "bit": 22,
+     "id": "keyver",
+     "label": "KEYVER"
+    },
+    {
+     "bit": 23,
+     "id": "alert",
+     "label": "ALERT"
+    },
+    {
+     "bit": 24,
+     "id": "waypoint",
+     "label": "WAYPOINT"
+    },
+    {
+     "bit": 25,
+     "id": "traceroute_direct",
+     "label": "TRACEROUTE_DIRECT"
+    },
+    {
+     "bit": 26,
+     "id": "traceroute_direct_remote",
+     "label": "TRACEROUTE_DIRECT_REMOTE"
+    },
+    {
+     "bit": 27,
+     "id": "traceroute_direct_local",
+     "label": "TRACEROUTE_DIRECT_LOCAL"
+    },
+    {
+     "bit": 28,
+     "id": "skip_skip_handle",
+     "label": "SKIP_SKIP_HANDLE"
+    },
+    {
+     "bit": 29,
+     "id": "rl_text",
+     "label": "RL_TEXT"
+    },
+    {
+     "bit": 30,
+     "id": "rl_trace",
+     "label": "RL_TRACE"
+    },
+    {
+     "bit": 31,
+     "id": "rl_other",
+     "label": "RL_OTHER"
+    },
+    {
+     "bit": 32,
+     "id": "tele_device",
+     "label": "TELE_DEVICE"
+    },
+    {
+     "bit": 33,
+     "id": "tele_power",
+     "label": "TELE_POWER"
+    },
+    {
+     "bit": 34,
+     "id": "tele_env",
+     "label": "TELE_ENV"
+    },
+    {
+     "bit": 35,
+     "id": "tele_other",
+     "label": "TELE_OTHER"
+    },
+    {
+     "bit": 36,
+     "id": "no_mqtt",
+     "label": "NO_MQTT"
+    },
+    {
+     "bit": 37,
+     "id": "pos_manual",
+     "label": "POS_MANUAL"
+    },
+    {
+     "bit": 38,
+     "id": "pos_gps",
+     "label": "POS_GPS"
+    },
+    {
+     "bit": 39,
+     "id": "pos_other",
+     "label": "POS_OTHER"
+    },
+    {
+     "bit": 42,
+     "id": "rl_nodeinfo",
+     "label": "RL_NODEINFO"
+    },
+    {
+     "bit": 43,
+     "id": "rl_position",
+     "label": "RL_POSITION"
+    },
+    {
+     "bit": 44,
+     "id": "rl_telemetry",
+     "label": "RL_TELEMETRY"
+    },
+    {
+     "bit": 45,
+     "id": "rl_private",
+     "label": "RL_PRIVATE"
+    },
+    {
+     "bit": 46,
+     "id": "br_nodeinfo",
+     "label": "BR_NODEINFO"
+    },
+    {
+     "bit": 47,
+     "id": "br_telemetry",
+     "label": "BR_TELEMETRY"
+    },
+    {
+     "bit": 48,
+     "id": "br_position",
+     "label": "BR_POSITION"
+    }
+   ]
+  },
+  {
+   "id": "out_drop_mask",
+   "group": "firewall",
+   "type": "bitmask",
+   "key": "USERPREFS_NEXUS_OUT_DROP_MASK",
+   "label": "Filtros de salida (OUTDROP)",
+   "cmd": "/mtc OUTDROP <TAG>",
+   "default": 0,
+   "width": 8,
+   "format": "hex",
+   "bits": [
+    {
+     "bit": 0,
+     "id": "nodeinfo",
+     "label": "NODEINFO"
+    },
+    {
+     "bit": 1,
+     "id": "position",
+     "label": "POSITION"
+    },
+    {
+     "bit": 2,
+     "id": "telemetry",
+     "label": "TELEMETRY"
+    },
+    {
+     "bit": 3,
+     "id": "traceroute",
+     "label": "TRACEROUTE"
+    },
+    {
+     "bit": 4,
+     "id": "admin",
+     "label": "ADMIN"
+    },
+    {
+     "bit": 5,
+     "id": "routing",
+     "label": "ROUTING"
+    }
+   ]
+  },
+  {
+   "id": "invalid_mask",
+   "group": "firewall",
+   "type": "bitmask",
+   "key": "USERPREFS_NEXUS_INVALID_MASK",
+   "label": "Filtros de posiciones inválidas",
+   "cmd": "/mtc INVALID <TAG>",
+   "default": 0,
+   "width": 8,
+   "format": "hex",
+   "bits": [
+    {
+     "bit": 0,
+     "id": "null_island",
+     "label": "NULL_ISLAND"
+    },
+    {
+     "bit": 1,
+     "id": "out_spain",
+     "label": "OUT_SPAIN"
+    },
+    {
+     "bit": 2,
+     "id": "out_germany",
+     "label": "OUT_GERMANY"
+    },
+    {
+     "bit": 3,
+     "id": "hw_unset",
+     "label": "HW_UNSET"
+    },
+    {
+     "bit": 4,
+     "id": "id_mismatch",
+     "label": "ID_MISMATCH"
+    }
+   ]
+  },
+  {
+   "id": "rl_text_limit",
+   "group": "firewall",
+   "type": "int",
+   "key": "USERPREFS_NEXUS_RL_TEXT_LIMIT",
+   "label": "Límite por hora: texto (0 = sin límite)",
+   "cmd": "/mtc RL <TEXT|TRACE|OTHER|NI|PO|TL|PR> <n>",
+   "default": 0,
+   "min": 0,
+   "max": 65535
+  },
+  {
+   "id": "rl_trace_limit",
+   "group": "firewall",
+   "type": "int",
+   "key": "USERPREFS_NEXUS_RL_TRACE_LIMIT",
+   "label": "Límite por hora: traceroute (0 = sin límite)",
+   "cmd": "/mtc RL <TEXT|TRACE|OTHER|NI|PO|TL|PR> <n>",
+   "default": 0,
+   "min": 0,
+   "max": 65535
+  },
+  {
+   "id": "rl_other_limit",
+   "group": "firewall",
+   "type": "int",
+   "key": "USERPREFS_NEXUS_RL_OTHER_LIMIT",
+   "label": "Límite por hora: otros (0 = sin límite)",
+   "cmd": "/mtc RL <TEXT|TRACE|OTHER|NI|PO|TL|PR> <n>",
+   "default": 0,
+   "min": 0,
+   "max": 65535
+  },
+  {
+   "id": "rl_nodeinfo_limit",
+   "group": "firewall",
+   "type": "int",
+   "key": "USERPREFS_NEXUS_RL_NODEINFO_LIMIT",
+   "label": "Límite por hora: nodeinfo (0 = sin límite)",
+   "cmd": "/mtc RL <TEXT|TRACE|OTHER|NI|PO|TL|PR> <n>",
+   "default": 0,
+   "min": 0,
+   "max": 65535
+  },
+  {
+   "id": "rl_position_limit",
+   "group": "firewall",
+   "type": "int",
+   "key": "USERPREFS_NEXUS_RL_POSITION_LIMIT",
+   "label": "Límite por hora: posición (0 = sin límite)",
+   "cmd": "/mtc RL <TEXT|TRACE|OTHER|NI|PO|TL|PR> <n>",
+   "default": 0,
+   "min": 0,
+   "max": 65535
+  },
+  {
+   "id": "rl_telemetry_limit",
+   "group": "firewall",
+   "type": "int",
+   "key": "USERPREFS_NEXUS_RL_TELEMETRY_LIMIT",
+   "label": "Límite por hora: telemetría (0 = sin límite)",
+   "cmd": "/mtc RL <TEXT|TRACE|OTHER|NI|PO|TL|PR> <n>",
+   "default": 0,
+   "min": 0,
+   "max": 65535
+  },
+  {
+   "id": "rl_private_limit",
+   "group": "firewall",
+   "type": "int",
+   "key": "USERPREFS_NEXUS_RL_PRIVATE_LIMIT",
+   "label": "Límite por hora: privados (0 = sin límite)",
+   "cmd": "/mtc RL <TEXT|TRACE|OTHER|NI|PO|TL|PR> <n>",
+   "default": 0,
+   "min": 0,
+   "max": 65535
+  },
+  {
+   "id": "broadcast_delay_max_s",
+   "group": "firewall",
+   "type": "int",
+   "key": "USERPREFS_NEXUS_BROADCAST_DELAY_MAX_S",
+   "label": "Retardo máximo de respuestas broadcast (s)",
+   "cmd": "/mtc BD SET",
+   "default": 5,
+   "min": 1,
+   "max": 300
+  },
+  {
+   "id": "zero_hop_config",
+   "group": "system",
+   "type": "bitmask",
+   "key": "USERPREFS_NEXUS_ZERO_HOP_CONFIG",
+   "label": "Zero-Hop",
+   "cmd": "/mtc ZH",
+   "default": 0,
+   "width": 8,
+   "format": "hex",
+   "bits": [
+    {
+     "bit": 0,
+     "id": "en",
+     "label": "Activo"
+    },
+    {
+     "bit": 1,
+     "id": "tele",
+     "label": "Conservar telemetría"
+    },
+    {
+     "bit": 2,
+     "id": "pos",
+     "label": "Conservar posición"
+    },
+    {
+     "bit": 3,
+     "id": "auto_router",
+     "label": "Auto routers"
+    },
+    {
+     "bit": 4,
+     "id": "auto_client",
+     "label": "Auto client base"
+    }
+   ]
+  },
+  {
+   "id": "features_mask",
+   "group": "system",
+   "type": "bitmask",
+   "key": "USERPREFS_NEXUS_FEATURES_MASK",
+   "label": "Features",
+   "cmd": "/mtc FEATURES <NAME> ON",
+   "default": 0,
+   "width": 64,
+   "format": "hex",
+   "bits": [
+    {
+     "bit": 0,
+     "id": "opaque",
+     "label": "Reenviar cifrados al móvil"
+    },
+    {
+     "bit": 1,
+     "id": "foreign_pki",
+     "label": "Reenviar PKI ajeno al móvil"
+    },
+    {
+     "bit": 2,
+     "id": "agc_reset",
+     "label": "Desactivar reset de AGC"
+    },
+    {
+     "bit": 3,
+     "id": "latebase",
+     "label": "CLIENT_BASE con tiempos de ROUTER_LATE"
+    }
+   ]
+  },
+  {
+   "id": "security_mask",
+   "group": "system",
+   "type": "bitmask",
+   "key": "USERPREFS_NEXUS_SECURITY_MASK",
+   "label": "Seguridad de comandos",
+   "cmd": "/mtc SECURITY",
+   "default": 0,
+   "width": 32,
+   "format": "hex",
+   "bits": [
+    {
+     "bit": 0,
+     "id": "req_sig",
+     "label": "Exigir firma"
+    },
+    {
+     "bit": 1,
+     "id": "allow_dm",
+     "label": "Aceptar comandos por DM"
+    },
+    {
+     "bit": 2,
+     "id": "silent_log",
+     "label": "Descartar en silencio"
+    },
+    {
+     "bit": 3,
+     "id": "auto_fav_nexus",
+     "label": "Auto-favorito en canal Nexus"
+    },
+    {
+     "bit": 4,
+     "id": "auto_fav_trusted",
+     "label": "Auto-favorito si firma de confianza"
+    },
+    {
+     "bit": 5,
+     "id": "bypass_rp",
+     "label": "BYPASS_RP"
+    },
+    {
+     "bit": 6,
+     "id": "auto_fav_extra",
+     "label": "Auto-favorito en canal extra (canal 0)"
+    }
+   ]
+  },
+  {
+   "id": "meshcore_path_hash_size",
+   "group": "meshcore",
+   "type": "int",
+   "key": "USERPREFS_MESHCORE_PATH_HASH_SIZE",
+   "label": "Tamaño del hash de ruta (bytes)",
+   "cmd": "/mc PATHSIZE <1-3>",
+   "default": 2,
+   "min": 1,
+   "max": 3
+  },
+  {
+   "id": "meshcore_flood_max",
+   "group": "meshcore",
+   "type": "int",
+   "key": "USERPREFS_MESHCORE_FLOOD_MAX",
+   "label": "Profundidad máxima de inundación",
+   "cmd": "/mc FLOODMAX <any> <unscoped> <advert>",
+   "default": 64,
+   "min": 1,
+   "max": 64
+  },
+  {
+   "id": "meshcore_flood_max_unscoped",
+   "group": "meshcore",
+   "type": "int",
+   "key": "USERPREFS_MESHCORE_FLOOD_MAX_UNSCOPED",
+   "label": "Profundidad máxima sin región",
+   "cmd": "/mc FLOODMAX <any> <unscoped> <advert>",
+   "default": 64,
+   "min": 1,
+   "max": 64
+  },
+  {
+   "id": "meshcore_flood_max_advert",
+   "group": "meshcore",
+   "type": "int",
+   "key": "USERPREFS_MESHCORE_FLOOD_MAX_ADVERT",
+   "label": "Profundidad máxima de ADVERT",
+   "cmd": "/mc FLOODMAX <any> <unscoped> <advert>",
+   "default": 8,
+   "min": 1,
+   "max": 64
+  },
+  {
+   "id": "preamble",
+   "group": "radio",
+   "type": "int",
+   "key": "USERPREFS_NEXUS_PREAMBLE",
+   "label": "Preámbulo LoRa (vacío = por defecto)",
+   "cmd": "/mtc PRE <len>",
+   "default": null,
+   "min": 6,
+   "max": 65535
+  },
+  {
+   "id": "master_key_2",
+   "group": "radio",
+   "type": "key",
+   "key": "NEXUS_MASTER_KEY_2",
+   "label": "Clave maestra 2 ({0x..} o base64)",
+   "cmd": "NEXUS_MASTER_KEY_2",
+   "default": ""
+  },
+  {
+   "id": "master_key_3",
+   "group": "radio",
+   "type": "key",
+   "key": "NEXUS_MASTER_KEY_3",
+   "label": "Clave maestra 3 ({0x..} o base64)",
+   "cmd": "NEXUS_MASTER_KEY_3",
+   "default": ""
+  },
+  {
+   "id": "master_key_4",
+   "group": "radio",
+   "type": "key",
+   "key": "NEXUS_MASTER_KEY_4",
+   "label": "Clave maestra 4 ({0x..} o base64)",
+   "cmd": "NEXUS_MASTER_KEY_4",
+   "default": ""
+  },
+  {
+   "id": "rebroadcast_mode",
+   "group": "device",
+   "type": "enum",
+   "key": "USERPREFS_CONFIG_DEVICE_REBROADCAST_MODE",
+   "label": "Modo de retransmisión",
+   "cmd": "rebroadcast_mode",
+   "default": "ALL",
+   "form": "rebroadcast_mode",
+   "always": true,
+   "prefix": "meshtastic_Config_DeviceConfig_RebroadcastMode_",
+   "values": [
+    {
+     "value": "ALL",
+     "label": "ALL"
+    },
+    {
+     "value": "LOCAL_ONLY",
+     "label": "LOCAL_ONLY"
+    },
+    {
+     "value": "KNOWN_ONLY",
+     "label": "KNOWN_ONLY"
+    },
+    {
+     "value": "NONE",
+     "label": "NONE"
+    }
+   ]
+  },
+  {
+   "id": "fixed_ble_pin",
+   "group": "device",
+   "type": "int",
+   "key": "USERPREFS_FIXED_BLUETOOTH",
+   "label": "PIN BLE fijo",
+   "cmd": "fixed_ble_pin",
+   "default": null,
+   "min": 1,
+   "max": 999999,
+   "form": "fixed_ble_pin"
+  },
+  {
+   "id": "node_info_broadcast_secs",
+   "group": "device",
+   "type": "int",
+   "key": "USERPREFS_CONFIG_DEVICE_NODE_INFO_BROADCAST_SECS",
+   "label": "Intervalo de NodeInfo (s)",
+   "cmd": "node_info_broadcast_secs",
+   "default": null,
+   "min": 0,
+   "max": 4294967295,
+   "form": "node_info_broadcast_secs"
+  },
+  {
+   "id": "position_broadcast_interval",
+   "group": "device",
+   "type": "int",
+   "key": "USERPREFS_CONFIG_POSITION_BROADCAST_INTERVAL",
+   "label": "Intervalo de posición (s)",
+   "cmd": "position_broadcast_interval",
+   "default": null,
+   "min": 0,
+   "max": 4294967295,
+   "form": "position_broadcast_interval"
+  },
+  {
+   "id": "device_telem_interval",
+   "group": "device",
+   "type": "int",
+   "key": "USERPREFS_CONFIG_DEVICE_TELEM_UPDATE_INTERVAL",
+   "label": "Intervalo de telemetría (s)",
+   "cmd": "device_telem_interval",
+   "default": null,
+   "min": 0,
+   "max": 4294967295,
+   "form": "device_telem_interval"
+  },
+  {
+   "id": "smart_position",
+   "group": "device",
+   "type": "bool",
+   "key": "USERPREFS_CONFIG_SMART_POSITION_ENABLED",
+   "label": "Posición inteligente",
+   "cmd": "smart_position",
+   "default": false,
+   "form": "smart_position"
+  },
+  {
+   "id": "timezone_string",
+   "group": "device",
+   "type": "string",
+   "key": "USERPREFS_TZ_STRING",
+   "label": "Zona horaria (POSIX)",
+   "cmd": "timezone_string",
+   "default": "",
+   "maxLen": 64,
+   "form": "timezone_string"
+  },
+  {
+   "id": "meshcore_advert_hours",
+   "group": "meshcore",
+   "type": "int",
+   "key": "USERPREFS_MESHCORE_ADVERT_HOURS",
+   "label": "Intervalo flood ADVERT (h)",
+   "cmd": "/mc ADVERT",
+   "default": null,
+   "min": 1,
+   "max": 168,
+   "form": "meshcore_advert_hours"
+  },
+  {
+   "id": "meshcore_relay_mode",
+   "group": "meshcore",
+   "type": "enum",
+   "key": "USERPREFS_MESHCORE_RELAY_MODE",
+   "label": "Modo MeshCore relay",
+   "cmd": "/mc RELAY",
+   "default": "AUTO",
+   "form": "meshcore_relay_mode",
+   "always": true,
+   "values": [
+    {
+     "value": "AUTO",
+     "label": "AUTO",
+     "emit": "0"
+    },
+    {
+     "value": "OFF",
+     "label": "OFF",
+     "emit": "1"
+    },
+    {
+     "value": "ON",
+     "label": "ON",
+     "emit": "2"
+    }
+   ]
+  },
+  {
+   "id": "meshcore_regions_def",
+   "group": "meshcore",
+   "type": "string",
+   "key": "USERPREFS_MESHCORE_REGIONS_DEF",
+   "label": "Árbol de regiones",
+   "cmd": "/mc REGION",
+   "default": "",
+   "maxLen": 1024,
+   "form": "meshcore_regions_def"
+  },
+  {
+   "id": "meshcore_home_region",
+   "group": "meshcore",
+   "type": "string",
+   "key": "USERPREFS_MESHCORE_HOME_REGION",
+   "label": "Región HOME",
+   "cmd": "/mc REGION",
+   "default": "",
+   "maxLen": 64,
+   "form": "meshcore_home_region"
+  },
+  {
+   "id": "meshcore_default_region",
+   "group": "meshcore",
+   "type": "string",
+   "key": "USERPREFS_MESHCORE_DEFAULT_REGION",
+   "label": "Región DEFAULT",
+   "cmd": "/mc REGION",
+   "default": "",
+   "maxLen": 64,
+   "form": "meshcore_default_region"
+  },
+  {
+   "id": "nexus_base_texts",
+   "group": "system",
+   "type": "bool",
+   "key": "USERPREFS_NEXUS_BASE_TEXTS",
+   "label": "Rebroadcast forzado de textos",
+   "cmd": "/mtc BASETEXTS",
+   "default": true,
+   "form": "nexus_base_texts",
+   "always": true
+  }
+ ]
+}

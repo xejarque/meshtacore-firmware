@@ -926,3 +926,73 @@ A rule fires after three consecutive readings, taken 15 s apart, and re-arms onc
 | `WIFI`                                            | §13 Hardware & Sensors           | WiFi connection status, SSID, IP                                               |
 | `WIFIOTA` / `OTA`                                 | §13 Hardware & Sensors           | ESP32 OTA firmware metadata                                                    |
 | `ZH`                                              | §4 Zero-Hop Routing (ZH)         | Zero-Hop relay mask & routing state                                            |
+
+## 18. Factory values at build time (`USERPREFS_NEXUS_*`)
+
+The builder (and `userPrefs.jsonc`) can set the starting value of settings that are otherwise runtime-only. They apply only to a
+device with **no vault** (first boot, factory reset): a vault saved with `/mtc SAVE` is the operator's choice and always wins.
+Out-of-range values are ignored by the firmware and dropped by `generate_custom_userprefs.py` (warning in the CI log).
+The single source is `custom_builder_web/options.manifest.json`; the code is `NexusModule::applyFactoryUserPrefs()`
+(`src/modules/NexusUserPrefs.cpp`) and, for MeshCore, `RadioLibInterface::reloadMeshCoreConfig()`.
+MeshCore keys only apply while `/prefs/meshcore_config.bin` does not exist.
+
+### Bots (PPING)
+
+| Key | Runtime command | Type | Default |
+| --- | --- | --- | --- |
+| `USERPREFS_NEXUS_PPING_ENABLED` | `/mt PPING ON` | bool | False |
+| `USERPREFS_NEXUS_PPING_CHANNELS` | `/mt PPING CHAN` | bitmask (8 bits, dec): 0=Canal 0, 1=Canal 1, 2=Canal 2, 3=Canal 3, 4=Canal 4, 5=Canal 5, 6=Canal 6, 7=Canal 7 | 1 |
+| `USERPREFS_NEXUS_PPING_TRIGGER` | `/mt PPING CMD` | text, max 15 | /ping |
+| `USERPREFS_NEXUS_PPING_RSSI` | `/mt PPING RSSI` | bool | True |
+| `USERPREFS_NEXUS_PPING_SNR` | `/mt PPING SNR` | bool | True |
+| `USERPREFS_NEXUS_PPING_FREQERR` | `/mt PPING FREQERR` | bool | True |
+| `USERPREFS_NEXUS_PPING_FLAGS` | `/mt PPING FLAGS` | bool | True |
+| `USERPREFS_NEXUS_PPING_IGNORE_DIRECT` | `/mt PPING DIRECT IGNORE` | bool | False |
+| `USERPREFS_NEXUS_PPING_IGNORE_REMOTE` | `/mt PPING IGNORE REMOTE` | bool | False |
+| `USERPREFS_NEXUS_PPING_ALLOW_DM` | `/mt PPING ALLOWDM` | bool | False |
+| `USERPREFS_NEXUS_PPING_EMOJI_MODE` | `/mt PPING EMOJI` | one of 0, 1, 2 | 0 |
+| `USERPREFS_NEXUS_PPING_MT_HEADER_MODE` | `/mt PPING HEADER` | one of 0, 1, 2 | 0 |
+| `USERPREFS_NEXUS_PPING_MC_HEADER_MODE` | `/mc PPING HEADER` | one of 0, 1, 2 | 2 |
+| `USERPREFS_NEXUS_PPING_HEADER` | `/mt PPING HEADER <texto>` | text, max 63 | - |
+
+### Firewall
+
+| Key | Runtime command | Type | Default |
+| --- | --- | --- | --- |
+| `USERPREFS_NEXUS_DROP_MASK` | `/mtc DROP <TAG>` | bitmask (64 bits, hex): 0=NODEINFO, 1=POSITION, 2=TELEMETRY, 3=NEIGHBOR, 4=TRACEROUTE, 5=TRACEROUTE_REMOTE, 6=TRACEROUTE_LOCAL, 7=PRIVATE, 8=HOP6, 9=HOP7, 10=REQ_NODEINFO, 11=REQ_TELEMETRY, 12=REQ_POSITION, 13=ACKS, 14=PKI, 15=PKI_REMOTE, 16=PKI_LOCAL, 17=FAV_BYPASS, 18=PREHOP, 19=STORE_FORWARD, 20=ADMIN, 21=TEXT, 22=KEYVER, 23=ALERT, 24=WAYPOINT, 25=TRACEROUTE_DIRECT, 26=TRACEROUTE_DIRECT_REMOTE, 27=TRACEROUTE_DIRECT_LOCAL, 28=SKIP_SKIP_HANDLE, 29=RL_TEXT, 30=RL_TRACE, 31=RL_OTHER, 32=TELE_DEVICE, 33=TELE_POWER, 34=TELE_ENV, 35=TELE_OTHER, 36=NO_MQTT, 37=POS_MANUAL, 38=POS_GPS, 39=POS_OTHER, 42=RL_NODEINFO, 43=RL_POSITION, 44=RL_TELEMETRY, 45=RL_PRIVATE, 46=BR_NODEINFO, 47=BR_TELEMETRY, 48=BR_POSITION | 0 |
+| `USERPREFS_NEXUS_OUT_DROP_MASK` | `/mtc OUTDROP <TAG>` | bitmask (8 bits, hex): 0=NODEINFO, 1=POSITION, 2=TELEMETRY, 3=TRACEROUTE, 4=ADMIN, 5=ROUTING | 0 |
+| `USERPREFS_NEXUS_INVALID_MASK` | `/mtc INVALID <TAG>` | bitmask (8 bits, hex): 0=NULL_ISLAND, 1=OUT_SPAIN, 2=OUT_GERMANY, 3=HW_UNSET, 4=ID_MISMATCH | 0 |
+| `USERPREFS_NEXUS_RL_TEXT_LIMIT` | `/mtc RL <TEXT|TRACE|OTHER|NI|PO|TL|PR> <n>` | integer 0..65535 | 0 |
+| `USERPREFS_NEXUS_RL_TRACE_LIMIT` | `/mtc RL <TEXT|TRACE|OTHER|NI|PO|TL|PR> <n>` | integer 0..65535 | 0 |
+| `USERPREFS_NEXUS_RL_OTHER_LIMIT` | `/mtc RL <TEXT|TRACE|OTHER|NI|PO|TL|PR> <n>` | integer 0..65535 | 0 |
+| `USERPREFS_NEXUS_RL_NODEINFO_LIMIT` | `/mtc RL <TEXT|TRACE|OTHER|NI|PO|TL|PR> <n>` | integer 0..65535 | 0 |
+| `USERPREFS_NEXUS_RL_POSITION_LIMIT` | `/mtc RL <TEXT|TRACE|OTHER|NI|PO|TL|PR> <n>` | integer 0..65535 | 0 |
+| `USERPREFS_NEXUS_RL_TELEMETRY_LIMIT` | `/mtc RL <TEXT|TRACE|OTHER|NI|PO|TL|PR> <n>` | integer 0..65535 | 0 |
+| `USERPREFS_NEXUS_RL_PRIVATE_LIMIT` | `/mtc RL <TEXT|TRACE|OTHER|NI|PO|TL|PR> <n>` | integer 0..65535 | 0 |
+| `USERPREFS_NEXUS_BROADCAST_DELAY_MAX_S` | `/mtc BD SET` | integer 1..300 | 5 |
+
+### Zero-Hop, features y seguridad
+
+| Key | Runtime command | Type | Default |
+| --- | --- | --- | --- |
+| `USERPREFS_NEXUS_ZERO_HOP_CONFIG` | `/mtc ZH` | bitmask (8 bits, hex): 0=Activo, 1=Conservar telemetría, 2=Conservar posición, 3=Auto routers, 4=Auto client base | 0 |
+| `USERPREFS_NEXUS_FEATURES_MASK` | `/mtc FEATURES <NAME> ON` | bitmask (64 bits, hex): 0=Reenviar cifrados al móvil, 1=Reenviar PKI ajeno al móvil, 2=Desactivar reset de AGC, 3=CLIENT_BASE con tiempos de ROUTER_LATE | 0 |
+| `USERPREFS_NEXUS_SECURITY_MASK` | `/mtc SECURITY` | bitmask (32 bits, hex): 0=Exigir firma, 1=Aceptar comandos por DM, 2=Descartar en silencio, 3=Auto-favorito en canal Nexus, 4=Auto-favorito si firma de confianza, 5=BYPASS_RP, 6=Auto-favorito en canal extra (canal 0) | 0 |
+
+### MeshCore avanzado
+
+| Key | Runtime command | Type | Default |
+| --- | --- | --- | --- |
+| `USERPREFS_MESHCORE_PATH_HASH_SIZE` | `/mc PATHSIZE <1-3>` | integer 1..3 | 2 |
+| `USERPREFS_MESHCORE_FLOOD_MAX` | `/mc FLOODMAX <any> <unscoped> <advert>` | integer 1..64 | 64 |
+| `USERPREFS_MESHCORE_FLOOD_MAX_UNSCOPED` | `/mc FLOODMAX <any> <unscoped> <advert>` | integer 1..64 | 64 |
+| `USERPREFS_MESHCORE_FLOOD_MAX_ADVERT` | `/mc FLOODMAX <any> <unscoped> <advert>` | integer 1..64 | 8 |
+
+### Radio y claves
+
+| Key | Runtime command | Type | Default |
+| --- | --- | --- | --- |
+| `USERPREFS_NEXUS_PREAMBLE` | `/mtc PRE <len>` | integer 6..65535 | - |
+| `NEXUS_MASTER_KEY_2` | `NEXUS_MASTER_KEY_2` | `{ 0x.. }` array | - |
+| `NEXUS_MASTER_KEY_3` | `NEXUS_MASTER_KEY_3` | `{ 0x.. }` array | - |
+| `NEXUS_MASTER_KEY_4` | `NEXUS_MASTER_KEY_4` | `{ 0x.. }` array | - |
