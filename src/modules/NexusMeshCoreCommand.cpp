@@ -401,6 +401,17 @@ void NexusModule::formatMeshCoreNeighbors(char *reply, size_t replyLen)
         }
     }
 
+    // Newest first, like the relay's own table: insertion sort, the list never holds more than 32.
+    for (size_t i = 1; i < count; i++) {
+        const DirectNeighborEntry moving = entries[i];
+        size_t at = i;
+        while (at > 0 && entries[at - 1].lastHeard < moving.lastHeard) {
+            entries[at] = entries[at - 1];
+            at--;
+        }
+        entries[at] = moving;
+    }
+
     if (count == 0) {
         snprintf(reply, replyLen, "📡 **Vecinos MeshCore**: *0 directos*");
         return;
@@ -1260,7 +1271,8 @@ size_t meshCoreFirewallActiveTags(char *out, size_t outLen)
         out[0] = '\0';
     if (!radio)
         return 0;
-    const uint8_t mask = radio->getMeshCoreRepeater().getDropMask();
+    // The configured mask, not the repeater's: the saved settings load lazily, and this reads them in first.
+    const uint8_t mask = radio->currentMeshCoreConfig().dropMask;
     for (const MeshCoreConfig::DropRule &rule : MeshCoreConfig::DROP_RULES) {
         if ((mask & rule.bit) == 0)
             continue;
@@ -1396,7 +1408,8 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
         radio->setMeshCoreAdvertHours(0);
         radio->setMeshCorePathHashSize(0);
         radio->setMeshCoreFloodLimits(0, 0, 0);
-        snprintf(reply, replyLen, "MESHTACORE: relay AUTO, advert %uh, %u-byte paths, default flood limits",
+        radio->setMeshCoreFirewall(0, 0, 0); // every MeshCore drop rule off, no advert gap, no hop rate limit
+        snprintf(reply, replyLen, "MESHTACORE: relay AUTO, advert %uh, %u-byte paths, default flood limits, firewall off",
                  (unsigned)MeshCoreConfig::DEFAULT_ADVERT_HOURS, (unsigned)MeshCoreConfig::DEFAULT_PATH_HASH_SIZE);
         warnIfUnsigned(signatureRequired, reply, replyLen);
     } else {

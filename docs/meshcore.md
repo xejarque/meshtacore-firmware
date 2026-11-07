@@ -346,16 +346,16 @@ Text with a non-plain type is ignored.
 
 `/mtc MESHCORE` (alias `MCORE`) reads and sets the MeshCore settings. A change is volatile until `/mtc SAVE`, which writes `/prefs/meshcore_config.bin`. With `REQ_SIG` off, any Nexus channel can change them and the reply says so.
 
-| Command                                         | Effect                                                                                                                        |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `INFO`                                          | Relay mode, node type, alias, ADVERT period and time to the next one, path hash size, flood limits and the hybrid sync state. |
-| `RELAY [ON\|OFF\|AUTO]`                         | Whether MeshCore floods are relayed. `AUTO` follows the Meshtastic role and rebroadcast policy.                               |
-| `ADVERT [1-168\|NOW]`                           | Flood ADVERT period in hours, or a flood ADVERT now (at most one every 10 minutes).                                           |
-| `PATHSIZE [1-3\|DEFAULT]`                       | Bytes of path hash that each repeater appends to a flood this node originates. Default 2.                                     |
-| `FLOODMAX [<any> <unscoped> <advert>\|DEFAULT]` | Hops a flood may have crossed before it is not relayed, each 1-64. Default `64 64 8`.                                         |
-| `IDENTITY` (alias `ID`)                         | Node id, type, name and public key; with a relay alias, its first four bytes.                                                 |
-| `HYBRID [ON\|OFF]`                              | Hybrid receive sync word on SX126x and LR11x0. RAM only; `OFF` does not hear MeshCore until reboot.                           |
-| `RESET`                                         | Relay `AUTO`, default ADVERT period, 2-byte path hash and default flood limits.                                               |
+| Command                                         | Effect                                                                                                                            |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `INFO`                                          | Relay mode, node type, alias, ADVERT period and time to the next one, path hash size, flood limits and the hybrid sync state.     |
+| `RELAY [ON\|OFF\|AUTO]`                         | Whether MeshCore floods are relayed. `AUTO` follows the Meshtastic role and rebroadcast policy.                                   |
+| `ADVERT [1-168\|NOW]`                           | Flood ADVERT period in hours, or a flood ADVERT now (at most one every 10 minutes).                                               |
+| `PATHSIZE [1-3\|DEFAULT]`                       | Bytes of path hash that each repeater appends to a flood this node originates. Default 2.                                         |
+| `FLOODMAX [<any> <unscoped> <advert>\|DEFAULT]` | Hops a flood may have crossed before it is not relayed, each 1-64. Default `64 64 8`.                                             |
+| `IDENTITY` (alias `ID`)                         | Node id, type, name and public key; with a relay alias, its first four bytes.                                                     |
+| `HYBRID [ON\|OFF]`                              | Hybrid receive sync word on SX126x and LR11x0. RAM only; `OFF` does not hear MeshCore until reboot.                               |
+| `RESET`                                         | Relay `AUTO`, default ADVERT period, 2-byte path hash, default flood limits and the firewall off (drop rules, `MCGAP`, `MCRATE`). |
 
 `HELP` lists the rest: `STATS`, `NODES`, `CONTACTS`, `REPEATERS`, `NODE`, `PATH`, `TRACE`, `SEND`, `DROP`, `UNDROP`, `DROPS`, `REGION`, `VECINOS`, `DESCUBRIR`, `FAV`, `KEY`, `PPING` and `PING`.
 

@@ -26,6 +26,10 @@
 
 This file (`CLAUDE.md`) is a short pointer for Claude Code sessions. Slash commands live in `.claude/commands/`.
 
+## Use the meshtastic MCP for everything it covers
+
+Prefer the `mcp__meshtastic__*` tools over raw `pio`, `esptool`, `nrfutil` or ad-hoc Python scripts: build (`build`, `build_start`, `build_poll`), flash (`flash_start`, `pio_flash`, `update_flash`, `erase_and_flash`), serial and logs (`serial_*`, `logs_window`), device info and config (`device_info`, `get_config`, `set_config`), reboot, `send_text`, packets and events windows. Their replies and errors come back structured and compact, which is cheaper to read than shell output. Fall back to the shell only when no MCP tool covers the task (for example `./bin/run-tests.sh`, Docker tests, or sending `/mtcl` commands to the node itself).
+
 ## Build toolchain (pio and Python)
 
 ESP32 and nRF52 both build from the **single shared venv at `~/.platformio/penv`**, and that venv must be pinned to **`pioarduino==6.1.19`**. That version is not arbitrary: it is what every `nexus_*.yml` workflow installs, and it is the last core that survives ESP-IDF linking (see the FortranCommon trap below). Matching CI locally is the point - a locally "working" toolchain that CI does not use hides regressions instead of catching them.
