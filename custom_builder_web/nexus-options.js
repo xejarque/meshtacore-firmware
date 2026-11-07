@@ -157,6 +157,8 @@
         document.createTextNode(" " + bitLabel(opt, b)),
       ]);
       label.dataset.nxBitLabel = String(b.bit);
+      // `roles` (opcional): la opción solo tiene efecto con esos device roles; fuera de ellos se oculta.
+      if (Array.isArray(b.roles)) label.dataset.nxRoles = b.roles.join(",");
       box.appendChild(label);
     }
     return box;
@@ -274,6 +276,37 @@
     }
   }
 
+  // Oculta y desmarca los bits con `roles` que no aplican al device role actual, para que no se emitan.
+  function applyRoles(manifest, role) {
+    if (!manifest) return;
+    for (const opt of manifest.options) {
+      if (opt.type !== "bitmask") continue;
+      const box = document.getElementById(fieldId(opt));
+      if (!box) continue;
+      for (const label of box.querySelectorAll("label[data-nx-roles]")) {
+        const allowed = label.dataset.nxRoles.split(",").includes(role);
+        label.hidden = !allowed;
+        const input = label.querySelector("input");
+        if (!allowed && input) input.checked = false;
+      }
+    }
+  }
+
+  // Las máscaras de canales (`labelsFromChannels`) se marcan por fila de la tabla, pero el firmware numera los canales por
+  // su posición entre los activos. enabled[i] dice si la fila i se escribe; devuelve los valores con los bits traducidos
+  // (un canal desactivado no llega al firmware, así que su bit se descarta).
+  function remapChannelBits(manifest, values, enabled) {
+    const out = { ...values };
+    for (const opt of manifest.options) {
+      if (opt.type !== "bitmask" || !opt.labelsFromChannels) continue;
+      if (!Array.isArray(out[opt.id])) continue;
+      out[opt.id] = out[opt.id]
+        .filter((row) => enabled[row])
+        .map((row) => enabled.slice(0, row).filter(Boolean).length);
+    }
+    return out;
+  }
+
   // formData: lo que devuelve getFormData(); de ahí salen las opciones con `form`.
   function readValues(manifest, formData) {
     const values = {};
@@ -331,6 +364,8 @@
     emitNexusPrefs,
     render,
     refreshBitLabels,
+    applyRoles,
+    remapChannelBits,
     readValues,
     invalidValues,
   };

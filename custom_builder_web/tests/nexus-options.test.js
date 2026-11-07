@@ -115,3 +115,53 @@ test("invalidValues reports what emitOption would silently drop", () => {
   );
   assert.equal(invalidValues(manifest, { [intOpt.id]: "abc" }).length, 1);
 });
+
+test("a bit with `roles` names real device roles, and latebase is CLIENT_BASE only", () => {
+  const known = [
+    "CLIENT",
+    "CLIENT_BASE",
+    "CLIENT_MUTE",
+    "ROUTER",
+    "ROUTER_LATE",
+    "LOST_AND_FOUND",
+  ];
+  for (const o of manifest.options.filter((o) => o.type === "bitmask"))
+    for (const b of o.bits.filter((b) => b.roles))
+      for (const r of b.roles)
+        assert.ok(known.includes(r), `${o.id} bit ${b.bit}: ${r}`);
+  const bits = manifest.options.flatMap((o) =>
+    o.type === "bitmask" ? o.bits : [],
+  );
+  assert.deepEqual(bits.find((b) => b.id === "latebase").roles, [
+    "CLIENT_BASE",
+  ]);
+});
+
+test("channel masks follow the firmware numbering: position among the enabled channels", () => {
+  const { remapChannelBits } = require("../nexus-options.js");
+  const opt = manifest.options.find((o) => o.labelsFromChannels);
+  const rows = (...on) => Array.from({ length: 8 }, (_, i) => on.includes(i));
+  const all = rows(0, 1, 2, 3, 4, 5, 6, 7);
+  // Every row enabled: nothing moves.
+  assert.deepEqual(
+    remapChannelBits(manifest, { [opt.id]: [2, 7] }, all)[opt.id],
+    [2, 7],
+  );
+  // Row 1 off: rows 2 and 7 are channels 1 and 6 on the device.
+  assert.deepEqual(
+    remapChannelBits(manifest, { [opt.id]: [2, 7] }, rows(0, 2, 3, 4, 5, 6, 7))[
+      opt.id
+    ],
+    [1, 6],
+  );
+  // A disabled row never reaches the firmware, so its bit is dropped.
+  assert.deepEqual(
+    remapChannelBits(manifest, { [opt.id]: [2, 7] }, rows(0))[opt.id],
+    [],
+  );
+  // Other options are left alone.
+  assert.deepEqual(
+    remapChannelBits(manifest, { other: [3] }, rows(0)).other,
+    [3],
+  );
+});

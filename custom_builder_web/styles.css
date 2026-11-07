@@ -817,3 +817,7 @@ details.collapsible[open] summary {
   gap: 0.35rem;
   font-size: 0.85rem;
 }
+/* `display: flex` above would otherwise beat the UA rule behind the hidden attribute (applyRoles uses it) */
+.nx-bit[hidden] {
+  display: none;
+}

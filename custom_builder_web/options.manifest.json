@@ -734,7 +734,8 @@
         {
           "bit": 3,
           "id": "latebase",
-          "label": "CLIENT_BASE con tiempos de ROUTER_LATE"
+          "label": "CLIENT_BASE con tiempos de ROUTER_LATE",
+          "roles": ["CLIENT_BASE"]
         }
       ]
     },

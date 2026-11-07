@@ -135,7 +135,7 @@
                         <strong>Repetidor Solar / Azoteas & Montañas</strong>
                         <small
                           >Nodo fijo ultra-ligero en RAM y Flash: sin pantalla,
-                          rol REPEATER y administración remota por LoRa. GPS y
+                          rol ROUTER y administración remota por LoRa. GPS y
                           telemetría de batería, opcionales.</small
                         >
                       </div>
@@ -419,10 +419,6 @@
                   </option>
                   <option value="CLIENT_MUTE">
                     CLIENT_MUTE (Escucha sin retransmitir paquetes de terceros)
-                  </option>
-                  <option value="REPEATER">
-                    REPEATER (Repetidor de infraestructura - sin
-                    Bluetooth/pantalla)
                   </option>
                   <option value="ROUTER">
                     ROUTER (Enrutador de alta prioridad)
@@ -840,8 +836,8 @@
                   <strong>Opciones avanzadas de Nexus (Opcional)</strong>
                 </div>
                 <p class="helper-text">
-                  Valores iniciales de bots, firewall, Zero-Hop y radio. Solo
-                  se aplican en el primer arranque o tras un factory reset: un
+                  Valores iniciales de bots, firewall, Zero-Hop y radio. Solo se
+                  aplican en el primer arranque o tras un factory reset: un
                   vault guardado con <code>/mtc SAVE</code> manda siempre. Lo
                   que no toques no se añade a la configuración.
                 </p>
@@ -1539,6 +1535,7 @@
     ></script>
     <script src="crypto.js"></script>
     <script src="nexus-options.js"></script>
+    <script src="build-prefs.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
