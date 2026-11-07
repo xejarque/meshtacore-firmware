@@ -28,6 +28,12 @@
  * REGION_DENY_FLOOD); this relay has no region map, so it forwards scoped floods too - same trust
  * model as a MeshCore repeater blind to the MAC. ADVERT signatures are verified before forwarding.
  */
+// Direct-neighbour table fed by the ADVERTs the relay hears. With a companion the contact table already holds them, so
+// the relay keeps its own only when there is none.
+#ifndef MESHTASTIC_ENABLE_MESHCORE_NEIGHBORS
+#define MESHTASTIC_ENABLE_MESHCORE_NEIGHBORS (MESHTASTIC_ENABLE_MESHCORE_RELAY && !MESHTASTIC_ENABLE_MESHCORE_COMPANION)
+#endif
+
 class MeshCoreRepeater
 {
   public:
@@ -245,17 +251,87 @@ class MeshCoreRepeater
     /** Copy the collected peers into out, end the scan and clear the table. Returns how many were copied. */
     size_t finishDiscover(DiscoveredPeer *out, size_t max);
 
+    /**
+     * Who is ignored, decided by the caller (Nexus passes its NIGN list). The argument is the node number a key maps to
+     * (MeshCoreNodeStore::nodeNumForKey), the same one /mtc NIGN ADD takes. With none set nothing is ignored.
+     */
+    typedef bool (*IgnorePredicate)(uint32_t nodeNum);
+    static void setIgnorePredicate(IgnorePredicate predicate) { ignorePredicate = predicate; }
+
+    /// One direct neighbour as the relay heard it: a node whose own ADVERT arrived without crossing any repeater.
+    struct NeighborView {
+        uint8_t pub[32];
+        char name[32];
+        uint8_t type;
+        float snr;
+        uint32_t ageSecs;
+    };
+    static constexpr size_t NEIGHBOR_MAX = 16;
+
+    /** Copy the neighbours that are not ignored into out (most recent first is not promised). Returns how many. */
+    size_t copyNeighbors(NeighborView *out, size_t max) const;
+
+    /**
+     * Check one waiting ADVERT's signature and file its sender as a neighbour. Called from the service tick, never from
+     * the receive path: the check takes long enough to deafen the radio. Skipped while a frame waits to go on air.
+     */
+    void serviceNeighbors();
+
     /** Adaptive jitter factor in [0.40, 1.00] (0.5 before warmup), from the observed dupes. */
     float getFloodDelayFactor();
 
     // Counters for observability
     uint32_t rxSeen = 0, rxFlood = 0, rxDup = 0, rxDropped = 0, txRelayed = 0, txDropped = 0, rxDirectForUs = 0,
-             discoverReplies = 0;
+             discoverReplies = 0, rxIgnored = 0;
 
     // Contention measurements: attempts that found the radio or the channel busy, and the airtime of MeshCore frames.
     uint32_t deferRadio = 0, deferChannel = 0, txAirtimeMs = 0, rxAirtimeMs = 0;
 
   private:
+    static inline IgnorePredicate ignorePredicate = nullptr;
+
+    // Keys of ignored nodes seen advertising, so their later traffic can be recognised by the path hash alone. A path hash
+    // of one byte would name hundreds of innocent nodes, so only two- and three-byte hashes are matched.
+    static constexpr size_t IGNORED_CACHE_SIZE = 8;
+    static constexpr size_t IGNORED_PREFIX_LEN = 3;
+    struct IgnoredPrefix {
+        uint8_t prefix[IGNORED_PREFIX_LEN];
+        uint32_t nodeNum = 0; // 0 marks a free slot
+    };
+    IgnoredPrefix ignoredCache[IGNORED_CACHE_SIZE];
+    uint8_t ignoredNext = 0;
+
+    /** True when the frame comes from an ignored node: its own ADVERT, or a flood whose last hop is one. */
+    bool isIgnoredSource(const uint8_t *raw, const FrameInfo &info);
+    static bool nodeIgnored(uint32_t nodeNum) { return ignorePredicate && ignorePredicate(nodeNum); }
+
+#if MESHTASTIC_ENABLE_MESHCORE_NEIGHBORS
+    // ADVERT payload up to the end of the longest app data, enough to check the signature and read the name.
+    static constexpr size_t NEIGHBOR_PAYLOAD_MAX = 32 + 4 + 64 + 32;
+    static constexpr size_t NEIGHBOR_PENDING_MAX = 4;
+    static constexpr uint32_t NEIGHBOR_PENDING_TTL_MS = 120000;
+    struct PendingAdvert {
+        uint8_t payload[NEIGHBOR_PAYLOAD_MAX];
+        uint8_t len = 0; // 0 marks a free slot
+        float snr = 0;
+        uint32_t atMs = 0;
+    };
+    struct Neighbor {
+        uint8_t pub[32];
+        char name[32];
+        uint8_t type = 0;
+        float snr = 0;
+        uint32_t heardMs = 0;
+        bool used = false;
+    };
+    PendingAdvert pendingAdverts[NEIGHBOR_PENDING_MAX];
+    Neighbor neighbors[NEIGHBOR_MAX];
+
+    /** A zero-hop ADVERT was heard: keep it until serviceNeighbors() has checked its signature. */
+    void noteDirectAdvert(const uint8_t *raw, const FrameInfo &info, float snr);
+    void storeNeighbor(const PendingAdvert &adv);
+#endif
+
     static constexpr uint8_t MAX_PATH_HASH_SIZE = 3; // MeshCore allows 1..3
     static constexpr uint8_t MAX_PATH_HASH_COUNT = 63;
     // MeshCore SimpleMeshTables: a ring of the last 160 packet hashes, with no time expiry. A copy arriving late (slow SF,

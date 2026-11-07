@@ -2,6 +2,7 @@
 
 #include "Arduino.h"
 #include "Ed25519.h"
+#include "MeshCoreNodeStore.h"
 #include "NodeDB.h"
 #include "Throttle.h"
 #include "UptimeClock.h"
@@ -229,6 +230,15 @@ void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, float
         handleDiscoverResponse(raw, info, snr);
 
 #if MESHTASTIC_ENABLE_MESHCORE_RELAY
+    // An ignored node is dropped before anything is queued, relayed or filed as a neighbour.
+    if (isIgnoredSource(raw, info)) {
+        rxIgnored++;
+        return;
+    }
+#if MESHTASTIC_ENABLE_MESHCORE_NEIGHBORS
+    if (info.payload_type == MC_PAYLOAD_TYPE_ADVERT && info.path_hash_count == 0)
+        noteDirectAdvert(raw, info, snr);
+#endif
     const bool direct = info.route_type == MC_ROUTE_DIRECT || info.route_type == MC_ROUTE_TRANSPORT_DIRECT;
     if (direct) {
         // Zero-hop CONTROL is neighbour discovery (Mesh::onRecvPacket); any other direct frame is forwarded only
@@ -1223,5 +1233,156 @@ void MeshCoreRepeater::handleDiscoverResponse(const uint8_t *raw, const FrameInf
     slot->rxSnr = snr;
     slot->atMs = Time::getMillis();
 }
+
+bool MeshCoreRepeater::isIgnoredSource(const uint8_t *raw, const FrameInfo &info)
+{
+    if (!ignorePredicate)
+        return false;
+
+    if (info.payload_type == MC_PAYLOAD_TYPE_ADVERT && info.payload_len >= MC_PUB_KEY_SIZE) {
+        const uint8_t *pub = &raw[info.header_len];
+        const uint32_t num = MeshCoreNodeStore<1>::nodeNumForKey(pub);
+        if (!nodeIgnored(num))
+            return false;
+        // Remember its prefix (once) so the rest of its traffic is recognised by the path hash.
+        for (const IgnoredPrefix &known : ignoredCache) {
+            if (known.nodeNum == num)
+                return true;
+        }
+        IgnoredPrefix &slot = ignoredCache[ignoredNext];
+        ignoredNext = (uint8_t)((ignoredNext + 1) % IGNORED_CACHE_SIZE);
+        memcpy(slot.prefix, pub, IGNORED_PREFIX_LEN);
+        slot.nodeNum = num;
+        return true;
+    }
+
+    // A flood's last path hash is the node we heard it from. One byte is too short to name anybody.
+    const bool flood = info.route_type == MC_ROUTE_FLOOD || info.route_type == MC_ROUTE_TRANSPORT_FLOOD;
+    if (!flood || info.path_hash_count == 0 || info.path_hash_size < 2)
+        return false;
+    const uint8_t *lastHop = &raw[info.header_len - info.path_hash_size];
+    for (IgnoredPrefix &known : ignoredCache) {
+        if (known.nodeNum == 0 || memcmp(known.prefix, lastHop, info.path_hash_size) != 0)
+            continue;
+        if (nodeIgnored(known.nodeNum))
+            return true;
+        known.nodeNum = 0; // taken off the list since: forget it
+    }
+    return false;
+}
+
+#if MESHTASTIC_ENABLE_MESHCORE_NEIGHBORS
+void MeshCoreRepeater::noteDirectAdvert(const uint8_t *raw, const FrameInfo &info, float snr)
+{
+    constexpr size_t appDataAt = MC_PUB_KEY_SIZE + 4 + MC_SIGNATURE_SIZE;
+    if (info.payload_len <= appDataAt)
+        return;
+    const uint8_t *payload = &raw[info.header_len];
+    if (isOwnIdentity(payload, MC_PUB_KEY_SIZE))
+        return;
+
+    PendingAdvert *target = nullptr;
+    for (PendingAdvert &p : pendingAdverts) {
+        if (p.len != 0 && memcmp(p.payload, payload, MC_PUB_KEY_SIZE) == 0) {
+            target = &p; // same sender again: the newest copy replaces the waiting one
+            break;
+        }
+        if (p.len == 0 && !target)
+            target = &p;
+    }
+    if (!target)
+        return; // all four busy: the sender advertises again within hours
+    size_t n = info.payload_len;
+    if (n > NEIGHBOR_PAYLOAD_MAX)
+        n = NEIGHBOR_PAYLOAD_MAX;
+    memcpy(target->payload, payload, n);
+    target->len = (uint8_t)n;
+    target->snr = snr;
+    target->atMs = Time::getMillis();
+}
+
+void MeshCoreRepeater::serviceNeighbors()
+{
+    if (hasPendingFrame())
+        return;
+    for (PendingAdvert &p : pendingAdverts) {
+        if (p.len == 0)
+            continue;
+        const PendingAdvert adv = p;
+        p.len = 0;
+        if (Throttle::isWithinTimespanMs(adv.atMs, NEIGHBOR_PENDING_TTL_MS) && advertSignatureValid(adv.payload, adv.len))
+            storeNeighbor(adv);
+        return; // one signature check per tick
+    }
+}
+
+void MeshCoreRepeater::storeNeighbor(const PendingAdvert &adv)
+{
+    // App data: flags (type in the low nibble, 0x10 position, 0x20/0x40 reserved features, 0x80 name), then those fields.
+    constexpr size_t appDataAt = MC_PUB_KEY_SIZE + 4 + MC_SIGNATURE_SIZE;
+    const uint8_t flags = adv.payload[appDataAt];
+    size_t at = appDataAt + 1;
+    if (flags & 0x10)
+        at += 8;
+    if (flags & 0x20)
+        at += 2;
+    if (flags & 0x40)
+        at += 2;
+
+    Neighbor *slot = nullptr;
+    for (Neighbor &n : neighbors) {
+        if (n.used && memcmp(n.pub, adv.payload, MC_PUB_KEY_SIZE) == 0) {
+            slot = &n;
+            break;
+        }
+    }
+    if (!slot) {
+        for (Neighbor &n : neighbors) {
+            if (!n.used) {
+                slot = &n;
+                break;
+            }
+            if (!slot || (uint32_t)(Time::getMillis() - n.heardMs) > (uint32_t)(Time::getMillis() - slot->heardMs))
+                slot = &n; // table full: the one not heard for longest gives way
+        }
+    }
+    memcpy(slot->pub, adv.payload, MC_PUB_KEY_SIZE);
+    slot->type = flags & 0x0F;
+    slot->snr = adv.snr;
+    slot->heardMs = adv.atMs;
+    slot->used = true;
+    memset(slot->name, 0, sizeof(slot->name));
+    if ((flags & 0x80) && at < adv.len) {
+        size_t nameLen = adv.len - at;
+        if (nameLen > sizeof(slot->name) - 1)
+            nameLen = sizeof(slot->name) - 1;
+        memcpy(slot->name, &adv.payload[at], nameLen);
+        sanitizeUtf8(slot->name, sizeof(slot->name));
+    }
+}
+
+size_t MeshCoreRepeater::copyNeighbors(NeighborView *out, size_t max) const
+{
+    size_t count = 0;
+    const uint32_t now = Time::getMillis();
+    for (const Neighbor &n : neighbors) {
+        if (!n.used || count >= max || nodeIgnored(MeshCoreNodeStore<1>::nodeNumForKey(n.pub)))
+            continue;
+        NeighborView &v = out[count++];
+        memcpy(v.pub, n.pub, sizeof(v.pub));
+        memcpy(v.name, n.name, sizeof(v.name));
+        v.type = n.type;
+        v.snr = n.snr;
+        v.ageSecs = (uint32_t)(now - n.heardMs) / 1000;
+    }
+    return count;
+}
+#else
+void MeshCoreRepeater::serviceNeighbors() {}
+size_t MeshCoreRepeater::copyNeighbors(NeighborView *, size_t) const
+{
+    return 0;
+}
+#endif
 
 #endif // MESHTASTIC_ENABLE_MESHCORE_SNIFFER

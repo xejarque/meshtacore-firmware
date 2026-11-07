@@ -11,6 +11,7 @@
 // re-emission per packet, not per path variant) and the ZephCore-style adaptive relay delay.
 #define MESHTASTIC_ENABLE_MESHCORE_SNIFFER 1
 #define MESHTASTIC_ENABLE_MESHCORE_RELAY 1
+#define MESHTASTIC_ENABLE_MESHCORE_NEIGHBORS 1
 #include "mesh/ContentionStats.h"
 #include "mesh/MeshCoreRepeater.cpp"
 
@@ -79,6 +80,7 @@ void test_stats_reply_is_cut_to_a_small_buffer()
 
 void setUp(void)
 {
+    MeshCoreRepeater::setIgnorePredicate(nullptr);
     Time::setTestMillis(1000);
     config.device.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
     config.device.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_ALL;
@@ -1789,6 +1791,190 @@ void test_multipart_other_types_are_not_forwarded()
     TEST_ASSERT_FALSE(repeater.hasPendingFrame());
 }
 
+// --- direct neighbours and the ignore list ---
+
+static uint32_t gIgnoredNum = 0;
+static bool ignoresOnlyOneNode(uint32_t nodeNum)
+{
+    return gIgnoredNum != 0 && nodeNum == gIgnoredNum;
+}
+
+// A sender with its own key whose flood ADVERT (no hops yet) is what a direct neighbour puts on air.
+static size_t makeNeighborAdvert(MeshCoreRepeater &sender, uint8_t seedByte, const char *name, uint8_t *frame)
+{
+    uint8_t seed[32];
+    memset(seed, seedByte, sizeof(seed));
+    while (!sender.setIdentitySeed(seed))
+        seed[0]++;
+    return sender.buildAdvert(frame, MeshCoreRepeater::MAX_FRAME_LEN, name, 1792521507, true);
+}
+
+static size_t listNeighbors(MeshCoreRepeater &repeater, MeshCoreRepeater::NeighborView *out)
+{
+    repeater.serviceNeighbors();
+    return repeater.copyNeighbors(out, MeshCoreRepeater::NEIGHBOR_MAX);
+}
+
+static void drainQueue(MeshCoreRepeater &repeater)
+{
+    while (repeater.hasPendingFrame())
+        repeater.clearPendingFrame();
+}
+
+void test_direct_advert_becomes_a_neighbor_after_the_service_tick()
+{
+    MeshCoreRepeater repeater, sender;
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = makeNeighborAdvert(sender, 0x31, "Cima Nord", frame);
+
+    repeater.handleReceivedFrame(frame, len, -6.5f, kAirtimeMs);
+    MeshCoreRepeater::NeighborView view[MeshCoreRepeater::NEIGHBOR_MAX];
+    TEST_ASSERT_EQUAL(0, repeater.copyNeighbors(view, MeshCoreRepeater::NEIGHBOR_MAX)); // not checked yet
+
+    // The relay half queued the advert too; the signature check waits until nothing is waiting to go out.
+    drainQueue(repeater);
+    Time::advanceTestMillis(5000);
+    TEST_ASSERT_EQUAL(1, listNeighbors(repeater, view));
+    TEST_ASSERT_EQUAL_STRING("Cima Nord", view[0].name);
+    TEST_ASSERT_EQUAL_MEMORY(sender.getIdentityPub(), view[0].pub, 32);
+    TEST_ASSERT_EQUAL_FLOAT(-6.5f, view[0].snr);
+    TEST_ASSERT_EQUAL_UINT32(5, view[0].ageSecs);
+}
+
+void test_forged_advert_is_never_a_neighbor()
+{
+    MeshCoreRepeater repeater, sender;
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = makeNeighborAdvert(sender, 0x32, "Falso", frame);
+    frame[2 + 32 + 4 + 3] ^= 0xFF; // a byte of the signature
+
+    repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs);
+    drainQueue(repeater);
+    MeshCoreRepeater::NeighborView view[MeshCoreRepeater::NEIGHBOR_MAX];
+    TEST_ASSERT_EQUAL(0, listNeighbors(repeater, view));
+}
+
+void test_advert_that_crossed_a_repeater_is_not_a_neighbor()
+{
+    MeshCoreRepeater repeater;
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = makeSignedAdvertFlood(frame, 1);
+    repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs);
+    drainQueue(repeater);
+    MeshCoreRepeater::NeighborView view[MeshCoreRepeater::NEIGHBOR_MAX];
+    TEST_ASSERT_EQUAL(0, listNeighbors(repeater, view));
+}
+
+void test_neighbor_advertising_again_is_one_entry_with_the_newest_snr()
+{
+    MeshCoreRepeater repeater, sender;
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = makeNeighborAdvert(sender, 0x33, "Cima", frame);
+    MeshCoreRepeater::NeighborView view[MeshCoreRepeater::NEIGHBOR_MAX];
+
+    repeater.handleReceivedFrame(frame, len, -9.0f, kAirtimeMs);
+    drainQueue(repeater);
+    TEST_ASSERT_EQUAL(1, listNeighbors(repeater, view));
+
+    repeater.handleReceivedFrame(frame, len, 4.0f, kAirtimeMs);
+    drainQueue(repeater);
+    TEST_ASSERT_EQUAL(1, listNeighbors(repeater, view));
+    TEST_ASSERT_EQUAL_FLOAT(4.0f, view[0].snr);
+}
+
+void test_ignored_node_advert_is_dropped_and_never_listed()
+{
+    MeshCoreRepeater repeater, sender;
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = makeNeighborAdvert(sender, 0x34, "Spammer", frame);
+    gIgnoredNum = MeshCoreNodeStore<1>::nodeNumForKey(sender.getIdentityPub());
+    MeshCoreRepeater::setIgnorePredicate(ignoresOnlyOneNode);
+
+    repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs);
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.rxIgnored);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame()); // not relayed either
+    MeshCoreRepeater::NeighborView view[MeshCoreRepeater::NEIGHBOR_MAX];
+    TEST_ASSERT_EQUAL(0, listNeighbors(repeater, view));
+}
+
+void test_neighbor_disappears_from_the_list_once_ignored()
+{
+    MeshCoreRepeater repeater, sender;
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = makeNeighborAdvert(sender, 0x35, "Cima", frame);
+    repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs);
+    drainQueue(repeater);
+    MeshCoreRepeater::NeighborView view[MeshCoreRepeater::NEIGHBOR_MAX];
+    TEST_ASSERT_EQUAL(1, listNeighbors(repeater, view));
+
+    gIgnoredNum = MeshCoreNodeStore<1>::nodeNumForKey(sender.getIdentityPub());
+    MeshCoreRepeater::setIgnorePredicate(ignoresOnlyOneNode);
+    TEST_ASSERT_EQUAL(0, listNeighbors(repeater, view));
+
+    gIgnoredNum = 0; // taken off the list: back again
+    TEST_ASSERT_EQUAL(1, listNeighbors(repeater, view));
+}
+
+// After its advert was seen, what an ignored node forwards is recognised by the last path hash and not relayed.
+void test_traffic_forwarded_by_an_ignored_node_is_dropped_by_its_path_hash()
+{
+    MeshCoreRepeater repeater, sender;
+    uint8_t advert[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t advertLen = makeNeighborAdvert(sender, 0x36, "Spammer", advert);
+    gIgnoredNum = MeshCoreNodeStore<1>::nodeNumForKey(sender.getIdentityPub());
+    MeshCoreRepeater::setIgnorePredicate(ignoresOnlyOneNode);
+    repeater.handleReceivedFrame(advert, advertLen, -6.0f, kAirtimeMs);
+
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    size_t len = makeFloodFrame(frame, kTxtMsg, 2, 2, 0x70, 0x10, kTxtMsgPayloadLen);
+    memcpy(&frame[2 + 2], sender.getIdentityPub(), 2); // last hop = the ignored node (2-byte hashes)
+    repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs);
+    TEST_ASSERT_EQUAL_UINT32(2, repeater.rxIgnored);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+
+    // The same prefix as a middle hop is somebody else's traffic.
+    len = makeFloodFrame(frame, kTxtMsg, 2, 2, 0x70, 0x20, kTxtMsgPayloadLen);
+    memcpy(&frame[2], sender.getIdentityPub(), 2);
+    repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs);
+    TEST_ASSERT_EQUAL_UINT32(2, repeater.rxIgnored);
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+}
+
+void test_one_byte_path_hashes_are_never_matched_against_the_ignore_list()
+{
+    MeshCoreRepeater repeater, sender;
+    uint8_t advert[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t advertLen = makeNeighborAdvert(sender, 0x37, "Spammer", advert);
+    gIgnoredNum = MeshCoreNodeStore<1>::nodeNumForKey(sender.getIdentityPub());
+    MeshCoreRepeater::setIgnorePredicate(ignoresOnlyOneNode);
+    repeater.handleReceivedFrame(advert, advertLen, -6.0f, kAirtimeMs);
+
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = makeFloodFrame(frame, kTxtMsg, 1, 1, 0x70, 0x10, kTxtMsgPayloadLen);
+    frame[2] = sender.getIdentityPub()[0];
+    repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs);
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.rxIgnored);
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+}
+
+void test_taking_a_node_off_the_ignore_list_lets_its_traffic_through_again()
+{
+    MeshCoreRepeater repeater, sender;
+    uint8_t advert[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t advertLen = makeNeighborAdvert(sender, 0x38, "Spammer", advert);
+    gIgnoredNum = MeshCoreNodeStore<1>::nodeNumForKey(sender.getIdentityPub());
+    MeshCoreRepeater::setIgnorePredicate(ignoresOnlyOneNode);
+    repeater.handleReceivedFrame(advert, advertLen, -6.0f, kAirtimeMs);
+
+    gIgnoredNum = 0;
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = makeFloodFrame(frame, kTxtMsg, 1, 2, 0x70, 0x10, kTxtMsgPayloadLen);
+    memcpy(&frame[2], sender.getIdentityPub(), 2);
+    repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs);
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.rxIgnored);
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -1869,6 +2055,15 @@ void setup()
     RUN_TEST(test_stats_command_matches_only_the_bare_command);
     RUN_TEST(test_stats_reply_fits_a_meshcore_text);
     RUN_TEST(test_stats_reply_is_cut_to_a_small_buffer);
+    RUN_TEST(test_direct_advert_becomes_a_neighbor_after_the_service_tick);
+    RUN_TEST(test_forged_advert_is_never_a_neighbor);
+    RUN_TEST(test_advert_that_crossed_a_repeater_is_not_a_neighbor);
+    RUN_TEST(test_neighbor_advertising_again_is_one_entry_with_the_newest_snr);
+    RUN_TEST(test_ignored_node_advert_is_dropped_and_never_listed);
+    RUN_TEST(test_neighbor_disappears_from_the_list_once_ignored);
+    RUN_TEST(test_traffic_forwarded_by_an_ignored_node_is_dropped_by_its_path_hash);
+    RUN_TEST(test_one_byte_path_hashes_are_never_matched_against_the_ignore_list);
+    RUN_TEST(test_taking_a_node_off_the_ignore_list_lets_its_traffic_through_again);
     exit(UNITY_END());
 }
 

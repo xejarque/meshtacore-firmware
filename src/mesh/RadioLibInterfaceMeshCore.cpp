@@ -351,6 +351,7 @@ uint32_t RadioLibInterface::meshCoreServiceTick()
 {
     ensureMeshCoreConfigLoaded();
     uint32_t next = meshCoreAdvertTick();
+    meshCoreRepeater.serviceNeighbors();
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
     if (meshCoreRepeater.hasIdentity() && !meshCoreCompanion.hasIdentity()) {
         meshCoreCompanion.setIdentity(meshCoreRepeater.getIdentitySeed(), meshCoreRepeater.getIdentityPub());

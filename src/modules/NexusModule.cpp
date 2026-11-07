@@ -266,11 +266,21 @@ bool meshtastic::getNexusDeviceTelemetry(meshtastic_Telemetry *m) {
 
 extern void getMacAddr(uint8_t *dmac);
 
+#if MESHTASTIC_ENABLE_MESHCORE_RELAY
+// The MeshCore relay asks this module who is ignored, so one /mtc NIGN list serves Meshtastic and MeshCore alike.
+static NexusModule *meshCoreIgnoreOwner = nullptr;
+#endif
+
 NexusModule::NexusModule()
     : MeshModule("Nexus"),
       concurrency::OSThread("Nexus"),
       ScanI2CConsumer() {
     setInterval(1000);
+#if MESHTASTIC_ENABLE_MESHCORE_RELAY
+    meshCoreIgnoreOwner = this;
+    MeshCoreRepeater::setIgnorePredicate(
+        [](uint32_t nodeNum) { return meshCoreIgnoreOwner && meshCoreIgnoreOwner->isNexusIgnored(nodeNum); });
+#endif
     inputEventObserver = new CallbackObserver<NexusModule, const InputEvent *>(this, &NexusModule::onInputEvent);
 
     // Initialize relay stats

@@ -408,6 +408,32 @@ void NexusModule::formatMeshCoreNeighbors(char *reply, size_t replyLen)
     char header[48];
     snprintf(header, sizeof(header), "📡 **Vecinos MeshCore** (%u):\n", (unsigned)count);
     renderNeighbors(entries, count, header, "Vecinos MeshCore", reply, replyLen);
+#elif MESHTASTIC_ENABLE_MESHCORE_NEIGHBORS
+    RadioLibInterface *radio = RadioLibInterface::instance;
+    static MeshCoreRepeater::NeighborView heard[MeshCoreRepeater::NEIGHBOR_MAX];
+    const size_t heardCount = radio ? radio->getMeshCoreRepeater().copyNeighbors(heard, MeshCoreRepeater::NEIGHBOR_MAX) : 0;
+    if (heardCount == 0) {
+        snprintf(reply, replyLen, "📡 **Vecinos MeshCore**: *0 directos*");
+        return;
+    }
+
+    const uint32_t now = getTime(false);
+    DirectNeighborEntry *entries = neighborEntries;
+    for (size_t i = 0; i < heardCount; i++) {
+        if (heard[i].name[0])
+            strncpy(entries[i].name, heard[i].name, sizeof(entries[i].name) - 1);
+        else
+            snprintf(entries[i].name, sizeof(entries[i].name), "%02X%02X%02X%02X", heard[i].pub[0], heard[i].pub[1],
+                     heard[i].pub[2], heard[i].pub[3]);
+        entries[i].name[sizeof(entries[i].name) - 1] = '\0';
+        entries[i].snr = heard[i].snr;
+        entries[i].lastHeard = now > heard[i].ageSecs ? now - heard[i].ageSecs : 0;
+        entries[i].nodeNum = MeshCoreNodeStore<1>::nodeNumForKey(heard[i].pub);
+    }
+
+    char header[48];
+    snprintf(header, sizeof(header), "📡 **Vecinos MeshCore** (%u):\n", (unsigned)heardCount);
+    renderNeighbors(entries, heardCount, header, "Vecinos MeshCore", reply, replyLen);
 #else
     snprintf(reply, replyLen, "📡 **Vecinos MeshCore**: *companion off*");
 #endif
