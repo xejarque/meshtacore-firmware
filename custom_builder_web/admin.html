@@ -48,6 +48,7 @@
       <nav class="tabs" role="tablist">
         <button role="tab" id="tab-panel" aria-selected="true" data-tab="panel">Panel en vivo</button>
         <button role="tab" id="tab-settings" aria-selected="false" data-tab="settings">Ajustes Nexus</button>
+        <button role="tab" id="tab-keys" aria-selected="false" data-tab="keys">Claves y canales</button>
         <button role="tab" id="tab-console" aria-selected="false" data-tab="console">Consola</button>
         <label class="muted pause"><input type="checkbox" id="pause" /> Pausar refresco</label>
       </nav>
@@ -58,6 +59,10 @@
 
       <div id="view-settings" class="panel-view" hidden>
         <div id="settings"></div>
+      </div>
+
+      <div id="view-keys" class="panel-view" hidden>
+        <div id="keys"></div>
       </div>
 
       <div class="grid" id="view-console" hidden>
@@ -72,6 +77,7 @@
         </section>
       </div>
     </main>
+    <script src="vendor/qrcode.js"></script>
     <script type="module" src="admin.js"></script>
   </body>
 </html>

@@ -139,6 +139,39 @@ body.connected .admin .capture-bar { display: flex; margin-top: 0.5rem; }
 .admin .sx-actions { display: grid; gap: .7rem; }
 .admin .sx-action { display: flex; gap: .8rem; align-items: center; flex-wrap: wrap; }
 .admin .sx-action small { flex: 1; min-width: 220px; opacity: .8; }
+/* keys and channels */
+.admin .kx-table { width: 100%; border-collapse: collapse; margin-bottom: .8rem; font-size: .92rem; }
+.admin .kx-table th { text-align: left; font-size: .75rem; opacity: .7; padding: .3rem .5rem; }
+.admin .kx-table td { padding: .45rem .5rem; border-top: 1px solid rgba(127,127,127,.25); vertical-align: middle; }
+.admin .kx-rowbtns { display: flex; gap: .4rem; flex-wrap: wrap; justify-content: flex-end; }
+.admin .kx-rowbtns button { padding: .3rem .6rem; border-radius: 6px; border: 1px solid rgba(127,127,127,.4); background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: .85rem; }
+.admin .kx-rowbtns .sx-clear { color: var(--bad); border-color: var(--bad); }
+.admin .sx-badge.mc { background: #5b6bd6; }
+.admin .kx-slot { display: grid; gap: .4rem; padding: .6rem 0; border-top: 1px solid rgba(127,127,127,.25); }
+.admin .kx-slotbtns { display: flex; gap: .5rem; }
+.admin .kx-on { color: var(--ok); font-weight: 600; } .admin .kx-off { opacity: .6; }
+.admin .kx-keyrow { display: flex; gap: .5rem; flex-wrap: wrap; }
+.admin .kx-keyrow button, .admin .kx-copy button { padding: .4rem .8rem; border-radius: 8px; border: 1px solid rgba(127,127,127,.4); background: transparent; color: inherit; cursor: pointer; font: inherit; }
+.admin .kx-key { flex: 1; min-width: 240px; padding: .45rem; font-family: ui-monospace, monospace; }
+.admin .kx-hint { display: block; margin-top: .3rem; word-break: break-all; opacity: .85; }
+.admin .kx-hint.good { color: var(--ok); } .admin .kx-hint.bad { color: var(--bad); opacity: 1; }
+.admin .kx-copy { display: grid; grid-template-columns: 8rem 1fr auto; gap: .5rem; align-items: center; margin: .4rem 0; }
+.admin .kx-copy code { word-break: break-all; font-size: .8rem; }
+.kx-dialog { max-width: min(560px, 92vw); border: 1px solid rgba(127,127,127,.4); border-radius: 12px; padding: 1.2rem 1.4rem; background: var(--bg, #fff); color: inherit; }
+.kx-dialog::backdrop { background: rgba(0,0,0,.45); }
+.kx-dialog input[type=text], .kx-dialog select { width: 100%; box-sizing: border-box; padding: .45rem; margin: .3rem 0; font: inherit; }
+.kx-dialog .kx-keyrow { flex-wrap: wrap; }
+.kx-dialog .kx-copy { display: grid; grid-template-columns: 7rem 1fr auto; gap: .5rem; align-items: center; margin: .4rem 0; }
+.kx-dialog .kx-copy code { word-break: break-all; font-size: .8rem; }
+.kx-warn { background: #fff3cd; color: #5c4400; border: 1px solid #e0b000; border-radius: 8px; padding: .6rem .8rem; font-size: .9rem; }
+.kx-actions { display: flex; justify-content: flex-end; gap: .6rem; margin-top: 1rem; }
+.kx-actions button, .kx-dialog .kx-keyrow button { padding: .45rem .9rem; border-radius: 8px; border: 1px solid rgba(127,127,127,.4); background: transparent; color: inherit; cursor: pointer; font: inherit; }
+.kx-actions .sx-add { background: var(--ok); border-color: var(--ok); color: #fff; }
+.kx-actions .sx-clear { color: var(--bad); border-color: var(--bad); }
+.kx-actions button:disabled { opacity: .4; cursor: not-allowed; }
+.kx-typed { margin: .8rem 0 .2rem; }
+.kx-qr { display: flex; justify-content: center; margin: .8rem 0; }
+.kx-qr svg { width: 220px; height: 220px; background: #fff; padding: 4px; border-radius: 6px; }
 .admin .sx-save { display: none; }
 .admin .sx-save.show { display: flex; gap: 1rem; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 5; margin-bottom: 1rem; padding: .7rem 1rem; border-radius: 10px; background: #fff3cd; color: #5c4400; border: 1px solid var(--warn); }
 .admin .sx-save.show button { background: #5c4400; color: #fff; border-color: #5c4400; font-weight: 600; }

@@ -2,6 +2,8 @@
 import { NodeLink } from "./ble.js";
 import { Panel } from "./panel.js";
 import { SettingsPanel } from "./settings.js";
+import { KeysPanel } from "./keys-panel.js";
+import { redact } from "./keys-core.js";
 
 // Read-only commands only: no setters, and nothing that transmits or hops frequency.
 // RSSI is left out on purpose: it measures the command packet itself and stays silent for a local one.
@@ -13,9 +15,10 @@ const recording = []; // {command, response, at}
 let catalogue = [];
 let panel;
 let settingsPanel;
+let keysPanel;
 const demoReplies = new Map(); // command -> recorded reply; filled only in ?demo mode
 const isDemo = new URLSearchParams(location.search).has("demo");
-const TABS = ["panel", "settings", "console"];
+const TABS = ["panel", "settings", "keys", "console"];
 
 // In demo mode reads come from recordings and nothing is ever sent.
 async function demoRun(command) {
@@ -41,7 +44,7 @@ function log(msg, cls) {
 // Every command goes through here so the recording sees the console and the capture alike.
 async function runRecorded(command) {
   const response = await link.run(command);
-  recording.push({ command, response, at: new Date().toISOString() });
+  recording.push({ command: redact(command), response, at: new Date().toISOString() }); // keys never reach the downloaded file
   ui.recCount.textContent = String(recording.length);
   return response;
 }
@@ -79,7 +82,7 @@ async function captureAll(btn) {
 
 // ---------- connection ----------
 link
-  .on("tx", (t) => log("> " + t, "tx"))
+  .on("tx", (t) => log("> " + redact(t), "tx"))
   .on("rx", (t) => log(t, "rx"))
   .on("error", (m) => log(m, "err"))
   .on("connected", (name, id) => {
@@ -89,10 +92,12 @@ link
     log("Conectado. Nodo " + id, "ok");
     panel.start();
     settingsPanel.reset();
+    keysPanel.reset();
   })
   .on("disconnected", () => {
     panel.stop();
     settingsPanel.reset();
+    keysPanel.reset();
     document.body.classList.remove("connected");
     ui.status.textContent = "Desconectado";
     log("Conexión Bluetooth cerrada.", "err");
@@ -168,7 +173,7 @@ async function init() {
   if (isDemo) {
     ui.status.textContent = "Modo demo (capturas de ejemplo, sin nodo)";
     try {
-      for (const file of ["gat562-capture.json", "gat562-firewall.json", "gat562-radio.json", "gat562-system.json"]) {
+      for (const file of ["gat562-capture.json", "gat562-firewall.json", "gat562-radio.json", "gat562-system.json", "gat562-keys.json"]) {
         const rec = await (await fetch("tests/fixtures/" + file)).json();
         rec.outputs.forEach((o) => demoReplies.set(o.command, o.response));
         if (file === "gat562-capture.json") panel.loadRecording(rec);
@@ -177,6 +182,8 @@ async function init() {
       log("No se pudo cargar la demo: " + e.message, "err");
     }
   }
+  keysPanel = new KeysPanel({ root: document.getElementById("keys"), run: isDemo ? demoRun : runRecorded, isConnected: isDemo ? () => true : () => link.connected });
+  keysPanel.render();
   try {
     const files = await (await fetch("settings/index.json")).json();
     const catalogues = await Promise.all(files.map(async (f) => (await fetch("settings/" + f)).json()));

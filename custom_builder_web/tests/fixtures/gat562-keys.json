@@ -1,0 +1,9 @@
+{
+ "node": "!f3a45b84",
+ "capturedAt": "2026-11-07T21:05:00",
+ "outputs": [
+  { "command": "CHASH", "response": "🔴 MESHTACORE CHASH:\n0:SFNarrow(0x20/32) 1:Nexus(0x54/84) 2:Bots(0x2B/43) 3:Catalunya(0x5A/90) 4:Barcelona(0x59/89) 5:MC:Public(0x17/23) 6:MC:#test(0x03/3) 7:MC:#bot(0x6C/108) " },
+  { "command": "CH", "response": "🔴 MESHTACORE CHANNELS:\n0:SFNarrow(1) 1:Nexus(2) 2:Bots(2) 3:Catalunya(2) 4:Barcelona(2) 5:MC:Public(2) 6:MC:#test(2) 7:MC:#bot(2) " },
+  { "command": "TRUSTED", "response": "🔴 MESHTACORE TRUSTED Slots:\n[0]  (OFF)\n[1]  (OFF)" }
+ ]
+}
