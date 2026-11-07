@@ -100,6 +100,45 @@ test("flag commands: the key travels, ON and OFF use different verbs", () => {
   assert.equal(S.flagCommand(inv, inv.flags.find((f) => f.key === "GERMANY"), false), "UNINVALID GERMANY");
 });
 
+test("SECURITY and FEATURES: every switch reads off on the GAT562, including keys with a suffix (FAV_XT)", () => {
+  const sec = S.readFlags(entry("sec.rules"), reply("SECURITY"));
+  assert.deepEqual(sec, { REQ_SIG: false, ALLOW_DM: false, SILENT: false, FAV_NX: false, FAV_TR: false, BYPASS_RP: false });
+  const feat = S.readFlags(entry("sec.features"), reply("FEATURES"));
+  assert.ok(Object.values(feat).every((v) => v === false));
+  assert.equal(Object.keys(feat).length, 4);
+});
+
+test("SECURITY: a flag that is on reads on, and the keys travel as the firmware names them", () => {
+  const e = entry("sec.rules");
+  assert.equal(S.readFlags(e, "🔴 MESHTACORE SECURITY:\n REQ_SIG:on\n ALLOW_DM:off\n SILENT:on").SILENT, true);
+  assert.equal(S.flagCommand(e, e.flags.find((f) => f.key === "SILENT"), true), "SECURITY SILENT_LOG ON");
+  assert.equal(S.flagCommand(e, e.flags.find((f) => f.key === "FAV_NX"), false), "SECURITY AUTO_FAV_NEXUS OFF");
+});
+
+test("SECURITY: the auto-favourite channel is read next to its on/off state", () => {
+  const e = entry("sec.autofav_extra");
+  assert.deepEqual(S.readValues(e, reply("SECURITY")), { state: "OFF", values: { ch: 0 } });
+  assert.equal(S.valuesCommand(e, { ch: 3 }), "SECURITY AFX 3");
+  assert.throws(() => S.valuesCommand(e, { ch: 8 }), /entre 0 y 7/);
+});
+
+test("ZH: the one-line reply gives the master switch and the four sub switches", () => {
+  const e = entry("zh.switches");
+  assert.deepEqual(S.readFlags(e, reply("ZH")), { ZH: false, POS: false, TELE: false, RTR: false, CLI: false });
+  const live = S.readFlags(e, "🔴 MESHTACORE: ZH ON (POS:ON TELE:OFF RTR:ON[12] CLI:OFF[0])");
+  assert.deepEqual(live, { ZH: true, POS: true, TELE: false, RTR: true, CLI: false });
+  assert.equal(S.flagCommand(e, e.flags.find((f) => f.key === "RTR"), true), "ZH ROUTER ON");
+});
+
+test("HOPMASK: values and state come from the status line, and out-of-range input is refused", () => {
+  const e = entry("hop.global");
+  assert.deepEqual(S.readValues(e, reply("HOPMASK")), { state: "OFF", values: { s: 3, l: 3 } });
+  assert.equal(S.readValues(e, "🔴 MESHTACORE Hop Masking: ACTIVE (S:2, L:5)").state, "ACTIVE");
+  assert.equal(S.valuesCommand(e, { s: 2, l: 5 }), "HOPMASK 2 5");
+  assert.throws(() => S.valuesCommand(e, { s: 9, l: 1 }), /entre 0 y 7/);
+  assert.throws(() => S.valuesCommand(e, { s: "x", l: 1 }), /entre 0 y 7/);
+});
+
 test("fill refuses an empty value, safeArg refuses a second command smuggled in", () => {
   assert.throws(() => S.fill("RDROP {value}", { value: "" }), /falta el valor/);
   assert.ok(S.safeArg("!abcd1234"));

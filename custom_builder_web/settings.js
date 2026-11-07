@@ -144,10 +144,57 @@ export class SettingsPanel {
     });
   }
 
+  // Numeric fields (e.g. the global hop mask): shows the live state, an input per field, Apply and Disable.
+  valuesBody(entry, box) {
+    const body = h("div", { className: "sx-values" });
+    box.append(body);
+    this.read(entry.read.cmd).then((reply) => {
+      const { state, values } = C.readValues(entry, reply);
+      if (Object.values(values).every((v) => v === null)) return body.append(h("p", { className: "sx-note err" }, "No se pudo leer el valor. Respuesta: " + C.cleanReply(reply).slice(0, 160)));
+      const inputs = {};
+      const row = h("div", { className: "sx-addrow" });
+      for (const f of entry.fields) {
+        inputs[f.key] = h("input", { type: "number", min: f.min, max: f.max, value: values[f.key], title: f.help || "" });
+        row.append(h("label", { className: "sx-field" }, h("small", {}, f.title), inputs[f.key]));
+      }
+      const apply = h("button", { className: "sx-add", textContent: "Aplicar", disabled: !this.isConnected() });
+      apply.onclick = () => {
+        try {
+          const cmd = C.valuesCommand(entry, Object.fromEntries(entry.fields.map((f) => [f.key, inputs[f.key].value])));
+          this.write(entry, cmd, entry.risk);
+        } catch (e) {
+          this.notes.set(entry.id, { text: e.message, ok: false });
+          this.render();
+        }
+      };
+      row.append(apply);
+      if (entry.write.off) {
+        const off = h("button", { className: "sx-clear", textContent: "Desactivar", disabled: !this.isConnected() || state === "OFF" });
+        off.onclick = () => this.write(entry, entry.write.off, entry.risk);
+        row.append(off);
+      }
+      const active = state === "ACTIVE" || state === "ON";
+      body.append(h("p", { className: "sx-state" + (active ? " on" : "") }, state ? `Estado: ${active ? "activo" : "apagado"}` : ""), row);
+    });
+  }
+
+  // One button per action; each runs a fixed command (confirmation for the delicate ones).
+  actionsBody(entry, box) {
+    const row = h("div", { className: "sx-actions" });
+    for (const a of entry.actions) {
+      const b = h("button", { className: (a.risk || entry.risk) === "danger" ? "sx-clear" : "sx-add", textContent: a.title, title: a.help, disabled: !this.isConnected() || this.busy.has(entry.id) });
+      b.onclick = () => this.write(entry, a.cmd, a.risk || entry.risk);
+      row.append(h("div", { className: "sx-action" }, b, h("small", {}, a.help)));
+    }
+    box.append(row);
+  }
+
   card(entry) {
     const box = h("section", { className: "sx-card" + (this.busy.has(entry.id) ? " busy" : "") }, h("h3", {}, entry.title, entry.risk === "danger" ? h("span", { className: "sx-badge" }, "delicado") : ""), h("p", { className: "sx-help" }, entry.help));
     if (entry.type === "flags") this.flagsBody(entry, box);
     else if (entry.type === "list") this.listBody(entry, box);
+    else if (entry.type === "values") this.valuesBody(entry, box);
+    if (entry.actions) this.actionsBody(entry, box);
     box.append(this.noteEl(entry));
     return box;
   }

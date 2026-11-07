@@ -1,0 +1,83 @@
+{
+  "id": "04",
+  "title": "Zero-Hop",
+  "icon": "🎯",
+  "intro": "Zero-Hop evita que tu nodo repita (reenvíe) paquetes que ya han llegado directamente a los repetidores que tienes cerca, así no se repite lo que ya se ha oído. Meshtacore lleva su propia lista de repetidores (una máscara de 256 posibles) y, cuando Zero-Hop está activado, esa lista sustituye a la de Meshtastic basada en favoritos. Si está apagado, funciona la de Meshtastic. Los cambios viven en la memoria del nodo hasta que pulses Guardar.",
+  "entries": [
+    {
+      "id": "zh.switches",
+      "type": "flags",
+      "title": "Zero-Hop y sus interruptores",
+      "help": "El interruptor general enciende o apaga el sistema. Los demás afinan qué se preserva y de dónde se aprenden los repetidores.",
+      "risk": "write",
+      "read": { "cmd": "ZH", "mode": "pairs" },
+      "flags": [
+        {
+          "key": "ZH",
+          "readPattern": "\\bZH\\s+(ON|OFF)\\b",
+          "write": { "on": "ZH ON", "off": "ZH OFF" },
+          "title": "Zero-Hop activado",
+          "help": "Enciende el Zero-Hop de Meshtacore. Apagado, vale el sistema de Meshtastic (repetidores marcados como favoritos)."
+        },
+        {
+          "key": "POS",
+          "readPattern": "\\bPOS:(ON|OFF)\\b",
+          "write": { "on": "ZH POS ON", "off": "ZH POS OFF" },
+          "title": "Conservar posiciones",
+          "help": "Los paquetes de posición de los nodos de la lista Zero-Hop no se descartan por ser «ya oídos»."
+        },
+        {
+          "key": "TELE",
+          "readPattern": "\\bTELE:(ON|OFF)\\b",
+          "write": { "on": "ZH TELE ON", "off": "ZH TELE OFF" },
+          "title": "Conservar telemetría",
+          "help": "Igual que la anterior pero para los paquetes de telemetría (batería, tensión, sensores)."
+        },
+        {
+          "key": "RTR",
+          "readPattern": "\\bRTR:(ON|OFF)",
+          "write": { "on": "ZH ROUTER ON", "off": "ZH ROUTER OFF" },
+          "title": "Aprender repetidores automáticamente (ROUTER)",
+          "help": "Si el repetidor no está en tu lista manual, también se consulta una lista automática de nodos con rol ROUTER o ROUTER_LATE que has oído directamente. Esa lista vive solo en RAM."
+        },
+        {
+          "key": "CLI",
+          "readPattern": "\\bCLI:(ON|OFF)",
+          "write": { "on": "ZH CLIENT ON", "off": "ZH CLIENT OFF" },
+          "title": "Aprender nodos CLIENT_BASE automáticamente",
+          "help": "Igual que la anterior para nodos con rol CLIENT_BASE. Se consulta después de la lista de ROUTER."
+        }
+      ]
+    },
+    {
+      "id": "zh.maintenance",
+      "type": "actions",
+      "title": "Mantenimiento de las listas",
+      "help": "Rellenar o vaciar las listas de repetidores. Tras rellenar, comprueba el resultado en la consola con ZH LISTS.",
+      "risk": "write",
+      "actions": [
+        {
+          "title": "Rellenar desde mi lista de nodos",
+          "cmd": "ZH SYNC",
+          "help": "Añade a la lista manual todos tus favoritos y los nodos con rol ROUTER, ROUTER_LATE o CLIENT_BASE que conoce tu nodo."
+        },
+        {
+          "title": "Vaciar lista manual",
+          "cmd": "ZH CLEAR",
+          "risk": "danger",
+          "help": "Borra por completo la lista manual (los 256 posibles repetidores)."
+        },
+        {
+          "title": "Vaciar lista automática ROUTER",
+          "cmd": "ZH CLEAR ROUTER",
+          "help": "Borra lo aprendido de repetidores ROUTER. Se vuelve a ir rellenando sola con el tráfico."
+        },
+        {
+          "title": "Vaciar lista automática CLIENT_BASE",
+          "cmd": "ZH CLEAR CLIENT",
+          "help": "Borra lo aprendido de nodos CLIENT_BASE. Se vuelve a ir rellenando sola."
+        }
+      ]
+    }
+  ]
+}

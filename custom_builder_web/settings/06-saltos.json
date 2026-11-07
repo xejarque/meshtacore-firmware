@@ -1,0 +1,21 @@
+{
+  "id": "06",
+  "title": "Saltos (hops)",
+  "icon": "🔁",
+  "intro": "Los saltos controlan hasta dónde llegan tus paquetes. Meshtastic 2.8 ya los ajusta solo, así que esto sirve para forzarlos a mano. Con la máscara global todos los paquetes que retransmites salen con el mismo hop_start y hop_limit (0 a 7). Los cambios viven en la memoria del nodo hasta que pulses Guardar.",
+  "entries": [
+    {
+      "id": "hop.global",
+      "type": "values",
+      "title": "Máscara global de saltos",
+      "help": "Fuerza el hop_start y el hop_limit de todo lo que retransmites. Por ejemplo 3 y 3. Mientras esté apagada, cada paquete conserva sus saltos originales.",
+      "risk": "write",
+      "read": { "cmd": "HOPMASK", "pattern": "\\(S:(\\d+),\\s*L:(\\d+)\\)", "state": "Hop Masking:\\s*(ACTIVE|OFF)" },
+      "fields": [
+        { "key": "s", "title": "hop_start (salto inicial)", "min": 0, "max": 7 },
+        { "key": "l", "title": "hop_limit (salto máximo)", "min": 0, "max": 7 }
+      ],
+      "write": { "set": "HOPMASK {s} {l}", "off": "HOPMASK OFF" }
+    }
+  ]
+}

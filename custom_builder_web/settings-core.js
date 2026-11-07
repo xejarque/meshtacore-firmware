@@ -24,7 +24,8 @@ export function readFlags(entry, reply) {
     return out;
   }
   for (const f of entry.flags) {
-    const m = new RegExp(`(?:^|[\\s])${escapeRe(f.readKey || f.key)}\\s*:\\s*(on|off)\\b`, "im").exec(text);
+    // readPattern: a regex of its own whose group 1 is ON|OFF (replies like "ZH OFF (POS:OFF ...)").
+    const m = new RegExp(f.readPattern || `(?:^|[\\s])${escapeRe(f.readKey || f.key)}\\s*:\\s*(on|off)\\b`, "im").exec(text);
     out[f.key] = m ? m[1].toLowerCase() === "on" : null;
   }
   return out;
@@ -34,6 +35,26 @@ export function readFlags(entry, reply) {
 export function readValue(entry, reply) {
   const m = new RegExp(entry.read.pattern, "im").exec(joinPages(reply));
   return m ? m[1].trim() : null;
+}
+
+// Numeric fields -> { state: "ON"|"OFF"|null, values: {key: number|null} }.
+// read.pattern captures the fields in order; read.state (optional regex, group 1) says whether the feature is active.
+export function readValues(entry, reply) {
+  const text = joinPages(reply);
+  const m = new RegExp(entry.read.pattern, "im").exec(text);
+  const s = entry.read.state ? new RegExp(entry.read.state, "im").exec(text) : null;
+  const values = {};
+  entry.fields.forEach((f, i) => (values[f.key] = m ? Number(m[i + 1]) : null));
+  return { state: s ? s[1].toUpperCase() : null, values };
+}
+
+// The command that applies numeric fields; refuses anything outside each field's range.
+export function valuesCommand(entry, values) {
+  for (const f of entry.fields) {
+    const v = Number(values[f.key]);
+    if (!Number.isInteger(v) || v < f.min || v > f.max) throw new Error(`«${f.title}» debe estar entre ${f.min} y ${f.max}`);
+  }
+  return fill(entry.write.set, values);
 }
 
 // List of items -> [{value, label}] or null when the reply is not the expected one.
@@ -74,8 +95,13 @@ export function validateEntry(entry, knownCommands) {
   const need = (cond, msg) => cond || problems.push(`${entry.id}: ${msg}`);
   need(entry.id && entry.title && entry.help, "falta id, title o help");
   need(["read", "write", "danger"].includes(entry.risk), "risk inválido");
-  need(["flags", "toggle", "number", "enum", "text", "list", "action"].includes(entry.type), "type inválido");
+  need(["flags", "values", "list", "actions"].includes(entry.type), "type inválido");
+  if (entry.type === "values") need(entry.read && entry.read.pattern && entry.fields && entry.fields.length && entry.write && entry.write.set, "values necesita read.pattern, fields y write.set");
   const cmds = [];
+  for (const a of entry.actions || []) {
+    need(a.title && a.cmd && a.help, "acción sin title, cmd o help");
+    cmds.push(a.cmd.split(/\s+/)[0]);
+  }
   if (entry.read && entry.read.cmd) cmds.push(entry.read.cmd.split(/\s+/)[0]);
   const templates = [];
   if (entry.write) templates.push(...Object.values(entry.write));

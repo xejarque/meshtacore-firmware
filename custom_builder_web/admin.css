@@ -129,6 +129,14 @@ body.connected .admin .capture-bar { display: flex; margin-top: 0.5rem; }
 .admin .sx-clear { color: var(--bad); border-color: var(--bad); }
 .admin .sx-note { font-size: .85rem; margin: .6rem 0 0; }
 .admin .sx-note.ok { color: var(--ok); } .admin .sx-note.err { color: var(--bad); }
+.admin .sx-values .sx-addrow { align-items: flex-end; }
+.admin .sx-field { display: flex; flex-direction: column; gap: .2rem; }
+.admin .sx-field input { flex: none; min-width: 0; width: 6.5rem; }
+.admin .sx-state { margin: 0 0 .5rem; font-weight: 600; color: var(--muted, #888); }
+.admin .sx-state.on { color: var(--ok); }
+.admin .sx-actions { display: grid; gap: .7rem; }
+.admin .sx-action { display: flex; gap: .8rem; align-items: center; flex-wrap: wrap; }
+.admin .sx-action small { flex: 1; min-width: 220px; opacity: .8; }
 .admin .sx-save { display: none; }
 .admin .sx-save.show { display: flex; gap: 1rem; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 5; margin-bottom: 1rem; padding: .7rem 1rem; border-radius: 10px; background: #fff3cd; color: #5c4400; border: 1px solid var(--warn); }
 .admin .sx-save.show button { background: #5c4400; color: #fff; border-color: #5c4400; font-weight: 600; }

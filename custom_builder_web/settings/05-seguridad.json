@@ -1,0 +1,95 @@
+{
+  "id": "05",
+  "title": "Seguridad y funciones",
+  "icon": "🔐",
+  "intro": "Aquí decides quién puede darle órdenes /mtc a tu nodo y cómo se trata a los que no están autorizados, y activas funciones especiales de comportamiento. Todo viene apagado por defecto. Cuidado: «Exigir firma» y «Aceptar por DM» determinan el acceso remoto a tu nodo. Los cambios viven en la memoria del nodo hasta que pulses Guardar.",
+  "entries": [
+    {
+      "id": "sec.rules",
+      "type": "flags",
+      "title": "Reglas de seguridad",
+      "help": "Quién manda y qué pasa con lo que se rechaza. Los comandos que llegan por tu propia conexión (Bluetooth o USB) siempre se aceptan.",
+      "risk": "write",
+      "read": { "cmd": "SECURITY", "mode": "pairs" },
+      "write": { "on": "SECURITY {key} ON", "off": "SECURITY {key} OFF" },
+      "flags": [
+        {
+          "key": "REQ_SIG",
+          "title": "Exigir firma",
+          "help": "Los comandos recibidos por un canal Nexus solo se aceptan si llevan una firma válida de una clave de confianza (admin, secundaria o maestra). Apagado, cualquiera en el canal puede dar órdenes."
+        },
+        {
+          "key": "ALLOW_DM",
+          "title": "Aceptar comandos por mensaje directo",
+          "help": "Acepta órdenes /mtc enviadas como mensaje directo. Los DM no se firman, así que solo vale si la clave pública del emisor está en tu lista de confianza.",
+          "risk": "danger"
+        },
+        {
+          "key": "SILENT",
+          "writeKey": "SILENT_LOG",
+          "title": "Rechazar en silencio",
+          "help": "Si un comando se rechaza (repetido o sin autorización), el nodo no contesta. Apagado, el emisor recibe el motivo, útil para depurar pero informa a un atacante de tu configuración."
+        },
+        {
+          "key": "FAV_NX",
+          "writeKey": "AUTO_FAV_NEXUS",
+          "title": "Favorito automático en canal Nexus",
+          "help": "Cualquier nodo que emita un paquete válido por un canal Nexus se marca como favorito."
+        },
+        {
+          "key": "FAV_TR",
+          "writeKey": "AUTO_FAV_TRUSTED",
+          "title": "Favorito automático solo con firma de confianza",
+          "help": "Como la anterior, pero solo si la firma del paquete coincide con una clave de confianza tuya."
+        },
+        {
+          "key": "BYPASS_RP",
+          "title": "Desactivar protección antirrepetición",
+          "help": "Invertido: ENCENDIDO = protección apagada. Normalmente se rechaza un paquete de un emisor externo cuyo ID ya se vio (anillo de 256). Actívalo solo para pruebas.",
+          "risk": "danger"
+        }
+      ]
+    },
+    {
+      "id": "sec.autofav_extra",
+      "type": "values",
+      "title": "Favorito automático en un canal propio",
+      "help": "Como el favorito automático en canal Nexus, pero en el canal ordinario que tú elijas (0 a 7). Cualquier paquete descodificado de otro nodo en ese canal lo marca como favorito.",
+      "risk": "write",
+      "read": { "cmd": "SECURITY", "pattern": "FAV_XT:\\S+\\s+ch(\\d)", "state": "FAV_XT:(on|off)" },
+      "fields": [{ "key": "ch", "title": "Canal", "min": 0, "max": 7 }],
+      "write": { "set": "SECURITY AFX {ch}", "off": "SECURITY AFX OFF" }
+    },
+    {
+      "id": "sec.features",
+      "type": "flags",
+      "title": "Funciones especiales",
+      "help": "Cuatro opciones avanzadas de comportamiento. Si no sabes para qué sirven, déjalas apagadas.",
+      "risk": "write",
+      "read": { "cmd": "FEATURES", "mode": "pairs" },
+      "write": { "on": "FEATURES {key} ON", "off": "FEATURES {key} OFF" },
+      "flags": [
+        {
+          "key": "FORWARD_OPAQUE_TO_PHONE",
+          "title": "Enviar paquetes cifrados al móvil",
+          "help": "Los paquetes de canales que no puedes descifrar se envían a la app en vez de saltárselos. Útil para registrar o depurar tráfico ajeno."
+        },
+        {
+          "key": "FORWARD_FOREIGN_PKI_TO_PHONE",
+          "title": "Enviar al móvil paquetes con PKI ajena",
+          "help": "Además de los anteriores, envía a la app los paquetes firmados con claves PKI que no son de confianza."
+        },
+        {
+          "key": "DISABLE_AGC_RESET",
+          "title": "Desactivar el reinicio periódico del AGC",
+          "help": "Anula el reinicio del control automático de ganancia de la radio que se hace cada 60 s. La recuperación de la recepción sigue funcionando."
+        },
+        {
+          "key": "LATEBASE",
+          "title": "CLIENT_BASE con tiempos de ROUTER_LATE",
+          "help": "Los CLIENT_BASE favoritos repiten con la ventana de ROUTER_LATE (como en Meshtastic 2.8.1). Apagado, usan el comportamiento propio de Meshtacore."
+        }
+      ]
+    }
+  ]
+}
