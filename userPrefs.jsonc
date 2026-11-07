@@ -12,6 +12,8 @@
   // "USERPREFS_FORCE_FS_FORMAT": "1",     // With FORCE_CLEAN_INSTALL: also reformat the internal LittleFS, for a
   //                                       // node that logs "lfs error:493: Corrupted dir pair".
   //                                       // Also drops the Nexus vault, the MeshCore data and the BLE bonds.
+  // "USERPREFS_ALLOW_ROUTER_ROLE": "1",   // Lets USERPREFS_CONFIG_DEVICE_ROLE be ROUTER. Without it ROUTER falls back to
+  //                                       // CLIENT; ROUTER_LATE and LOST_AND_FOUND stay restricted either way.
   //
   // Channels: indices 0 to 7 are all supported. Setting any USERPREFS_CHANNEL_<n>_* key configures
   // index <n>; the fields you leave out keep the values the firmware would have used anyway (default

@@ -1271,9 +1271,16 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
 #endif
 
 #ifdef USERPREFS_CONFIG_DEVICE_ROLE
-    // Restrict ROUTER*, LOST AND FOUND roles for security reasons
-    if (IS_ONE_OF(USERPREFS_CONFIG_DEVICE_ROLE, meshtastic_Config_DeviceConfig_Role_ROUTER,
-                  meshtastic_Config_DeviceConfig_Role_ROUTER_LATE, meshtastic_Config_DeviceConfig_Role_LOST_AND_FOUND)) {
+    // Restrict ROUTER*, LOST AND FOUND roles for security reasons. ROUTER is the one exception: a build opts in with
+    // USERPREFS_ALLOW_ROUTER_ROLE, which the builder sets only for its solar repeater preset. ROUTER_LATE stays restricted.
+#ifdef USERPREFS_ALLOW_ROUTER_ROLE
+    constexpr bool routerRoleAllowed = true;
+#else
+    constexpr bool routerRoleAllowed = false;
+#endif
+    if (IS_ONE_OF(USERPREFS_CONFIG_DEVICE_ROLE, meshtastic_Config_DeviceConfig_Role_ROUTER_LATE,
+                  meshtastic_Config_DeviceConfig_Role_LOST_AND_FOUND) ||
+        (USERPREFS_CONFIG_DEVICE_ROLE == meshtastic_Config_DeviceConfig_Role_ROUTER && !routerRoleAllowed)) {
         LOG_WARN("ROUTER roles restricted, fall back to CLIENT");
         config.device.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
     } else {
