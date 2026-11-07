@@ -13,7 +13,7 @@
  * be very careful about how we write files.  This class provides a restricted (Stream only) writing API for writing to files.
  *
  * Notably:
- * - we keep a simple xor hash of all characters that were written.
+ * - we keep a CRC32 of all characters that were written.
  * - We do not allow seeking (because we want to maintain our hash)
  * - we provide an close() method which is similar to close but returns false if we were unable to successfully write the
  * file.  Also this method
@@ -37,6 +37,13 @@ class SafeFile : public Print
      */
     bool close();
 
+    /**
+     * Give up on the file: drop the temp copy and leave the previous version untouched. Call it instead of close() when
+     * the content being written is known to be incomplete (e.g. the encoder failed half way), because close() would
+     * read back what was written, find the checksum consistent and rename a truncated file over the good one.
+     */
+    void abort();
+
   private:
     /// Read our (closed) tempfile back in and compare the hash
     bool testReadback();
@@ -44,7 +51,7 @@ class SafeFile : public Print
     String filename;
     File f;
     bool fullAtomic;
-    uint8_t hash = 0;
+    uint32_t hash = 0xFFFFFFFFu; // running CRC32, see crc32Update() in SafeFile.cpp
 };
 
 #endif

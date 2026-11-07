@@ -2,6 +2,17 @@
 
 #ifdef FSCom
 
+/// Bitwise CRC32 (IEEE, reflected). No table on purpose: 1 KB of flash is worth more than speed on a config-sized file.
+static uint32_t crc32Update(uint32_t crc, const uint8_t *data, size_t len)
+{
+    for (size_t i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (int bit = 0; bit < 8; bit++)
+            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+    }
+    return crc;
+}
+
 // Only way to work on both esp32 and nrf52
 static File openFile(const char *filename, bool fullAtomic)
 {
@@ -18,8 +29,7 @@ static File openFile(const char *filename, bool fullAtomic)
     // write must go first. exists() guards it: a bare remove() of a missing file logs on Portduino.
     if (FSCom.exists(filenameTmp.c_str())) {
         LOG_DEBUG("Remove stale %s", filenameTmp.c_str());
-        // Opening anyway would append to the stale bytes, and the XOR readback is 8 bits wide, so
-        // polluted content has a real chance of verifying and being renamed over the good file.
+        // Opening anyway would append the new data to the stale bytes and rename the mix over the good file.
         if (!FSCom.remove(filenameTmp.c_str())) {
             LOG_ERROR("Can't remove stale %s", filenameTmp.c_str());
             return File();
@@ -40,8 +50,11 @@ size_t SafeFile::write(uint8_t ch)
     if (!f)
         return 0;
 
-    hash ^= ch;
-    return f.write(ch);
+    // Hash only what the filesystem accepted, so a short write (full flash) cannot be hidden by the readback.
+    size_t written = f.write(ch);
+    if (written == 1)
+        hash = crc32Update(hash, &ch, 1);
+    return written;
 }
 
 size_t SafeFile::write(const uint8_t *buffer, size_t size)
@@ -49,11 +62,11 @@ size_t SafeFile::write(const uint8_t *buffer, size_t size)
     if (!f)
         return 0;
 
-    for (size_t i = 0; i < size; i++) {
-        hash ^= buffer[i];
-    }
-    return f.write((uint8_t const *)buffer, size); // This nasty cast is _IMPORTANT_ otherwise the correct adafruit method does
-                                                   // not get used (they made a mistake in their typing)
+    // This nasty cast is _IMPORTANT_ otherwise the correct adafruit method does not get used (they made a mistake in their
+    // typing)
+    size_t written = f.write((uint8_t const *)buffer, size);
+    hash = crc32Update(hash, buffer, written);
+    return written;
 }
 
 /**
@@ -84,6 +97,18 @@ bool SafeFile::close()
     return true;
 }
 
+void SafeFile::abort()
+{
+    concurrency::LockGuard g(spiLock);
+    if (f)
+        f.close();
+    String filenameTmp = filename;
+    filenameTmp += ".tmp";
+    if (FSCom.exists(filenameTmp.c_str()))
+        FSCom.remove(filenameTmp.c_str());
+    LOG_WARN("Aborted write of %s, previous version kept", filename.c_str());
+}
+
 /// Read our (closed) tempfile back in and compare the hash
 bool SafeFile::testReadback()
 {
@@ -98,9 +123,10 @@ bool SafeFile::testReadback()
     }
 
     int c = 0;
-    uint8_t test_hash = 0;
+    uint32_t test_hash = 0xFFFFFFFFu;
     while ((c = f2.read()) >= 0) {
-        test_hash ^= (uint8_t)c;
+        const uint8_t byte = (uint8_t)c;
+        test_hash = crc32Update(test_hash, &byte, 1);
     }
     f2.close();
 

@@ -3453,7 +3453,13 @@ bool NodeDB::saveProto(const char *filename, size_t protoSize, const pb_msgdesc_
         okay = true;
     }
 
-    bool writeSucceeded = f.close();
+    // An encode that failed half way leaves a truncated temp file whose checksum is self-consistent: committing it
+    // would replace the last good copy with it.
+    bool writeSucceeded = false;
+    if (okay)
+        writeSucceeded = f.close();
+    else
+        f.abort();
 
     if (!okay || !writeSucceeded) {
         LOG_ERROR("Can't write prefs");
