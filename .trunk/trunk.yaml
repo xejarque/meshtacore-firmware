@@ -162,6 +162,12 @@ lint:
     - linters: [ALL]
       paths:
         - test/fixtures/portduino-config/**/*.yaml
+    # Standalone HTML emitted by the archify tool (inline SVG + scripts, ~700 KB
+    # each). They are regenerated, never hand-edited, so reformatting them only
+    # produces noisy diffs.
+    - linters: [prettier]
+      paths:
+        - custom_builder_web/docs/diagramas/**
     # checkov/CKV_SECRET_6 flags the commented-out "large4cats" example,
     # which is the public default credential for the meshtastic.org MQTT
     # broker rather than a real secret. Ignore the whole file so the
