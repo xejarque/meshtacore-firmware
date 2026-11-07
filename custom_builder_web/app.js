@@ -723,6 +723,7 @@ document.addEventListener("DOMContentLoaded", () => {
       el.addEventListener("input", (e) => {
         const i = parseInt(e.target.dataset.idx, 10);
         channelsData[i].name = e.target.value.trim();
+        if (window.NexusOptions) window.NexusOptions.refreshBitLabels();
       });
     });
 
@@ -753,6 +754,8 @@ document.addEventListener("DOMContentLoaded", () => {
         channelsData[i].precision = parseInt(e.target.value, 10);
       });
     });
+    // Los nombres de la tabla también son las etiquetas de "Canales donde responde el bot".
+    if (window.NexusOptions) window.NexusOptions.refreshBitLabels();
   }
 
   renderChannelsTable();
@@ -1514,7 +1517,9 @@ ${encryptedConfig}
       const res = await fetch("options.manifest.json", { cache: "no-cache" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       nexusManifest = await res.json();
-      window.NexusOptions.render(nexusManifest, container);
+      window.NexusOptions.render(nexusManifest, container, {
+        channelName: (i) => (channelsData[i] ? channelsData[i].name : ""),
+      });
       updateLivePreview();
     } catch (err) {
       container.textContent = `No se pudieron cargar las opciones avanzadas: ${err.message}`;
