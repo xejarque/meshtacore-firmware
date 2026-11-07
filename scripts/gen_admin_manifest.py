@@ -5,6 +5,7 @@ Source of truth is the command reference: section 17 (alphabetical index) gives
 name, aliases, category and one-line summary; the per-section tables give the
 syntax variants and long descriptions, matched by the command's first token.
 """
+
 import json
 import re
 import sys
@@ -56,12 +57,42 @@ def parse_index(lines):
     return commands
 
 
+def adopt_unindexed(row, commands, lookup, category):
+    """A command the section tables document but the alphabetical index forgot (STATS, TXPOWER...)."""
+    names = [n for n in names_in(row[0]) if BARE_COMMAND.match(n)]
+    syntax = names_in(row[1]) or [row[1]]
+    # Tag, key and sub-command tables also have a bold-free first column; a real command's syntax starts with its name.
+    if not names or syntax[0].split()[:1] != [names[0]]:
+        return None
+    entry = {
+        "name": names[0],
+        "aliases": names[1:],
+        "category": category,
+        "summary": "",
+        "usage": [],
+    }
+    commands[names[0]] = entry
+    for n in names:
+        lookup[n] = names[0]
+    return names[0]
+
+
+SECTION_HEADING = re.compile(r"^## (\d+)\. (.+)$")
+BARE_COMMAND = re.compile(r"^[A-Z][A-Z0-9_-]*$")
+
+
 def attach_details(lines, commands):
-    lookup = {n: c["name"] for c in commands.values() for n in [c["name"], *c["aliases"]]}
+    lookup = {
+        n: c["name"] for c in commands.values() for n in [c["name"], *c["aliases"]]
+    }
     current = None
+    category = ""
     for line in lines:
         if line.startswith("## 17."):
             break
+        heading = SECTION_HEADING.match(line)
+        if heading:
+            category = f"{heading.group(1)} {heading.group(2)}"
         if not is_table_row(line):
             current = None
             continue
@@ -70,6 +101,8 @@ def attach_details(lines, commands):
             continue
         if c[0]:
             current = next((lookup[n] for n in names_in(c[0]) if n in lookup), None)
+            if current is None:
+                current = adopt_unindexed(c, commands, lookup, category)
         if current is None:
             continue
         syntax = names_in(c[1])
@@ -85,7 +118,9 @@ def main():
     attach_details(lines, commands)
     ordered = sorted(commands.values(), key=lambda c: (c["category"], c["name"]))
     payload = {"source": "docs/mtc-commands.md", "commands": ordered}
-    OUT.write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    OUT.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
+    )
     print(f"{len(ordered)} commands -> {OUT.relative_to(ROOT)}", file=sys.stderr)
 
 

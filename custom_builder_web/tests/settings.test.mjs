@@ -9,15 +9,7 @@ const json = (p) => JSON.parse(readFileSync(here(p)));
 const manifest = json("../admin.commands.json").commands;
 // INVALID / UNINVALID are defined in section 3.3 of the reference but the section 17 index only lists INVALIDS.
 // These exist in the firmware (NexusCommands.cpp / NexusMeshtacoreCommands.cpp) but the manifest parser misses them.
-const DOCUMENTED_OUTSIDE_THE_INDEX = [
-  "INVALID",
-  "UNINVALID",
-  "IGNORMQTT",
-  "TXPOWER",
-  "HEALTH",
-  "SENSORS",
-  "STATS",
-];
+const DOCUMENTED_OUTSIDE_THE_INDEX = ["INVALID", "UNINVALID", "TXPOWER"];
 const known = new Set(
   [
     ...manifest.flatMap((c) => [c.name, ...c.aliases]),

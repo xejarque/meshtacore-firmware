@@ -1,2550 +1,2501 @@
 {
- "source": "docs/mtc-commands.md",
- "commands": [
-  {
-   "name": "WATCH",
-   "aliases": [],
-   "category": "10 Target Watchlist",
-   "summary": "In-depth continuous node RF & hop tracker",
-   "usage": [
-    {
-     "syntax": "WATCH ADD <!id|short>",
-     "description": "Add node to watchlist (max 8). Initializes min/max tracking and reset counters."
-    },
-    {
-     "syntax": "WATCH DEL <!id|short>",
-     "description": "Remove node from watchlist."
-    },
-    {
-     "syntax": "WATCH LIST",
-     "description": "List all monitored nodes with short names."
-    },
-    {
-     "syntax": "WATCH CLEAR",
-     "description": "Clear all 8 slots from the watchlist."
-    },
-    {
-     "syntax": "WATCH RESET",
-     "description": "Reset statistical counters for all slots while keeping the node IDs in the list."
-    },
-    {
-     "syntax": "WATCH STATS <!id|short>",
-     "description": "Output paged statistical dossier for one target node."
-    },
-    {
-     "syntax": "WATCH ALL",
-     "description": "Output paged dossiers for all monitored targets with recorded packets."
-    }
-   ]
-  },
-  {
-   "name": "BD",
-   "aliases": [],
-   "category": "11 Vault & Persistence",
-   "summary": "Broadcast delay / paging jitter settings",
-   "usage": [
-    {
-     "syntax": "BD",
-     "description": "Query maximum broadcast reply / paging delay in seconds."
-    },
-    {
-     "syntax": "BD SET <1..300>",
-     "description": "Set broadcast reply / paging jitter delay (prevents packet collisions on dense meshes). Persisted via `SAVE`."
-    }
-   ]
-  },
-  {
-   "name": "DBFLUSH",
-   "aliases": [],
-   "category": "11 Vault & Persistence",
-   "summary": "Force immediate NodeDB flash sync",
-   "usage": [
-    {
-     "syntax": "DBFLUSH",
-     "description": "Forces an immediate write of NodeDB to disk, bypassing active freeze flags."
-    }
-   ]
-  },
-  {
-   "name": "FREEZE",
-   "aliases": [],
-   "category": "11 Vault & Persistence",
-   "summary": "Subsystem filesystem write freeze",
-   "usage": [
-    {
-     "syntax": "FREEZE",
-     "description": "Shows filesystem write-freeze status across all subsystems (one per line)."
-    },
-    {
-     "syntax": "FREEZE ON",
-     "description": "Freezes all filesystem writes (prevents flash wear or writes during testing)."
-    },
-    {
-     "syntax": "FREEZE OFF",
-     "description": "Unfreezes all subsystems, restoring normal flash persistence."
-    },
-    {
-     "syntax": "FREEZE NODEFREEZE|WARMFREEZE|DEVICEFREEZE|CONFIGFREEZE [ON|OFF]",
-     "description": "Per-subsystem write freeze (note the subcommand names - `FREEZE NODEDB ON` does not work). Bare form shows current state. Also: `FREEZE STATUS`, legacy `DISK`, `DB`/`DBONLY`."
-    }
-   ]
-  },
-  {
-   "name": "LOAD",
-   "aliases": [],
-   "category": "11 Vault & Persistence",
-   "summary": "Reload settings from flash vault",
-   "usage": [
-    {
-     "syntax": "LOAD",
-     "description": "Discards current RAM state and reloads configuration from flash vault."
-    }
-   ]
-  },
-  {
-   "name": "SAVE",
-   "aliases": [],
-   "category": "11 Vault & Persistence",
-   "summary": "Commit RAM configuration to vault",
-   "usage": [
-    {
-     "syntax": "SAVE",
-     "description": "Commits current RAM state (drop rules, presets, aliases, macros, signatures, security settings) to flash."
-    }
-   ]
-  },
-  {
-   "name": "VAULT",
-   "aliases": [
-    "VST"
-   ],
-   "category": "11 Vault & Persistence",
-   "summary": "Vault schema version, size, window",
-   "usage": [
-    {
-     "syntax": "VAULT",
-     "description": "Displays vault version, size, drop/invalid masks and slot usage."
-    }
-   ]
-  },
-  {
-   "name": "VAULT DIFF",
-   "aliases": [
-    "VDF"
-   ],
-   "category": "11 Vault & Persistence",
-   "summary": "Diff RAM settings against saved vault",
-   "usage": [
-    {
-     "syntax": "VAULT DIFF",
-     "description": "Compares current RAM settings against stored flash vault to identify unsaved changes (paged per-field diff)."
-    }
-   ]
-  },
-  {
-   "name": "ADDCH",
-   "aliases": [],
-   "category": "12 Channels & Config",
-   "summary": "Add a new channel slot",
-   "usage": [
-    {
-     "syntax": "ADDCH <name> [psk]",
-     "description": "Add a new channel in the first available slot."
-    }
-   ]
-  },
-  {
-   "name": "CHASH",
-   "aliases": [
-    "CH",
-    "CHANNELS"
-   ],
-   "category": "12 Channels & Config",
-   "summary": "Channel list with roles (CH) or hashes (CHASH)",
-   "usage": [
-    {
-     "syntax": "CHASH",
-     "description": "Shows channels with 8-bit PSK hashes (name + hash only, no role)."
-    },
-    {
-     "syntax": "CH",
-     "description": "Shows channels with role numbers (no hashes)."
-    }
-   ]
-  },
-  {
-   "name": "CHNAME",
-   "aliases": [],
-   "category": "12 Channels & Config",
-   "summary": "Rename channel slot",
-   "usage": [
-    {
-     "syntax": "CHNAME <idx|name> <name>",
-     "description": "Rename channel at index `<idx>` (or by name). `UCHNAME` skips trusted-channel protection. Example: `CHNAME 1 Ops`."
-    }
-   ]
-  },
-  {
-   "name": "CHPSK",
-   "aliases": [],
-   "category": "12 Channels & Config",
-   "summary": "Set channel encryption key",
-   "usage": [
-    {
-     "syntax": "CHPSK <idx|name> <psk>",
-     "description": "Set encryption key for channel `<idx>` - **base64 only** (no default/none/hex forms). `UCHPSK` skips trusted-channel protection."
-    }
-   ]
-  },
-  {
-   "name": "CONFIG",
-   "aliases": [],
-   "category": "12 Channels & Config",
-   "summary": "Direct protobuf configuration write",
-   "usage": [
-    {
-     "syntax": "CONFIG",
-     "description": "Return active operational configuration summary (role, broadcast intervals, flags, GPS/Fixed state, location)."
-    },
-    {
-     "syntax": "CONFIG",
-     "description": "Show accepted syntax and target options."
-    },
-    {
-     "syntax": "CONFIG NI <secs>",
-     "description": "Set NodeInfo broadcast interval in seconds. Example: `CONFIG NI 10800`."
-    },
-    {
-     "syntax": "CONFIG TEL_D <secs>",
-     "description": "Set Device Telemetry (battery, voltage, CPU, uptime) interval. Example: `CONFIG TEL_D 900`."
-    },
-    {
-     "syntax": "CONFIG TEL_E <secs>",
-     "description": "Set Environment Telemetry (temp, humidity, pressure) interval. Example: `CONFIG TEL_E 1800`."
-    },
-    {
-     "syntax": "CONFIG TEL_P <secs>",
-     "description": "Set Power Telemetry (INA219/INA226 current, bus voltage, power) interval. Example: `CONFIG TEL_P 900`."
-    },
-    {
-     "syntax": "CONFIG POS <secs>",
-     "description": "Set Position broadcast interval in seconds. Example: `CONFIG POS 900`."
-    },
-    {
-     "syntax": "CONFIG SMART <ON/OFF>",
-     "description": "Enable/disable Smart Position broadcast (motion/distance triggered). Example: `CONFIG SMART ON`."
-    },
-    {
-     "syntax": "CONFIG FIXED <ON/OFF>",
-     "description": "Enable/disable Fixed Position mode (disables live GPS queries). Example: `CONFIG FIXED ON`."
-    },
-    {
-     "syntax": "CONFIG GPS <ON/OFF>",
-     "description": "Enable or power down the onboard GPS/GNSS receiver hardware. Example: `CONFIG GPS OFF`."
-    },
-    {
-     "syntax": "CONFIG LOC <lat>,<lon>",
-     "description": "Set manual stationary fixed position coordinates. Example: `CONFIG LOC 49.15163,9.25764`."
-    }
-   ]
-  },
-  {
-   "name": "DELCH",
-   "aliases": [],
-   "category": "12 Channels & Config",
-   "summary": "Delete channel slot",
-   "usage": [
-    {
-     "syntax": "DELCH <idx|name>",
-     "description": "Delete channel at index `<idx>` (Primary channel 0 cannot be deleted). Use `UDELCH` to skip trusted-channel protection."
-    }
-   ]
-  },
-  {
-   "name": "FULLCONFIGDUMP",
-   "aliases": [],
-   "category": "12 Channels & Config",
-   "summary": "Full device protobuf config dump",
-   "usage": [
-    {
-     "syntax": "FULLCONFIGDUMP",
-     "description": "Paged comprehensive dump of all device configuration and module settings."
-    }
-   ]
-  },
-  {
-   "name": "INFRA",
-   "aliases": [],
-   "category": "12 Channels & Config",
-   "summary": "List mesh infrastructure router nodes",
-   "usage": [
-    {
-     "syntax": "INFRA",
-     "description": "Lists all infrastructure nodes detected on the mesh (paged)."
-    }
-   ]
-  },
-  {
-   "name": "MODULES",
-   "aliases": [
-    "MOD"
-   ],
-   "category": "12 Channels & Config",
-   "summary": "List active firmware modules",
-   "usage": [
-    {
-     "syntax": "MODULES",
-     "description": "Lists all compiled and active Meshtastic firmware modules (paged)."
-    }
-   ]
-  },
-  {
-   "name": "RATELIMIT",
-   "aliases": [
-    "RL"
-   ],
-   "category": "12 Channels & Config",
-   "summary": "Traffic rate limit bucket thresholds",
-   "usage": [
-    {
-     "syntax": "RATELIMIT",
-     "description": "Shows current rate limiter **limits** per bucket."
-    },
-    {
-     "syntax": "RATELIMIT STATUS|STAT|BUCKETS",
-     "description": "Paged per-bucket status view."
-    },
-    {
-     "syntax": "RATELIMIT <bucket> <max>",
-     "description": "Set bucket ceiling in **packets per hour** (single numeric arg). Buckets: `TEXT`, `TRACE`, `OTHER`, `NODEINFO`/`NI`, `POSITION`/`PO`, `TELEMETRY`/`TL`, `PRIVATE`/`PR`."
-    }
-   ]
-  },
-  {
-   "name": "RATELIMITSTAT",
-   "aliases": [],
-   "category": "12 Channels & Config",
-   "summary": "Rate limiter drop counters",
-   "usage": [
-    {
-     "syntax": "RATELIMITSTAT",
-     "description": "Displays hit counters and drop statistics for rate limiter buckets (paged, title `RL Buckets`)."
-    }
-   ]
-  },
-  {
-   "name": "SHARE",
-   "aliases": [],
-   "category": "12 Channels & Config",
-   "summary": "Generate node-share contact URL / QR link",
-   "usage": [
-    {
-     "syntax": "SHARE <node>",
-     "description": "Generates a Meshtastic **node-share contact** URL to share a specific Node from the NodeDB."
-    }
-   ]
-  },
-  {
-   "name": "SKEY",
-   "aliases": [],
-   "category": "12 Channels & Config",
-   "summary": "Secondary dynamic admin master keys",
-   "usage": [
-    {
-     "syntax": "SKEY <1|2|3|4> <Key|OFF|WIPE>",
-     "description": "Manage 4 secondary dynamic admin public keys for remote cryptographic auth. Supports Base64 (128/64 chars) or Hex (64 chars). Bare `SKEY` does not dispatch."
-    },
-    {
-     "syntax": "TM CONFIG",
-     "description": "Show or tune TrafficManagementModule parameters."
-    }
-   ]
-  },
-  {
-   "name": "ST",
-   "aliases": [],
-   "category": "12 Channels & Config",
-   "summary": "Operational switches and status",
-   "usage": []
-  },
-  {
-   "name": "TM",
-   "aliases": [],
-   "category": "12 Channels & Config",
-   "summary": "TrafficManagementModule tuning & stats",
-   "usage": [
-    {
-     "syntax": "TM",
-     "description": "TrafficManagementModule stats (dedup / rate-limit / cache-hops counters). _Not_ a module on/off switch."
-    }
-   ]
-  },
-  {
-   "name": "ENV",
-   "aliases": [],
-   "category": "13 Hardware & Sensors",
-   "summary": "Real-time I2C environment sensor data",
-   "usage": [
-    {
-     "syntax": "ENV",
-     "description": "Real-time environment sensor read (BME280 / SHT31 / BMP280)."
-    }
-   ]
-  },
-  {
-   "name": "GPIO",
-   "aliases": [],
-   "category": "13 Hardware & Sensors",
-   "summary": "GPIO pin read, set, and change watch",
-   "usage": [
-    {
-     "syntax": "GPIO",
-     "description": "Shows accepted syntax (bare form does **not** show pin states)."
-    },
-    {
-     "syntax": "GPIO W <pin> <H|L>",
-     "description": "Set GPIO pin state. Example: `GPIO W 12 H`."
-    },
-    {
-     "syntax": "GPIO R <pin>",
-     "description": "Read GPIO pin state."
-    },
-    {
-     "syntax": "GPIO M <pin> <IN|OUT|PU>",
-     "description": "Set pin mode (input / output / pull-up)."
-    },
-    {
-     "syntax": "GPIO WATCH <pin|OFF>",
-     "description": "Enable or disable interrupt-driven change notification on a GPIO pin (pins 0-63; re-issuing on a watched pin unwatches it)."
-    }
-   ]
-  },
-  {
-   "name": "HEAP",
-   "aliases": [],
-   "category": "13 Hardware & Sensors",
-   "summary": "Free and used heap memory bytes",
-   "usage": []
-  },
-  {
-   "name": "INALM",
-   "aliases": [],
-   "category": "13 Hardware & Sensors",
-   "summary": "INA power sensor alarm thresholds",
-   "usage": [
-    {
-     "syntax": "INALM [ON|OFF|1|0]",
-     "description": "Toggle 'INA Legacy Math' power computation (not an alarm threshold despite the name). **Was made specifically for version 2.7.23, doesn't make much sense for other versions, but is there regardless.**"
-    }
-   ]
-  },
-  {
-   "name": "MCUINFO",
-   "aliases": [
-    "MCU"
-   ],
-   "category": "13 Hardware & Sensors",
-   "summary": "Detailed MCU core and flash info",
-   "usage": [
-    {
-     "syntax": "MCUINFO",
-     "description": "Chip/core/flash/heap/die-temp/boot/MAC/RNG/uptime (paged)."
-    }
-   ]
-  },
-  {
-   "name": "META_ALERT",
-   "aliases": [
-    "MA"
-   ],
-   "category": "13 Hardware & Sensors",
-   "summary": "Alert on metadata request receipt",
-   "usage": [
-    {
-     "syntax": "META_ALERT [ON|OFF] [mode-0-2]",
-     "description": "Metadata Alert: notifies when another node requests this device's metadata (same positional mode syntax)."
-    }
-   ]
-  },
-  {
-   "name": "METRICS",
-   "aliases": [],
-   "category": "13 Hardware & Sensors",
-   "summary": "Another node's battery / channel-utilization metrics",
-   "usage": [
-    {
-     "syntax": "METRICS <node>",
-     "description": "Reports another node's last device metrics (battery voltage, channel utilization) from NodeDB. Requires a node argument."
-    }
-   ]
-  },
-  {
-   "name": "PMGT",
-   "aliases": [],
-   "category": "13 Hardware & Sensors",
-   "summary": "Power management IC diagnostic state",
-   "usage": [
-    {
-     "syntax": "PMGT",
-     "description": "Dumps power-management **config** (power-saving flag, shutdown / BT-wait / SDS / light-sleep / min-wake seconds)."
-    },
-    {
-     "syntax": "PMGT SAVING|SHUTDOWN|BT_WAIT|SDS|LS|MIN_WAKE|ADC <val>",
-     "description": "Set individual power config values."
-    }
-   ]
-  },
-  {
-   "name": "POWER",
-   "aliases": [],
-   "category": "13 Hardware & Sensors",
-   "summary": "I2C power monitor voltage & current",
-   "usage": [
-    {
-     "syntax": "POWER <dBm>",
-     "description": "Set radio transmit power in dBm (-9..31). Example: `POWER 22`."
-    },
-    {
-     "syntax": "POWER",
-     "description": "Real-time I2C power monitor polling (INA219 / INA226 / AXP192 / AXP2101)."
-    }
-   ]
-  },
-  {
-   "name": "PSRAM",
-   "aliases": [],
-   "category": "13 Hardware & Sensors",
-   "summary": "PSRAM memory usage statistics",
-   "usage": []
-  },
-  {
-   "name": "RAM",
-   "aliases": [
-    "MEM"
-   ],
-   "category": "13 Hardware & Sensors",
-   "summary": "Heap, PSRAM and stack diagnostic",
-   "usage": [
-    {
-     "syntax": "RAM",
-     "description": "Unified memory diagnostic: heap, PSRAM, Nexus bss size, FreeRTOS stack watermark."
-    }
-   ]
-  },
-  {
-   "name": "TA",
-   "aliases": [],
-   "category": "13 Hardware & Sensors",
-   "summary": "TraceRoute receipt alert toggle",
-   "usage": [
-    {
-     "syntax": "TA [ON|OFF] [mode-0-2]",
-     "description": "Trace Alert: notifies when another node targets this device with TraceRoute. Mode is a positional integer (no `MODE` keyword): 0=Direct only, 1=Relayed only, 2=All."
-    }
-   ]
-  },
-  {
-   "name": "TELEMETRY",
-   "aliases": [],
-   "category": "13 Hardware & Sensors",
-   "summary": "Battery, temperature, pressure telemetry",
-   "usage": [
-    {
-     "syntax": "TL",
-     "description": "Port `TELEMETRY_APP`"
-    },
-    {
-     "syntax": "TELEMETRY",
-     "description": "Consolidated telemetry report: channel/TX utilization, battery, power channels, environment."
-    }
-   ]
-  },
-  {
-   "name": "WIFI",
-   "aliases": [],
-   "category": "13 Hardware & Sensors",
-   "summary": "WiFi connection status, SSID, IP",
-   "usage": [
-    {
-     "syntax": "WIFI",
-     "description": "Shows WiFi connection status: SSID, RSSI, BSSID, IP."
-    },
-    {
-     "syntax": "WIFI STATUS|ON|OFF|SSID|PSK [val]",
-     "description": "Configure WiFi (STATUS shows PSK too)."
-    }
-   ]
-  },
-  {
-   "name": "WIFIOTA",
-   "aliases": [
-    "OTA"
-   ],
-   "category": "13 Hardware & Sensors",
-   "summary": "ESP32 OTA firmware metadata",
-   "usage": [
-    {
-     "syntax": "WIFIOTA",
-     "description": "ESP32 OTA firmware metadata (paged). Non-ESP32 replies `MESHTACORE WIFIOTA:` / `Only available on ESP32`."
-    }
-   ]
-  },
-  {
-   "name": "DM",
-   "aliases": [],
-   "category": "14 Messaging & Routing",
-   "summary": "Send encrypted Direct Message",
-   "usage": [
-    {
-     "syntax": "DM <!id|short> <msg>",
-     "description": "Send an encrypted direct message to target node. Example: `DM !defc895b Rendezvous at checkpoint`."
-    }
-   ]
-  },
-  {
-   "name": "DM-FORWARD",
-   "aliases": [
-    "DMF"
-   ],
-   "category": "14 Messaging & Routing",
-   "summary": "Automatically forward incoming DMs",
-   "usage": [
-    {
-     "syntax": "DM-FORWARD [ON|OFF]",
-     "description": "Forward all received DMs onward automatically (no target-node argument - anything other than `ON` means `OFF`)."
-    }
-   ]
-  },
-  {
-   "name": "DU",
-   "aliases": [
-    "DECODEURL"
-   ],
-   "category": "14 Messaging & Routing",
-   "summary": "Decode node-share contact URL",
-   "usage": [
-    {
-     "syntax": "DU <url>",
-     "description": "Decode and parse a Meshtastic **node-share** URL (SharedContact payload: id, names, HW, role, public key)."
-    }
-   ]
-  },
-  {
-   "name": "GOODPRACTICES",
-   "aliases": [
-    "BUENASPRACTICAS",
-    "GP",
-    "BP"
-   ],
-   "category": "14 Messaging & Routing",
-   "summary": "Apply stealth and airtime good practices (NI/POS 72h, SmartPos OFF, telem 24h)",
-   "usage": [
-    {
-     "syntax": "GOODPRACTICES",
-     "description": "Apply the Spanish Meshtastic Community airtime best practices: NodeInfo 72h, Position 72h, SmartPos OFF, active telemetry < 12h bumped to minimum of 24h."
-    }
-   ]
-  },
-  {
-   "name": "MQTT",
-   "aliases": [],
-   "category": "14 Messaging & Routing",
-   "summary": "MQTT client status and connection",
-   "usage": [
-    {
-     "syntax": "MQTT",
-     "description": "Displays MQTT client status and current override mode."
-    },
-    {
-     "syntax": "MQTT <DEFAULT|ALWAYS|STRICT>",
-     "description": "Set MQTT override mode (`ALWAYS`=`ALWAYS-UPLOAD`/`1`, `STRICT`=`STRICT-PRIVACY`/`2`, `DEFAULT`=`0`). Note: `STATUS`/`CONNECT` are **not** valid subcommands."
-    }
-   ]
-  },
-  {
-   "name": "OKTOMQTT",
-   "aliases": [],
-   "category": "14 Messaging & Routing",
-   "summary": "Toggle MQTT export flag on packets",
-   "usage": [
-    {
-     "syntax": "OKTOMQTT [ON|OFF]",
-     "description": "Toggle whether outgoing text messages set the `ok_to_mqtt` flag (LoRa config bit 105). Value aliases: `TRUE/ENABLE/1`, `FALSE/DISABLE/0`; `STATUS`/`STAT` query."
-    }
-   ]
-  },
-  {
-   "name": "PLAY",
-   "aliases": [],
-   "category": "14 Messaging & Routing",
-   "summary": "Play custom RTTTL ringtone melody",
-   "usage": [
-    {
-     "syntax": "PLAY [BELL|<rtttl_melody>]",
-     "description": "Plays a custom RTTTL ringtone melody or standard bell alert tone (`PLAY BELL` or `BELL`) on hardware buzzer."
-    }
-   ]
-  },
-  {
-   "name": "PPING",
-   "aliases": [],
-   "category": "14 Messaging & Routing",
-   "summary": "Public ping response configuration",
-   "usage": [
-    {
-     "syntax": "PPING",
-     "description": "Show public ping configuration as a numeric flag dump."
-    },
-    {
-     "syntax": "PPING <ON|OFF>",
-     "description": "Enable or disable the automatic response to public pings on **Meshtastic** (`public_ping`). It does not touch MeshCore: use `MESHCORE PPING ON|OFF` for the MeshCore channels, which are switched independently."
-    },
-    {
-     "syntax": "PPING CMD <command|DEFAULT>",
-     "description": "Set the custom trigger command for public ping (default `/ping`, e.g. `!ping` or `.ping`). Any leading character is accepted, so there is no `/` requirement; see the note before this table. Responds only to this exact message, with no extra aliases."
-    },
-    {
-     "syntax": "PPING EMOJI <OFF|INDIRECT|ALWAYS>",
-     "description": "Set emoji ping acknowledgment mode (aliases `INDR`, `ALW`)."
-    },
-    {
-     "syntax": "PPING HEADER <text|OFF|DEFAULT|NONE|CUSTOM>",
-     "description": "Header line of the ping response, per layer. Free text stores it and selects it (`CUSTOM` reuses it without retyping); `DEFAULT` restores the layer's branding, `OFF` is its alias, and `NONE` drops the header so the reply opens with the hop line. Meshtastic defaults to `DEFAULT`, MeshCore to `NONE`."
-    },
-    {
-     "syntax": "PPING RSSI|SNR|FREQERR|FLAGS|OM|ALLOWDM <ON|OFF>",
-     "description": "Additional per-metric and routing toggles (see `PPING` usage line); the reporting toggles are shared with `MESHCORE PPING`. `HEX`/`GETHEX` mask: bit0 public ping, 1 RSSI, 2 SNR, 3 FREQERR, 4 ignore direct, 5 ignore remote, 6 flags, 7-14 channels 0-7, 15 allow DM."
-    }
-   ]
-  },
-  {
-   "name": "SENDMYNODE",
-   "aliases": [
-    "SENDNODE",
-    "SMN",
-    "SN"
-   ],
-   "category": "14 Messaging & Routing",
-   "summary": "Broadcast NodeInfo (own node, or any target node)",
-   "usage": [
-    {
-     "syntax": "SENDMYNODE",
-     "description": "Broadcast **this node's** NodeInfo packet immediately (options `C <ch>`, `H <hl> <hs>`, `M`)."
-    },
-    {
-     "syntax": "SENDNODE <!id|short>",
-     "description": "Inject **another node's** NodeInfo from NodeDB (not a self-broadcast)."
-    }
-   ]
-  },
-  {
-   "name": "SENDPOS",
-   "aliases": [],
-   "category": "14 Messaging & Routing",
-   "summary": "Broadcast local position packet",
-   "usage": [
-    {
-     "syntax": "SENDPOS",
-     "description": "Inject current GPS position to DM or channel."
-    }
-   ]
-  },
-  {
-   "name": "TEXT",
-   "aliases": [],
-   "category": "14 Messaging & Routing",
-   "summary": "Broadcast text message on channel 0",
-   "usage": [
-    {
-     "syntax": "TX",
-     "description": "Port `TEXT_MESSAGE_APP`"
-    },
-    {
-     "syntax": "TEXT <msg>",
-     "description": "Broadcast a plain text message on the primary channel."
-    }
-   ]
-  },
-  {
-   "name": "TEXTC",
-   "aliases": [],
-   "category": "14 Messaging & Routing",
-   "summary": "Broadcast text message on channel `<ch>`",
-   "usage": [
-    {
-     "syntax": "TEXTC <ch> <msg>",
-     "description": "Broadcast a plain text message on channel `<ch>`. Example: `TEXTC 1 Hello Team`."
-    }
-   ]
-  },
-  {
-   "name": "ALIAS",
-   "aliases": [],
-   "category": "15 Aliases, Macros & Automation",
-   "summary": "Custom 4-char node alias management",
-   "usage": [
-    {
-     "syntax": "ALIAS LIST",
-     "description": "List all 16 custom short node aliases stored in vault (paged)."
-    },
-    {
-     "syntax": "ALIAS SET <!id> <alias>",
-     "description": "Assign a custom 4-character alias to a node ID. Example: `ALIAS SET !defc895b HQ01`."
-    },
-    {
-     "syntax": "ALIAS DEL <alias>",
-     "description": "Delete an assigned alias **by alias name** (not node ID)."
-    }
-   ]
-  },
-  {
-   "name": "CRON",
-   "aliases": [],
-   "category": "15 Aliases, Macros & Automation",
-   "summary": "8-slot periodic command scheduler",
-   "usage": [
-    {
-     "syntax": "CRON LIST",
-     "description": "List active automated recurring task slots (8 slots max, paged)."
-    },
-    {
-     "syntax": "CRON ADD PER <secs> <cmd>",
-     "description": "Run `<cmd>` every `<secs>` **seconds** (minimum 60). Example (every 30 min): `CRON ADD PER 1800 NOISE`. Slot auto-allocated."
-    },
-    {
-     "syntax": "CRON ADD SCH HH:MM <cmd>",
-     "description": "Run `<cmd>` daily at `HH:MM`."
-    },
-    {
-     "syntax": "CRON ADD AT <val> <cmd>",
-     "description": "One-shot scheduled run."
-    },
-    {
-     "syntax": "CRON REM <id>",
-     "description": "Remove cron job `<id>`."
-    }
-   ]
-  },
-  {
-   "name": "GROUP",
-   "aliases": [],
-   "category": "15 Aliases, Macros & Automation",
-   "summary": "Group name slots (4 names, no membership)",
-   "usage": [
-    {
-     "syntax": "GROUP LIST",
-     "description": "List the 4 group name slots (these are just names; groups do not store node membership)."
-    },
-    {
-     "syntax": "GROUP ADD <name>",
-     "description": "Store a group name (max 8 chars) in the first free slot."
-    },
-    {
-     "syntax": "GROUP REM <name>",
-     "description": "Remove a group name from its slot."
-    },
-    {
-     "syntax": "GROUP CLEAR",
-     "description": "Clear all 4 group slots."
-    }
-   ]
-  },
-  {
-   "name": "MACRO",
-   "aliases": [
-    "MC"
-   ],
-   "category": "15 Aliases, Macros & Automation",
-   "summary": "Stored command macro execution",
-   "usage": [
-    {
-     "syntax": "MACRO LIST",
-     "description": "List all 4 stored command macros (paged)."
-    },
-    {
-     "syntax": "MACRO SET <name> <cmds>",
-     "description": "Store command sequence (separated by `;`; steps run with 10s delay). Slot is chosen by name match or first free. Example: `MACRO SET PATROL RSSI; POS; UTIL`."
-    },
-    {
-     "syntax": "MACRO RUN <name>",
-     "description": "Execute stored macro sequence **by name**."
-    },
-    {
-     "syntax": "MACRO DEL <name>",
-     "description": "Delete macro by name."
-    }
-   ]
-  },
-  {
-   "name": "CAT",
-   "aliases": [],
-   "category": "16 Filesystem & Utilities",
-   "summary": "Display file content from LittleFS",
-   "usage": [
-    {
-     "syntax": "CAT <filename>",
-     "description": "Read file and return its content **base64-encoded** (files over 700B are refused). Example: `CAT /prefs/db.proto`."
-    }
-   ]
-  },
-  {
-   "name": "FS",
-   "aliases": [],
-   "category": "16 Filesystem & Utilities",
-   "summary": "Filesystem capacity and free space",
-   "usage": [
-    {
-     "syntax": "FS",
-     "description": "Displays filesystem storage capacity: total, used, and free bytes (platform specific)."
-    }
-   ]
-  },
-  {
-   "name": "LS",
-   "aliases": [],
-   "category": "16 Filesystem & Utilities",
-   "summary": "List LittleFS files",
-   "usage": [
-    {
-     "syntax": "LS",
-     "description": "List all files stored on internal LittleFS / SPIFFS filesystem."
-    }
-   ]
-  },
-  {
-   "name": "REBOOT",
-   "aliases": [],
-   "category": "16 Filesystem & Utilities",
-   "summary": "Safe reboot with 20s delay",
-   "usage": [
-    {
-     "syntax": "REBOOT",
-     "description": "Reboots the device (initiates safe shutdown with a mandatory 20-second delay)."
-    }
-   ]
-  },
-  {
-   "name": "RM",
-   "aliases": [],
-   "category": "16 Filesystem & Utilities",
-   "summary": "Delete file from filesystem",
-   "usage": [
-    {
-     "syntax": "RM <filename>",
-     "description": "Delete file from filesystem."
-    }
-   ]
-  },
-  {
-   "name": "TIME",
-   "aliases": [],
-   "category": "16 Filesystem & Utilities",
-   "summary": "Current date, time, and sync source",
-   "usage": [
-    {
-     "syntax": "TIME",
-     "description": "Displays real-time clock (RTC) current UTC epoch, local time, and synchronization source."
-    },
-    {
-     "syntax": "TIME <epoch_sec>",
-     "description": "Manually set system RTC clock time from Unix epoch timestamp (values below 1700000000 are rejected)."
-    }
-   ]
-  },
-  {
-   "name": "HELP",
-   "aliases": [],
-   "category": "2 Help & Build Info",
-   "summary": "Interactive paged help system",
-   "usage": [
-    {
-     "syntax": "HELP",
-     "description": "Opens paged general help index listing categories."
-    },
-    {
-     "syntax": "HELP <topic>",
-     "description": "Detailed help for: `DROPS`, `FW`, `DROP`/`FIREWALL`/`OUTDROP`, `FEATURES`, `SIGINT`/`SCAN`, `ADMIN`/`SYSTEM`/`BD`, `FSIG`, `PPING`, `SKEY`, `LORA`/`PRESET`/`LORA`, `GPIO`, `TEXT`/`FTEXT`/`INJECT`, `IDENTITY`/`NAME`, `TM`, `RL`/`RATELIMIT`, `RLS`/`RATELIMITSTAT`, `PL`/`RSSILOG`, `CRON`, `NIGN`/`IGNORE`, `NODE`/`TARGET`. (No `?` alias.)"
-    }
-   ]
-  },
-  {
-   "name": "INFO",
-   "aliases": [],
-   "category": "2 Help & Build Info",
-   "summary": "Node identity, version, and role",
-   "usage": [
-    {
-     "syntax": "INFO",
-     "description": "Displays device ID, short name, role, MAC, firmware version, target board and MCU, repo, build date and Nexus build flags. Paged (it does not fit one reply); `COMPILATION`/`COMP` are aliases."
-    }
-   ]
-  },
-  {
-   "name": "VERSION",
-   "aliases": [
-    "V"
-   ],
-   "category": "2 Help & Build Info",
-   "summary": "Firmware version string",
-   "usage": [
-    {
-     "syntax": "VERSION",
-     "description": "Displays raw firmware version string from metadata."
-    }
-   ]
-  },
-  {
-   "name": "DELNODE",
-   "aliases": [],
-   "category": "3 Firewall & Filtering",
-   "summary": "Delete node record from database",
-   "usage": [
-    {
-     "syntax": "DELNODE <!id>",
-     "description": "Delete a node entry entirely from NodeDB."
-    }
-   ]
-  },
-  {
-   "name": "DROP",
-   "aliases": [
-    "UNDROP"
-   ],
-   "category": "3 Firewall & Filtering",
-   "summary": "Enable/disable inbound packet drop rules",
-   "usage": [
-    {
-     "syntax": "DROP <TAG>",
-     "description": "Enable dropping of packets matching `<TAG>`. Example: `DROP TR`."
-    },
-    {
-     "syntax": "UNDROP <TAG>",
-     "description": "Disable dropping of packets matching `<TAG>`. Example: `UNDROP TR`."
-    }
-   ]
-  },
-  {
-   "name": "DROPS",
-   "aliases": [],
-   "category": "3 Firewall & Filtering",
-   "summary": "List active inbound drop filters",
-   "usage": [
-    {
-     "syntax": "DROPS",
-     "description": "Lists all currently active inbound drop tags (including `TO`, `NM` and the `RL_*` flags), whitelists, and blacklists. (200-byte reply buffer - a huge active-tag list truncates; `HEXDROPS` shows the full mask.)"
-    }
-   ]
-  },
-  {
-   "name": "FAV",
-   "aliases": [
-    "UNFAV"
-   ],
-   "category": "3 Firewall & Filtering",
-   "summary": "Favorite node tagging",
-   "usage": [
-    {
-     "syntax": "FAV <!id|name>",
-     "description": "Mark node as favorite in NodeDB."
-    },
-    {
-     "syntax": "UNFAV <!id|name>",
-     "description": "Unmark node as favorite."
-    }
-   ]
-  },
-  {
-   "name": "FAVS",
-   "aliases": [],
-   "category": "3 Firewall & Filtering",
-   "summary": "List all favorite nodes",
-   "usage": [
-    {
-     "syntax": "FAVS",
-     "description": "Lists all active favorite nodes with short names (paged)."
-    }
-   ]
-  },
-  {
-   "name": "FFAV",
-   "aliases": [
-    "FUNFAV"
-   ],
-   "category": "3 Firewall & Filtering",
-   "summary": "Force favorite / force unfavorite node",
-   "usage": [
-    {
-     "syntax": "FFAV <!id|name>",
-     "description": "Force favorite node even if not yet in NodeDB."
-    },
-    {
-     "syntax": "FUNFAV <!id|name>",
-     "description": "Force remove favorite node. Creates the node if missing."
-    }
-   ]
-  },
-  {
-   "name": "FIGNORE",
-   "aliases": [
-    "FUNIGNORE"
-   ],
-   "category": "3 Firewall & Filtering",
-   "summary": "Force ignore node ID",
-   "usage": [
-    {
-     "syntax": "FIGNORE <!id|name>",
-     "description": "Force ignore node ID."
-    },
-    {
-     "syntax": "FUNIGNORE <!id|name>",
-     "description": "Force unignore node ID."
-    }
-   ]
-  },
-  {
-   "name": "FIREWALL",
-   "aliases": [
-    "FW"
-   ],
-   "category": "3 Firewall & Filtering",
-   "summary": "Aggregated firewall status report",
-   "usage": [
-    {
-     "syntax": "FIREWALL",
-     "description": "Paged aggregated status of inbound drops, outbound drops, hex masks, invalid filters, and PR lists."
-    },
-    {
-     "syntax": "FW <sec>",
-     "description": "Query a single firewall section (`DROPS`, `OUTDROPS`, `INVALIDS` - all five delegate to the section handler)."
-    }
-   ]
-  },
-  {
-   "name": "FSIG",
-   "aliases": [],
-   "category": "3 Firewall & Filtering",
-   "summary": "8-slot payload signature firewall",
-   "usage": [
-    {
-     "syntax": "FSIG",
-     "description": "Pages all 8 signature slots showing active patterns, encoding format (hex, b64, text), and length in bytes."
-    }
-   ]
-  },
-  {
-   "name": "HEX",
-   "aliases": [],
-   "category": "3 Firewall & Filtering",
-   "summary": "Set inbound drops from 64-bit hex",
-   "usage": [
-    {
-     "syntax": "HEX <hex>",
-     "description": "Set all inbound drop rules directly from a 64-bit hex mask. Example: `HEX 0x0000000000000001`."
-    },
-    {
-     "syntax": "ZH SHORT",
-     "description": "Compact listing of the selected list's relay IDs as space-separated hex bytes (no names); same target words as `LIST`. Practical limit ≈83 entries (250-byte buffer; reply truncates at 200 chars)."
-    }
-   ]
-  },
-  {
-   "name": "HEXDROPS",
-   "aliases": [],
-   "category": "3 Firewall & Filtering",
-   "summary": "Inbound drop rules as 64-bit hex",
-   "usage": [
-    {
-     "syntax": "HEXDROPS",
-     "description": "Displays active inbound drops as a 64-bit hexadecimal bitmask."
-    }
-   ]
-  },
-  {
-   "name": "HEXOUT",
-   "aliases": [],
-   "category": "3 Firewall & Filtering",
-   "summary": "Set outbound drops from 64-bit hex",
-   "usage": [
-    {
-     "syntax": "HEXOUT <hex>",
-     "description": "Set all outbound drop rules directly from a 64-bit hex mask."
-    }
-   ]
-  },
-  {
-   "name": "HEXOUTDROPS",
-   "aliases": [],
-   "category": "3 Firewall & Filtering",
-   "summary": "Outbound drop rules as 64-bit hex",
-   "usage": [
-    {
-     "syntax": "HEXOUTDROPS",
-     "description": "Displays active outbound drops as a 64-bit hexadecimal bitmask."
-    }
-   ]
-  },
-  {
-   "name": "IDR",
-   "aliases": [
-    "UNIDR",
-    "IGNORE-DUPE-RELAY"
-   ],
-   "category": "3 Firewall & Filtering",
-   "summary": "Per-relay duplicate suppression mask",
-   "usage": [
-    {
-     "syntax": "IDR",
-     "description": "Displays the per-relay duplicate-suppression mask (list of relay IDs)."
-    },
-    {
-     "syntax": "IDR <hex>",
-     "description": "Add relay ID to the ignore-dupe mask."
-    },
-    {
-     "syntax": "IDR CLEAR",
-     "description": "Clear the whole IDR mask."
-    },
-    {
-     "syntax": "UNIDR <hex>",
-     "description": "Remove one relay ID from the IDR mask (takes a hex argument)."
-    }
-   ]
-  },
-  {
-   "name": "IGNORE",
-   "aliases": [
-    "UNIGNORE"
-   ],
-   "category": "3 Firewall & Filtering",
-   "summary": "NodeDB ignore list management",
-   "usage": [
-    {
-     "syntax": "IGNORE <!id|name>",
-     "description": "Add node to NodeDB ignore list."
-    },
-    {
-     "syntax": "UNIGNORE <!id|name>",
-     "description": "Remove node from NodeDB ignore list."
-    }
-   ]
-  },
-  {
-   "name": "IGNORED",
-   "aliases": [],
-   "category": "3 Firewall & Filtering",
-   "summary": "List ignored nodes",
-   "usage": [
-    {
-     "syntax": "IGNORED",
-     "description": "Lists all currently ignored nodes (paged)."
-    }
-   ]
-  },
-  {
-   "name": "INVALIDS",
-   "aliases": [
-    "INV"
-   ],
-   "category": "3 Firewall & Filtering",
-   "summary": "Packet sanity validation drop rules",
-   "usage": [
-    {
-     "syntax": "bare",
-     "description": "Display the five packet validation rules: ON/OFF state plus each rule's drop counter (in parentheses)."
-    }
-   ]
-  },
-  {
-   "name": "MCGAP",
-   "aliases": [],
-   "category": "3 Firewall & Filtering",
-   "summary": "MeshCore: one advert per key per time window",
-   "usage": [
-    {
-     "syntax": "MCGAP [<minutes>]",
-     "description": "MeshCore firewall: keep one ADVERT per key per window (0 = off, 0-255). Without a value it shows the current one. Saved with `SAVE`."
-    }
-   ]
-  },
-  {
-   "name": "MCRATE",
-   "aliases": [],
-   "category": "3 Firewall & Filtering",
-   "summary": "MeshCore: frames a minute from one neighbouring repeater",
-   "usage": [
-    {
-     "syntax": "MCRATE [<frames>]",
-     "description": "MeshCore firewall: at most this many frames a minute from one neighbouring repeater, named by the last 2- or 3-byte hop of the path (0 = off, 0-255). Saved with `SAVE`."
-    }
-   ]
-  },
-  {
-   "name": "NIGN",
-   "aliases": [],
-   "category": "3 Firewall & Filtering",
-   "summary": "Nexus memory-resident ignore table",
-   "usage": [
-    {
-     "syntax": "NIGN",
-     "description": "Shows Nexus Ignore list (Extra Ignore List in addition to the upstream NodeDB one) - paged."
-    },
-    {
-     "syntax": "NIGN ADD <!id>",
-     "description": "Add node ID to Nexus Ignore table."
-    },
-    {
-     "syntax": "NIGN REM <!id>",
-     "description": "Remove node ID from Nexus Ignore table (the subcommand is `REM`, **not** `DEL`; there is no `CLEAR`)."
-    }
-   ]
-  },
-  {
-   "name": "OUTDROP",
-   "aliases": [
-    "UNOUTDROP"
-   ],
-   "category": "3 Firewall & Filtering",
-   "summary": "Outbound (TX) drop rule toggles",
-   "usage": [
-    {
-     "syntax": "OUTDROP <TAG>",
-     "description": "Enable outbound (TX) dropping for `<TAG>` (`NI`, `PO`, `TL`, `TR`, `AD`, `RO`). Example: `OUTDROP PO`."
-    },
-    {
-     "syntax": "UNOUTDROP <TAG>",
-     "description": "Disable outbound dropping for `<TAG>`. Example: `UNOUTDROP PO`."
-    }
-   ]
-  },
-  {
-   "name": "OUTDROPS",
-   "aliases": [],
-   "category": "3 Firewall & Filtering",
-   "summary": "List active outbound drop rules",
-   "usage": [
-    {
-     "syntax": "OUTDROPS",
-     "description": "Lists all currently active outbound drop tags."
-    }
-   ]
-  },
-  {
-   "name": "PRBLACKLIST",
-   "aliases": [
-    "PRBLOCK"
-   ],
-   "category": "3 Firewall & Filtering",
-   "summary": "Blacklist blocked private channel hashes",
-   "usage": [
-    {
-     "syntax": "PRBLACKLIST ADD <ch_hash>",
-     "description": "Block private channels matching hash. Example: `PRBLOCK ADD 0xC3`."
-    },
-    {
-     "syntax": "PRBLACKLIST REM <ch_hash>",
-     "description": "Remove channel from blacklist."
-    },
-    {
-     "syntax": "PRBLACKLIST LIST",
-     "description": "List all active blacklisted channel hashes."
-    }
-   ]
-  },
-  {
-   "name": "PRWHITELIST",
-   "aliases": [
-    "PRALLOW"
-   ],
-   "category": "3 Firewall & Filtering",
-   "summary": "Whitelist allowed private channel hashes",
-   "usage": [
-    {
-     "syntax": "PRWHITELIST ADD <ch_hash>",
-     "description": "Allow only private channels matching hash (channels 8+)."
-    },
-    {
-     "syntax": "PRWHITELIST REM <ch_hash>",
-     "description": "Remove channel from whitelist."
-    },
-    {
-     "syntax": "PRWHITELIST LIST",
-     "description": "List all active whitelisted channel hashes."
-    }
-   ]
-  },
-  {
-   "name": "RDROP",
-   "aliases": [
-    "RUNDROP"
-   ],
-   "category": "3 Firewall & Filtering",
-   "summary": "Relay ID byte drop mask filter",
-   "usage": [
-    {
-     "syntax": "RDROP",
-     "description": "Displays list of dropped relay node IDs (last byte mask)."
-    },
-    {
-     "syntax": "RDROP <hex>",
-     "description": "Add relay ID (byte) to drop mask. Accepts `*`-prefixed or bare hex (`RDROP A4`, `RDROP *A4`)."
-    },
-    {
-     "syntax": "RUNDROP <hex>",
-     "description": "Remove relay ID from drop mask."
-    },
-    {
-     "syntax": "RDROP CLEAR",
-     "description": "Clear all dropped relay node IDs."
-    }
-   ]
-  },
-  {
-   "name": "ZH",
-   "aliases": [],
-   "category": "4 Zero-Hop Routing (ZH)",
-   "summary": "Zero-Hop relay mask & routing state",
-   "usage": [
-    {
-     "syntax": "ZH",
-     "description": "Show current global state: Zero-Hop enabled, Position preserved, Telemetry preserved. Used as default reply when no subcommand matches."
-    },
-    {
-     "syntax": "ZH [ADD <id>|DEL <id>|SYNC|LIST|...]",
-     "description": "Zero-Hop routing group management - full subcommand table in [§4](#4-zero-hop-routing-zh). Note: removal is `DEL`, not `REM`."
-    }
-   ]
-  },
-  {
-   "name": "FEATURES",
-   "aliases": [],
-   "category": "5 Security & Features",
-   "summary": "64-bit runtime feature bitmask toggles",
-   "usage": [
-    {
-     "syntax": "FEATURES",
-     "description": "Show the 64-bit feature mask plus each named bit `ON`/`off`. Unset bits print lowercase `off`."
-    }
-   ]
-  },
-  {
-   "name": "SECURITY",
-   "aliases": [],
-   "category": "5 Security & Features",
-   "summary": "Signature auth, DM gate, replay protection",
-   "usage": [
-    {
-     "syntax": "SECURITY",
-     "description": "Displays security overview: signature requirement, DM allowance, silent logging, auto-fav bits (incl. extra-channel), replay-ring fill."
-    }
-   ]
-  },
-  {
-   "name": "CH-HOPMASK",
-   "aliases": [
-    "CHM"
-   ],
-   "category": "6 Hop-Aware Routing",
-   "summary": "Channel-specific hop masking",
-   "usage": [
-    {
-     "syntax": "CH-HOPMASK <ch> <s > <l>",
-     "description": "Apply hop masking exclusively to channel `<ch>`. Example: `CH-HOPMASK 0 2 2`."
-    },
-    {
-     "syntax": "CH-HOPMASK <ch> OFF",
-     "description": "Disable hop masking for channel `<ch>`."
-    },
-    {
-     "syntax": "CH-HOPMASK",
-     "description": "Lists hop masks configured for all channels."
-    }
-   ]
-  },
-  {
-   "name": "HOPMASK",
-   "aliases": [],
-   "category": "6 Hop-Aware Routing",
-   "summary": "Global hop_start / hop_limit override",
-   "usage": [
-    {
-     "syntax": "HOPMASK",
-     "description": "Shows global hop mask status."
-    },
-    {
-     "syntax": "HOPMASK <start> <limit>",
-     "description": "Enforce fixed `hop_start` and `hop_limit` on all rebroadcast packets (0-7). Example: `HOPMASK 3 3`."
-    },
-    {
-     "syntax": "HOPMASK OFF",
-     "description": "Disable global hop masking."
-    }
-   ]
-  },
-  {
-   "name": "HOPMATRIX",
-   "aliases": [
-    "HM"
-   ],
-   "category": "6 Hop-Aware Routing",
-   "summary": "2D Hop Start vs Hop Limit matrix",
-   "usage": [
-    {
-     "syntax": "HOPMATRIX",
-     "description": "2D matrix comparing hop_start vs hops_used for network density analysis."
-    }
-   ]
-  },
-  {
-   "name": "HOPSCALE",
-   "aliases": [
-    "HSC"
-   ],
-   "category": "6 Hop-Aware Routing",
-   "summary": "Dynamic hop scaling status (read-only)",
-   "usage": [
-    {
-     "syntax": "HOPSCALE",
-     "description": "Paged dynamic hop-scaling status (read-only - there is **no** setter)."
-    },
-    {
-     "syntax": "HOPSCALE WANTS",
-     "description": "Show user-configured hop wants vs caps per port."
-    }
-   ]
-  },
-  {
-   "name": "HOPSTATS",
-   "aliases": [
-    "HS"
-   ],
-   "category": "6 Hop-Aware Routing",
-   "summary": "Hop count distribution histogram",
-   "usage": [
-    {
-     "syntax": "HOPSTATS",
-     "description": "Displays distribution histogram of hops used across received packets (zero buckets above h3 are omitted)."
-    }
-   ]
-  },
-  {
-   "name": "PORT-HOPMASK",
-   "aliases": [
-    "PHM"
-   ],
-   "category": "6 Hop-Aware Routing",
-   "summary": "Port-specific hop limit override",
-   "usage": [
-    {
-     "syntax": "PORT-HOPMASK <port> <s> <l>",
-     "description": "Apply hop masking to specific port (`NODEINFO`, `TELEMETRY`, `POSITION`, `TRACEROUTE`, `TEXT`)."
-    },
-    {
-     "syntax": "PORT-HOPMASK <port> OFF",
-     "description": "Disable hop masking for `<port>`."
-    },
-    {
-     "syntax": "PORT-HOPMASK",
-     "description": "Lists all port-specific hop masks."
-    }
-   ]
-  },
-  {
-   "name": "BASETEXTS",
-   "aliases": [],
-   "category": "7 Radio & RF Control",
-   "summary": "Client-base text-only rebroadcast toggle",
-   "usage": [
-    {
-     "syntax": "BASETEXTS [ON|OFF]",
-     "description": "Useful for roof top base nodes, does the same thing a Client Always but only with text messages, if CA is on it changes nothing. (No `BT` alias.) Bare form queries."
-    }
-   ]
-  },
-  {
-   "name": "CLIENTALWAYS",
-   "aliases": [],
-   "category": "7 Radio & RF Control",
-   "summary": "Enforce client-timing priority",
-   "usage": [
-    {
-     "syntax": "CLIENTALWAYS [ON|OFF]",
-     "description": "Disables relay cancelation. Works both on CLIENTs and CLIENT_BASEs **USE ONLY WHEN A NODE MUST REPEAT LIKE A ROUTER BUT CANNOT BE A ROUTER.** (No `CA` alias.) Bare form queries."
-    }
-   ]
-  },
-  {
-   "name": "FLRC",
-   "aliases": [],
-   "category": "7 Radio & RF Control",
-   "summary": "Switch modem to FLRC (SX128x/LR2021 only)",
-   "usage": [
-    {
-     "syntax": "FLRC <br_kbps> <cr> [bt] [preamble_bits]",
-     "description": "Switch the radio to **FLRC** modulation - SX128x (2.4 GHz) and LR2021 (X1, sub-GHz & 2.4G) only; `cr` is required. Params & theory: see **FSK/FLRC reference** below. Example: `FLRC 650 3`."
-    }
-   ]
-  },
-  {
-   "name": "FSK",
-   "aliases": [],
-   "category": "7 Radio & RF Control",
-   "summary": "Switch modem to FSK/GFSK modulation",
-   "usage": [
-    {
-     "syntax": "FSK <br_kbps> [freqDev_kHz] [rxBw_kHz] [preamble_bits]",
-     "description": "Switch the radio from LoRa to **FSK/GFSK** modulation (whole fleet: SX126x, LR11x0, SX128x, LR2021 - not SX127x/RF95). Params & theory: see **FSK/FLRC reference** below. RAM-only; deferred apply like `LORA`. Example: `FSK 50 25 117.3 16`."
-    }
-   ]
-  },
-  {
-   "name": "G3",
-   "aliases": [
-    "FRONTEND"
-   ],
-   "category": "7 Radio & RF Control",
-   "summary": "Station G3 PA / LNA frontend control",
-   "usage": [
-    {
-     "syntax": "G3 [STATUS]",
-     "description": "Station G3 PA / LNA RF front-end control status (compiled only on `STATION_G3` builds)."
-    },
-    {
-     "syntax": "G3 LNA <ON|OFF|BYPASS>",
-     "description": "Set G3 frontend LNA state (RAM-only until SAVE)."
-    },
-    {
-     "syntax": "G3 PA <ON|OFF>",
-     "description": "Set G3 frontend PA state (RAM-only until SAVE)."
-    },
-    {
-     "syntax": "G3 REINIT",
-     "description": "Re-probe both jumper pads and re-apply front-end state."
-    }
-   ]
-  },
-  {
-   "name": "GETTXPOWER",
-   "aliases": [],
-   "category": "7 Radio & RF Control",
-   "summary": "Read active transmit power",
-   "usage": [
-    {
-     "syntax": "GETTXPOWER",
-     "description": "Read active and chip TX power settings."
-    }
-   ]
-  },
-  {
-   "name": "LNA",
-   "aliases": [],
-   "category": "7 Radio & RF Control",
-   "summary": "Set LNA gain mode",
-   "usage": [
-    {
-     "syntax": "LNA",
-     "description": "Shows low-noise amplifier gain mode. (Heltec V4.3 specific)"
-    },
-    {
-     "syntax": "LNA <mode>",
-     "description": "Configure LNA gain settings."
-    }
-   ]
-  },
-  {
-   "name": "LORA",
-   "aliases": [],
-   "category": "7 Radio & RF Control",
-   "summary": "Reconfigure SF, BW, CR, Frequency",
-   "usage": [
-    {
-     "syntax": "LORA",
-     "description": "Modem summary: SF, BW, CR, preset number/state, frequency, power, MQTT-ignore and rebroadcast mode."
-    },
-    {
-     "syntax": "LORA <sf> <bw> <cr> <freq>",
-     "description": "Reconfigure modem parameters directly in RAM (applies after deferred timer). Example: `LORA 7 62 5 869.618`."
-    }
-   ]
-  },
-  {
-   "name": "LORA-STATUS",
-   "aliases": [
-    "LRS"
-   ],
-   "category": "7 Radio & RF Control",
-   "summary": "Real-time hardware radio status",
-   "usage": [
-    {
-     "syntax": "LORA-STATUS",
-     "description": "Real-time hardware status: frequency, bandwidth, SF, CR, preamble, slot/CW timing, syncword, chip power, air rate. **With `FSK`/`FLRC` active it reports the modulation actually on air instead**: a `Mode:` line plus BR/dev/RxBw (FSK) or CR/BT (FLRC), preamble in bits, speed = BR; SF/BW/CR/Slot/CW lines are omitted (they'd show the parked LoRa config)."
-    }
-   ]
-  },
-  {
-   "name": "LR2021_SF",
-   "aliases": [
-    "MULTISF",
-    "MSF"
-   ],
-   "category": "7 Radio & RF Control",
-   "summary": "LR2021 multi-SF concurrent channels",
-   "usage": [
-    {
-     "syntax": "LR2021_SF [SFs...]",
-     "description": "Configure LR2021 hardware multi-SF concurrent receiver channels (compiled only with `USE_LR2021` / `ARCH_PORTDUINO`). Example: `LR2021_SF 7 8 9`."
-    }
-   ]
-  },
-  {
-   "name": "PREAMBLE",
-   "aliases": [
-    "PRE"
-   ],
-   "category": "7 Radio & RF Control",
-   "summary": "Configure custom preamble length",
-   "usage": [
-    {
-     "syntax": "PREAMBLE <len>",
-     "description": "Set custom preamble length (6-1024 symbols). Example: `PREAMBLE 16`."
-    },
-    {
-     "syntax": "PREAMBLE",
-     "description": "Show active preamble override."
-    }
-   ]
-  },
-  {
-   "name": "PRESET",
-   "aliases": [
-    "PRESET"
-   ],
-   "category": "7 Radio & RF Control",
-   "summary": "Load standard or custom LoRa preset",
-   "usage": [
-    {
-     "syntax": "PRESET <preset>",
-     "description": "Load standard, tactical, narrow, lite, mini, or 2.4 GHz LoRa presets. Automatically sets the proper region (`EU_868`, `EU_N_868`, `EU_866`, or `LORA_24`) with bidirectional hardware band protection (single-band radios cannot jump between Sub-GHz and 2.4 GHz; dual-band **LR1121** and **LR2021** can freely switch). Example: `PRESET Madrid24` or `PRESET Mini-1`."
-    }
-   ]
-  },
-  {
-   "name": "REBROADCAST",
-   "aliases": [],
-   "category": "7 Radio & RF Control",
-   "summary": "Configure rebroadcast mode",
-   "usage": [
-    {
-     "syntax": "REBROADCAST <mode>",
-     "description": "Set rebroadcast mode: `ALL`, `ALL_SKIP`, `LOCAL_ONLY`/`LOCAL`, `KNOWN_ONLY`/`KNOWN`, `NONE`, `CORE`/`CORE_ONLY`, or digit 0-5. `REBROADCAST <mode>` is the same without SET; bare `REBROADCAST` queries."
-    }
-   ]
-  },
-  {
-   "name": "ROLE",
-   "aliases": [],
-   "category": "7 Radio & RF Control",
-   "summary": "Show active device role",
-   "usage": [
-    {
-     "syntax": "ROLE",
-     "description": "Query active device role."
-    },
-    {
-     "syntax": "ROLE <role>",
-     "description": "Change device role. Accepted: `CLIENT`, `SENS`/`SENSOR`, `RTR`/`ROUTER`, `RTR_CLIENT`, `BASE`/`CLIENT_BASE`, `MUTE`/`CLIENT_MUTE`, `HIDDEN`/`CLIENT_HIDDEN`, `LOST`/`LOST_AND_FOUND`, `TAK`, `TAK_TRACKER`, or digit 0-13. (`REPEATER`/`TRACKER` are **not** valid.)"
-    }
-   ]
-  },
-  {
-   "name": "SYNCWORD",
-   "aliases": [
-    "SW"
-   ],
-   "category": "7 Radio & RF Control",
-   "summary": "Set custom radio sync word",
-   "usage": [
-    {
-     "syntax": "SYNCWORD <hex|dec|RESET>",
-     "description": "Set custom radio sync word (0x00-0xFF; `DEFAULT`/`DEF` are aliases of `RESET`, default 0x2B). Bare form queries. Example: `SW 0x12`."
-    }
-   ]
-  },
-  {
-   "name": "TX",
-   "aliases": [],
-   "category": "7 Radio & RF Control",
-   "summary": "Transmitter RF emission toggle (`TX [ON|OFF]`)",
-   "usage": []
-  },
-  {
-   "name": "ACC",
-   "aliases": [],
-   "category": "8 Identity & NodeDB",
-   "summary": "Accelerometer motion sample (X/Y/Z g)",
-   "usage": [
-    {
-     "syntax": "ACC",
-     "description": "Displays the last **accelerometer** motion sample (X/Y/Z in g) - _not_ a crypto accelerator report."
-    }
-   ]
-  },
-  {
-   "name": "ADMINS",
-   "aliases": [],
-   "category": "8 Identity & NodeDB",
-   "summary": "List authorized admin public keys",
-   "usage": [
-    {
-     "syntax": "ADMINS",
-     "description": "Lists admin-flagged nodes (paged)."
-    }
-   ]
-  },
-  {
-   "name": "DBINFO",
-   "aliases": [],
-   "category": "8 Identity & NodeDB",
-   "summary": "NodeDB memory and cache health",
-   "usage": [
-    {
-     "syntax": "DBINFO",
-     "description": "NodeDB health stats: capacity, online count, direct count, favorites."
-    }
-   ]
-  },
-  {
-   "name": "FIXMYINFO",
-   "aliases": [
-    "FMI"
-   ],
-   "category": "8 Identity & NodeDB",
-   "summary": "Repair own NodeDB entry fields in place",
-   "usage": [
-    {
-     "syntax": "FIXMYINFO",
-     "description": "Fixes the node's own NodeDB entry in place (long name, short name, HW, role) and saves to disk. Does **not** broadcast."
-    }
-   ]
-  },
-  {
-   "name": "FNODE",
-   "aliases": [],
-   "category": "8 Identity & NodeDB",
-   "summary": "Full per-node detail listing (search or !id)",
-   "usage": [
-    {
-     "syntax": "FNODE <search|!id>",
-     "description": "Full per-node detail listing (names, HW, SNR/hops, keys, etc., paged)."
-    }
-   ]
-  },
-  {
-   "name": "HW",
-   "aliases": [],
-   "category": "8 Identity & NodeDB",
-   "summary": "Hardware chip, CPU frequency, and MAC",
-   "usage": [
-    {
-     "syntax": "HW",
-     "description": "Reports board, MCU family and radio chip (with XTAL/TCXO clock type)."
-    }
-   ]
-  },
-  {
-   "name": "NAME",
-   "aliases": [],
-   "category": "8 Identity & NodeDB",
-   "summary": "Change device Long Name",
-   "usage": [
-    {
-     "syntax": "NAME <long_name>",
-     "description": "Change device Long Name (DM/Targeted only). Assigns a **new node number** as a side effect."
-    }
-   ]
-  },
-  {
-   "name": "NEIGHBORS",
-   "aliases": [
-    "DIRECT"
-   ],
-   "category": "8 Identity & NodeDB",
-   "summary": "List 0-hop direct neighbors",
-   "usage": [
-    {
-     "syntax": "NEIGHBORS",
-     "description": "Lists nodes heard directly (0 hops away) with SNR (paged)."
-    }
-   ]
-  },
-  {
-   "name": "NODEDB",
-   "aliases": [
-    "DB"
-   ],
-   "category": "8 Identity & NodeDB",
-   "summary": "Query node entry details from DB",
-   "usage": [
-    {
-     "syntax": "NODEDB <!id|short>",
-     "description": "Look up comprehensive record for node from database (user, hardware, SNR, last seen)."
-    }
-   ]
-  },
-  {
-   "name": "NODES",
-   "aliases": [],
-   "category": "8 Identity & NodeDB",
-   "summary": "Total and active node counts",
-   "usage": [
-    {
-     "syntax": "NODES [search]",
-     "description": "Paged full NodeDB listing (optional search filter)."
-    }
-   ]
-  },
-  {
-   "name": "NODES28",
-   "aliases": [
-    "N28"
-   ],
-   "category": "8 Identity & NodeDB",
-   "summary": "List nodes running v2.8+ protocols",
-   "usage": [
-    {
-     "syntax": "NODES28",
-     "description": "Lists nodes running Meshtastic v2.8+ structural / signed protocols (P = structural 2.8, V = XEdDSA-signed)."
-    }
-   ]
-  },
-  {
-   "name": "OWNER",
-   "aliases": [],
-   "category": "8 Identity & NodeDB",
-   "summary": "Set Long Name and Short Name",
-   "usage": [
-    {
-     "syntax": "OWNER <short> <long>",
-     "description": "Change Short Name and Long Name simultaneously (**short first**, max 4 chars; rest is the long name). Example: `OWNER BASE BaseStation`. Also assigns a new node number."
-    }
-   ]
-  },
-  {
-   "name": "PHONE",
-   "aliases": [],
-   "category": "8 Identity & NodeDB",
-   "summary": "Local phone connection status",
-   "usage": [
-    {
-     "syntax": "PHONE",
-     "description": "Displays local Bluetooth / Serial / WiFi phone connection status and pairing PIN."
-    }
-   ]
-  },
-  {
-   "name": "POS",
-   "aliases": [],
-   "category": "8 Identity & NodeDB",
-   "summary": "Live GPS coordinates, altitude, PDOP",
-   "usage": [
-    {
-     "syntax": "POS",
-     "description": "Displays current position fix: source type, coordinates, altitude, GPS model/fix state, satellites, and precision (PDOP)."
-    }
-   ]
-  },
-  {
-   "name": "TRUSTED",
-   "aliases": [],
-   "category": "8 Identity & NodeDB",
-   "summary": "Named trusted-channel slots (2)",
-   "usage": [
-    {
-     "syntax": "TRUSTED [0|1] [name|OFF]",
-     "description": "Manage the 2 named trusted-channel slots. Bare lists both; `<slot> <name>` sets a trusted channel name (15 chars); `<slot> OFF` disables."
-    }
-   ]
-  },
-  {
-   "name": "CHANNELSTATS",
-   "aliases": [
-    "CHS"
-   ],
-   "category": "9 Observation & SIGINT",
-   "summary": "Traffic volume breakdown per channel",
-   "usage": [
-    {
-     "syntax": "CHANNELSTATS [top-N]",
-     "description": "Sorted channel usage breakdown across all 256 channel indexes seen (paged, with channel names). Optional top-N."
-    }
-   ]
-  },
-  {
-   "name": "CLIENTSCAN",
-   "aliases": [],
-   "category": "9 Observation & SIGINT",
-   "summary": "Survey repeating clients via test-packet echoes",
-   "usage": [
-    {
-     "syntax": "CLIENTSCAN [time]",
-     "description": "Identifies active repeating client devices. It uses the command confirmation as a test packet, and reports all the repeats it hears of that packet. Optionally you can specify the amount of time in seconds (1-600, default 100) you want it to wait for repeats."
-    }
-   ]
-  },
-  {
-   "name": "CLRSTATS",
-   "aliases": [
-    "CS"
-   ],
-   "category": "9 Observation & SIGINT",
-   "summary": "Clear volatile runtime statistics",
-   "usage": [
-    {
-     "syntax": "CLRSTATS",
-     "description": "Resets all volatile runtime diagnostic and packet statistics counters."
-    }
-   ]
-  },
-  {
-   "name": "CRSTATS",
-   "aliases": [
-    "CRS"
-   ],
-   "category": "9 Observation & SIGINT",
-   "summary": "Coding Rate distribution stats",
-   "usage": [
-    {
-     "syntax": "CRSTATS",
-     "description": "Coding Rate distribution stats across received packets (display-domain CR 5-8, each with direct/relay/total)."
-    }
-   ]
-  },
-  {
-   "name": "FIREWALLSTATS",
-   "aliases": [
-    "FWS"
-   ],
-   "category": "9 Observation & SIGINT",
-   "summary": "Packet drop counters and stats",
-   "usage": [
-    {
-     "syntax": "FIREWALLSTATS",
-     "description": "Comprehensive counter report for all drop rules, favorite bypasses, and rate limits (paged)."
-    }
-   ]
-  },
-  {
-   "name": "FREQSCAN",
-   "aliases": [],
-   "category": "9 Observation & SIGINT",
-   "summary": "Spectrum slice peak RSSI sweep",
-   "usage": [
-    {
-     "syntax": "FREQSCAN <freq_MHz> <bw_kHz>",
-     "description": "Same as NOISE but on a specific frequency: hops there with TX disabled, measures, returns. Freq range 100-2500 MHz; BW must be 31, 62, 125, 250 or 500 kHz. Example: `FREQSCAN 868.0 250`."
-    }
-   ]
-  },
-  {
-   "name": "LCS",
-   "aliases": [
-    "LORACHIPSTATS"
-   ],
-   "category": "9 Observation & SIGINT",
-   "summary": "LoRa chip state time percentages",
-   "usage": [
-    {
-     "syntax": "LCS [RESET]",
-     "description": "Percentage-of-time breakdown of LoRa chip states (TX/RX/STBY/FS/SLP/BUSY/ERR/UNK), sampled at 1 Hz since boot (RAM-only; `LCS RESET` zeroes, `CLRSTATS` clears too) - one state per line, with the raw sample count in parentheses. Family coverage: SX126x/SX1280 = busy pin + GetStatus mode; RF95 = REG_OP_MODE; LR11x0/LR20x0 = busy pin + software RX view (chip mode not datasheet-confirmed there)."
-    }
-   ]
-  },
-  {
-   "name": "MQTTSTATS",
-   "aliases": [
-    "MQS"
-   ],
-   "category": "9 Observation & SIGINT",
-   "summary": "MQTT uplink and downlink metrics",
-   "usage": [
-    {
-     "syntax": "MQTTSTATS",
-     "description": "Classifies received packets by ok-to-MQTT bit / via-MQTT flag. _Not_ gateway Rx/Tx counters."
-    }
-   ]
-  },
-  {
-   "name": "NETSCAN",
-   "aliases": [],
-   "category": "9 Observation & SIGINT",
-   "summary": "60-second neighborhood scan",
-   "usage": [
-    {
-     "syntax": "NETSCAN",
-     "description": "Performs 60-second background passive mapping of surrounding mesh transmitters. It does it by sending a zero-hop traceroute and then listening for any and all packets heard in the mesh, including unrelated ones."
-    }
-   ]
-  },
-  {
-   "name": "NOISE",
-   "aliases": [],
-   "category": "9 Observation & SIGINT",
-   "summary": "Immediate RF noise floor measurement",
-   "usage": [
-    {
-     "syntax": "NOISE",
-     "description": "Starts a high-resolution RF noise floor measurement (async: ack first, report follows)."
-    }
-   ]
-  },
-  {
-   "name": "PACKETSTATS",
-   "aliases": [
-    "PS"
-   ],
-   "category": "9 Observation & SIGINT",
-   "summary": "Packet counts categorized by PortNum",
-   "usage": [
-    {
-     "syntax": "PACKETSTATS [top-N]",
-     "description": "Sorted **PortNum application** traffic entries by packet volume (paged; includes subtype breakdowns). Optional top-N."
-    }
-   ]
-  },
-  {
-   "name": "RELAYS",
-   "aliases": [
-    "RY"
-   ],
-   "category": "9 Observation & SIGINT",
-   "summary": "All active relay IDs with D/R/T counts",
-   "usage": [
-    {
-     "syntax": "RELAYS [top-N | <hex>]",
-     "description": "Complete sorted list of active relays by packet count (optional top-N or single relay `<hex>`)."
-    }
-   ]
-  },
-  {
-   "name": "RSSI",
-   "aliases": [
-    "RS"
-   ],
-   "category": "9 Observation & SIGINT",
-   "summary": "Last received packet RF metrics",
-   "usage": [
-    {
-     "syntax": "RSSI",
-     "description": "Reports signal metrics (RSSI, SNR, Frequency Error, Coding Rate) plus hops/relay and OM/MQTT/UDP/PKI flags of last received packet."
-    }
-   ]
-  },
-  {
-   "name": "RSSILOG",
-   "aliases": [
-    "PL"
-   ],
-   "category": "9 Observation & SIGINT",
-   "summary": "32-entry packet history ring buffer (shows last 5)",
-   "usage": [
-    {
-     "syntax": "RSSILOG [n]",
-     "description": "Displays recent received packets from a **32-entry** circular ring buffer (default: last 5, max 32)."
-    }
-   ]
-  },
-  {
-   "name": "RSSITEL",
-   "aliases": [
-    "RT"
-   ],
-   "category": "9 Observation & SIGINT",
-   "summary": "Compact RF & telemetry packet report",
-   "usage": [
-    {
-     "syntax": "ZH ROUTER ON",
-     "description": "Consult the auto-router mask (ROUTER / ROUTER_LATE roles, RAM-only, auto-populated from directly-heard zero-hop packets via a single NodeDB lookup) after a manual-mask miss (sets/clears `zero_hop_config & 0x08`)."
-    },
-    {
-     "syntax": "ZH CLEAR ROUTER",
-     "description": "Wipe the auto-router mask."
-    },
-    {
-     "syntax": "RSSITEL",
-     "description": "Ultra-compact RF and telemetry report of last received packet (Hops/Relay, RSSI/SNR/FE, ChUtil/AirTime, Batt %/V, live Power/Env sensors, CPU temp, uptime days)."
-    }
-   ]
-  },
-  {
-   "name": "SEARCHKEY",
-   "aliases": [],
-   "category": "9 Observation & SIGINT",
-   "summary": "Find node by exact 32-byte public key",
-   "usage": [
-    {
-     "syntax": "SEARCHKEY <b64_pubkey>",
-     "description": "Search NodeDB for the node with this **exact 32-byte** public key (prefix search is not supported)."
-    }
-   ]
-  },
-  {
-   "name": "SEARCHRELAY",
-   "aliases": [
-    "SRELAY"
-   ],
-   "category": "9 Observation & SIGINT",
-   "summary": "Find nodes matching relay byte ID",
-   "usage": [
-    {
-     "syntax": "SEARCHRELAY <hex|0xhex|dec>",
-     "description": "Find nodes in database that match a given 8-bit relay ID byte. Example: `SEARCHRELAY *A4`."
-    }
-   ]
-  },
-  {
-   "name": "SENDSTATUS",
-   "aliases": [],
-   "category": "9 Observation & SIGINT",
-   "summary": "Send freeform text as a Node Status message",
-   "usage": [
-    {
-     "syntax": "SENDSTATUS <text>",
-     "description": "Send freeform text (max 79 chars) as a Node Status message (`NODE_STATUS_APP`) on Ch 0."
-    }
-   ]
-  },
-  {
-   "name": "SHORTRSSI",
-   "aliases": [
-    "SR"
-   ],
-   "category": "9 Observation & SIGINT",
-   "summary": "Minimal 2-line packet RF report",
-   "usage": [
-    {
-     "syntax": "SHORTRSSI",
-     "description": "Minimal 2-line RF signal report of last received packet (Hops/Relay, RSSI/SNR/FE)."
-    }
-   ]
-  },
-  {
-   "name": "SIGSTATS",
-   "aliases": [
-    "SS"
-   ],
-   "category": "9 Observation & SIGINT",
-   "summary": "Packet privacy classification & noise floor",
-   "usage": [
-    {
-     "syntax": "SIGSTATS",
-     "description": "Packet privacy classification (wire total, private-encrypted, known-decrypted) plus noise floor. _Not_ signature verification stats - see `VERIFYSTATS`."
-    }
-   ]
-  },
-  {
-   "name": "STATUSPS",
-   "aliases": [],
-   "category": "9 Observation & SIGINT",
-   "summary": "Send packet-volume summary as Node Status",
-   "usage": [
-    {
-     "syntax": "STATUSPS [N]",
-     "description": "Build a top-N per-PortNum packet-volume summary (default 5) and send it as a Node Status message."
-    }
-   ]
-  },
-  {
-   "name": "TRACE",
-   "aliases": [
-    "TR"
-   ],
-   "category": "9 Observation & SIGINT",
-   "summary": "Trace route to destination node",
-   "usage": [
-    {
-     "syntax": "TRACE <!id|short>",
-     "description": "Run a real traceroute to the target node (async result)."
-    }
-   ]
-  },
-  {
-   "name": "TRANSSTATS",
-   "aliases": [
-    "TS"
-   ],
-   "category": "9 Observation & SIGINT",
-   "summary": "Transport interface packet distribution",
-   "usage": [
-    {
-     "syntax": "TRANSSTATS",
-     "description": "Transport-interface packet distribution (INTL, LORA, ALT1-3, MQTT, UDP, API) - _not_ airtime/duty-cycle (paged)."
-    }
-   ]
-  },
-  {
-   "name": "VERIFYSTATS",
-   "aliases": [
-    "VS"
-   ],
-   "category": "9 Observation & SIGINT",
-   "summary": "XEdDSA signature verification stats",
-   "usage": [
-    {
-     "syntax": "VERIFYSTATS",
-     "description": "XEdDSA signature verification breakdown (NoSig / invalid / OK buckets with packets, bytes, percent)."
-    }
-   ]
-  },
-  {
-   "name": "USERPREFS_MESHCORE_FLOOD_MAX",
-   "aliases": [],
-   "category": "`/mc FLOODMAX <any> <unscoped> <advert>`",
-   "summary": "integer 1..64",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_MESHCORE_FLOOD_MAX_ADVERT",
-   "aliases": [],
-   "category": "`/mc FLOODMAX <any> <unscoped> <advert>`",
-   "summary": "integer 1..64",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_MESHCORE_FLOOD_MAX_UNSCOPED",
-   "aliases": [],
-   "category": "`/mc FLOODMAX <any> <unscoped> <advert>`",
-   "summary": "integer 1..64",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_MESHCORE_PATH_HASH_SIZE",
-   "aliases": [],
-   "category": "`/mc PATHSIZE <1-3>`",
-   "summary": "integer 1..3",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_PPING_MC_HEADER_MODE",
-   "aliases": [],
-   "category": "`/mc PPING HEADER`",
-   "summary": "one of 0, 1, 2",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_PPING_ALLOW_DM",
-   "aliases": [],
-   "category": "`/mt PPING ALLOWDM`",
-   "summary": "bool",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_PPING_CHANNELS",
-   "aliases": [],
-   "category": "`/mt PPING CHAN`",
-   "summary": "bitmask (8 bits, dec): 0=Canal 0, 1=Canal 1, 2=Canal 2, 3=Canal 3, 4=Canal 4, 5=Canal 5, 6=Canal 6, 7=Canal 7",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_PPING_TRIGGER",
-   "aliases": [],
-   "category": "`/mt PPING CMD`",
-   "summary": "text, max 15",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_PPING_IGNORE_DIRECT",
-   "aliases": [],
-   "category": "`/mt PPING DIRECT IGNORE`",
-   "summary": "bool",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_PPING_EMOJI_MODE",
-   "aliases": [],
-   "category": "`/mt PPING EMOJI`",
-   "summary": "one of 0, 1, 2",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_PPING_FLAGS",
-   "aliases": [],
-   "category": "`/mt PPING FLAGS`",
-   "summary": "bool",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_PPING_FREQERR",
-   "aliases": [],
-   "category": "`/mt PPING FREQERR`",
-   "summary": "bool",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_PPING_HEADER",
-   "aliases": [],
-   "category": "`/mt PPING HEADER <texto>`",
-   "summary": "text, max 63",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_PPING_MT_HEADER_MODE",
-   "aliases": [],
-   "category": "`/mt PPING HEADER`",
-   "summary": "one of 0, 1, 2",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_PPING_IGNORE_REMOTE",
-   "aliases": [],
-   "category": "`/mt PPING IGNORE REMOTE`",
-   "summary": "bool",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_PPING_ENABLED",
-   "aliases": [],
-   "category": "`/mt PPING ON`",
-   "summary": "bool",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_PPING_RSSI",
-   "aliases": [],
-   "category": "`/mt PPING RSSI`",
-   "summary": "bool",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_PPING_SNR",
-   "aliases": [],
-   "category": "`/mt PPING SNR`",
-   "summary": "bool",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_BROADCAST_DELAY_MAX_S",
-   "aliases": [],
-   "category": "`/mtc BD SET`",
-   "summary": "integer 1..300",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_DROP_MASK",
-   "aliases": [],
-   "category": "`/mtc DROP <TAG>`",
-   "summary": "bitmask (64 bits, hex): 0=NODEINFO, 1=POSITION, 2=TELEMETRY, 3=NEIGHBOR, 4=TRACEROUTE, 5=TRACEROUTE_REMOTE, 6=TRACEROUTE_LOCAL, 7=PRIVATE, 8=HOP6, 9=HOP7, 10=REQ_NODEINFO, 11=REQ_TELEMETRY, 12=REQ_POSITION, 13=ACKS, 14=PKI, 15=PKI_REMOTE, 16=PKI_LOCAL, 17=FAV_BYPASS, 18=PREHOP, 19=STORE_FORWARD, 20=ADMIN, 21=TEXT, 22=KEYVER, 23=ALERT, 24=WAYPOINT, 25=TRACEROUTE_DIRECT, 26=TRACEROUTE_DIRECT_REMOTE, 27=TRACEROUTE_DIRECT_LOCAL, 28=SKIP_SKIP_HANDLE, 29=RL_TEXT, 30=RL_TRACE, 31=RL_OTHER, 32=TELE_DEVICE, 33=TELE_POWER, 34=TELE_ENV, 35=TELE_OTHER, 36=NO_MQTT, 37=POS_MANUAL, 38=POS_GPS, 39=POS_OTHER, 42=RL_NODEINFO, 43=RL_POSITION, 44=RL_TELEMETRY, 45=RL_PRIVATE, 46=BR_NODEINFO, 47=BR_TELEMETRY, 48=BR_POSITION",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_FEATURES_MASK",
-   "aliases": [],
-   "category": "`/mtc FEATURES <NAME> ON`",
-   "summary": "bitmask (64 bits, hex): 0=Reenviar cifrados al móvil, 1=Reenviar PKI ajeno al móvil, 2=Desactivar reset de AGC, 3=CLIENT_BASE con tiempos de ROUTER_LATE",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_INVALID_MASK",
-   "aliases": [],
-   "category": "`/mtc INVALID <TAG>`",
-   "summary": "bitmask (8 bits, hex): 0=NULL_ISLAND, 1=OUT_SPAIN, 2=OUT_GERMANY, 3=HW_UNSET, 4=ID_MISMATCH",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_OUT_DROP_MASK",
-   "aliases": [],
-   "category": "`/mtc OUTDROP <TAG>`",
-   "summary": "bitmask (8 bits, hex): 0=NODEINFO, 1=POSITION, 2=TELEMETRY, 3=TRACEROUTE, 4=ADMIN, 5=ROUTING",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_PREAMBLE",
-   "aliases": [],
-   "category": "`/mtc PRE <len>`",
-   "summary": "integer 6..65535",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_RL_NODEINFO_LIMIT",
-   "aliases": [],
-   "category": "`/mtc RL <TEXT",
-   "summary": "TRACE",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_RL_OTHER_LIMIT",
-   "aliases": [],
-   "category": "`/mtc RL <TEXT",
-   "summary": "TRACE",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_RL_POSITION_LIMIT",
-   "aliases": [],
-   "category": "`/mtc RL <TEXT",
-   "summary": "TRACE",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_RL_PRIVATE_LIMIT",
-   "aliases": [],
-   "category": "`/mtc RL <TEXT",
-   "summary": "TRACE",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_RL_TELEMETRY_LIMIT",
-   "aliases": [],
-   "category": "`/mtc RL <TEXT",
-   "summary": "TRACE",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_RL_TEXT_LIMIT",
-   "aliases": [],
-   "category": "`/mtc RL <TEXT",
-   "summary": "TRACE",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_RL_TRACE_LIMIT",
-   "aliases": [],
-   "category": "`/mtc RL <TEXT",
-   "summary": "TRACE",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_SECURITY_MASK",
-   "aliases": [],
-   "category": "`/mtc SECURITY`",
-   "summary": "bitmask (32 bits, hex): 0=Exigir firma, 1=Aceptar comandos por DM, 2=Descartar en silencio, 3=Auto-favorito en canal Nexus, 4=Auto-favorito si firma de confianza, 5=BYPASS_RP, 6=Auto-favorito en canal extra (canal 0)",
-   "usage": []
-  },
-  {
-   "name": "USERPREFS_NEXUS_ZERO_HOP_CONFIG",
-   "aliases": [],
-   "category": "`/mtc ZH`",
-   "summary": "bitmask (8 bits, hex): 0=Activo, 1=Conservar telemetría, 2=Conservar posición, 3=Auto routers, 4=Auto client base",
-   "usage": []
-  },
-  {
-   "name": "NEXUS_MASTER_KEY_2",
-   "aliases": [],
-   "category": "`NEXUS_MASTER_KEY_2`",
-   "summary": "`{ 0x.. }` array",
-   "usage": []
-  },
-  {
-   "name": "NEXUS_MASTER_KEY_3",
-   "aliases": [],
-   "category": "`NEXUS_MASTER_KEY_3`",
-   "summary": "`{ 0x.. }` array",
-   "usage": []
-  },
-  {
-   "name": "NEXUS_MASTER_KEY_4",
-   "aliases": [],
-   "category": "`NEXUS_MASTER_KEY_4`",
-   "summary": "`{ 0x.. }` array",
-   "usage": []
-  }
- ]
+  "source": "docs/mtc-commands.md",
+  "commands": [
+    {
+      "name": "WATCH",
+      "aliases": [],
+      "category": "10 Target Watchlist",
+      "summary": "In-depth continuous node RF & hop tracker",
+      "usage": [
+        {
+          "syntax": "WATCH ADD <!id|short>",
+          "description": "Add node to watchlist (max 8). Initializes min/max tracking and reset counters."
+        },
+        {
+          "syntax": "WATCH DEL <!id|short>",
+          "description": "Remove node from watchlist."
+        },
+        {
+          "syntax": "WATCH LIST",
+          "description": "List all monitored nodes with short names."
+        },
+        {
+          "syntax": "WATCH CLEAR",
+          "description": "Clear all 8 slots from the watchlist."
+        },
+        {
+          "syntax": "WATCH RESET",
+          "description": "Reset statistical counters for all slots while keeping the node IDs in the list."
+        },
+        {
+          "syntax": "WATCH STATS <!id|short>",
+          "description": "Output paged statistical dossier for one target node."
+        },
+        {
+          "syntax": "WATCH ALL",
+          "description": "Output paged dossiers for all monitored targets with recorded packets."
+        }
+      ]
+    },
+    {
+      "name": "BD",
+      "aliases": [],
+      "category": "11 Vault & Persistence",
+      "summary": "Broadcast delay / paging jitter settings",
+      "usage": [
+        {
+          "syntax": "BD",
+          "description": "Query maximum broadcast reply / paging delay in seconds."
+        },
+        {
+          "syntax": "BD SET <1..300>",
+          "description": "Set broadcast reply / paging jitter delay (prevents packet collisions on dense meshes). Persisted via `SAVE`."
+        }
+      ]
+    },
+    {
+      "name": "DBFLUSH",
+      "aliases": [],
+      "category": "11 Vault & Persistence",
+      "summary": "Force immediate NodeDB flash sync",
+      "usage": [
+        {
+          "syntax": "DBFLUSH",
+          "description": "Forces an immediate write of NodeDB to disk, bypassing active freeze flags."
+        }
+      ]
+    },
+    {
+      "name": "FREEZE",
+      "aliases": [],
+      "category": "11 Vault & Persistence",
+      "summary": "Subsystem filesystem write freeze",
+      "usage": [
+        {
+          "syntax": "FREEZE",
+          "description": "Shows filesystem write-freeze status across all subsystems (one per line)."
+        },
+        {
+          "syntax": "FREEZE ON",
+          "description": "Freezes all filesystem writes (prevents flash wear or writes during testing)."
+        },
+        {
+          "syntax": "FREEZE OFF",
+          "description": "Unfreezes all subsystems, restoring normal flash persistence."
+        },
+        {
+          "syntax": "FREEZE NODEFREEZE|WARMFREEZE|DEVICEFREEZE|CONFIGFREEZE [ON|OFF]",
+          "description": "Per-subsystem write freeze (note the subcommand names - `FREEZE NODEDB ON` does not work). Bare form shows current state. Also: `FREEZE STATUS`, legacy `DISK`, `DB`/`DBONLY`."
+        }
+      ]
+    },
+    {
+      "name": "LOAD",
+      "aliases": [],
+      "category": "11 Vault & Persistence",
+      "summary": "Reload settings from flash vault",
+      "usage": [
+        {
+          "syntax": "LOAD",
+          "description": "Discards current RAM state and reloads configuration from flash vault."
+        }
+      ]
+    },
+    {
+      "name": "SAVE",
+      "aliases": [],
+      "category": "11 Vault & Persistence",
+      "summary": "Commit RAM configuration to vault",
+      "usage": [
+        {
+          "syntax": "SAVE",
+          "description": "Commits current RAM state (drop rules, presets, aliases, macros, signatures, security settings) to flash."
+        }
+      ]
+    },
+    {
+      "name": "VAULT",
+      "aliases": ["VST"],
+      "category": "11 Vault & Persistence",
+      "summary": "Vault schema version, size, window",
+      "usage": [
+        {
+          "syntax": "VAULT",
+          "description": "Displays vault version, size, drop/invalid masks and slot usage."
+        }
+      ]
+    },
+    {
+      "name": "VAULT DIFF",
+      "aliases": ["VDF"],
+      "category": "11 Vault & Persistence",
+      "summary": "Diff RAM settings against saved vault",
+      "usage": [
+        {
+          "syntax": "VAULT DIFF",
+          "description": "Compares current RAM settings against stored flash vault to identify unsaved changes (paged per-field diff)."
+        }
+      ]
+    },
+    {
+      "name": "ADDCH",
+      "aliases": [],
+      "category": "12 Channels & Config",
+      "summary": "Add a new channel slot",
+      "usage": [
+        {
+          "syntax": "ADDCH <name> [psk]",
+          "description": "Add a new channel in the first available slot."
+        }
+      ]
+    },
+    {
+      "name": "CHASH",
+      "aliases": ["CH", "CHANNELS"],
+      "category": "12 Channels & Config",
+      "summary": "Channel list with roles (CH) or hashes (CHASH)",
+      "usage": [
+        {
+          "syntax": "CHASH",
+          "description": "Shows channels with 8-bit PSK hashes (name + hash only, no role)."
+        },
+        {
+          "syntax": "CH",
+          "description": "Shows channels with role numbers (no hashes)."
+        }
+      ]
+    },
+    {
+      "name": "CHNAME",
+      "aliases": [],
+      "category": "12 Channels & Config",
+      "summary": "Rename channel slot",
+      "usage": [
+        {
+          "syntax": "CHNAME <idx|name> <name>",
+          "description": "Rename channel at index `<idx>` (or by name). `UCHNAME` skips trusted-channel protection. Example: `CHNAME 1 Ops`."
+        }
+      ]
+    },
+    {
+      "name": "CHPSK",
+      "aliases": [],
+      "category": "12 Channels & Config",
+      "summary": "Set channel encryption key",
+      "usage": [
+        {
+          "syntax": "CHPSK <idx|name> <psk>",
+          "description": "Set encryption key for channel `<idx>` - **base64 only** (no default/none/hex forms). `UCHPSK` skips trusted-channel protection."
+        }
+      ]
+    },
+    {
+      "name": "CONFIG",
+      "aliases": [],
+      "category": "12 Channels & Config",
+      "summary": "Direct protobuf configuration write",
+      "usage": [
+        {
+          "syntax": "CONFIG",
+          "description": "Return active operational configuration summary (role, broadcast intervals, flags, GPS/Fixed state, location)."
+        },
+        {
+          "syntax": "CONFIG",
+          "description": "Show accepted syntax and target options."
+        },
+        {
+          "syntax": "CONFIG NI <secs>",
+          "description": "Set NodeInfo broadcast interval in seconds. Example: `CONFIG NI 10800`."
+        },
+        {
+          "syntax": "CONFIG TEL_D <secs>",
+          "description": "Set Device Telemetry (battery, voltage, CPU, uptime) interval. Example: `CONFIG TEL_D 900`."
+        },
+        {
+          "syntax": "CONFIG TEL_E <secs>",
+          "description": "Set Environment Telemetry (temp, humidity, pressure) interval. Example: `CONFIG TEL_E 1800`."
+        },
+        {
+          "syntax": "CONFIG TEL_P <secs>",
+          "description": "Set Power Telemetry (INA219/INA226 current, bus voltage, power) interval. Example: `CONFIG TEL_P 900`."
+        },
+        {
+          "syntax": "CONFIG POS <secs>",
+          "description": "Set Position broadcast interval in seconds. Example: `CONFIG POS 900`."
+        },
+        {
+          "syntax": "CONFIG SMART <ON/OFF>",
+          "description": "Enable/disable Smart Position broadcast (motion/distance triggered). Example: `CONFIG SMART ON`."
+        },
+        {
+          "syntax": "CONFIG FIXED <ON/OFF>",
+          "description": "Enable/disable Fixed Position mode (disables live GPS queries). Example: `CONFIG FIXED ON`."
+        },
+        {
+          "syntax": "CONFIG GPS <ON/OFF>",
+          "description": "Enable or power down the onboard GPS/GNSS receiver hardware. Example: `CONFIG GPS OFF`."
+        },
+        {
+          "syntax": "CONFIG LOC <lat>,<lon>",
+          "description": "Set manual stationary fixed position coordinates. Example: `CONFIG LOC 49.15163,9.25764`."
+        }
+      ]
+    },
+    {
+      "name": "DELCH",
+      "aliases": [],
+      "category": "12 Channels & Config",
+      "summary": "Delete channel slot",
+      "usage": [
+        {
+          "syntax": "DELCH <idx|name>",
+          "description": "Delete channel at index `<idx>` (Primary channel 0 cannot be deleted). Use `UDELCH` to skip trusted-channel protection."
+        }
+      ]
+    },
+    {
+      "name": "FULLCONFIGDUMP",
+      "aliases": [],
+      "category": "12 Channels & Config",
+      "summary": "Full device protobuf config dump",
+      "usage": [
+        {
+          "syntax": "FULLCONFIGDUMP",
+          "description": "Paged comprehensive dump of all device configuration and module settings."
+        }
+      ]
+    },
+    {
+      "name": "INFRA",
+      "aliases": [],
+      "category": "12 Channels & Config",
+      "summary": "List mesh infrastructure router nodes",
+      "usage": [
+        {
+          "syntax": "INFRA",
+          "description": "Lists all infrastructure nodes detected on the mesh (paged)."
+        }
+      ]
+    },
+    {
+      "name": "MODULES",
+      "aliases": ["MOD"],
+      "category": "12 Channels & Config",
+      "summary": "List active firmware modules",
+      "usage": [
+        {
+          "syntax": "MODULES",
+          "description": "Lists all compiled and active Meshtastic firmware modules (paged)."
+        }
+      ]
+    },
+    {
+      "name": "RATELIMIT",
+      "aliases": ["RL"],
+      "category": "12 Channels & Config",
+      "summary": "Traffic rate limit bucket thresholds",
+      "usage": [
+        {
+          "syntax": "RATELIMIT",
+          "description": "Shows current rate limiter **limits** per bucket."
+        },
+        {
+          "syntax": "RATELIMIT STATUS|STAT|BUCKETS",
+          "description": "Paged per-bucket status view."
+        },
+        {
+          "syntax": "RATELIMIT <bucket> <max>",
+          "description": "Set bucket ceiling in **packets per hour** (single numeric arg). Buckets: `TEXT`, `TRACE`, `OTHER`, `NODEINFO`/`NI`, `POSITION`/`PO`, `TELEMETRY`/`TL`, `PRIVATE`/`PR`."
+        }
+      ]
+    },
+    {
+      "name": "RATELIMITSTAT",
+      "aliases": [],
+      "category": "12 Channels & Config",
+      "summary": "Rate limiter drop counters",
+      "usage": [
+        {
+          "syntax": "RATELIMITSTAT",
+          "description": "Displays hit counters and drop statistics for rate limiter buckets (paged, title `RL Buckets`)."
+        }
+      ]
+    },
+    {
+      "name": "SHARE",
+      "aliases": [],
+      "category": "12 Channels & Config",
+      "summary": "Generate node-share contact URL / QR link",
+      "usage": [
+        {
+          "syntax": "SHARE <node>",
+          "description": "Generates a Meshtastic **node-share contact** URL to share a specific Node from the NodeDB."
+        }
+      ]
+    },
+    {
+      "name": "SKEY",
+      "aliases": [],
+      "category": "12 Channels & Config",
+      "summary": "Secondary dynamic admin master keys",
+      "usage": [
+        {
+          "syntax": "SKEY <1|2|3|4> <Key|OFF|WIPE>",
+          "description": "Manage 4 secondary dynamic admin public keys for remote cryptographic auth. Supports Base64 (128/64 chars) or Hex (64 chars). Bare `SKEY` does not dispatch."
+        },
+        {
+          "syntax": "TM CONFIG",
+          "description": "Show or tune TrafficManagementModule parameters."
+        }
+      ]
+    },
+    {
+      "name": "ST",
+      "aliases": [],
+      "category": "12 Channels & Config",
+      "summary": "Operational switches and status",
+      "usage": []
+    },
+    {
+      "name": "TM",
+      "aliases": [],
+      "category": "12 Channels & Config",
+      "summary": "TrafficManagementModule tuning & stats",
+      "usage": [
+        {
+          "syntax": "TM",
+          "description": "TrafficManagementModule stats (dedup / rate-limit / cache-hops counters). _Not_ a module on/off switch."
+        }
+      ]
+    },
+    {
+      "name": "ENV",
+      "aliases": [],
+      "category": "13 Hardware & Sensors",
+      "summary": "Real-time I2C environment sensor data",
+      "usage": [
+        {
+          "syntax": "ENV",
+          "description": "Real-time environment sensor read (BME280 / SHT31 / BMP280)."
+        }
+      ]
+    },
+    {
+      "name": "GPIO",
+      "aliases": [],
+      "category": "13 Hardware & Sensors",
+      "summary": "GPIO pin read, set, and change watch",
+      "usage": [
+        {
+          "syntax": "GPIO",
+          "description": "Shows accepted syntax (bare form does **not** show pin states)."
+        },
+        {
+          "syntax": "GPIO W <pin> <H|L>",
+          "description": "Set GPIO pin state. Example: `GPIO W 12 H`."
+        },
+        {
+          "syntax": "GPIO R <pin>",
+          "description": "Read GPIO pin state."
+        },
+        {
+          "syntax": "GPIO M <pin> <IN|OUT|PU>",
+          "description": "Set pin mode (input / output / pull-up)."
+        },
+        {
+          "syntax": "GPIO WATCH <pin|OFF>",
+          "description": "Enable or disable interrupt-driven change notification on a GPIO pin (pins 0-63; re-issuing on a watched pin unwatches it)."
+        }
+      ]
+    },
+    {
+      "name": "HEAP",
+      "aliases": [],
+      "category": "13 Hardware & Sensors",
+      "summary": "Free and used heap memory bytes",
+      "usage": []
+    },
+    {
+      "name": "INALM",
+      "aliases": [],
+      "category": "13 Hardware & Sensors",
+      "summary": "INA power sensor alarm thresholds",
+      "usage": [
+        {
+          "syntax": "INALM [ON|OFF|1|0]",
+          "description": "Toggle 'INA Legacy Math' power computation (not an alarm threshold despite the name). **Was made specifically for version 2.7.23, doesn't make much sense for other versions, but is there regardless.**"
+        }
+      ]
+    },
+    {
+      "name": "MCUINFO",
+      "aliases": ["MCU"],
+      "category": "13 Hardware & Sensors",
+      "summary": "Detailed MCU core and flash info",
+      "usage": [
+        {
+          "syntax": "MCUINFO",
+          "description": "Chip/core/flash/heap/die-temp/boot/MAC/RNG/uptime (paged)."
+        }
+      ]
+    },
+    {
+      "name": "META_ALERT",
+      "aliases": ["MA"],
+      "category": "13 Hardware & Sensors",
+      "summary": "Alert on metadata request receipt",
+      "usage": [
+        {
+          "syntax": "META_ALERT [ON|OFF] [mode-0-2]",
+          "description": "Metadata Alert: notifies when another node requests this device's metadata (same positional mode syntax)."
+        }
+      ]
+    },
+    {
+      "name": "METRICS",
+      "aliases": [],
+      "category": "13 Hardware & Sensors",
+      "summary": "Another node's battery / channel-utilization metrics",
+      "usage": [
+        {
+          "syntax": "METRICS <node>",
+          "description": "Reports another node's last device metrics (battery voltage, channel utilization) from NodeDB. Requires a node argument."
+        }
+      ]
+    },
+    {
+      "name": "PMGT",
+      "aliases": [],
+      "category": "13 Hardware & Sensors",
+      "summary": "Power management IC diagnostic state",
+      "usage": [
+        {
+          "syntax": "PMGT",
+          "description": "Dumps power-management **config** (power-saving flag, shutdown / BT-wait / SDS / light-sleep / min-wake seconds)."
+        },
+        {
+          "syntax": "PMGT SAVING|SHUTDOWN|BT_WAIT|SDS|LS|MIN_WAKE|ADC <val>",
+          "description": "Set individual power config values."
+        }
+      ]
+    },
+    {
+      "name": "POWER",
+      "aliases": [],
+      "category": "13 Hardware & Sensors",
+      "summary": "I2C power monitor voltage & current",
+      "usage": [
+        {
+          "syntax": "POWER <dBm>",
+          "description": "Set radio transmit power in dBm (-9..31). Example: `POWER 22`."
+        },
+        {
+          "syntax": "POWER",
+          "description": "Real-time I2C power monitor polling (INA219 / INA226 / AXP192 / AXP2101)."
+        }
+      ]
+    },
+    {
+      "name": "PSRAM",
+      "aliases": [],
+      "category": "13 Hardware & Sensors",
+      "summary": "PSRAM memory usage statistics",
+      "usage": []
+    },
+    {
+      "name": "RAM",
+      "aliases": ["MEM"],
+      "category": "13 Hardware & Sensors",
+      "summary": "Heap, PSRAM and stack diagnostic",
+      "usage": [
+        {
+          "syntax": "RAM",
+          "description": "Unified memory diagnostic: heap, PSRAM, Nexus bss size, FreeRTOS stack watermark."
+        }
+      ]
+    },
+    {
+      "name": "TA",
+      "aliases": [],
+      "category": "13 Hardware & Sensors",
+      "summary": "TraceRoute receipt alert toggle",
+      "usage": [
+        {
+          "syntax": "TA [ON|OFF] [mode-0-2]",
+          "description": "Trace Alert: notifies when another node targets this device with TraceRoute. Mode is a positional integer (no `MODE` keyword): 0=Direct only, 1=Relayed only, 2=All."
+        }
+      ]
+    },
+    {
+      "name": "TELEMETRY",
+      "aliases": [],
+      "category": "13 Hardware & Sensors",
+      "summary": "Battery, temperature, pressure telemetry",
+      "usage": [
+        {
+          "syntax": "TL",
+          "description": "Port `TELEMETRY_APP`"
+        },
+        {
+          "syntax": "TELEMETRY",
+          "description": "Consolidated telemetry report: channel/TX utilization, battery, power channels, environment."
+        }
+      ]
+    },
+    {
+      "name": "WIFI",
+      "aliases": [],
+      "category": "13 Hardware & Sensors",
+      "summary": "WiFi connection status, SSID, IP",
+      "usage": [
+        {
+          "syntax": "WIFI",
+          "description": "Shows WiFi connection status: SSID, RSSI, BSSID, IP."
+        },
+        {
+          "syntax": "WIFI STATUS|ON|OFF|SSID|PSK [val]",
+          "description": "Configure WiFi (STATUS shows PSK too)."
+        }
+      ]
+    },
+    {
+      "name": "WIFIOTA",
+      "aliases": ["OTA"],
+      "category": "13 Hardware & Sensors",
+      "summary": "ESP32 OTA firmware metadata",
+      "usage": [
+        {
+          "syntax": "WIFIOTA",
+          "description": "ESP32 OTA firmware metadata (paged). Non-ESP32 replies `MESHTACORE WIFIOTA:` / `Only available on ESP32`."
+        }
+      ]
+    },
+    {
+      "name": "HEALTH",
+      "aliases": ["SALUT", "SYS", "UPTIME", "UP", "UTIL"],
+      "category": "13 Hardware, Sensors & Telemetry",
+      "summary": "",
+      "usage": [
+        {
+          "syntax": "HEALTH",
+          "description": "Comprehensive system health report: uptime, reboot reason & count, battery voltage/pct, heap, die temperature, channel and TX utilization, and noise floor."
+        }
+      ]
+    },
+    {
+      "name": "SENSORS",
+      "aliases": [],
+      "category": "13 Hardware, Sensors & Telemetry",
+      "summary": "",
+      "usage": [
+        {
+          "syntax": "SENSORS",
+          "description": "Enumerates all active I2C sensors detected on the bus and their live readings (paged)."
+        }
+      ]
+    },
+    {
+      "name": "VOLT",
+      "aliases": ["VOLTAGE"],
+      "category": "13 Hardware, Sensors & Telemetry",
+      "summary": "",
+      "usage": [
+        {
+          "syntax": "VOLT",
+          "description": "Four voltage rules, battery voltage and hibernation state (paged)."
+        },
+        {
+          "syntax": "VOLT <1-4>",
+          "description": "Shows one rule."
+        },
+        {
+          "syntax": "VOLT <1-4> <V|mV> <HIGH|LOW> <CMD|HIB|WAKE> [CH] [cmd]",
+          "description": "Sets a rule; see below."
+        },
+        {
+          "syntax": "VOLT <1-4> OFF",
+          "description": "Clears a rule."
+        },
+        {
+          "syntax": "VOLT WAKE",
+          "description": "Clears hibernation in RAM."
+        }
+      ]
+    },
+    {
+      "name": "DM",
+      "aliases": [],
+      "category": "14 Messaging & Routing",
+      "summary": "Send encrypted Direct Message",
+      "usage": [
+        {
+          "syntax": "DM <!id|short> <msg>",
+          "description": "Send an encrypted direct message to target node. Example: `DM !defc895b Rendezvous at checkpoint`."
+        }
+      ]
+    },
+    {
+      "name": "DM-FORWARD",
+      "aliases": ["DMF"],
+      "category": "14 Messaging & Routing",
+      "summary": "Automatically forward incoming DMs",
+      "usage": [
+        {
+          "syntax": "DM-FORWARD [ON|OFF]",
+          "description": "Forward all received DMs onward automatically (no target-node argument - anything other than `ON` means `OFF`)."
+        }
+      ]
+    },
+    {
+      "name": "DU",
+      "aliases": ["DECODEURL"],
+      "category": "14 Messaging & Routing",
+      "summary": "Decode node-share contact URL",
+      "usage": [
+        {
+          "syntax": "DU <url>",
+          "description": "Decode and parse a Meshtastic **node-share** URL (SharedContact payload: id, names, HW, role, public key)."
+        }
+      ]
+    },
+    {
+      "name": "GOODPRACTICES",
+      "aliases": ["BUENASPRACTICAS", "GP", "BP"],
+      "category": "14 Messaging & Routing",
+      "summary": "Apply stealth and airtime good practices (NI/POS 72h, SmartPos OFF, telem 24h)",
+      "usage": [
+        {
+          "syntax": "GOODPRACTICES",
+          "description": "Apply the Spanish Meshtastic Community airtime best practices: NodeInfo 72h, Position 72h, SmartPos OFF, active telemetry < 12h bumped to minimum of 24h."
+        }
+      ]
+    },
+    {
+      "name": "MQTT",
+      "aliases": [],
+      "category": "14 Messaging & Routing",
+      "summary": "MQTT client status and connection",
+      "usage": [
+        {
+          "syntax": "MQTT",
+          "description": "Displays MQTT client status and current override mode."
+        },
+        {
+          "syntax": "MQTT <DEFAULT|ALWAYS|STRICT>",
+          "description": "Set MQTT override mode (`ALWAYS`=`ALWAYS-UPLOAD`/`1`, `STRICT`=`STRICT-PRIVACY`/`2`, `DEFAULT`=`0`). Note: `STATUS`/`CONNECT` are **not** valid subcommands."
+        }
+      ]
+    },
+    {
+      "name": "OKTOMQTT",
+      "aliases": [],
+      "category": "14 Messaging & Routing",
+      "summary": "Toggle MQTT export flag on packets",
+      "usage": [
+        {
+          "syntax": "OKTOMQTT [ON|OFF]",
+          "description": "Toggle whether outgoing text messages set the `ok_to_mqtt` flag (LoRa config bit 105). Value aliases: `TRUE/ENABLE/1`, `FALSE/DISABLE/0`; `STATUS`/`STAT` query."
+        }
+      ]
+    },
+    {
+      "name": "PLAY",
+      "aliases": [],
+      "category": "14 Messaging & Routing",
+      "summary": "Play custom RTTTL ringtone melody",
+      "usage": [
+        {
+          "syntax": "PLAY [BELL|<rtttl_melody>]",
+          "description": "Plays a custom RTTTL ringtone melody or standard bell alert tone (`PLAY BELL` or `BELL`) on hardware buzzer."
+        }
+      ]
+    },
+    {
+      "name": "PPING",
+      "aliases": [],
+      "category": "14 Messaging & Routing",
+      "summary": "Public ping response configuration",
+      "usage": [
+        {
+          "syntax": "PPING",
+          "description": "Show public ping configuration as a numeric flag dump."
+        },
+        {
+          "syntax": "PPING <ON|OFF>",
+          "description": "Enable or disable the automatic response to public pings on **Meshtastic** (`public_ping`). It does not touch MeshCore: use `MESHCORE PPING ON|OFF` for the MeshCore channels, which are switched independently."
+        },
+        {
+          "syntax": "PPING CMD <command|DEFAULT>",
+          "description": "Set the custom trigger command for public ping (default `/ping`, e.g. `!ping` or `.ping`). Any leading character is accepted, so there is no `/` requirement; see the note before this table. Responds only to this exact message, with no extra aliases."
+        },
+        {
+          "syntax": "PPING EMOJI <OFF|INDIRECT|ALWAYS>",
+          "description": "Set emoji ping acknowledgment mode (aliases `INDR`, `ALW`)."
+        },
+        {
+          "syntax": "PPING HEADER <text|OFF|DEFAULT|NONE|CUSTOM>",
+          "description": "Header line of the ping response, per layer. Free text stores it and selects it (`CUSTOM` reuses it without retyping); `DEFAULT` restores the layer's branding, `OFF` is its alias, and `NONE` drops the header so the reply opens with the hop line. Meshtastic defaults to `DEFAULT`, MeshCore to `NONE`."
+        },
+        {
+          "syntax": "PPING RSSI|SNR|FREQERR|FLAGS|OM|ALLOWDM <ON|OFF>",
+          "description": "Additional per-metric and routing toggles (see `PPING` usage line); the reporting toggles are shared with `MESHCORE PPING`. `HEX`/`GETHEX` mask: bit0 public ping, 1 RSSI, 2 SNR, 3 FREQERR, 4 ignore direct, 5 ignore remote, 6 flags, 7-14 channels 0-7, 15 allow DM."
+        }
+      ]
+    },
+    {
+      "name": "SENDMYNODE",
+      "aliases": ["SENDNODE", "SMN", "SN"],
+      "category": "14 Messaging & Routing",
+      "summary": "Broadcast NodeInfo (own node, or any target node)",
+      "usage": [
+        {
+          "syntax": "SENDMYNODE",
+          "description": "Broadcast **this node's** NodeInfo packet immediately (options `C <ch>`, `H <hl> <hs>`, `M`)."
+        },
+        {
+          "syntax": "SENDNODE <!id|short>",
+          "description": "Inject **another node's** NodeInfo from NodeDB (not a self-broadcast)."
+        }
+      ]
+    },
+    {
+      "name": "SENDPOS",
+      "aliases": [],
+      "category": "14 Messaging & Routing",
+      "summary": "Broadcast local position packet",
+      "usage": [
+        {
+          "syntax": "SENDPOS",
+          "description": "Inject current GPS position to DM or channel."
+        }
+      ]
+    },
+    {
+      "name": "TEXT",
+      "aliases": [],
+      "category": "14 Messaging & Routing",
+      "summary": "Broadcast text message on channel 0",
+      "usage": [
+        {
+          "syntax": "TX",
+          "description": "Port `TEXT_MESSAGE_APP`"
+        },
+        {
+          "syntax": "TEXT <msg>",
+          "description": "Broadcast a plain text message on the primary channel."
+        }
+      ]
+    },
+    {
+      "name": "TEXTC",
+      "aliases": [],
+      "category": "14 Messaging & Routing",
+      "summary": "Broadcast text message on channel `<ch>`",
+      "usage": [
+        {
+          "syntax": "TEXTC <ch> <msg>",
+          "description": "Broadcast a plain text message on channel `<ch>`. Example: `TEXTC 1 Hello Team`."
+        }
+      ]
+    },
+    {
+      "name": "ALIAS",
+      "aliases": [],
+      "category": "15 Aliases, Macros & Automation",
+      "summary": "Custom 4-char node alias management",
+      "usage": [
+        {
+          "syntax": "ALIAS LIST",
+          "description": "List all 16 custom short node aliases stored in vault (paged)."
+        },
+        {
+          "syntax": "ALIAS SET <!id> <alias>",
+          "description": "Assign a custom 4-character alias to a node ID. Example: `ALIAS SET !defc895b HQ01`."
+        },
+        {
+          "syntax": "ALIAS DEL <alias>",
+          "description": "Delete an assigned alias **by alias name** (not node ID)."
+        }
+      ]
+    },
+    {
+      "name": "CRON",
+      "aliases": [],
+      "category": "15 Aliases, Macros & Automation",
+      "summary": "8-slot periodic command scheduler",
+      "usage": [
+        {
+          "syntax": "CRON LIST",
+          "description": "List active automated recurring task slots (8 slots max, paged)."
+        },
+        {
+          "syntax": "CRON ADD PER <secs> <cmd>",
+          "description": "Run `<cmd>` every `<secs>` **seconds** (minimum 60). Example (every 30 min): `CRON ADD PER 1800 NOISE`. Slot auto-allocated."
+        },
+        {
+          "syntax": "CRON ADD SCH HH:MM <cmd>",
+          "description": "Run `<cmd>` daily at `HH:MM`."
+        },
+        {
+          "syntax": "CRON ADD AT <val> <cmd>",
+          "description": "One-shot scheduled run."
+        },
+        {
+          "syntax": "CRON REM <id>",
+          "description": "Remove cron job `<id>`."
+        }
+      ]
+    },
+    {
+      "name": "GROUP",
+      "aliases": [],
+      "category": "15 Aliases, Macros & Automation",
+      "summary": "Group name slots (4 names, no membership)",
+      "usage": [
+        {
+          "syntax": "GROUP LIST",
+          "description": "List the 4 group name slots (these are just names; groups do not store node membership)."
+        },
+        {
+          "syntax": "GROUP ADD <name>",
+          "description": "Store a group name (max 8 chars) in the first free slot."
+        },
+        {
+          "syntax": "GROUP REM <name>",
+          "description": "Remove a group name from its slot."
+        },
+        {
+          "syntax": "GROUP CLEAR",
+          "description": "Clear all 4 group slots."
+        }
+      ]
+    },
+    {
+      "name": "MACRO",
+      "aliases": ["MC"],
+      "category": "15 Aliases, Macros & Automation",
+      "summary": "Stored command macro execution",
+      "usage": [
+        {
+          "syntax": "MACRO LIST",
+          "description": "List all 4 stored command macros (paged)."
+        },
+        {
+          "syntax": "MACRO SET <name> <cmds>",
+          "description": "Store command sequence (separated by `;`; steps run with 10s delay). Slot is chosen by name match or first free. Example: `MACRO SET PATROL RSSI; POS; UTIL`."
+        },
+        {
+          "syntax": "MACRO RUN <name>",
+          "description": "Execute stored macro sequence **by name**."
+        },
+        {
+          "syntax": "MACRO DEL <name>",
+          "description": "Delete macro by name."
+        }
+      ]
+    },
+    {
+      "name": "CAT",
+      "aliases": [],
+      "category": "16 Filesystem & Utilities",
+      "summary": "Display file content from LittleFS",
+      "usage": [
+        {
+          "syntax": "CAT <filename>",
+          "description": "Read file and return its content **base64-encoded** (files over 700B are refused). Example: `CAT /prefs/db.proto`."
+        }
+      ]
+    },
+    {
+      "name": "FS",
+      "aliases": [],
+      "category": "16 Filesystem & Utilities",
+      "summary": "Filesystem capacity and free space",
+      "usage": [
+        {
+          "syntax": "FS",
+          "description": "Displays filesystem storage capacity: total, used, and free bytes (platform specific)."
+        }
+      ]
+    },
+    {
+      "name": "LS",
+      "aliases": [],
+      "category": "16 Filesystem & Utilities",
+      "summary": "List LittleFS files",
+      "usage": [
+        {
+          "syntax": "LS",
+          "description": "List all files stored on internal LittleFS / SPIFFS filesystem."
+        }
+      ]
+    },
+    {
+      "name": "REBOOT",
+      "aliases": [],
+      "category": "16 Filesystem & Utilities",
+      "summary": "Safe reboot with 20s delay",
+      "usage": [
+        {
+          "syntax": "REBOOT",
+          "description": "Reboots the device (initiates safe shutdown with a mandatory 20-second delay)."
+        }
+      ]
+    },
+    {
+      "name": "RM",
+      "aliases": [],
+      "category": "16 Filesystem & Utilities",
+      "summary": "Delete file from filesystem",
+      "usage": [
+        {
+          "syntax": "RM <filename>",
+          "description": "Delete file from filesystem."
+        }
+      ]
+    },
+    {
+      "name": "TIME",
+      "aliases": [],
+      "category": "16 Filesystem & Utilities",
+      "summary": "Current date, time, and sync source",
+      "usage": [
+        {
+          "syntax": "TIME",
+          "description": "Displays real-time clock (RTC) current UTC epoch, local time, and synchronization source."
+        },
+        {
+          "syntax": "TIME <epoch_sec>",
+          "description": "Manually set system RTC clock time from Unix epoch timestamp (values below 1700000000 are rejected)."
+        }
+      ]
+    },
+    {
+      "name": "HELP",
+      "aliases": [],
+      "category": "2 Help & Build Info",
+      "summary": "Interactive paged help system",
+      "usage": [
+        {
+          "syntax": "HELP",
+          "description": "Opens paged general help index listing categories."
+        },
+        {
+          "syntax": "HELP <topic>",
+          "description": "Detailed help for: `DROPS`, `FW`, `DROP`/`FIREWALL`/`OUTDROP`, `FEATURES`, `SIGINT`/`SCAN`, `ADMIN`/`SYSTEM`/`BD`, `FSIG`, `PPING`, `SKEY`, `LORA`/`PRESET`/`LORA`, `GPIO`, `TEXT`/`FTEXT`/`INJECT`, `IDENTITY`/`NAME`, `TM`, `RL`/`RATELIMIT`, `RLS`/`RATELIMITSTAT`, `PL`/`RSSILOG`, `CRON`, `NIGN`/`IGNORE`, `NODE`/`TARGET`. (No `?` alias.)"
+        }
+      ]
+    },
+    {
+      "name": "INFO",
+      "aliases": [],
+      "category": "2 Help & Build Info",
+      "summary": "Node identity, version, and role",
+      "usage": [
+        {
+          "syntax": "INFO",
+          "description": "Displays device ID, short name, role, MAC, firmware version, target board and MCU, repo, build date and Nexus build flags. Paged (it does not fit one reply); `COMPILATION`/`COMP` are aliases."
+        }
+      ]
+    },
+    {
+      "name": "VERSION",
+      "aliases": ["V"],
+      "category": "2 Help & Build Info",
+      "summary": "Firmware version string",
+      "usage": [
+        {
+          "syntax": "VERSION",
+          "description": "Displays raw firmware version string from metadata."
+        }
+      ]
+    },
+    {
+      "name": "DELNODE",
+      "aliases": [],
+      "category": "3 Firewall & Filtering",
+      "summary": "Delete node record from database",
+      "usage": [
+        {
+          "syntax": "DELNODE <!id>",
+          "description": "Delete a node entry entirely from NodeDB."
+        }
+      ]
+    },
+    {
+      "name": "DROP",
+      "aliases": ["UNDROP"],
+      "category": "3 Firewall & Filtering",
+      "summary": "Enable/disable inbound packet drop rules",
+      "usage": [
+        {
+          "syntax": "DROP <TAG>",
+          "description": "Enable dropping of packets matching `<TAG>`. Example: `DROP TR`."
+        },
+        {
+          "syntax": "UNDROP <TAG>",
+          "description": "Disable dropping of packets matching `<TAG>`. Example: `UNDROP TR`."
+        }
+      ]
+    },
+    {
+      "name": "DROPS",
+      "aliases": [],
+      "category": "3 Firewall & Filtering",
+      "summary": "List active inbound drop filters",
+      "usage": [
+        {
+          "syntax": "DROPS",
+          "description": "Lists all currently active inbound drop tags (including `TO`, `NM` and the `RL_*` flags), whitelists, and blacklists. (200-byte reply buffer - a huge active-tag list truncates; `HEXDROPS` shows the full mask.)"
+        }
+      ]
+    },
+    {
+      "name": "FAV",
+      "aliases": ["UNFAV"],
+      "category": "3 Firewall & Filtering",
+      "summary": "Favorite node tagging",
+      "usage": [
+        {
+          "syntax": "FAV <!id|name>",
+          "description": "Mark node as favorite in NodeDB."
+        },
+        {
+          "syntax": "UNFAV <!id|name>",
+          "description": "Unmark node as favorite."
+        }
+      ]
+    },
+    {
+      "name": "FAVS",
+      "aliases": [],
+      "category": "3 Firewall & Filtering",
+      "summary": "List all favorite nodes",
+      "usage": [
+        {
+          "syntax": "FAVS",
+          "description": "Lists all active favorite nodes with short names (paged)."
+        }
+      ]
+    },
+    {
+      "name": "FFAV",
+      "aliases": ["FUNFAV"],
+      "category": "3 Firewall & Filtering",
+      "summary": "Force favorite / force unfavorite node",
+      "usage": [
+        {
+          "syntax": "FFAV <!id|name>",
+          "description": "Force favorite node even if not yet in NodeDB."
+        },
+        {
+          "syntax": "FUNFAV <!id|name>",
+          "description": "Force remove favorite node. Creates the node if missing."
+        }
+      ]
+    },
+    {
+      "name": "FIGNORE",
+      "aliases": ["FUNIGNORE"],
+      "category": "3 Firewall & Filtering",
+      "summary": "Force ignore node ID",
+      "usage": [
+        {
+          "syntax": "FIGNORE <!id|name>",
+          "description": "Force ignore node ID."
+        },
+        {
+          "syntax": "FUNIGNORE <!id|name>",
+          "description": "Force unignore node ID."
+        }
+      ]
+    },
+    {
+      "name": "FIREWALL",
+      "aliases": ["FW"],
+      "category": "3 Firewall & Filtering",
+      "summary": "Aggregated firewall status report",
+      "usage": [
+        {
+          "syntax": "FIREWALL",
+          "description": "Paged aggregated status of inbound drops, outbound drops, hex masks, invalid filters, and PR lists."
+        },
+        {
+          "syntax": "FW <sec>",
+          "description": "Query a single firewall section (`DROPS`, `OUTDROPS`, `INVALIDS` - all five delegate to the section handler)."
+        }
+      ]
+    },
+    {
+      "name": "FSIG",
+      "aliases": [],
+      "category": "3 Firewall & Filtering",
+      "summary": "8-slot payload signature firewall",
+      "usage": [
+        {
+          "syntax": "FSIG",
+          "description": "Pages all 8 signature slots showing active patterns, encoding format (hex, b64, text), and length in bytes."
+        }
+      ]
+    },
+    {
+      "name": "HEX",
+      "aliases": [],
+      "category": "3 Firewall & Filtering",
+      "summary": "Set inbound drops from 64-bit hex",
+      "usage": [
+        {
+          "syntax": "HEX <hex>",
+          "description": "Set all inbound drop rules directly from a 64-bit hex mask. Example: `HEX 0x0000000000000001`."
+        },
+        {
+          "syntax": "ZH SHORT",
+          "description": "Compact listing of the selected list's relay IDs as space-separated hex bytes (no names); same target words as `LIST`. Practical limit ≈83 entries (250-byte buffer; reply truncates at 200 chars)."
+        }
+      ]
+    },
+    {
+      "name": "HEXDROPS",
+      "aliases": [],
+      "category": "3 Firewall & Filtering",
+      "summary": "Inbound drop rules as 64-bit hex",
+      "usage": [
+        {
+          "syntax": "HEXDROPS",
+          "description": "Displays active inbound drops as a 64-bit hexadecimal bitmask."
+        }
+      ]
+    },
+    {
+      "name": "HEXOUT",
+      "aliases": [],
+      "category": "3 Firewall & Filtering",
+      "summary": "Set outbound drops from 64-bit hex",
+      "usage": [
+        {
+          "syntax": "HEXOUT <hex>",
+          "description": "Set all outbound drop rules directly from a 64-bit hex mask."
+        }
+      ]
+    },
+    {
+      "name": "HEXOUTDROPS",
+      "aliases": [],
+      "category": "3 Firewall & Filtering",
+      "summary": "Outbound drop rules as 64-bit hex",
+      "usage": [
+        {
+          "syntax": "HEXOUTDROPS",
+          "description": "Displays active outbound drops as a 64-bit hexadecimal bitmask."
+        }
+      ]
+    },
+    {
+      "name": "IDR",
+      "aliases": ["UNIDR", "IGNORE-DUPE-RELAY"],
+      "category": "3 Firewall & Filtering",
+      "summary": "Per-relay duplicate suppression mask",
+      "usage": [
+        {
+          "syntax": "IDR",
+          "description": "Displays the per-relay duplicate-suppression mask (list of relay IDs)."
+        },
+        {
+          "syntax": "IDR <hex>",
+          "description": "Add relay ID to the ignore-dupe mask."
+        },
+        {
+          "syntax": "IDR CLEAR",
+          "description": "Clear the whole IDR mask."
+        },
+        {
+          "syntax": "UNIDR <hex>",
+          "description": "Remove one relay ID from the IDR mask (takes a hex argument)."
+        }
+      ]
+    },
+    {
+      "name": "IGNORE",
+      "aliases": ["UNIGNORE"],
+      "category": "3 Firewall & Filtering",
+      "summary": "NodeDB ignore list management",
+      "usage": [
+        {
+          "syntax": "IGNORE <!id|name>",
+          "description": "Add node to NodeDB ignore list."
+        },
+        {
+          "syntax": "UNIGNORE <!id|name>",
+          "description": "Remove node from NodeDB ignore list."
+        }
+      ]
+    },
+    {
+      "name": "IGNORED",
+      "aliases": [],
+      "category": "3 Firewall & Filtering",
+      "summary": "List ignored nodes",
+      "usage": [
+        {
+          "syntax": "IGNORED",
+          "description": "Lists all currently ignored nodes (paged)."
+        }
+      ]
+    },
+    {
+      "name": "INVALIDS",
+      "aliases": ["INV"],
+      "category": "3 Firewall & Filtering",
+      "summary": "Packet sanity validation drop rules",
+      "usage": [
+        {
+          "syntax": "bare",
+          "description": "Display the five packet validation rules: ON/OFF state plus each rule's drop counter (in parentheses)."
+        }
+      ]
+    },
+    {
+      "name": "MCGAP",
+      "aliases": [],
+      "category": "3 Firewall & Filtering",
+      "summary": "MeshCore: one advert per key per time window",
+      "usage": [
+        {
+          "syntax": "MCGAP [<minutes>]",
+          "description": "MeshCore firewall: keep one ADVERT per key per window (0 = off, 0-255). Without a value it shows the current one. Saved with `SAVE`."
+        }
+      ]
+    },
+    {
+      "name": "MCRATE",
+      "aliases": [],
+      "category": "3 Firewall & Filtering",
+      "summary": "MeshCore: frames a minute from one neighbouring repeater",
+      "usage": [
+        {
+          "syntax": "MCRATE [<frames>]",
+          "description": "MeshCore firewall: at most this many frames a minute from one neighbouring repeater, named by the last 2- or 3-byte hop of the path (0 = off, 0-255). Saved with `SAVE`."
+        }
+      ]
+    },
+    {
+      "name": "NIGN",
+      "aliases": [],
+      "category": "3 Firewall & Filtering",
+      "summary": "Nexus memory-resident ignore table",
+      "usage": [
+        {
+          "syntax": "NIGN",
+          "description": "Shows Nexus Ignore list (Extra Ignore List in addition to the upstream NodeDB one) - paged."
+        },
+        {
+          "syntax": "NIGN ADD <!id>",
+          "description": "Add node ID to Nexus Ignore table."
+        },
+        {
+          "syntax": "NIGN REM <!id>",
+          "description": "Remove node ID from Nexus Ignore table (the subcommand is `REM`, **not** `DEL`; there is no `CLEAR`)."
+        }
+      ]
+    },
+    {
+      "name": "OUTDROP",
+      "aliases": ["UNOUTDROP"],
+      "category": "3 Firewall & Filtering",
+      "summary": "Outbound (TX) drop rule toggles",
+      "usage": [
+        {
+          "syntax": "OUTDROP <TAG>",
+          "description": "Enable outbound (TX) dropping for `<TAG>` (`NI`, `PO`, `TL`, `TR`, `AD`, `RO`). Example: `OUTDROP PO`."
+        },
+        {
+          "syntax": "UNOUTDROP <TAG>",
+          "description": "Disable outbound dropping for `<TAG>`. Example: `UNOUTDROP PO`."
+        }
+      ]
+    },
+    {
+      "name": "OUTDROPS",
+      "aliases": [],
+      "category": "3 Firewall & Filtering",
+      "summary": "List active outbound drop rules",
+      "usage": [
+        {
+          "syntax": "OUTDROPS",
+          "description": "Lists all currently active outbound drop tags."
+        }
+      ]
+    },
+    {
+      "name": "PRBLACKLIST",
+      "aliases": ["PRBLOCK"],
+      "category": "3 Firewall & Filtering",
+      "summary": "Blacklist blocked private channel hashes",
+      "usage": [
+        {
+          "syntax": "PRBLACKLIST ADD <ch_hash>",
+          "description": "Block private channels matching hash. Example: `PRBLOCK ADD 0xC3`."
+        },
+        {
+          "syntax": "PRBLACKLIST REM <ch_hash>",
+          "description": "Remove channel from blacklist."
+        },
+        {
+          "syntax": "PRBLACKLIST LIST",
+          "description": "List all active blacklisted channel hashes."
+        }
+      ]
+    },
+    {
+      "name": "PRWHITELIST",
+      "aliases": ["PRALLOW"],
+      "category": "3 Firewall & Filtering",
+      "summary": "Whitelist allowed private channel hashes",
+      "usage": [
+        {
+          "syntax": "PRWHITELIST ADD <ch_hash>",
+          "description": "Allow only private channels matching hash (channels 8+)."
+        },
+        {
+          "syntax": "PRWHITELIST REM <ch_hash>",
+          "description": "Remove channel from whitelist."
+        },
+        {
+          "syntax": "PRWHITELIST LIST",
+          "description": "List all active whitelisted channel hashes."
+        }
+      ]
+    },
+    {
+      "name": "RDROP",
+      "aliases": ["RUNDROP"],
+      "category": "3 Firewall & Filtering",
+      "summary": "Relay ID byte drop mask filter",
+      "usage": [
+        {
+          "syntax": "RDROP",
+          "description": "Displays list of dropped relay node IDs (last byte mask)."
+        },
+        {
+          "syntax": "RDROP <hex>",
+          "description": "Add relay ID (byte) to drop mask. Accepts `*`-prefixed or bare hex (`RDROP A4`, `RDROP *A4`)."
+        },
+        {
+          "syntax": "RUNDROP <hex>",
+          "description": "Remove relay ID from drop mask."
+        },
+        {
+          "syntax": "RDROP CLEAR",
+          "description": "Clear all dropped relay node IDs."
+        }
+      ]
+    },
+    {
+      "name": "ZH",
+      "aliases": [],
+      "category": "4 Zero-Hop Routing (ZH)",
+      "summary": "Zero-Hop relay mask & routing state",
+      "usage": [
+        {
+          "syntax": "ZH",
+          "description": "Show current global state: Zero-Hop enabled, Position preserved, Telemetry preserved. Used as default reply when no subcommand matches."
+        },
+        {
+          "syntax": "ZH [ADD <id>|DEL <id>|SYNC|LIST|...]",
+          "description": "Zero-Hop routing group management - full subcommand table in [§4](#4-zero-hop-routing-zh). Note: removal is `DEL`, not `REM`."
+        }
+      ]
+    },
+    {
+      "name": "FEATURES",
+      "aliases": [],
+      "category": "5 Security & Features",
+      "summary": "64-bit runtime feature bitmask toggles",
+      "usage": [
+        {
+          "syntax": "FEATURES",
+          "description": "Show the 64-bit feature mask plus each named bit `ON`/`off`. Unset bits print lowercase `off`."
+        }
+      ]
+    },
+    {
+      "name": "SECURITY",
+      "aliases": [],
+      "category": "5 Security & Features",
+      "summary": "Signature auth, DM gate, replay protection",
+      "usage": [
+        {
+          "syntax": "SECURITY",
+          "description": "Displays security overview: signature requirement, DM allowance, silent logging, auto-fav bits (incl. extra-channel), replay-ring fill."
+        }
+      ]
+    },
+    {
+      "name": "CH-HOPMASK",
+      "aliases": ["CHM"],
+      "category": "6 Hop-Aware Routing",
+      "summary": "Channel-specific hop masking",
+      "usage": [
+        {
+          "syntax": "CH-HOPMASK <ch> <s > <l>",
+          "description": "Apply hop masking exclusively to channel `<ch>`. Example: `CH-HOPMASK 0 2 2`."
+        },
+        {
+          "syntax": "CH-HOPMASK <ch> OFF",
+          "description": "Disable hop masking for channel `<ch>`."
+        },
+        {
+          "syntax": "CH-HOPMASK",
+          "description": "Lists hop masks configured for all channels."
+        }
+      ]
+    },
+    {
+      "name": "HOPMASK",
+      "aliases": [],
+      "category": "6 Hop-Aware Routing",
+      "summary": "Global hop_start / hop_limit override",
+      "usage": [
+        {
+          "syntax": "HOPMASK",
+          "description": "Shows global hop mask status."
+        },
+        {
+          "syntax": "HOPMASK <start> <limit>",
+          "description": "Enforce fixed `hop_start` and `hop_limit` on all rebroadcast packets (0-7). Example: `HOPMASK 3 3`."
+        },
+        {
+          "syntax": "HOPMASK OFF",
+          "description": "Disable global hop masking."
+        }
+      ]
+    },
+    {
+      "name": "HOPMATRIX",
+      "aliases": ["HM"],
+      "category": "6 Hop-Aware Routing",
+      "summary": "2D Hop Start vs Hop Limit matrix",
+      "usage": [
+        {
+          "syntax": "HOPMATRIX",
+          "description": "2D matrix comparing hop_start vs hops_used for network density analysis."
+        }
+      ]
+    },
+    {
+      "name": "HOPSCALE",
+      "aliases": ["HSC"],
+      "category": "6 Hop-Aware Routing",
+      "summary": "Dynamic hop scaling status (read-only)",
+      "usage": [
+        {
+          "syntax": "HOPSCALE",
+          "description": "Paged dynamic hop-scaling status (read-only - there is **no** setter)."
+        },
+        {
+          "syntax": "HOPSCALE WANTS",
+          "description": "Show user-configured hop wants vs caps per port."
+        }
+      ]
+    },
+    {
+      "name": "HOPSTATS",
+      "aliases": ["HS"],
+      "category": "6 Hop-Aware Routing",
+      "summary": "Hop count distribution histogram",
+      "usage": [
+        {
+          "syntax": "HOPSTATS",
+          "description": "Displays distribution histogram of hops used across received packets (zero buckets above h3 are omitted)."
+        }
+      ]
+    },
+    {
+      "name": "PORT-HOPMASK",
+      "aliases": ["PHM"],
+      "category": "6 Hop-Aware Routing",
+      "summary": "Port-specific hop limit override",
+      "usage": [
+        {
+          "syntax": "PORT-HOPMASK <port> <s> <l>",
+          "description": "Apply hop masking to specific port (`NODEINFO`, `TELEMETRY`, `POSITION`, `TRACEROUTE`, `TEXT`)."
+        },
+        {
+          "syntax": "PORT-HOPMASK <port> OFF",
+          "description": "Disable hop masking for `<port>`."
+        },
+        {
+          "syntax": "PORT-HOPMASK",
+          "description": "Lists all port-specific hop masks."
+        }
+      ]
+    },
+    {
+      "name": "BASETEXTS",
+      "aliases": [],
+      "category": "7 Radio & RF Control",
+      "summary": "Client-base text-only rebroadcast toggle",
+      "usage": [
+        {
+          "syntax": "BASETEXTS [ON|OFF]",
+          "description": "Useful for roof top base nodes, does the same thing a Client Always but only with text messages, if CA is on it changes nothing. (No `BT` alias.) Bare form queries."
+        }
+      ]
+    },
+    {
+      "name": "CLIENTALWAYS",
+      "aliases": [],
+      "category": "7 Radio & RF Control",
+      "summary": "Enforce client-timing priority",
+      "usage": [
+        {
+          "syntax": "CLIENTALWAYS [ON|OFF]",
+          "description": "Disables relay cancelation. Works both on CLIENTs and CLIENT_BASEs **USE ONLY WHEN A NODE MUST REPEAT LIKE A ROUTER BUT CANNOT BE A ROUTER.** (No `CA` alias.) Bare form queries."
+        }
+      ]
+    },
+    {
+      "name": "FLRC",
+      "aliases": [],
+      "category": "7 Radio & RF Control",
+      "summary": "Switch modem to FLRC (SX128x/LR2021 only)",
+      "usage": [
+        {
+          "syntax": "FLRC <br_kbps> <cr> [bt] [preamble_bits]",
+          "description": "Switch the radio to **FLRC** modulation - SX128x (2.4 GHz) and LR2021 (X1, sub-GHz & 2.4G) only; `cr` is required. Params & theory: see **FSK/FLRC reference** below. Example: `FLRC 650 3`."
+        }
+      ]
+    },
+    {
+      "name": "FSK",
+      "aliases": [],
+      "category": "7 Radio & RF Control",
+      "summary": "Switch modem to FSK/GFSK modulation",
+      "usage": [
+        {
+          "syntax": "FSK <br_kbps> [freqDev_kHz] [rxBw_kHz] [preamble_bits]",
+          "description": "Switch the radio from LoRa to **FSK/GFSK** modulation (whole fleet: SX126x, LR11x0, SX128x, LR2021 - not SX127x/RF95). Params & theory: see **FSK/FLRC reference** below. RAM-only; deferred apply like `LORA`. Example: `FSK 50 25 117.3 16`."
+        }
+      ]
+    },
+    {
+      "name": "G3",
+      "aliases": ["FRONTEND"],
+      "category": "7 Radio & RF Control",
+      "summary": "Station G3 PA / LNA frontend control",
+      "usage": [
+        {
+          "syntax": "G3 [STATUS]",
+          "description": "Station G3 PA / LNA RF front-end control status (compiled only on `STATION_G3` builds)."
+        },
+        {
+          "syntax": "G3 LNA <ON|OFF|BYPASS>",
+          "description": "Set G3 frontend LNA state (RAM-only until SAVE)."
+        },
+        {
+          "syntax": "G3 PA <ON|OFF>",
+          "description": "Set G3 frontend PA state (RAM-only until SAVE)."
+        },
+        {
+          "syntax": "G3 REINIT",
+          "description": "Re-probe both jumper pads and re-apply front-end state."
+        }
+      ]
+    },
+    {
+      "name": "GETTXPOWER",
+      "aliases": [],
+      "category": "7 Radio & RF Control",
+      "summary": "Read active transmit power",
+      "usage": [
+        {
+          "syntax": "GETTXPOWER",
+          "description": "Read active and chip TX power settings."
+        }
+      ]
+    },
+    {
+      "name": "LNA",
+      "aliases": [],
+      "category": "7 Radio & RF Control",
+      "summary": "Set LNA gain mode",
+      "usage": [
+        {
+          "syntax": "LNA",
+          "description": "Shows low-noise amplifier gain mode. (Heltec V4.3 specific)"
+        },
+        {
+          "syntax": "LNA <mode>",
+          "description": "Configure LNA gain settings."
+        }
+      ]
+    },
+    {
+      "name": "LORA",
+      "aliases": [],
+      "category": "7 Radio & RF Control",
+      "summary": "Reconfigure SF, BW, CR, Frequency",
+      "usage": [
+        {
+          "syntax": "LORA",
+          "description": "Modem summary: SF, BW, CR, preset number/state, frequency, power, MQTT-ignore and rebroadcast mode."
+        },
+        {
+          "syntax": "LORA <sf> <bw> <cr> <freq>",
+          "description": "Reconfigure modem parameters directly in RAM (applies after deferred timer). Example: `LORA 7 62 5 869.618`."
+        }
+      ]
+    },
+    {
+      "name": "LORA-STATUS",
+      "aliases": ["LRS"],
+      "category": "7 Radio & RF Control",
+      "summary": "Real-time hardware radio status",
+      "usage": [
+        {
+          "syntax": "LORA-STATUS",
+          "description": "Real-time hardware status: frequency, bandwidth, SF, CR, preamble, slot/CW timing, syncword, chip power, air rate. **With `FSK`/`FLRC` active it reports the modulation actually on air instead**: a `Mode:` line plus BR/dev/RxBw (FSK) or CR/BT (FLRC), preamble in bits, speed = BR; SF/BW/CR/Slot/CW lines are omitted (they'd show the parked LoRa config)."
+        }
+      ]
+    },
+    {
+      "name": "LR2021_SF",
+      "aliases": ["MULTISF", "MSF"],
+      "category": "7 Radio & RF Control",
+      "summary": "LR2021 multi-SF concurrent channels",
+      "usage": [
+        {
+          "syntax": "LR2021_SF [SFs...]",
+          "description": "Configure LR2021 hardware multi-SF concurrent receiver channels (compiled only with `USE_LR2021` / `ARCH_PORTDUINO`). Example: `LR2021_SF 7 8 9`."
+        }
+      ]
+    },
+    {
+      "name": "PREAMBLE",
+      "aliases": ["PRE"],
+      "category": "7 Radio & RF Control",
+      "summary": "Configure custom preamble length",
+      "usage": [
+        {
+          "syntax": "PREAMBLE <len>",
+          "description": "Set custom preamble length (6-1024 symbols). Example: `PREAMBLE 16`."
+        },
+        {
+          "syntax": "PREAMBLE",
+          "description": "Show active preamble override."
+        }
+      ]
+    },
+    {
+      "name": "PRESET",
+      "aliases": ["PRESET"],
+      "category": "7 Radio & RF Control",
+      "summary": "Load standard or custom LoRa preset",
+      "usage": [
+        {
+          "syntax": "PRESET <preset>",
+          "description": "Load standard, tactical, narrow, lite, mini, or 2.4 GHz LoRa presets. Automatically sets the proper region (`EU_868`, `EU_N_868`, `EU_866`, or `LORA_24`) with bidirectional hardware band protection (single-band radios cannot jump between Sub-GHz and 2.4 GHz; dual-band **LR1121** and **LR2021** can freely switch). Example: `PRESET Madrid24` or `PRESET Mini-1`."
+        }
+      ]
+    },
+    {
+      "name": "REBROADCAST",
+      "aliases": [],
+      "category": "7 Radio & RF Control",
+      "summary": "Configure rebroadcast mode",
+      "usage": [
+        {
+          "syntax": "REBROADCAST <mode>",
+          "description": "Set rebroadcast mode: `ALL`, `ALL_SKIP`, `LOCAL_ONLY`/`LOCAL`, `KNOWN_ONLY`/`KNOWN`, `NONE`, `CORE`/`CORE_ONLY`, or digit 0-5. `REBROADCAST <mode>` is the same without SET; bare `REBROADCAST` queries."
+        }
+      ]
+    },
+    {
+      "name": "ROLE",
+      "aliases": [],
+      "category": "7 Radio & RF Control",
+      "summary": "Show active device role",
+      "usage": [
+        {
+          "syntax": "ROLE",
+          "description": "Query active device role."
+        },
+        {
+          "syntax": "ROLE <role>",
+          "description": "Change device role. Accepted: `CLIENT`, `SENS`/`SENSOR`, `RTR`/`ROUTER`, `RTR_CLIENT`, `BASE`/`CLIENT_BASE`, `MUTE`/`CLIENT_MUTE`, `HIDDEN`/`CLIENT_HIDDEN`, `LOST`/`LOST_AND_FOUND`, `TAK`, `TAK_TRACKER`, or digit 0-13. (`REPEATER`/`TRACKER` are **not** valid.)"
+        }
+      ]
+    },
+    {
+      "name": "SYNCWORD",
+      "aliases": ["SW"],
+      "category": "7 Radio & RF Control",
+      "summary": "Set custom radio sync word",
+      "usage": [
+        {
+          "syntax": "SYNCWORD <hex|dec|RESET>",
+          "description": "Set custom radio sync word (0x00-0xFF; `DEFAULT`/`DEF` are aliases of `RESET`, default 0x2B). Bare form queries. Example: `SW 0x12`."
+        }
+      ]
+    },
+    {
+      "name": "TX",
+      "aliases": [],
+      "category": "7 Radio & RF Control",
+      "summary": "Transmitter RF emission toggle (`TX [ON|OFF]`)",
+      "usage": []
+    },
+    {
+      "name": "IGNORMQTT",
+      "aliases": ["IGNOREMQTT"],
+      "category": "7 Radio Configuration & RF Control",
+      "summary": "",
+      "usage": [
+        {
+          "syntax": "IGNORMQTT [ON|OFF]",
+          "description": "Ignore incoming MQTT packets entirely."
+        }
+      ]
+    },
+    {
+      "name": "ACC",
+      "aliases": [],
+      "category": "8 Identity & NodeDB",
+      "summary": "Accelerometer motion sample (X/Y/Z g)",
+      "usage": [
+        {
+          "syntax": "ACC",
+          "description": "Displays the last **accelerometer** motion sample (X/Y/Z in g) - _not_ a crypto accelerator report."
+        }
+      ]
+    },
+    {
+      "name": "ADMINS",
+      "aliases": [],
+      "category": "8 Identity & NodeDB",
+      "summary": "List authorized admin public keys",
+      "usage": [
+        {
+          "syntax": "ADMINS",
+          "description": "Lists admin-flagged nodes (paged)."
+        }
+      ]
+    },
+    {
+      "name": "DBINFO",
+      "aliases": [],
+      "category": "8 Identity & NodeDB",
+      "summary": "NodeDB memory and cache health",
+      "usage": [
+        {
+          "syntax": "DBINFO",
+          "description": "NodeDB health stats: capacity, online count, direct count, favorites."
+        }
+      ]
+    },
+    {
+      "name": "FIXMYINFO",
+      "aliases": ["FMI"],
+      "category": "8 Identity & NodeDB",
+      "summary": "Repair own NodeDB entry fields in place",
+      "usage": [
+        {
+          "syntax": "FIXMYINFO",
+          "description": "Fixes the node's own NodeDB entry in place (long name, short name, HW, role) and saves to disk. Does **not** broadcast."
+        }
+      ]
+    },
+    {
+      "name": "FNODE",
+      "aliases": [],
+      "category": "8 Identity & NodeDB",
+      "summary": "Full per-node detail listing (search or !id)",
+      "usage": [
+        {
+          "syntax": "FNODE <search|!id>",
+          "description": "Full per-node detail listing (names, HW, SNR/hops, keys, etc., paged)."
+        }
+      ]
+    },
+    {
+      "name": "HW",
+      "aliases": [],
+      "category": "8 Identity & NodeDB",
+      "summary": "Hardware chip, CPU frequency, and MAC",
+      "usage": [
+        {
+          "syntax": "HW",
+          "description": "Reports board, MCU family and radio chip (with XTAL/TCXO clock type)."
+        }
+      ]
+    },
+    {
+      "name": "NAME",
+      "aliases": [],
+      "category": "8 Identity & NodeDB",
+      "summary": "Change device Long Name",
+      "usage": [
+        {
+          "syntax": "NAME <long_name>",
+          "description": "Change device Long Name (DM/Targeted only). Assigns a **new node number** as a side effect."
+        }
+      ]
+    },
+    {
+      "name": "NEIGHBORS",
+      "aliases": ["DIRECT"],
+      "category": "8 Identity & NodeDB",
+      "summary": "List 0-hop direct neighbors",
+      "usage": [
+        {
+          "syntax": "NEIGHBORS",
+          "description": "Lists nodes heard directly (0 hops away) with SNR (paged)."
+        }
+      ]
+    },
+    {
+      "name": "NODEDB",
+      "aliases": ["DB"],
+      "category": "8 Identity & NodeDB",
+      "summary": "Query node entry details from DB",
+      "usage": [
+        {
+          "syntax": "NODEDB <!id|short>",
+          "description": "Look up comprehensive record for node from database (user, hardware, SNR, last seen)."
+        }
+      ]
+    },
+    {
+      "name": "NODES",
+      "aliases": [],
+      "category": "8 Identity & NodeDB",
+      "summary": "Total and active node counts",
+      "usage": [
+        {
+          "syntax": "NODES [search]",
+          "description": "Paged full NodeDB listing (optional search filter)."
+        }
+      ]
+    },
+    {
+      "name": "NODES28",
+      "aliases": ["N28"],
+      "category": "8 Identity & NodeDB",
+      "summary": "List nodes running v2.8+ protocols",
+      "usage": [
+        {
+          "syntax": "NODES28",
+          "description": "Lists nodes running Meshtastic v2.8+ structural / signed protocols (P = structural 2.8, V = XEdDSA-signed)."
+        }
+      ]
+    },
+    {
+      "name": "OWNER",
+      "aliases": [],
+      "category": "8 Identity & NodeDB",
+      "summary": "Set Long Name and Short Name",
+      "usage": [
+        {
+          "syntax": "OWNER <short> <long>",
+          "description": "Change Short Name and Long Name simultaneously (**short first**, max 4 chars; rest is the long name). Example: `OWNER BASE BaseStation`. Also assigns a new node number."
+        }
+      ]
+    },
+    {
+      "name": "PHONE",
+      "aliases": [],
+      "category": "8 Identity & NodeDB",
+      "summary": "Local phone connection status",
+      "usage": [
+        {
+          "syntax": "PHONE",
+          "description": "Displays local Bluetooth / Serial / WiFi phone connection status and pairing PIN."
+        }
+      ]
+    },
+    {
+      "name": "POS",
+      "aliases": [],
+      "category": "8 Identity & NodeDB",
+      "summary": "Live GPS coordinates, altitude, PDOP",
+      "usage": [
+        {
+          "syntax": "POS",
+          "description": "Displays current position fix: source type, coordinates, altitude, GPS model/fix state, satellites, and precision (PDOP)."
+        }
+      ]
+    },
+    {
+      "name": "TRUSTED",
+      "aliases": [],
+      "category": "8 Identity & NodeDB",
+      "summary": "Named trusted-channel slots (2)",
+      "usage": [
+        {
+          "syntax": "TRUSTED [0|1] [name|OFF]",
+          "description": "Manage the 2 named trusted-channel slots. Bare lists both; `<slot> <name>` sets a trusted channel name (15 chars); `<slot> OFF` disables."
+        }
+      ]
+    },
+    {
+      "name": "STATS",
+      "aliases": [],
+      "category": "9 Network Observation, Scanning & SIGINT",
+      "summary": "",
+      "usage": [
+        {
+          "syntax": "STATS",
+          "description": "Mesh router throughput metrics (Tx, Rx, bad, dup, relayed, cancelled, dropped, noise)."
+        }
+      ]
+    },
+    {
+      "name": "CHANNELSTATS",
+      "aliases": ["CHS"],
+      "category": "9 Observation & SIGINT",
+      "summary": "Traffic volume breakdown per channel",
+      "usage": [
+        {
+          "syntax": "CHANNELSTATS [top-N]",
+          "description": "Sorted channel usage breakdown across all 256 channel indexes seen (paged, with channel names). Optional top-N."
+        }
+      ]
+    },
+    {
+      "name": "CLIENTSCAN",
+      "aliases": [],
+      "category": "9 Observation & SIGINT",
+      "summary": "Survey repeating clients via test-packet echoes",
+      "usage": [
+        {
+          "syntax": "CLIENTSCAN [time]",
+          "description": "Identifies active repeating client devices. It uses the command confirmation as a test packet, and reports all the repeats it hears of that packet. Optionally you can specify the amount of time in seconds (1-600, default 100) you want it to wait for repeats."
+        }
+      ]
+    },
+    {
+      "name": "CLRSTATS",
+      "aliases": ["CS"],
+      "category": "9 Observation & SIGINT",
+      "summary": "Clear volatile runtime statistics",
+      "usage": [
+        {
+          "syntax": "CLRSTATS",
+          "description": "Resets all volatile runtime diagnostic and packet statistics counters."
+        }
+      ]
+    },
+    {
+      "name": "CRSTATS",
+      "aliases": ["CRS"],
+      "category": "9 Observation & SIGINT",
+      "summary": "Coding Rate distribution stats",
+      "usage": [
+        {
+          "syntax": "CRSTATS",
+          "description": "Coding Rate distribution stats across received packets (display-domain CR 5-8, each with direct/relay/total)."
+        }
+      ]
+    },
+    {
+      "name": "FIREWALLSTATS",
+      "aliases": ["FWS"],
+      "category": "9 Observation & SIGINT",
+      "summary": "Packet drop counters and stats",
+      "usage": [
+        {
+          "syntax": "FIREWALLSTATS",
+          "description": "Comprehensive counter report for all drop rules, favorite bypasses, and rate limits (paged)."
+        }
+      ]
+    },
+    {
+      "name": "FREQSCAN",
+      "aliases": [],
+      "category": "9 Observation & SIGINT",
+      "summary": "Spectrum slice peak RSSI sweep",
+      "usage": [
+        {
+          "syntax": "FREQSCAN <freq_MHz> <bw_kHz>",
+          "description": "Same as NOISE but on a specific frequency: hops there with TX disabled, measures, returns. Freq range 100-2500 MHz; BW must be 31, 62, 125, 250 or 500 kHz. Example: `FREQSCAN 868.0 250`."
+        }
+      ]
+    },
+    {
+      "name": "LCS",
+      "aliases": ["LORACHIPSTATS"],
+      "category": "9 Observation & SIGINT",
+      "summary": "LoRa chip state time percentages",
+      "usage": [
+        {
+          "syntax": "LCS [RESET]",
+          "description": "Percentage-of-time breakdown of LoRa chip states (TX/RX/STBY/FS/SLP/BUSY/ERR/UNK), sampled at 1 Hz since boot (RAM-only; `LCS RESET` zeroes, `CLRSTATS` clears too) - one state per line, with the raw sample count in parentheses. Family coverage: SX126x/SX1280 = busy pin + GetStatus mode; RF95 = REG_OP_MODE; LR11x0/LR20x0 = busy pin + software RX view (chip mode not datasheet-confirmed there)."
+        }
+      ]
+    },
+    {
+      "name": "MQTTSTATS",
+      "aliases": ["MQS"],
+      "category": "9 Observation & SIGINT",
+      "summary": "MQTT uplink and downlink metrics",
+      "usage": [
+        {
+          "syntax": "MQTTSTATS",
+          "description": "Classifies received packets by ok-to-MQTT bit / via-MQTT flag. _Not_ gateway Rx/Tx counters."
+        }
+      ]
+    },
+    {
+      "name": "NETSCAN",
+      "aliases": [],
+      "category": "9 Observation & SIGINT",
+      "summary": "60-second neighborhood scan",
+      "usage": [
+        {
+          "syntax": "NETSCAN",
+          "description": "Performs 60-second background passive mapping of surrounding mesh transmitters. It does it by sending a zero-hop traceroute and then listening for any and all packets heard in the mesh, including unrelated ones."
+        }
+      ]
+    },
+    {
+      "name": "NOISE",
+      "aliases": [],
+      "category": "9 Observation & SIGINT",
+      "summary": "Immediate RF noise floor measurement",
+      "usage": [
+        {
+          "syntax": "NOISE",
+          "description": "Starts a high-resolution RF noise floor measurement (async: ack first, report follows)."
+        }
+      ]
+    },
+    {
+      "name": "PACKETSTATS",
+      "aliases": ["PS"],
+      "category": "9 Observation & SIGINT",
+      "summary": "Packet counts categorized by PortNum",
+      "usage": [
+        {
+          "syntax": "PACKETSTATS [top-N]",
+          "description": "Sorted **PortNum application** traffic entries by packet volume (paged; includes subtype breakdowns). Optional top-N."
+        }
+      ]
+    },
+    {
+      "name": "RELAYS",
+      "aliases": ["RY"],
+      "category": "9 Observation & SIGINT",
+      "summary": "All active relay IDs with D/R/T counts",
+      "usage": [
+        {
+          "syntax": "RELAYS [top-N | <hex>]",
+          "description": "Complete sorted list of active relays by packet count (optional top-N or single relay `<hex>`)."
+        }
+      ]
+    },
+    {
+      "name": "RSSI",
+      "aliases": ["RS"],
+      "category": "9 Observation & SIGINT",
+      "summary": "Last received packet RF metrics",
+      "usage": [
+        {
+          "syntax": "RSSI",
+          "description": "Reports signal metrics (RSSI, SNR, Frequency Error, Coding Rate) plus hops/relay and OM/MQTT/UDP/PKI flags of last received packet."
+        }
+      ]
+    },
+    {
+      "name": "RSSILOG",
+      "aliases": ["PL"],
+      "category": "9 Observation & SIGINT",
+      "summary": "32-entry packet history ring buffer (shows last 5)",
+      "usage": [
+        {
+          "syntax": "RSSILOG [n]",
+          "description": "Displays recent received packets from a **32-entry** circular ring buffer (default: last 5, max 32)."
+        }
+      ]
+    },
+    {
+      "name": "RSSITEL",
+      "aliases": ["RT"],
+      "category": "9 Observation & SIGINT",
+      "summary": "Compact RF & telemetry packet report",
+      "usage": [
+        {
+          "syntax": "ZH ROUTER ON",
+          "description": "Consult the auto-router mask (ROUTER / ROUTER_LATE roles, RAM-only, auto-populated from directly-heard zero-hop packets via a single NodeDB lookup) after a manual-mask miss (sets/clears `zero_hop_config & 0x08`)."
+        },
+        {
+          "syntax": "ZH CLEAR ROUTER",
+          "description": "Wipe the auto-router mask."
+        },
+        {
+          "syntax": "RSSITEL",
+          "description": "Ultra-compact RF and telemetry report of last received packet (Hops/Relay, RSSI/SNR/FE, ChUtil/AirTime, Batt %/V, live Power/Env sensors, CPU temp, uptime days)."
+        }
+      ]
+    },
+    {
+      "name": "SEARCHKEY",
+      "aliases": [],
+      "category": "9 Observation & SIGINT",
+      "summary": "Find node by exact 32-byte public key",
+      "usage": [
+        {
+          "syntax": "SEARCHKEY <b64_pubkey>",
+          "description": "Search NodeDB for the node with this **exact 32-byte** public key (prefix search is not supported)."
+        }
+      ]
+    },
+    {
+      "name": "SEARCHRELAY",
+      "aliases": ["SRELAY"],
+      "category": "9 Observation & SIGINT",
+      "summary": "Find nodes matching relay byte ID",
+      "usage": [
+        {
+          "syntax": "SEARCHRELAY <hex|0xhex|dec>",
+          "description": "Find nodes in database that match a given 8-bit relay ID byte. Example: `SEARCHRELAY *A4`."
+        }
+      ]
+    },
+    {
+      "name": "SENDSTATUS",
+      "aliases": [],
+      "category": "9 Observation & SIGINT",
+      "summary": "Send freeform text as a Node Status message",
+      "usage": [
+        {
+          "syntax": "SENDSTATUS <text>",
+          "description": "Send freeform text (max 79 chars) as a Node Status message (`NODE_STATUS_APP`) on Ch 0."
+        }
+      ]
+    },
+    {
+      "name": "SHORTRSSI",
+      "aliases": ["SR"],
+      "category": "9 Observation & SIGINT",
+      "summary": "Minimal 2-line packet RF report",
+      "usage": [
+        {
+          "syntax": "SHORTRSSI",
+          "description": "Minimal 2-line RF signal report of last received packet (Hops/Relay, RSSI/SNR/FE)."
+        }
+      ]
+    },
+    {
+      "name": "SIGSTATS",
+      "aliases": ["SS"],
+      "category": "9 Observation & SIGINT",
+      "summary": "Packet privacy classification & noise floor",
+      "usage": [
+        {
+          "syntax": "SIGSTATS",
+          "description": "Packet privacy classification (wire total, private-encrypted, known-decrypted) plus noise floor. _Not_ signature verification stats - see `VERIFYSTATS`."
+        }
+      ]
+    },
+    {
+      "name": "STATUSPS",
+      "aliases": [],
+      "category": "9 Observation & SIGINT",
+      "summary": "Send packet-volume summary as Node Status",
+      "usage": [
+        {
+          "syntax": "STATUSPS [N]",
+          "description": "Build a top-N per-PortNum packet-volume summary (default 5) and send it as a Node Status message."
+        }
+      ]
+    },
+    {
+      "name": "TRACE",
+      "aliases": ["TR"],
+      "category": "9 Observation & SIGINT",
+      "summary": "Trace route to destination node",
+      "usage": [
+        {
+          "syntax": "TRACE <!id|short>",
+          "description": "Run a real traceroute to the target node (async result)."
+        }
+      ]
+    },
+    {
+      "name": "TRANSSTATS",
+      "aliases": ["TS"],
+      "category": "9 Observation & SIGINT",
+      "summary": "Transport interface packet distribution",
+      "usage": [
+        {
+          "syntax": "TRANSSTATS",
+          "description": "Transport-interface packet distribution (INTL, LORA, ALT1-3, MQTT, UDP, API) - _not_ airtime/duty-cycle (paged)."
+        }
+      ]
+    },
+    {
+      "name": "VERIFYSTATS",
+      "aliases": ["VS"],
+      "category": "9 Observation & SIGINT",
+      "summary": "XEdDSA signature verification stats",
+      "usage": [
+        {
+          "syntax": "VERIFYSTATS",
+          "description": "XEdDSA signature verification breakdown (NoSig / invalid / OK buckets with packets, bytes, percent)."
+        }
+      ]
+    },
+    {
+      "name": "USERPREFS_MESHCORE_FLOOD_MAX",
+      "aliases": [],
+      "category": "`/mc FLOODMAX <any> <unscoped> <advert>`",
+      "summary": "integer 1..64",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_MESHCORE_FLOOD_MAX_ADVERT",
+      "aliases": [],
+      "category": "`/mc FLOODMAX <any> <unscoped> <advert>`",
+      "summary": "integer 1..64",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_MESHCORE_FLOOD_MAX_UNSCOPED",
+      "aliases": [],
+      "category": "`/mc FLOODMAX <any> <unscoped> <advert>`",
+      "summary": "integer 1..64",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_MESHCORE_PATH_HASH_SIZE",
+      "aliases": [],
+      "category": "`/mc PATHSIZE <1-3>`",
+      "summary": "integer 1..3",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_PPING_MC_HEADER_MODE",
+      "aliases": [],
+      "category": "`/mc PPING HEADER`",
+      "summary": "one of 0, 1, 2",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_PPING_ALLOW_DM",
+      "aliases": [],
+      "category": "`/mt PPING ALLOWDM`",
+      "summary": "bool",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_PPING_CHANNELS",
+      "aliases": [],
+      "category": "`/mt PPING CHAN`",
+      "summary": "bitmask (8 bits, dec): 0=Canal 0, 1=Canal 1, 2=Canal 2, 3=Canal 3, 4=Canal 4, 5=Canal 5, 6=Canal 6, 7=Canal 7",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_PPING_TRIGGER",
+      "aliases": [],
+      "category": "`/mt PPING CMD`",
+      "summary": "text, max 15",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_PPING_IGNORE_DIRECT",
+      "aliases": [],
+      "category": "`/mt PPING DIRECT IGNORE`",
+      "summary": "bool",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_PPING_EMOJI_MODE",
+      "aliases": [],
+      "category": "`/mt PPING EMOJI`",
+      "summary": "one of 0, 1, 2",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_PPING_FLAGS",
+      "aliases": [],
+      "category": "`/mt PPING FLAGS`",
+      "summary": "bool",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_PPING_FREQERR",
+      "aliases": [],
+      "category": "`/mt PPING FREQERR`",
+      "summary": "bool",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_PPING_HEADER",
+      "aliases": [],
+      "category": "`/mt PPING HEADER <texto>`",
+      "summary": "text, max 63",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_PPING_MT_HEADER_MODE",
+      "aliases": [],
+      "category": "`/mt PPING HEADER`",
+      "summary": "one of 0, 1, 2",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_PPING_IGNORE_REMOTE",
+      "aliases": [],
+      "category": "`/mt PPING IGNORE REMOTE`",
+      "summary": "bool",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_PPING_ENABLED",
+      "aliases": [],
+      "category": "`/mt PPING ON`",
+      "summary": "bool",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_PPING_RSSI",
+      "aliases": [],
+      "category": "`/mt PPING RSSI`",
+      "summary": "bool",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_PPING_SNR",
+      "aliases": [],
+      "category": "`/mt PPING SNR`",
+      "summary": "bool",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_BROADCAST_DELAY_MAX_S",
+      "aliases": [],
+      "category": "`/mtc BD SET`",
+      "summary": "integer 1..300",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_DROP_MASK",
+      "aliases": [],
+      "category": "`/mtc DROP <TAG>`",
+      "summary": "bitmask (64 bits, hex): 0=NODEINFO, 1=POSITION, 2=TELEMETRY, 3=NEIGHBOR, 4=TRACEROUTE, 5=TRACEROUTE_REMOTE, 6=TRACEROUTE_LOCAL, 7=PRIVATE, 8=HOP6, 9=HOP7, 10=REQ_NODEINFO, 11=REQ_TELEMETRY, 12=REQ_POSITION, 13=ACKS, 14=PKI, 15=PKI_REMOTE, 16=PKI_LOCAL, 17=FAV_BYPASS, 18=PREHOP, 19=STORE_FORWARD, 20=ADMIN, 21=TEXT, 22=KEYVER, 23=ALERT, 24=WAYPOINT, 25=TRACEROUTE_DIRECT, 26=TRACEROUTE_DIRECT_REMOTE, 27=TRACEROUTE_DIRECT_LOCAL, 28=SKIP_SKIP_HANDLE, 29=RL_TEXT, 30=RL_TRACE, 31=RL_OTHER, 32=TELE_DEVICE, 33=TELE_POWER, 34=TELE_ENV, 35=TELE_OTHER, 36=NO_MQTT, 37=POS_MANUAL, 38=POS_GPS, 39=POS_OTHER, 42=RL_NODEINFO, 43=RL_POSITION, 44=RL_TELEMETRY, 45=RL_PRIVATE, 46=BR_NODEINFO, 47=BR_TELEMETRY, 48=BR_POSITION",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_FEATURES_MASK",
+      "aliases": [],
+      "category": "`/mtc FEATURES <NAME> ON`",
+      "summary": "bitmask (64 bits, hex): 0=Reenviar cifrados al móvil, 1=Reenviar PKI ajeno al móvil, 2=Desactivar reset de AGC, 3=CLIENT_BASE con tiempos de ROUTER_LATE",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_INVALID_MASK",
+      "aliases": [],
+      "category": "`/mtc INVALID <TAG>`",
+      "summary": "bitmask (8 bits, hex): 0=NULL_ISLAND, 1=OUT_SPAIN, 2=OUT_GERMANY, 3=HW_UNSET, 4=ID_MISMATCH",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_OUT_DROP_MASK",
+      "aliases": [],
+      "category": "`/mtc OUTDROP <TAG>`",
+      "summary": "bitmask (8 bits, hex): 0=NODEINFO, 1=POSITION, 2=TELEMETRY, 3=TRACEROUTE, 4=ADMIN, 5=ROUTING",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_PREAMBLE",
+      "aliases": [],
+      "category": "`/mtc PRE <len>`",
+      "summary": "integer 6..65535",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_RL_NODEINFO_LIMIT",
+      "aliases": [],
+      "category": "`/mtc RL <TEXT",
+      "summary": "TRACE",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_RL_OTHER_LIMIT",
+      "aliases": [],
+      "category": "`/mtc RL <TEXT",
+      "summary": "TRACE",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_RL_POSITION_LIMIT",
+      "aliases": [],
+      "category": "`/mtc RL <TEXT",
+      "summary": "TRACE",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_RL_PRIVATE_LIMIT",
+      "aliases": [],
+      "category": "`/mtc RL <TEXT",
+      "summary": "TRACE",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_RL_TELEMETRY_LIMIT",
+      "aliases": [],
+      "category": "`/mtc RL <TEXT",
+      "summary": "TRACE",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_RL_TEXT_LIMIT",
+      "aliases": [],
+      "category": "`/mtc RL <TEXT",
+      "summary": "TRACE",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_RL_TRACE_LIMIT",
+      "aliases": [],
+      "category": "`/mtc RL <TEXT",
+      "summary": "TRACE",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_SECURITY_MASK",
+      "aliases": [],
+      "category": "`/mtc SECURITY`",
+      "summary": "bitmask (32 bits, hex): 0=Exigir firma, 1=Aceptar comandos por DM, 2=Descartar en silencio, 3=Auto-favorito en canal Nexus, 4=Auto-favorito si firma de confianza, 5=BYPASS_RP, 6=Auto-favorito en canal extra (canal 0)",
+      "usage": []
+    },
+    {
+      "name": "USERPREFS_NEXUS_ZERO_HOP_CONFIG",
+      "aliases": [],
+      "category": "`/mtc ZH`",
+      "summary": "bitmask (8 bits, hex): 0=Activo, 1=Conservar telemetría, 2=Conservar posición, 3=Auto routers, 4=Auto client base",
+      "usage": []
+    },
+    {
+      "name": "NEXUS_MASTER_KEY_2",
+      "aliases": [],
+      "category": "`NEXUS_MASTER_KEY_2`",
+      "summary": "`{ 0x.. }` array",
+      "usage": []
+    },
+    {
+      "name": "NEXUS_MASTER_KEY_3",
+      "aliases": [],
+      "category": "`NEXUS_MASTER_KEY_3`",
+      "summary": "`{ 0x.. }` array",
+      "usage": []
+    },
+    {
+      "name": "NEXUS_MASTER_KEY_4",
+      "aliases": [],
+      "category": "`NEXUS_MASTER_KEY_4`",
+      "summary": "`{ 0x.. }` array",
+      "usage": []
+    }
+  ]
 }
