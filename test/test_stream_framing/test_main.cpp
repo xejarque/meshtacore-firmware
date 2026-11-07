@@ -255,6 +255,9 @@ void test_back_to_back_frames_deliver_in_order()
     InputScriptedStream stream;
     FramingStreamAPIShim streamApi(&stream);
     feedStreamPath(streamApi, stream, burst);
+    // The stream path hands over one ToRadio per run, so a burst cannot hold the main loop; the next run takes the rest.
+    TEST_ASSERT_EQUAL_UINT(1, streamApi.deliveries.size());
+    streamApi.runOncePart();
     TEST_ASSERT_EQUAL_UINT(2, streamApi.deliveries.size());
     assertDeliveryAt(streamApi, 0, first);
     assertDeliveryAt(streamApi, 1, second);

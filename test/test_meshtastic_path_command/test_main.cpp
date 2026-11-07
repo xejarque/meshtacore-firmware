@@ -469,6 +469,9 @@ void setUp(void)
     previousRouter = router;
 
     nodeDB = new NodeDB();
+    // NodeDB reloads the process-wide nodeDatabase, so every test inherited the nodes of the previous one
+    // (1, 4, 8 ... 200 entries, duplicated) and a relay byte resolved as ambiguous. Start from self only.
+    nodeDB->resetNodes(false);
     capture = new CaptureRouter();
     router = capture;
     meshtastic_Channel &ch = channels.getByIndex(0);

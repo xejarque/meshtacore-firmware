@@ -1,0 +1,6 @@
+{
+  // Neutral userPrefs for the native test envs (custom_userprefs_file in [env:coverage]). The repo's
+  // userPrefs.jsonc carries factory values (channels, region, hop limit...) that the stock-default tests
+  // must not see. Only what main.cpp cannot compile without lives here.
+  "USERPREFS_TZ_STRING": "tzplaceholder                                         "
+}

@@ -361,7 +361,9 @@ try:
 except subprocess.CalledProcessError:
     repo_owner = "unknown"
 
-jsonLoc = env["PROJECT_DIR"] + "/userPrefs.jsonc"
+# An env may point custom_userprefs_file at another jsonc (relative to the project), so the native tests do not
+# inherit the factory values of userPrefs.jsonc.
+jsonLoc = join(env["PROJECT_DIR"], env.GetProjectOption("custom_userprefs_file", "userPrefs.jsonc"))
 with open(jsonLoc) as f:
     jsonStr = re.sub("//.*","", f.read(), flags=re.MULTILINE)
     userPrefs = json.loads(jsonStr)
