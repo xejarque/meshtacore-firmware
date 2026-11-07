@@ -4204,10 +4204,18 @@ static bool isStorageLocked()
 #endif
 }
 
+// How often a changed NodeDB may be written. nRF52 keeps its LittleFS in a few dozen KB, so a busy summit that hears a new
+// node every minute would erase the same pages hundreds of times a day; a reboot losing minutes of heard nodes costs nothing.
+#ifdef ARCH_NRF52
+static constexpr uint32_t NODEDB_SAVE_MIN_INTERVAL_MS = 15 * 60 * 1000;
+#else
+static constexpr uint32_t NODEDB_SAVE_MIN_INTERVAL_MS = ONE_MINUTE_MS;
+#endif
+
 void NodeDB::saveNodeDatabaseIfDirty()
 {
-    // Single attempt; shares updateUser()'s once-a-minute budget, so the write rate is unchanged.
-    if (!nodeDatabaseDirty || isStorageLocked() || Throttle::isWithinTimespanMs(lastNodeDbSave, ONE_MINUTE_MS))
+    // Single attempt; shares updateUser()'s write budget, so the write rate is unchanged.
+    if (!nodeDatabaseDirty || isStorageLocked() || Throttle::isWithinTimespanMs(lastNodeDbSave, NODEDB_SAVE_MIN_INTERVAL_MS))
         return;
     lastNodeDbSave = Time::getMillis();
     saveNodeDatabaseToDisk();
@@ -4304,7 +4312,7 @@ bool NodeDB::updateUser(uint32_t nodeId, meshtastic_User &p, uint8_t channelInde
         // We just changed something about a User. Store our DB unless we just did so less than a minute
         // ago; a deferred save stays pending and saveNodeDatabaseIfDirty() retries it.
         nodeDatabaseDirty = true;
-        if (!Throttle::isWithinTimespanMs(lastNodeDbSave, ONE_MINUTE_MS)) {
+        if (!Throttle::isWithinTimespanMs(lastNodeDbSave, NODEDB_SAVE_MIN_INTERVAL_MS)) {
             saveToDisk(SEGMENT_NODEDATABASE);
             lastNodeDbSave = millis();
         } else {
