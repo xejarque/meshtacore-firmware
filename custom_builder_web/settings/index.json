@@ -1,1 +1,13 @@
-["03-firewall.json", "04-zero-hop.json", "05-seguridad.json", "06-saltos.json", "07-radio.json", "08-emisiones.json", "09-almacen.json", "10-energia-sistema.json"]
+[
+  "03-firewall.json",
+  "04-zero-hop.json",
+  "05-seguridad.json",
+  "06-saltos.json",
+  "07-radio.json",
+  "08-emisiones.json",
+  "09-almacen.json",
+  "10-energia-sistema.json",
+  "11-observacion.json",
+  "12-mensajeria.json",
+  "13-automatizacion.json"
+]

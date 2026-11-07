@@ -1,0 +1,86 @@
+{
+  "id": "13",
+  "title": "Automatización",
+  "icon": "⏱️",
+  "intro": "Alias de nodos, macros, nombres de grupo y tareas programadas. Aquí puedes ver lo que hay guardado y quitarlo. Crear macros y tareas programadas requiere el carácter «;» y la sintaxis exacta, así que se hace desde la consola. Se guarda con Guardar.",
+  "entries": [
+    {
+      "id": "auto.aliases",
+      "type": "list",
+      "title": "Alias de nodos",
+      "help": "Hasta 16 apodos de 4 caracteres para reconocer nodos. Para añadir uno escribe el ID y el apodo separados por un espacio.",
+      "risk": "write",
+      "read": {
+        "cmd": "ALIAS LIST",
+        "items": "(?<![^\\n])(\\S{1,4}) -> ![0-9a-f]{8}",
+        "accept": " -> "
+      },
+      "list": {
+        "add": "ALIAS SET {value}",
+        "remove": "ALIAS DEL {value}",
+        "placeholder": "!abcd1234 HQ01"
+      }
+    },
+    {
+      "id": "auto.groups",
+      "type": "list",
+      "title": "Nombres de grupo",
+      "help": "Hasta 4 nombres de grupo de 8 caracteres como máximo. Son solo nombres: no guardan qué nodos pertenecen a cada uno.",
+      "risk": "write",
+      "read": { "cmd": "GROUP LIST", "items": "\\[(\\w+)\\]" },
+      "list": {
+        "add": "GROUP ADD {value}",
+        "remove": "GROUP REM {value}",
+        "clear": "GROUP CLEAR",
+        "placeholder": "Nombre, p. ej. PATRULLA"
+      }
+    },
+    {
+      "id": "auto.macros",
+      "type": "list",
+      "title": "Macros guardadas",
+      "help": "Hasta 4 secuencias de comandos que se ejecutan una tras otra. Aquí puedes verlas y borrarlas; para crearlas usa la consola (MACRO SET nombre comando; comando).",
+      "risk": "write",
+      "read": {
+        "cmd": "MACRO LIST",
+        "items": "(?<![^\\n])(\\w+): [^\\n]+",
+        "accept": "Macro"
+      },
+      "list": { "remove": "MACRO DEL {value}" }
+    },
+    {
+      "id": "auto.cron",
+      "type": "list",
+      "title": "Tareas programadas",
+      "help": "Hasta 8 comandos que el nodo ejecuta solo, cada cierto tiempo o a una hora. Aquí puedes verlas y quitarlas; para crearlas usa la consola (CRON ADD PER 1800 NOISE).",
+      "risk": "write",
+      "read": {
+        "cmd": "CRON LIST",
+        "items": "(?<![^\\n])\\[(\\d+)\\] [^\\n]+",
+        "accept": "\\[\\d+\\]"
+      },
+      "list": { "remove": "CRON REM {value}" }
+    },
+    {
+      "id": "auto.files",
+      "type": "actions",
+      "title": "Sistema de ficheros",
+      "help": "Consulta del almacenamiento interno del nodo. Solo lectura.",
+      "risk": "read",
+      "actions": [
+        {
+          "title": "Espacio libre",
+          "cmd": "FS",
+          "readonly": true,
+          "help": "Capacidad total, usada y libre del almacenamiento."
+        },
+        {
+          "title": "Listar ficheros",
+          "cmd": "LS",
+          "readonly": true,
+          "help": "Nombre y tamaño de cada fichero guardado en el nodo."
+        }
+      ]
+    }
+  ]
+}

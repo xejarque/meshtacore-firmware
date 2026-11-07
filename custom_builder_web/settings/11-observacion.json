@@ -1,0 +1,193 @@
+{
+  "id": "11",
+  "title": "Observación",
+  "icon": "📡",
+  "intro": "Estadísticas de lo que oye tu nodo y la lista de nodos vigilados. Casi todo es solo lectura y no cambia nada. Los escaneos de red y de clientes hacen que el nodo transmita, así que se piden con confirmación. Las estadísticas y la lista de vigilancia viven en la memoria del nodo: se pierden al reiniciar.",
+  "entries": [
+    {
+      "id": "obs.signal",
+      "type": "actions",
+      "title": "Señal del último paquete",
+      "help": "Datos de radio del último paquete que oyó el nodo: potencia, relación señal/ruido, saltos y por qué relé llegó.",
+      "risk": "read",
+      "actions": [
+        {
+          "title": "Señal completa",
+          "cmd": "SHORTRSSI",
+          "readonly": true,
+          "help": "Saltos, relé, RSSI, SNR y error de frecuencia del último paquete recibido, en dos líneas."
+        },
+        {
+          "title": "Señal con telemetría",
+          "cmd": "RSSITEL",
+          "readonly": true,
+          "help": "Lo anterior más ocupación del canal, batería, sensores y tiempo encendido, en formato compacto."
+        },
+        {
+          "title": "Últimos paquetes",
+          "cmd": "RSSILOG 10",
+          "readonly": true,
+          "help": "Los 10 últimos paquetes recibidos: emisor, saltos, señal, relé y antigüedad."
+        }
+      ]
+    },
+    {
+      "id": "obs.stats",
+      "type": "actions",
+      "title": "Estadísticas de tráfico",
+      "help": "Contadores de lo que el nodo ha recibido y enviado desde que arrancó. Útiles para saber qué ocupa tu canal y quién retransmite.",
+      "risk": "read",
+      "actions": [
+        {
+          "title": "Resumen del router",
+          "cmd": "STATS",
+          "readonly": true,
+          "help": "Paquetes enviados, recibidos, erróneos, duplicados, retransmitidos y descartados, más el ruido de fondo."
+        },
+        {
+          "title": "Privados y cifrado",
+          "cmd": "SIGSTATS",
+          "readonly": true,
+          "help": "Cuántos paquetes viajan cifrados con claves que tu nodo no tiene y cuántos puede descifrar."
+        },
+        {
+          "title": "Verificación de firmas",
+          "cmd": "VERIFYSTATS",
+          "readonly": true,
+          "help": "Paquetes sin firma, con firma inválida y con firma correcta."
+        },
+        {
+          "title": "Tasa de codificación",
+          "cmd": "CRSTATS",
+          "readonly": true,
+          "help": "Reparto de los paquetes por tasa de codificación (CR 5 a 8), directos y retransmitidos."
+        },
+        {
+          "title": "Paquetes por tipo",
+          "cmd": "PACKETSTATS 10",
+          "readonly": true,
+          "help": "Los 10 tipos de aplicación con más tráfico: posiciones, telemetría, textos, etc."
+        },
+        {
+          "title": "Uso de canales",
+          "cmd": "CHANNELSTATS 10",
+          "readonly": true,
+          "help": "Los 10 canales con más tráfico, con su nombre."
+        },
+        {
+          "title": "Relés activos",
+          "cmd": "RELAYS 10",
+          "readonly": true,
+          "help": "Los 10 relés que más paquetes han retransmitido, con su nombre si el nodo lo conoce."
+        },
+        {
+          "title": "Interfaces de transporte",
+          "cmd": "TRANSSTATS",
+          "readonly": true,
+          "help": "Reparto de paquetes entre radio, MQTT, UDP y API."
+        },
+        {
+          "title": "Tráfico MQTT",
+          "cmd": "MQTTSTATS",
+          "readonly": true,
+          "help": "Cuántos paquetes permiten subirse a MQTT y cuántos han llegado por MQTT."
+        },
+        {
+          "title": "Estados del chip de radio",
+          "cmd": "LORACHIPSTATS",
+          "readonly": true,
+          "help": "Porcentaje de tiempo que el chip pasa transmitiendo, escuchando o dormido."
+        },
+        {
+          "title": "Cortafuegos",
+          "cmd": "FIREWALLSTATS",
+          "readonly": true,
+          "help": "Cuántos paquetes ha descartado cada regla del cortafuegos."
+        }
+      ]
+    },
+    {
+      "id": "obs.reset",
+      "type": "actions",
+      "title": "Poner a cero las estadísticas",
+      "help": "Borra todos los contadores anteriores para empezar a medir desde cero. No toca ninguna configuración.",
+      "risk": "write",
+      "actions": [
+        {
+          "title": "Borrar estadísticas",
+          "cmd": "CLRSTATS",
+          "readonly": true,
+          "help": "Pone a cero los contadores de tráfico, señal y cortafuegos."
+        }
+      ]
+    },
+    {
+      "id": "obs.scans",
+      "type": "actions",
+      "title": "Escaneos de la red",
+      "help": "Miden el entorno radio. Los dos primeros solo escuchan el ruido, pero el nodo queda sordo durante la medida. Los dos últimos hacen que tu nodo TRANSMITA un paquete y tardan entre 1 y 2 minutos.",
+      "risk": "danger",
+      "actions": [
+        {
+          "title": "Medir ruido de fondo",
+          "cmd": "NOISE",
+          "readonly": true,
+          "help": "Mide el ruido en la frecuencia actual. El resultado llega tras unos segundos."
+        },
+        {
+          "title": "Escanear vecinos (transmite)",
+          "cmd": "NETSCAN",
+          "readonly": true,
+          "risk": "danger",
+          "help": "Envía un traceroute sin saltos y escucha durante 60 segundos a todos los nodos que se oigan. Ocupa el canal."
+        },
+        {
+          "title": "Buscar repetidores (transmite)",
+          "cmd": "CLIENTSCAN",
+          "readonly": true,
+          "risk": "danger",
+          "help": "Usa su propia confirmación como paquete de prueba e informa de quién lo repite. Espera 100 segundos."
+        }
+      ]
+    },
+    {
+      "id": "obs.watchlist",
+      "type": "list",
+      "title": "Nodos vigilados",
+      "help": "Hasta 8 nodos de los que el nodo calcula medias de señal, variaciones, saltos, relés e intervalos. Escribe el ID (!abcd1234) o el nombre corto. Se pierde al reiniciar.",
+      "risk": "write",
+      "read": {
+        "cmd": "WATCH LIST",
+        "items": "\\b([0-9a-f]{8})\\[[^\\]]*\\]",
+        "accept": "Watchlist"
+      },
+      "list": {
+        "add": "WATCH ADD {value}",
+        "remove": "WATCH DEL !{value}",
+        "clear": "WATCH CLEAR",
+        "placeholder": "!abcd1234 o nombre corto"
+      }
+    },
+    {
+      "id": "obs.watch_actions",
+      "type": "actions",
+      "title": "Informes de los nodos vigilados",
+      "help": "El informe de un nodo incluye paquetes, señal media y mínima, saltos, relé principal, intervalos y tipos de tráfico. Salen en varias páginas.",
+      "risk": "read",
+      "actions": [
+        {
+          "title": "Informe de todos",
+          "cmd": "WATCH ALL",
+          "readonly": true,
+          "help": "Un informe por cada nodo vigilado que haya enviado algo."
+        },
+        {
+          "title": "Poner a cero contadores",
+          "cmd": "WATCH RESET",
+          "readonly": true,
+          "help": "Reinicia las estadísticas de todos los nodos vigilados pero deja la lista como está."
+        }
+      ]
+    }
+  ]
+}

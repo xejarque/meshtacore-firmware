@@ -1,0 +1,159 @@
+{
+  "id": "12",
+  "title": "Mensajería",
+  "icon": "💬",
+  "intro": "Respuesta automática a pings públicos, reenvío de mensajes directos, MQTT y envíos puntuales. Para escribir mensajes sueltos (TEXT, DM) usa la consola. Los cambios viven en la memoria del nodo hasta que pulses Guardar.",
+  "entries": [
+    {
+      "id": "msg.public_ping",
+      "type": "flags",
+      "title": "Respuesta a pings públicos",
+      "help": "Cuando alguien escribe el texto de ping (por defecto /ping) en un canal, tu nodo contesta con los datos de la señal con la que le oyó. Aquí eliges si contesta y qué datos añade.",
+      "risk": "write",
+      "read": { "cmd": "PPING", "mode": "pairs" },
+      "flags": [
+        {
+          "key": "GLOBAL",
+          "readPattern": "\\bGlobal:(0|1)",
+          "write": { "on": "PPING ON", "off": "PPING OFF" },
+          "title": "Contestar a pings",
+          "help": "Interruptor general. Apagado, el nodo no responde a ningún ping público de Meshtastic."
+        },
+        {
+          "key": "RSSI",
+          "readPattern": "\\bRSSI:(0|1)",
+          "write": { "on": "PPING RSSI ON", "off": "PPING RSSI OFF" },
+          "title": "Incluir potencia (RSSI)",
+          "help": "Añade la potencia con la que se oyó el ping."
+        },
+        {
+          "key": "SNR",
+          "readPattern": "\\bSNR:(0|1)",
+          "write": { "on": "PPING SNR ON", "off": "PPING SNR OFF" },
+          "title": "Incluir relación señal/ruido (SNR)",
+          "help": "Añade cuánto sobresalía la señal del ruido."
+        },
+        {
+          "key": "FE",
+          "readPattern": "\\bFE:(0|1)",
+          "write": { "on": "PPING FREQERR ON", "off": "PPING FREQERR OFF" },
+          "title": "Incluir error de frecuencia",
+          "help": "Añade la diferencia de frecuencia entre los dos nodos."
+        },
+        {
+          "key": "FLAGS",
+          "readPattern": "\\bFlags:(0|1)",
+          "write": { "on": "PPING FLAGS ON", "off": "PPING FLAGS OFF" },
+          "title": "Incluir indicadores",
+          "help": "Añade si el paquete llegó por MQTT, UDP o con cifrado de clave pública."
+        },
+        {
+          "key": "DM",
+          "readPattern": "\\bDM:(0|1)",
+          "write": { "on": "PPING ALLOWDM ON", "off": "PPING ALLOWDM OFF" },
+          "title": "Contestar también a mensajes directos",
+          "help": "Permite que te hagan ping por mensaje directo y no solo por canal."
+        }
+      ]
+    },
+    {
+      "id": "msg.dm_forward",
+      "type": "enum",
+      "title": "Reenviar mensajes directos",
+      "help": "Reenvía automáticamente los mensajes directos que recibe tu nodo. Útil para un nodo que hace de pasarela.",
+      "risk": "write",
+      "read": {
+        "cmd": "DM-FORWARD",
+        "pattern": "DM Forwarding:\\s*(ENABLED|DISABLED)"
+      },
+      "options": [
+        {
+          "value": "ON",
+          "read": "ENABLED",
+          "title": "Activado",
+          "help": "Reenvía todos los directos recibidos."
+        },
+        {
+          "value": "OFF",
+          "read": "DISABLED",
+          "title": "Desactivado",
+          "help": "No reenvía nada."
+        }
+      ],
+      "write": { "set": "DM-FORWARD {value}" }
+    },
+    {
+      "id": "msg.ok_to_mqtt",
+      "type": "flags",
+      "title": "Permiso para subir a MQTT",
+      "help": "Marca tus mensajes de texto como «se pueden subir a MQTT». Apagado, los pasarelas MQTT no deberían publicarlos.",
+      "risk": "write",
+      "read": { "cmd": "OKTOMQTT", "mode": "pairs" },
+      "flags": [
+        {
+          "key": "OKTOMQTT",
+          "write": { "on": "OKTOMQTT ON", "off": "OKTOMQTT OFF" },
+          "title": "Permitir MQTT en mis mensajes",
+          "help": "Cada paquete saliente lleva la marca de «ok to MQTT»."
+        }
+      ]
+    },
+    {
+      "id": "msg.mqtt_mode",
+      "type": "enum",
+      "title": "Modo MQTT",
+      "help": "Cómo trata el nodo el cliente MQTT. Solo tiene efecto si el nodo tiene MQTT configurado.",
+      "risk": "write",
+      "read": { "cmd": "MQTT", "pattern": "Mode:\\s*(\\S+)" },
+      "options": [
+        {
+          "value": "DEFAULT",
+          "read": "DEFAULT",
+          "title": "Por defecto",
+          "help": "Comportamiento normal de Meshtastic."
+        },
+        {
+          "value": "ALWAYS",
+          "read": "ALWAYS-UPLOAD",
+          "title": "Subir siempre",
+          "help": "Sube todo lo que oye, ignore o no la marca de «ok to MQTT»."
+        },
+        {
+          "value": "STRICT",
+          "read": "STRICT-PRIVACY",
+          "title": "Privacidad estricta",
+          "help": "No sube nada que no lleve la marca de permiso."
+        }
+      ],
+      "write": { "set": "MQTT {value}" }
+    },
+    {
+      "id": "msg.actions",
+      "type": "actions",
+      "title": "Envíos puntuales",
+      "help": "Acciones que hacen que tu nodo transmita algo. Se piden con confirmación porque salen a la malla.",
+      "risk": "danger",
+      "actions": [
+        {
+          "title": "Anunciar mi nodo",
+          "cmd": "SENDMYNODE",
+          "readonly": true,
+          "risk": "danger",
+          "help": "Emite ahora mismo la ficha de tu nodo (nombre, modelo, clave) en el canal principal."
+        },
+        {
+          "title": "Aplicar buenas prácticas de la comunidad",
+          "cmd": "GOODPRACTICES",
+          "risk": "danger",
+          "help": "Fija NodeInfo y posición a 72 h, apaga la posición inteligente y sube la telemetría activa a 24 h como mínimo. Cambia varios intervalos a la vez."
+        },
+        {
+          "title": "Probar el timbre",
+          "cmd": "PLAY BELL",
+          "readonly": true,
+          "help": "Hace sonar el timbre del nodo si tiene zumbador."
+        }
+      ]
+    }
+  ]
+}

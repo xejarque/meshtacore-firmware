@@ -4,8 +4,14 @@ import { joinPages } from "./parsers.js";
 
 // A Nexus reply carries "MESHTACORE" (the first page) or a page marker "P2: " (the following ones).
 // Anything else that reaches the phone is ordinary mesh traffic forwarded by the node.
+// A few replies (WATCH LIST, SEARCHRELAY) carry no "MESHTACORE" word, but every Nexus reply starts with the
+// signature emoji (🔴 unsigned, 🟠 unverified, 🟢 verified, 🔒 rejection), which ordinary chatter rarely does.
 export function isNexusReply(text) {
-  return /MESHTACORE/.test(text) || /^P\d+: /.test(text);
+  return (
+    /MESHTACORE/.test(text) ||
+    /^P\d+: /.test(text) ||
+    /^[🔴🟠🟢🔒]\s/u.test(text)
+  );
 }
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -19,13 +25,22 @@ export function readFlags(entry, reply) {
   const out = {};
   if (entry.read.mode === "tokens") {
     const m = new RegExp(entry.read.pattern, "s").exec(text);
-    const active = m ? new Set(m[1].split(/\s+/).filter(Boolean).map(norm)) : null;
-    for (const f of entry.flags) out[f.key] = active ? [f.key, ...(f.aliases || [])].some((k) => active.has(norm(k))) : null;
+    const active = m
+      ? new Set(m[1].split(/\s+/).filter(Boolean).map(norm))
+      : null;
+    for (const f of entry.flags)
+      out[f.key] = active
+        ? [f.key, ...(f.aliases || [])].some((k) => active.has(norm(k)))
+        : null;
     return out;
   }
   for (const f of entry.flags) {
     // readPattern: a regex of its own whose group 1 is ON|OFF (replies like "ZH OFF (POS:OFF ...)").
-    const m = new RegExp(f.readPattern || `(?:^|[\\s])${escapeRe(f.readKey || f.key)}\\s*:\\s*(on|off)\\b`, "im").exec(text);
+    const m = new RegExp(
+      f.readPattern ||
+        `(?:^|[\\s])${escapeRe(f.readKey || f.key)}\\s*:\\s*(on|off)\\b`,
+      "im",
+    ).exec(text);
     out[f.key] = m ? ["on", "1", "frozen"].includes(m[1].toLowerCase()) : null;
   }
   return out;
@@ -42,7 +57,9 @@ export function readValue(entry, reply) {
 export function readValues(entry, reply) {
   const text = joinPages(reply);
   const m = new RegExp(entry.read.pattern, "im").exec(text);
-  const s = entry.read.state ? new RegExp(entry.read.state, "im").exec(text) : null;
+  const s = entry.read.state
+    ? new RegExp(entry.read.state, "im").exec(text)
+    : null;
   const values = {};
   entry.fields.forEach((f, i) => (values[f.key] = m ? Number(m[i + 1]) : null));
   return { state: s ? s[1].toUpperCase() : null, values };
@@ -50,7 +67,8 @@ export function readValues(entry, reply) {
 
 const checkRange = (f, raw) => {
   const v = Number(raw);
-  if (raw === "" || !Number.isInteger(v) || v < f.min || v > f.max) throw new Error(`«${f.title}» debe estar entre ${f.min} y ${f.max}`);
+  if (raw === "" || !Number.isInteger(v) || v < f.min || v > f.max)
+    throw new Error(`«${f.title}» debe estar entre ${f.min} y ${f.max}`);
   return v;
 };
 
@@ -70,12 +88,17 @@ export function valuesCommand(entry, values) {
 export function readEnum(entry, reply) {
   const m = new RegExp(entry.read.pattern, "im").exec(joinPages(reply));
   const raw = m ? m[1].trim() : null;
-  const current = raw === null ? null : entry.options.find((o) => norm(o.read ?? o.value) === norm(raw)) || null;
+  const current =
+    raw === null
+      ? null
+      : entry.options.find((o) => norm(o.read ?? o.value) === norm(raw)) ||
+        null;
   return { current, raw };
 }
 
 export function enumCommand(entry, value) {
-  if (!entry.options.some((o) => o.value === value)) throw new Error("opción no válida");
+  if (!entry.options.some((o) => o.value === value))
+    throw new Error("opción no válida");
   return fill(entry.write.set, { value });
 }
 
@@ -84,27 +107,48 @@ export function enumCommand(entry, value) {
 //   read.pattern: one capture group holding the items, split on whitespace.
 export function readList(entry, reply) {
   const text = joinPages(reply);
-  if (!/MESHTACORE/.test(text)) return null;
-  if (entry.read.items) return [...text.matchAll(new RegExp(entry.read.items, "g"))].map((m) => ({ value: m[1], label: m[0] }));
+  // The guard looks at the raw reply: joinPages drops the "MESHTACORE: Paging X..." banner of paged lists.
+  // read.accept: a word that identifies the reply when it never carries "MESHTACORE" (WATCH LIST).
+  if (
+    !/MESHTACORE/.test(String(reply)) &&
+    !(entry.read.accept && new RegExp(entry.read.accept).test(text))
+  )
+    return null;
+  if (entry.read.items)
+    return [...text.matchAll(new RegExp(entry.read.items, "g"))].map((m) => ({
+      value: m[1],
+      label: m[0],
+    }));
   const m = new RegExp(entry.read.pattern, "s").exec(text);
-  return m ? m[1].split(/\s+/).filter(Boolean).map((s) => ({ value: s, label: s })) : null;
+  return m
+    ? m[1]
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((s) => ({ value: s, label: s }))
+    : null;
 }
 
 // A reply for a human: pages joined, the "🔴 MESHTACORE:" prefix dropped.
 export function cleanReply(reply) {
-  return joinPages(reply).replace(/^\S+\s+MESHTACORE:?\s*/, "").trim();
+  return joinPages(reply)
+    .replace(/^\S+\s+MESHTACORE:?\s*/, "")
+    .trim();
 }
 
 export function fill(template, values) {
   return template.replace(/\{(\w+)\}/g, (_, k) => {
-    if (values[k] === undefined || values[k] === "") throw new Error(`falta el valor «${k}»`);
+    if (values[k] === undefined || values[k] === "")
+      throw new Error(`falta el valor «${k}»`);
     return String(values[k]).trim();
   });
 }
 
 // The command that sets one flag to `on`.
 export function flagCommand(entry, flag, on) {
-  return fill(flag.write ? flag.write[on ? "on" : "off"] : entry.write[on ? "on" : "off"], { key: flag.writeKey || flag.key });
+  return fill(
+    flag.write ? flag.write[on ? "on" : "off"] : entry.write[on ? "on" : "off"],
+    { key: flag.writeKey || flag.key },
+  );
 }
 
 // Only characters a Nexus command can legitimately carry; keeps a typed value from smuggling a second command.
@@ -117,12 +161,40 @@ export function validateEntry(entry, knownCommands) {
   const need = (cond, msg) => cond || problems.push(`${entry.id}: ${msg}`);
   need(entry.id && entry.title && entry.help, "falta id, title o help");
   need(["read", "write", "danger"].includes(entry.risk), "risk inválido");
-  need(["flags", "values", "list", "actions", "enum"].includes(entry.type), "type inválido");
-  if (entry.type === "enum") need(entry.read && entry.read.pattern && entry.options && entry.options.every((o) => o.value && o.title && o.help) && entry.write && entry.write.set, "enum necesita read.pattern, options (value, title, help) y write.set");
+  need(
+    ["flags", "values", "list", "actions", "enum"].includes(entry.type),
+    "type inválido",
+  );
+  if (entry.type === "list")
+    need(
+      entry.list && entry.list.remove,
+      "list necesita list.remove (add es opcional)",
+    );
+  if (entry.type === "enum")
+    need(
+      entry.read &&
+        entry.read.pattern &&
+        entry.options &&
+        entry.options.every((o) => o.value && o.title && o.help) &&
+        entry.write &&
+        entry.write.set,
+      "enum necesita read.pattern, options (value, title, help) y write.set",
+    );
   if (entry.type === "values") {
     const perField = entry.fields && entry.fields.every((f) => f.write);
-    need(entry.read && entry.read.pattern && entry.fields && entry.fields.length && ((entry.write && entry.write.set) || perField), "values necesita read.pattern, fields y write.set (o write por campo)");
-    for (const f of entry.fields || []) need(f.key && f.title && Number.isInteger(f.min) && Number.isInteger(f.max), `campo sin key, title o rango (${f.key})`);
+    need(
+      entry.read &&
+        entry.read.pattern &&
+        entry.fields &&
+        entry.fields.length &&
+        ((entry.write && entry.write.set) || perField),
+      "values necesita read.pattern, fields y write.set (o write por campo)",
+    );
+    for (const f of entry.fields || [])
+      need(
+        f.key && f.title && Number.isInteger(f.min) && Number.isInteger(f.max),
+        `campo sin key, title o rango (${f.key})`,
+      );
   }
   const cmds = [];
   for (const a of entry.actions || []) {
@@ -138,7 +210,15 @@ export function validateEntry(entry, knownCommands) {
   }
   for (const f of entry.fields || []) if (f.write) templates.push(f.write);
   for (const t of templates) cmds.push(t.split(/\s+/)[0]);
-  for (const c of cmds) need(knownCommands.has(norm(c)), `el comando ${c} no está en el catálogo de comandos`);
-  if (entry.type === "flags") need(entry.read && ["tokens", "pairs"].includes(entry.read.mode), "flags necesita read.mode");
+  for (const c of cmds)
+    need(
+      knownCommands.has(norm(c)),
+      `el comando ${c} no está en el catálogo de comandos`,
+    );
+  if (entry.type === "flags")
+    need(
+      entry.read && ["tokens", "pairs"].includes(entry.read.mode),
+      "flags necesita read.mode",
+    );
   return problems;
 }
