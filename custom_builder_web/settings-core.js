@@ -26,7 +26,7 @@ export function readFlags(entry, reply) {
   for (const f of entry.flags) {
     // readPattern: a regex of its own whose group 1 is ON|OFF (replies like "ZH OFF (POS:OFF ...)").
     const m = new RegExp(f.readPattern || `(?:^|[\\s])${escapeRe(f.readKey || f.key)}\\s*:\\s*(on|off)\\b`, "im").exec(text);
-    out[f.key] = m ? m[1].toLowerCase() === "on" : null;
+    out[f.key] = m ? ["on", "1"].includes(m[1].toLowerCase()) : null;
   }
   return out;
 }
@@ -55,6 +55,20 @@ export function valuesCommand(entry, values) {
     if (!Number.isInteger(v) || v < f.min || v > f.max) throw new Error(`«${f.title}» debe estar entre ${f.min} y ${f.max}`);
   }
   return fill(entry.write.set, values);
+}
+
+// One choice out of several. read.pattern's group 1 is matched against each option's `read` (or `value`).
+// -> { current: option|null, raw: captured text|null }
+export function readEnum(entry, reply) {
+  const m = new RegExp(entry.read.pattern, "im").exec(joinPages(reply));
+  const raw = m ? m[1].trim() : null;
+  const current = raw === null ? null : entry.options.find((o) => norm(o.read ?? o.value) === norm(raw)) || null;
+  return { current, raw };
+}
+
+export function enumCommand(entry, value) {
+  if (!entry.options.some((o) => o.value === value)) throw new Error("opción no válida");
+  return fill(entry.write.set, { value });
 }
 
 // List of items -> [{value, label}] or null when the reply is not the expected one.
@@ -95,7 +109,8 @@ export function validateEntry(entry, knownCommands) {
   const need = (cond, msg) => cond || problems.push(`${entry.id}: ${msg}`);
   need(entry.id && entry.title && entry.help, "falta id, title o help");
   need(["read", "write", "danger"].includes(entry.risk), "risk inválido");
-  need(["flags", "values", "list", "actions"].includes(entry.type), "type inválido");
+  need(["flags", "values", "list", "actions", "enum"].includes(entry.type), "type inválido");
+  if (entry.type === "enum") need(entry.read && entry.read.pattern && entry.options && entry.options.every((o) => o.value && o.title && o.help) && entry.write && entry.write.set, "enum necesita read.pattern, options (value, title, help) y write.set");
   if (entry.type === "values") need(entry.read && entry.read.pattern && entry.fields && entry.fields.length && entry.write && entry.write.set, "values necesita read.pattern, fields y write.set");
   const cmds = [];
   for (const a of entry.actions || []) {

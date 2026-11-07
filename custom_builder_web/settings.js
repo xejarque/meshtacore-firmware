@@ -44,7 +44,8 @@ export class SettingsPanel {
 
   matches(entry) {
     if (!this.filter) return true;
-    const hay = [entry.title, entry.help, ...(entry.flags || []).flatMap((f) => [f.key, f.title, f.help])].join(" ").toLowerCase();
+    const parts = [...(entry.flags || []), ...(entry.options || []), ...(entry.actions || []), ...(entry.fields || [])];
+    const hay = [entry.title, entry.help, ...parts.flatMap((p) => [p.key, p.title, p.help])].join(" ").toLowerCase();
     return hay.includes(this.filter);
   }
 
@@ -178,6 +179,34 @@ export class SettingsPanel {
     });
   }
 
+  // One choice out of several: a dropdown whose explanation follows the selection, and an Apply button.
+  enumBody(entry, box) {
+    const body = h("div", { className: "sx-enum" });
+    box.append(body);
+    this.read(entry.read.cmd).then((reply) => {
+      const { current, raw } = C.readEnum(entry, reply);
+      if (raw === null) return body.append(h("p", { className: "sx-note err" }, "No se pudo leer el valor. Respuesta: " + C.cleanReply(reply).slice(0, 160)));
+      const select = h("select", { disabled: !this.isConnected() });
+      if (!current) select.append(h("option", { value: "", textContent: `(valor no listado: ${raw})` }));
+      for (const o of entry.options) select.append(h("option", { value: o.value, textContent: o.title, selected: current === o }));
+      const help = h("small", { className: "sx-enum-help" });
+      const showHelp = () => (help.textContent = (entry.options.find((o) => o.value === select.value) || { help: "" }).help);
+      select.onchange = showHelp;
+      showHelp();
+      const apply = h("button", { className: "sx-add", textContent: "Aplicar", disabled: !this.isConnected() });
+      apply.onclick = () => {
+        try {
+          const option = entry.options.find((o) => o.value === select.value);
+          this.write(entry, C.enumCommand(entry, select.value), option.risk || entry.risk);
+        } catch (e) {
+          this.notes.set(entry.id, { text: e.message, ok: false });
+          this.render();
+        }
+      };
+      body.append(h("p", { className: "sx-state" }, `Ahora: ${current ? current.title : raw}`), h("div", { className: "sx-addrow" }, select, apply), help);
+    });
+  }
+
   // One button per action; each runs a fixed command (confirmation for the delicate ones).
   actionsBody(entry, box) {
     const row = h("div", { className: "sx-actions" });
@@ -194,6 +223,7 @@ export class SettingsPanel {
     if (entry.type === "flags") this.flagsBody(entry, box);
     else if (entry.type === "list") this.listBody(entry, box);
     else if (entry.type === "values") this.valuesBody(entry, box);
+    else if (entry.type === "enum") this.enumBody(entry, box);
     if (entry.actions) this.actionsBody(entry, box);
     box.append(this.noteEl(entry));
     return box;

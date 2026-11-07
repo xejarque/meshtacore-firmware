@@ -8,7 +8,8 @@ const here = (p) => new URL(p, import.meta.url);
 const json = (p) => JSON.parse(readFileSync(here(p)));
 const manifest = json("../admin.commands.json").commands;
 // INVALID / UNINVALID are defined in section 3.3 of the reference but the section 17 index only lists INVALIDS.
-const DOCUMENTED_OUTSIDE_THE_INDEX = ["INVALID", "UNINVALID"];
+// IGNORMQTT and TXPOWER are documented in section 7 but the manifest parser misses them (checked in NexusCommands.cpp).
+const DOCUMENTED_OUTSIDE_THE_INDEX = ["INVALID", "UNINVALID", "IGNORMQTT", "TXPOWER"];
 const known = new Set([...manifest.flatMap((c) => [c.name, ...c.aliases]), ...DOCUMENTED_OUTSIDE_THE_INDEX].map((n) => n.toUpperCase()));
 const catalogues = readdirSync(here("../settings/")).filter((f) => f.endsWith(".json") && f !== "index.json").map((f) => json("../settings/" + f));
 const entries = catalogues.flatMap((c) => c.entries);
@@ -137,6 +138,32 @@ test("HOPMASK: values and state come from the status line, and out-of-range inpu
   assert.equal(S.valuesCommand(e, { s: 2, l: 5 }), "HOPMASK 2 5");
   assert.throws(() => S.valuesCommand(e, { s: 9, l: 1 }), /entre 0 y 7/);
   assert.throws(() => S.valuesCommand(e, { s: "x", l: 1 }), /entre 0 y 7/);
+});
+
+const radio = json("./fixtures/gat562-radio.json");
+const radioReply = (cmd) => radio.outputs.find((o) => o.command === cmd).response;
+
+test("radio: role and rebroadcast mode are read as the option they are, and sent by digit or name", () => {
+  const role = entry("radio.role");
+  assert.equal(S.readEnum(role, radioReply("ROLE")).current.title, "CLIENT");
+  assert.equal(S.enumCommand(role, "12"), "ROLE 12");
+  assert.throws(() => S.enumCommand(role, "99"), /no válida/);
+  const rb = entry("radio.rebroadcast");
+  assert.equal(S.readEnum(rb, radioReply("REBROADCAST")).current.value, "ALL");
+  assert.equal(S.readEnum(rb, "🔴 MESHTACORE: Rebroadcast Mode is NONE (4)").current.value, "NONE");
+  assert.equal(S.readEnum(role, "🔴 MESHTACORE ROLE: REPEATER (4)").current, null);
+  assert.equal(S.readEnum(role, "🔴 MESHTACORE ROLE: REPEATER (4)").raw, "4");
+});
+
+test("radio: toggles, power and preamble read from the real replies", () => {
+  assert.deepEqual(S.readFlags(entry("radio.client_always"), radioReply("CLIENTALWAYS")), { CLIENTALWAYS: false });
+  assert.deepEqual(S.readFlags(entry("radio.base_texts"), radioReply("BASETEXTS")), { BASETEXTS: true });
+  assert.deepEqual(S.readFlags(entry("radio.ignore_mqtt"), radioReply("LORA")), { IGNORMQTT: false });
+  assert.deepEqual(S.readValues(entry("radio.txpower"), radioReply("GETTXPOWER")).values, { dbm: 22 });
+  assert.equal(S.readValues(entry("radio.txpower"), "🔴 MESHTACORE TX Power:\nActive: -5 dBm").values.dbm, -5);
+  assert.equal(S.valuesCommand(entry("radio.txpower"), { dbm: 14 }), "TXPOWER 14");
+  assert.deepEqual(S.readValues(entry("radio.preamble"), radioReply("PREAMBLE")).values, { len: 0 });
+  assert.throws(() => S.valuesCommand(entry("radio.preamble"), { len: 2 }), /entre 6 y 1024/);
 });
 
 test("fill refuses an empty value, safeArg refuses a second command smuggled in", () => {

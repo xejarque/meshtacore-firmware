@@ -1,0 +1,13 @@
+{
+ "node": "!f3a45b84",
+ "capturedAt": "2026-11-07T20:20:06",
+ "outputs": [
+  { "command": "REBROADCAST", "response": "🔴 MESHTACORE: Rebroadcast Mode is ALL (0)" },
+  { "command": "ROLE", "response": "🔴 MESHTACORE ROLE: CLIENT (0)" },
+  { "command": "CLIENTALWAYS", "response": "🔴 MESHTACORE: Client Always is OFF" },
+  { "command": "BASETEXTS", "response": "🔴 MESHTACORE: Base Texts is ON" },
+  { "command": "PREAMBLE", "response": "🔴 MESHTACORE Preamble Override: 0" },
+  { "command": "GETTXPOWER", "response": "🔴 MESHTACORE TX Power:\nActive: 22 dBm\nChip: 22 dBm" },
+  { "command": "LORA", "response": "🔴 MESHTACORE LORA:\nSF:7 BW:62 CR:6\nPreset:0 (OFF)\nFreq:869.6180MHz\nPower:22dBm\nIgnoreMQTT:0\nRebroadcast:ALL" }
+ ]
+}

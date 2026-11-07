@@ -134,6 +134,8 @@ body.connected .admin .capture-bar { display: flex; margin-top: 0.5rem; }
 .admin .sx-field input { flex: none; min-width: 0; width: 6.5rem; }
 .admin .sx-state { margin: 0 0 .5rem; font-weight: 600; color: var(--muted, #888); }
 .admin .sx-state.on { color: var(--ok); }
+.admin .sx-enum select { flex: 1; min-width: 220px; padding: .45rem; font: inherit; }
+.admin .sx-enum-help { display: block; margin-top: .5rem; opacity: .85; }
 .admin .sx-actions { display: grid; gap: .7rem; }
 .admin .sx-action { display: flex; gap: .8rem; align-items: center; flex-wrap: wrap; }
 .admin .sx-action small { flex: 1; min-width: 220px; opacity: .8; }

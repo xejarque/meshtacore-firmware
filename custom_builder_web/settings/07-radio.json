@@ -1,0 +1,128 @@
+{
+  "id": "07",
+  "title": "Radio y rol",
+  "icon": "📡",
+  "intro": "Cómo se comporta la radio de tu nodo: su rol en la malla, qué retransmite y con cuánta potencia. Aquí no hay presets a propósito: en España todos usan el mismo y está en el nodo desde fábrica. Cambiar el rol, el preámbulo o la potencia puede dejarte aislado de la malla o saltarte la normativa local, así que esas opciones piden confirmación. Los cambios viven en la memoria del nodo hasta que pulses Guardar.",
+  "entries": [
+    {
+      "id": "radio.role",
+      "type": "enum",
+      "title": "Rol del nodo",
+      "help": "Define cómo participa tu nodo en la malla. Para un nodo personal lo normal es CLIENT. ROUTER y ROUTER_LATE solo para repetidores bien situados: un mal rol empeora la malla de todos.",
+      "risk": "danger",
+      "read": { "cmd": "ROLE", "pattern": "ROLE:\\s*\\S+\\s*\\((\\d+)\\)" },
+      "options": [
+        { "value": "0", "title": "CLIENT", "help": "Nodo normal con app. Repite lo que oye según las reglas habituales. Es la opción recomendada para el uso personal." },
+        { "value": "1", "title": "CLIENT_MUTE", "help": "Como CLIENT pero no retransmite nada de otros. Solo habla por sí mismo." },
+        { "value": "2", "title": "ROUTER", "help": "Repetidor fijo, siempre encendido y en un sitio alto. Retransmite todo con prioridad. No lo uses en un nodo móvil." },
+        { "value": "11", "title": "ROUTER_LATE", "help": "Repetidor que espera un poco antes de retransmitir, para cubrir huecos que otros routers no han cubierto." },
+        { "value": "12", "title": "CLIENT_BASE", "help": "Nodo base fijo (por ejemplo en un tejado) que da servicio a tus propios clientes cercanos." },
+        { "value": "6", "title": "SENSOR", "help": "Nodo que solo envía telemetría de sensores y duerme el resto del tiempo." },
+        { "value": "8", "title": "CLIENT_HIDDEN", "help": "Nodo que apenas emite avisos de su presencia. Para quien quiere pasar desapercibido." },
+        { "value": "9", "title": "LOST_AND_FOUND", "help": "Para un nodo que se puede perder: emite su posición de forma periódica para localizarlo." },
+        { "value": "7", "title": "TAK", "help": "Modo para integrarse con ATAK/TAK." },
+        { "value": "10", "title": "TAK_TRACKER", "help": "Variante de TAK que además informa de posición." }
+      ],
+      "write": { "set": "ROLE {value}" }
+    },
+    {
+      "id": "radio.rebroadcast",
+      "type": "enum",
+      "title": "Qué retransmite el nodo",
+      "help": "Filtra qué paquetes de otros nodos repite el tuyo. Con «Todo» ayuda a la malla; con las opciones más restrictivas ahorras aire y batería pero ayudas menos.",
+      "risk": "write",
+      "read": { "cmd": "REBROADCAST", "pattern": "Rebroadcast Mode is \\S+\\s*\\((\\d)\\)" },
+      "options": [
+        { "value": "ALL", "read": "0", "title": "Todo", "help": "Retransmite todo lo que oye, incluso de canales que no puede descifrar." },
+        { "value": "ALL_SKIP", "read": "1", "title": "Todo, sin decodificar", "help": "Retransmite todo sin mirar el contenido: más rápido y consume menos." },
+        { "value": "LOCAL_ONLY", "read": "2", "title": "Solo canales locales", "help": "Solo repite paquetes de los canales que tú tienes configurados." },
+        { "value": "KNOWN_ONLY", "read": "3", "title": "Solo nodos conocidos", "help": "Solo repite paquetes de nodos que ya están en tu lista de nodos." },
+        { "value": "NONE", "read": "4", "title": "Nada", "help": "No retransmite nada: tu nodo solo habla y escucha para sí mismo.", "risk": "danger" },
+        { "value": "CORE", "read": "5", "title": "Solo servicios básicos", "help": "Solo repite los servicios esenciales de Meshtastic (posición, nodeinfo, telemetría…) y no los mensajes de texto." }
+      ],
+      "write": { "set": "REBROADCAST {value}" }
+    },
+    {
+      "id": "radio.ignore_mqtt",
+      "type": "flags",
+      "title": "MQTT",
+      "help": "Evita que el nodo atienda paquetes que llegan desde internet por MQTT.",
+      "risk": "write",
+      "read": { "cmd": "LORA", "mode": "pairs" },
+      "flags": [
+        {
+          "key": "IGNORMQTT",
+          "readPattern": "IgnoreMQTT:\\s*(0|1)",
+          "write": { "on": "IGNORMQTT ON", "off": "IGNORMQTT OFF" },
+          "title": "Ignorar paquetes MQTT",
+          "help": "Descarta todos los paquetes recibidos por MQTT. Útil para que tu nodo solo trate lo que llega por radio."
+        }
+      ]
+    },
+    {
+      "id": "radio.client_always",
+      "type": "flags",
+      "title": "Repetir como un router siendo cliente",
+      "help": "Para un nodo que debe repetir como un router pero no puede serlo. Úsalo solo si de verdad lo necesitas.",
+      "risk": "write",
+      "read": { "cmd": "CLIENTALWAYS", "mode": "pairs" },
+      "flags": [
+        {
+          "key": "CLIENTALWAYS",
+          "readPattern": "Client Always is (ON|OFF)",
+          "write": { "on": "CLIENTALWAYS ON", "off": "CLIENTALWAYS OFF" },
+          "title": "Client Always",
+          "help": "Anula la cancelación de reenvíos: el nodo repite siempre aunque otro ya lo haya hecho. Funciona en CLIENT y CLIENT_BASE."
+        }
+      ]
+    },
+    {
+      "id": "radio.base_texts",
+      "type": "flags",
+      "title": "Mensajes de texto desde un tejado",
+      "help": "Pensado para nodos base en azoteas.",
+      "risk": "write",
+      "read": { "cmd": "BASETEXTS", "mode": "pairs" },
+      "flags": [
+        {
+          "key": "BASETEXTS",
+          "readPattern": "Base Texts is (ON|OFF)",
+          "write": { "on": "BASETEXTS ON", "off": "BASETEXTS OFF" },
+          "title": "Base Texts",
+          "help": "Hace lo mismo que Client Always pero solo con mensajes de texto. Si Client Always está activo, no cambia nada."
+        }
+      ]
+    },
+    {
+      "id": "radio.txpower",
+      "type": "values",
+      "title": "Potencia de transmisión",
+      "help": "Potencia de salida en dBm (de -9 a 31). Subirla no siempre alcanza más lejos y puede incumplir la normativa o dañar la etapa de potencia de tu placa. Comprueba el límite de tu hardware y de tu país.",
+      "risk": "danger",
+      "read": { "cmd": "GETTXPOWER", "pattern": "Active:\\s*(-?\\d+)\\s*dBm" },
+      "fields": [{ "key": "dbm", "title": "Potencia (dBm)", "min": -9, "max": 31 }],
+      "write": { "set": "TXPOWER {dbm}" }
+    },
+    {
+      "id": "radio.preamble",
+      "type": "values",
+      "title": "Longitud del preámbulo",
+      "help": "Símbolos de preámbulo de la señal (6 a 1024). Los nodos de una malla deben usar el mismo valor: si lo cambias solo tú, dejarás de oír y de ser oído. El 0 significa que no hay valor propio y se usa el normal del preset.",
+      "risk": "danger",
+      "read": { "cmd": "PREAMBLE", "pattern": "Preamble Override:\\s*(\\d+)" },
+      "fields": [{ "key": "len", "title": "Símbolos", "min": 6, "max": 1024 }],
+      "write": { "set": "PREAMBLE {len}" }
+    },
+    {
+      "id": "radio.tx_killswitch",
+      "type": "actions",
+      "title": "Interruptor de emergencia de la radio",
+      "help": "Apaga o enciende por completo la transmisión por radio. Con TX apagado el nodo escucha pero no emite nada, ni siquiera tus mensajes.",
+      "risk": "write",
+      "actions": [
+        { "title": "Apagar transmisión (TX OFF)", "cmd": "TX OFF", "risk": "danger", "help": "Deja de emitir por radio. Para volver a hablar tendrás que pulsar «Encender transmisión»." },
+        { "title": "Encender transmisión (TX ON)", "cmd": "TX ON", "help": "Vuelve a permitir las emisiones por radio." }
+      ]
+    }
+  ]
+}
