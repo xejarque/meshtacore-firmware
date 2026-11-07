@@ -1,6 +1,9 @@
 #pragma once
 #if HAS_SCREEN
 #include "configuration.h"
+
+class OLEDDisplay; // only a pointer is used below; builds that never include the display library still compile this header
+
 namespace graphics
 {
 

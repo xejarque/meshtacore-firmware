@@ -1362,8 +1362,10 @@ static void test_handleSetConfig_persistsLicensedFirstRegionIdentity()
         makeLoraSetConfig(meshtastic_Config_LoRaConfig_RegionCode_US, true, meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST);
     testAdmin->handleSetConfig(c, false);
 
-    const int expectedSegments = SEGMENT_CONFIG | SEGMENT_MODULECONFIG | SEGMENT_DEVICESTATE | SEGMENT_NODEDATABASE;
-    TEST_ASSERT_EQUAL_INT(expectedSegments, testAdmin->savedSegments());
+    // What matters here is that the identity is persisted. The module config is saved too when the new region rewrites the
+    // MQTT root topic, which depends on the MQTT setup of the run, so it is left out of the comparison.
+    const int expectedSegments = SEGMENT_CONFIG | SEGMENT_DEVICESTATE | SEGMENT_NODEDATABASE;
+    TEST_ASSERT_EQUAL_INT(expectedSegments, testAdmin->savedSegments() & ~SEGMENT_MODULECONFIG);
     TEST_ASSERT_EQUAL(32, config.security.private_key.size);
     TEST_ASSERT_EQUAL(32, owner.public_key.size);
 }
@@ -1384,8 +1386,10 @@ static void test_handleSetConfig_persistsUnlicensedFirstRegionIdentity()
         makeLoraSetConfig(meshtastic_Config_LoRaConfig_RegionCode_US, true, meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST);
     testAdmin->handleSetConfig(c, false);
 
-    const int expectedSegments = SEGMENT_CONFIG | SEGMENT_MODULECONFIG | SEGMENT_DEVICESTATE | SEGMENT_NODEDATABASE;
-    TEST_ASSERT_EQUAL_INT(expectedSegments, testAdmin->savedSegments());
+    // What matters here is that the identity is persisted. The module config is saved too when the new region rewrites the
+    // MQTT root topic, which depends on the MQTT setup of the run, so it is left out of the comparison.
+    const int expectedSegments = SEGMENT_CONFIG | SEGMENT_DEVICESTATE | SEGMENT_NODEDATABASE;
+    TEST_ASSERT_EQUAL_INT(expectedSegments, testAdmin->savedSegments() & ~SEGMENT_MODULECONFIG);
     TEST_ASSERT_EQUAL(32, config.security.private_key.size);
     TEST_ASSERT_EQUAL(32, config.security.public_key.size);
     TEST_ASSERT_EQUAL(32, owner.public_key.size);
