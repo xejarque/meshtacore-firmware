@@ -426,6 +426,34 @@ test("fill refuses an empty value, safeArg refuses a second command smuggled in"
   assert.ok(!S.safeArg("A4; SAVE"));
 });
 
+test("capture-all reads are queries only: no setter, nothing that transmits", () => {
+  const files = json("../settings/index.json");
+  const cmds = S.readCommands(files.map((f) => json("../settings/" + f)));
+  assert.ok(
+    cmds.includes("DROPS") &&
+      cmds.includes("WATCH LIST") &&
+      cmds.includes("MCGAP"),
+  );
+  assert.equal(new Set(cmds).size, cmds.length, "each query once");
+  const actionCmds = files.flatMap((f) =>
+    json("../settings/" + f).entries.flatMap((e) =>
+      (e.actions || []).map((a) => a.cmd),
+    ),
+  );
+  for (const c of cmds)
+    assert.ok(
+      !actionCmds.includes(c) || /^(PMGT|TIME|TA|META_ALERT)$/.test(c),
+      `${c} is an action, not a query`,
+    );
+  for (const c of cmds)
+    assert.ok(
+      !/^(NETSCAN|CLIENTSCAN|NOISE|FREQSCAN|SENDMYNODE|REBOOT|SAVE|LOAD)\b/.test(
+        c,
+      ),
+      `${c} must not be captured`,
+    );
+});
+
 // Replies below are written from the firmware's documented templates, NOT captured from a node.
 test("automation lists read aliases, groups, macros and cron jobs from their documented formats", () => {
   const values = (id, text) =>

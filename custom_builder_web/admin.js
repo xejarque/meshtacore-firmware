@@ -4,11 +4,22 @@ import { Panel } from "./panel.js";
 import { SettingsPanel } from "./settings.js";
 import { KeysPanel } from "./keys-panel.js";
 import { redact } from "./keys-core.js";
+import { readCommands } from "./settings-core.js";
 import { RemotePanel } from "./remote-panel.js";
 
 // Read-only commands only: no setters, and nothing that transmits or hops frequency.
 // RSSI is left out on purpose: it measures the command packet itself and stays silent for a local one.
-const CAPTURE_COMMANDS = ["INFO", "LORA", "LORA-STATUS", "NODES", "CHS", "CH", "POWER", "VOLT", "TM"];
+const CAPTURE_COMMANDS = [
+  "INFO",
+  "LORA",
+  "LORA-STATUS",
+  "NODES",
+  "CHS",
+  "CH",
+  "POWER",
+  "VOLT",
+  "TM",
+];
 
 const link = new NodeLink();
 const ui = {};
@@ -18,6 +29,7 @@ let panel;
 let settingsPanel;
 let keysPanel;
 let remotePanel;
+let settingsCatalogues = []; // filled once settings/*.json is loaded
 const demoReplies = new Map(); // command -> recorded reply; filled only in ?demo mode
 const isDemo = new URLSearchParams(location.search).has("demo");
 const TABS = ["panel", "settings", "keys", "remote", "console"];
@@ -30,7 +42,9 @@ async function demoRun(command) {
 
 function showTab(name) {
   for (const t of TABS) {
-    document.getElementById("tab-" + t).setAttribute("aria-selected", String(t === name));
+    document
+      .getElementById("tab-" + t)
+      .setAttribute("aria-selected", String(t === name));
     document.getElementById("view-" + t).hidden = t !== name;
   }
 }
@@ -46,29 +60,52 @@ function log(msg, cls) {
 // Every command goes through here so the recording sees the console and the capture alike.
 async function runRecorded(command) {
   const response = await link.run(command);
-  recording.push({ command: redact(command), response, at: new Date().toISOString() }); // keys never reach the downloaded file
+  recording.push({
+    command: redact(command),
+    response,
+    at: new Date().toISOString(),
+  }); // keys never reach the downloaded file
   ui.recCount.textContent = String(recording.length);
   return response;
 }
 
 function download(name, text) {
-  const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
-  const a = Object.assign(document.createElement("a"), { href: url, download: name });
+  const url = URL.createObjectURL(
+    new Blob([text], { type: "application/json" }),
+  );
+  const a = Object.assign(document.createElement("a"), {
+    href: url,
+    download: name,
+  });
   a.click();
   URL.revokeObjectURL(url);
 }
 
 function downloadRecording() {
-  if (!recording.length) return log("Nada que descargar: ejecuta algún comando primero.", "err");
-  const payload = { node: link.nodeId, capturedAt: new Date().toISOString(), outputs: recording };
-  download("meshtacore-salidas-" + Date.now() + ".json", JSON.stringify(payload, null, 1));
+  if (!recording.length)
+    return log("Nada que descargar: ejecuta algún comando primero.", "err");
+  const payload = {
+    node: link.nodeId,
+    capturedAt: new Date().toISOString(),
+    outputs: recording,
+  };
+  download(
+    "meshtacore-salidas-" + Date.now() + ".json",
+    JSON.stringify(payload, null, 1),
+  );
 }
+
+// The fixed basics plus every query the settings catalogues read, each once.
+const captureList = () => [
+  ...new Set([...CAPTURE_COMMANDS, ...readCommands(settingsCatalogues)]),
+];
 
 async function captureAll(btn) {
   btn.disabled = true;
+  const commands = captureList();
   try {
-    for (const [i, cmd] of CAPTURE_COMMANDS.entries()) {
-      btn.textContent = `Capturando ${i + 1}/${CAPTURE_COMMANDS.length}: ${cmd}…`;
+    for (const [i, cmd] of commands.entries()) {
+      btn.textContent = `Capturando ${i + 1}/${commands.length}: ${cmd}…`;
       try {
         await runRecorded(cmd);
       } catch (e) {
@@ -127,25 +164,55 @@ function renderList(filter) {
   ui.list.replaceChildren();
   let lastCat = null;
   catalogue
-    .filter((c) => !q || [c.name, ...c.aliases, c.summary, c.category].join(" ").toLowerCase().includes(q))
+    .filter(
+      (c) =>
+        !q ||
+        [c.name, ...c.aliases, c.summary, c.category]
+          .join(" ")
+          .toLowerCase()
+          .includes(q),
+    )
     .forEach((c) => {
       if (c.category !== lastCat) {
         lastCat = c.category;
         ui.list.append(el("h3", { className: "cat" }, lastCat));
       }
-      ui.list.append(el("button", { className: "cmd-item", onclick: () => select(c) }, el("b", {}, c.name), " ", c.summary));
+      ui.list.append(
+        el(
+          "button",
+          { className: "cmd-item", onclick: () => select(c) },
+          el("b", {}, c.name),
+          " ",
+          c.summary,
+        ),
+      );
     });
 }
 
 function select(cmd) {
   ui.detail.replaceChildren(
     el("h2", {}, cmd.name),
-    el("p", { className: "muted" }, [cmd.category, cmd.aliases.length ? "alias: " + cmd.aliases.join(", ") : ""].filter(Boolean).join(" · ")),
+    el(
+      "p",
+      { className: "muted" },
+      [
+        cmd.category,
+        cmd.aliases.length ? "alias: " + cmd.aliases.join(", ") : "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    ),
     el("p", {}, cmd.summary),
   );
-  const usages = cmd.usage.length ? cmd.usage : [{ syntax: cmd.name, description: "" }];
+  const usages = cmd.usage.length
+    ? cmd.usage
+    : [{ syntax: cmd.name, description: "" }];
   usages.forEach((u) => {
-    const input = el("input", { type: "text", value: u.syntax, spellcheck: false });
+    const input = el("input", {
+      type: "text",
+      value: u.syntax,
+      spellcheck: false,
+    });
     const out = el("pre", { className: "out" });
     const btn = el("button", { className: "run", textContent: "Ejecutar" });
     btn.onclick = async () => {
@@ -159,15 +226,28 @@ function select(cmd) {
         btn.disabled = false;
       }
     };
-    ui.detail.append(el("div", { className: "usage" }, el("p", { className: "desc" }, u.description.replace(/`/g, "")), el("div", { className: "row" }, input, btn), out));
+    ui.detail.append(
+      el(
+        "div",
+        { className: "usage" },
+        el("p", { className: "desc" }, u.description.replace(/`/g, "")),
+        el("div", { className: "row" }, input, btn),
+        out,
+      ),
+    );
   });
 }
 
 async function init() {
-  ["status", "node", "log", "list", "detail", "search", "recCount"].forEach((id) => (ui[id] = document.getElementById(id)));
+  ["status", "node", "log", "list", "detail", "search", "recCount"].forEach(
+    (id) => (ui[id] = document.getElementById(id)),
+  );
   panel = new Panel(link, document.getElementById("panel"));
-  document.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
-  document.getElementById("pause").onchange = (e) => (panel.paused = e.target.checked);
+  document
+    .querySelectorAll("[data-tab]")
+    .forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+  document.getElementById("pause").onchange = (e) =>
+    (panel.paused = e.target.checked);
   document.getElementById("connect").onclick = connect;
   document.getElementById("disconnect").onclick = () => link.disconnect();
   const capture = document.getElementById("capture");
@@ -177,7 +257,14 @@ async function init() {
   if (isDemo) {
     ui.status.textContent = "Modo demo (capturas de ejemplo, sin nodo)";
     try {
-      for (const file of ["gat562-capture.json", "gat562-firewall.json", "gat562-radio.json", "gat562-system.json", "gat562-keys.json", "from-firmware-source-system.json"]) {
+      for (const file of [
+        "gat562-capture.json",
+        "gat562-firewall.json",
+        "gat562-radio.json",
+        "gat562-system.json",
+        "gat562-keys.json",
+        "from-firmware-source-system.json",
+      ]) {
         const rec = await (await fetch("tests/fixtures/" + file)).json();
         rec.outputs.forEach((o) => demoReplies.set(o.command, o.response));
         if (file === "gat562-capture.json") panel.loadRecording(rec);
@@ -186,20 +273,44 @@ async function init() {
       log("No se pudo cargar la demo: " + e.message, "err");
     }
   }
-  keysPanel = new KeysPanel({ root: document.getElementById("keys"), run: isDemo ? demoRun : runRecorded, isConnected: isDemo ? () => true : () => link.connected });
+  keysPanel = new KeysPanel({
+    root: document.getElementById("keys"),
+    run: isDemo ? demoRun : runRecorded,
+    isConnected: isDemo ? () => true : () => link.connected,
+  });
   keysPanel.render();
   try {
     const files = await (await fetch("settings/index.json")).json();
-    const catalogues = await Promise.all(files.map(async (f) => (await fetch("settings/" + f)).json()));
-    settingsPanel = new SettingsPanel({ root: document.getElementById("settings"), catalogues, run: isDemo ? demoRun : runRecorded, isConnected: isDemo ? () => true : () => link.connected });
+    const catalogues = await Promise.all(
+      files.map(async (f) => (await fetch("settings/" + f)).json()),
+    );
+    settingsCatalogues = catalogues;
+    settingsPanel = new SettingsPanel({
+      root: document.getElementById("settings"),
+      catalogues,
+      run: isDemo ? demoRun : runRecorded,
+      isConnected: isDemo ? () => true : () => link.connected,
+    });
     settingsPanel.render();
     // In demo mode the "remote" node answers from the recordings, with a short fake delay.
-    const runRemote = isDemo ? async (_id, cmd) => (await new Promise((r) => setTimeout(r, 400)), demoRun(cmd)) : (id, cmd, route) => link.runRemote(id, cmd, route);
-    remotePanel = new RemotePanel({ root: document.getElementById("remote"), runLocal: isDemo ? demoRun : runRecorded, runRemote, isConnected: isDemo ? () => true : () => link.connected, catalogues });
+    const runRemote = isDemo
+      ? async (_id, cmd) => (
+          await new Promise((r) => setTimeout(r, 400)),
+          demoRun(cmd)
+        )
+      : (id, cmd, route) => link.runRemote(id, cmd, route);
+    remotePanel = new RemotePanel({
+      root: document.getElementById("remote"),
+      runLocal: isDemo ? demoRun : runRecorded,
+      runRemote,
+      isConnected: isDemo ? () => true : () => link.connected,
+      catalogues,
+    });
     const demoTarget = new URLSearchParams(location.search).get("target"); // demo only: ?demo&tab=remote&target=!1234abcd[&manage]
     if (isDemo && demoTarget) {
       remotePanel.target = { id: demoTarget, name: "Nodo de ejemplo" };
-      if (new URLSearchParams(location.search).has("manage")) remotePanel.startManaging();
+      if (new URLSearchParams(location.search).has("manage"))
+        remotePanel.startManaging();
     }
     remotePanel.render();
   } catch (e) {
@@ -213,7 +324,7 @@ async function init() {
     settingsPanel.render();
   }
   try {
-    catalogue =(await (await fetch("admin.commands.json")).json()).commands;
+    catalogue = (await (await fetch("admin.commands.json")).json()).commands;
     renderList("");
   } catch (e) {
     log("No se pudo cargar el catálogo de comandos: " + e.message, "err");

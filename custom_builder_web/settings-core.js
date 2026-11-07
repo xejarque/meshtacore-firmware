@@ -128,6 +128,15 @@ export function readList(entry, reply) {
     : null;
 }
 
+// Every query a catalogue reads from the node, once each, in catalogue order: what "capture all" records.
+// Only `read.cmd` is used (never an action or a write), so nothing here changes the node or transmits.
+export function readCommands(catalogues) {
+  const cmds = catalogues
+    .flatMap((cat) => cat.entries.map((e) => e.read && e.read.cmd))
+    .filter(Boolean);
+  return [...new Set(cmds)];
+}
+
 // A reply for a human: pages joined, the "🔴 MESHTACORE:" prefix dropped.
 export function cleanReply(reply) {
   return joinPages(reply)
