@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Meshtacore - Administración del nodo por Bluetooth</title>
+    <link rel="icon" type="image/svg+xml" href="logo.svg" />
+    <link rel="stylesheet" href="landing.css?v=3" />
+    <link rel="stylesheet" href="admin.css" />
+    <script src="theme.js"></script>
+  </head>
+  <body>
+    <header class="site-nav">
+      <div class="nav-content">
+        <a href="index.html" class="brand-logo">
+          <img src="logo.svg" alt="Meshtacore" width="28" height="28" />
+          <span>Meshtacore</span>
+          <span class="brand-badge">Admin</span>
+        </a>
+        <nav>
+          <ul class="nav-links">
+            <li><a href="index.html">Inicio</a></li>
+            <li><a href="docs/index.html">Documentación</a></li>
+            <li><a href="builder.html">Web Builder</a></li>
+            <li><button class="theme-toggle-btn" type="button" onclick="toggleTheme()"></button></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main class="admin">
+      <section class="bar">
+        <button id="connect" class="run">Conectar por Bluetooth</button>
+        <button id="disconnect" class="when-connected">Desconectar</button>
+        <span id="status">Desconectado</span>
+        <span class="muted">Nodo: <code id="node">—</code></span>
+      </section>
+      <p class="muted">
+        Requiere Chrome o Edge (escritorio o Android) con el Bluetooth del nodo activo y emparejado. Los comandos se
+        ejecutan en local con <code>/mtcl</code>: no salen por radio.
+      </p>
+
+      <div class="grid">
+        <aside>
+          <input id="search" type="search" placeholder="Buscar comando…" />
+          <div id="list" class="list"></div>
+        </aside>
+        <section>
+          <div id="detail" class="detail"><p class="muted">Elige un comando de la lista para ver su ayuda y ejecutarlo.</p></div>
+          <h3>Registro</h3>
+          <div id="log" class="log"></div>
+        </section>
+      </div>
+    </main>
+    <script src="admin.js"></script>
+  </body>
+</html>
