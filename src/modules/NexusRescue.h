@@ -27,6 +27,10 @@ bool restoreIfConfigWasMissing();
 /// factoryReset() calls it on the fresh defaults, before its own save would overwrite the copy with them.
 bool reapplyToLive();
 
+/// Called at boot after a config.proto that failed to decode (and had no usable .bak): puts the rescue copy's region,
+/// channels and role into the live settings so an unattended node is not left radio-silent. Nothing is saved.
+bool restoreInMemoryIfConfigUndecodable();
+
 /// Deletes the copy.
 bool clear();
 

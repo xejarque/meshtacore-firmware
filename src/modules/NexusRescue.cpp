@@ -173,6 +173,18 @@ bool restoreIfConfigWasMissing()
     return true;
 }
 
+bool restoreInMemoryIfConfigUndecodable()
+{
+    if (!nodeDB || !nodeDB->bootedWithUndecodableConfig() || !reapplyToLive())
+        return false;
+    // The degraded boot silenced the radio; the copy carries the region and channels that made the node useful. Nothing is
+    // saved: the damaged file stays as it is, the identity (NodeNum, from devicestate) is untouched, and without the private
+    // key the node relays and talks on its channels but cannot take part in encrypted direct messages.
+    config.lora.tx_enabled = true;
+    LOG_WARN("MTC: config.proto undecodable, running on the rescue copy (region %d) until restored", (int)config.lora.region);
+    return true;
+}
+
 bool clear()
 {
 #ifdef FSCom

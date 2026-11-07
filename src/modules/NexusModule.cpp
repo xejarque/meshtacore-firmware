@@ -387,7 +387,7 @@ NexusModule::NexusModule()
     if (!loadVault() && vaultVersionLoaded == 0)
         applyFactoryUserPrefs();
     // Before initLoRa(), so the radio starts on the restored settings; otherwise make sure a copy exists.
-    if (!NexusRescue::restoreIfConfigWasMissing())
+    if (!NexusRescue::restoreIfConfigWasMissing() && !NexusRescue::restoreInMemoryIfConfigUndecodable())
         NexusRescue::snapshot();
     applyZeroHopRoleDefaults(vaultVersionLoaded >= 68);
     readyAnnouncePending = wokeFromBatteryWake();
