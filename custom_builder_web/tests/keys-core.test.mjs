@@ -121,5 +121,7 @@ test("redact: no key ever reaches a log or a recording", () => {
   assert.equal(K.redact("SKEY 2 WIPE"), "SKEY 2 WIPE");
   assert.equal(K.redact("MESHCORE KEY " + HEX16), "MESHCORE KEY ***");
   assert.equal(K.redact("/mtcl CHPSK 3 secret"), "/mtcl CHPSK 3 ***", "the transport prefix does not hide it");
+  assert.equal(K.redact("(DM) /mtc-device !1234abcd CHPSK 2 secret"), "(DM) /mtc-device !1234abcd CHPSK 2 ***", "remote commands too");
+  assert.equal(K.redact("(canal 1) /mtc-device !1234abcd SKEY 1 " + HEX32), "(canal 1) /mtc-device !1234abcd SKEY 1 ***");
   assert.equal(K.redact("DROPS"), "DROPS");
 });

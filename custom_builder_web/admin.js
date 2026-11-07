@@ -4,6 +4,7 @@ import { Panel } from "./panel.js";
 import { SettingsPanel } from "./settings.js";
 import { KeysPanel } from "./keys-panel.js";
 import { redact } from "./keys-core.js";
+import { RemotePanel } from "./remote-panel.js";
 
 // Read-only commands only: no setters, and nothing that transmits or hops frequency.
 // RSSI is left out on purpose: it measures the command packet itself and stays silent for a local one.
@@ -16,9 +17,10 @@ let catalogue = [];
 let panel;
 let settingsPanel;
 let keysPanel;
+let remotePanel;
 const demoReplies = new Map(); // command -> recorded reply; filled only in ?demo mode
 const isDemo = new URLSearchParams(location.search).has("demo");
-const TABS = ["panel", "settings", "keys", "console"];
+const TABS = ["panel", "settings", "keys", "remote", "console"];
 
 // In demo mode reads come from recordings and nothing is ever sent.
 async function demoRun(command) {
@@ -93,11 +95,13 @@ link
     panel.start();
     settingsPanel.reset();
     keysPanel.reset();
+    remotePanel.reset();
   })
   .on("disconnected", () => {
     panel.stop();
     settingsPanel.reset();
     keysPanel.reset();
+    remotePanel.reset();
     document.body.classList.remove("connected");
     ui.status.textContent = "Desconectado";
     log("Conexión Bluetooth cerrada.", "err");
@@ -189,6 +193,15 @@ async function init() {
     const catalogues = await Promise.all(files.map(async (f) => (await fetch("settings/" + f)).json()));
     settingsPanel = new SettingsPanel({ root: document.getElementById("settings"), catalogues, run: isDemo ? demoRun : runRecorded, isConnected: isDemo ? () => true : () => link.connected });
     settingsPanel.render();
+    // In demo mode the "remote" node answers from the recordings, with a short fake delay.
+    const runRemote = isDemo ? async (_id, cmd) => (await new Promise((r) => setTimeout(r, 400)), demoRun(cmd)) : (id, cmd, route) => link.runRemote(id, cmd, route);
+    remotePanel = new RemotePanel({ root: document.getElementById("remote"), runLocal: isDemo ? demoRun : runRecorded, runRemote, isConnected: isDemo ? () => true : () => link.connected, catalogues });
+    const demoTarget = new URLSearchParams(location.search).get("target"); // demo only: ?demo&tab=remote&target=!1234abcd[&manage]
+    if (isDemo && demoTarget) {
+      remotePanel.target = { id: demoTarget, name: "Nodo de ejemplo" };
+      if (new URLSearchParams(location.search).has("manage")) remotePanel.startManaging();
+    }
+    remotePanel.render();
   } catch (e) {
     log("No se pudo cargar el catálogo de ajustes: " + e.message, "err");
   }

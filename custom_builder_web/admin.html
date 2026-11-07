@@ -49,6 +49,7 @@
         <button role="tab" id="tab-panel" aria-selected="true" data-tab="panel">Panel en vivo</button>
         <button role="tab" id="tab-settings" aria-selected="false" data-tab="settings">Ajustes Nexus</button>
         <button role="tab" id="tab-keys" aria-selected="false" data-tab="keys">Claves y canales</button>
+        <button role="tab" id="tab-remote" aria-selected="false" data-tab="remote">Nodos remotos</button>
         <button role="tab" id="tab-console" aria-selected="false" data-tab="console">Consola</button>
         <label class="muted pause"><input type="checkbox" id="pause" /> Pausar refresco</label>
       </nav>
@@ -63,6 +64,10 @@
 
       <div id="view-keys" class="panel-view" hidden>
         <div id="keys"></div>
+      </div>
+
+      <div id="view-remote" class="panel-view" hidden>
+        <div id="remote"></div>
       </div>
 
       <div class="grid" id="view-console" hidden>

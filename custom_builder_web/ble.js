@@ -11,6 +11,10 @@ const LOCAL_ROOT = "/mtcl";
 const PORTNUM_TEXT = 1;
 const REPLY_QUIET_MS = 2500; // silence that ends a paged reply
 const SINGLE_QUIET_MS = 700; // silence that ends a one-message reply
+// Over the mesh a reply can take many seconds (the firmware even adds up to BD seconds of jitter per page).
+export const REMOTE_TIMING = { single: 10000, paged: 15000, overall: 60000 };
+const BROADCAST = 0xffffffff;
+export const remoteText = (nodeId, command) => `/mtc-device ${nodeId} ${command.trim()}`;
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -30,13 +34,17 @@ const fVarint = (f, n) => [...tag(f, 0), ...varint(n)];
 const fFixed32 = (f, n) => [...tag(f, 5), n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255];
 const fBytes = (f, bytes) => [...tag(f, 2), ...varint(bytes.length), ...bytes];
 
-export function textPacketToRadio(toNode, text, id) {
+// `channel`: channel index to send on; `pki`: ask the node to encrypt a direct message with the
+// recipient's public key (MeshPacket.pki_encrypted); `wantAck`: ask for a delivery acknowledgement.
+export function textPacketToRadio(toNode, text, id, { channel = 0, pki = false, wantAck = false } = {}) {
   const data = [...fVarint(1, PORTNUM_TEXT), ...fBytes(2, enc.encode(text))];
   const packet = [
     ...fFixed32(2, toNode), // to
-    ...fVarint(3, 0), // channel
+    ...fVarint(3, channel), // channel
     ...fBytes(4, data), // decoded
     ...fFixed32(6, id), // id
+    ...(wantAck ? fVarint(10, 1) : []), // want_ack
+    ...(pki ? fVarint(17, 1) : []), // pki_encrypted
   ];
   return new Uint8Array(fBytes(1, packet)); // ToRadio.packet
 }
@@ -157,17 +165,21 @@ export class NodeLink {
     }
     const pkt = get(fields, 2);
     if (!pkt || !pkt.bytes) return;
-    const data = get(readFields(pkt.bytes), 4);
+    const packet = readFields(pkt.bytes);
+    const from = get(packet, 1);
+    const data = get(packet, 4);
     if (!data || !data.bytes) return;
     const d = readFields(data.bytes);
     const port = get(d, 1);
     const payload = get(d, 2);
-    if (port && port.value === PORTNUM_TEXT && payload && payload.bytes) this.onReply(dec.decode(payload.bytes));
+    if (port && port.value === PORTNUM_TEXT && payload && payload.bytes) this.onReply(dec.decode(payload.bytes), from ? from.value : 0);
   }
 
-  onReply(text) {
+  onReply(text, from = 0) {
     // The node forwards ordinary mesh chatter to the phone too; only Nexus replies belong to a command.
     if (!isNexusReply(text)) return;
+    // A reply from the remote node being administered belongs to the remote job, never to a local one.
+    if (this.remotePending && from === this.remotePending.target) return this.onRemoteReply(text);
     this.emit("rx", text);
     if (!this.pending) return;
     this.pending.chunks.push(text);
@@ -183,6 +195,50 @@ export class NodeLink {
     const job = this.queue.then(() => this.runNow(command));
     this.queue = job.catch(() => {});
     return job;
+  }
+
+  onRemoteReply(text) {
+    const job = this.remotePending;
+    this.emit("rx", "(remoto) " + text);
+    job.chunks.push(text);
+    if (/Paging/.test(text) || /^P\d+: /.test(text)) job.paged = true;
+    clearTimeout(job.timer);
+    job.timer = setTimeout(job.done, job.paged ? REMOTE_TIMING.paged : REMOTE_TIMING.single);
+  }
+
+  // Sends one command to another node and waits for ITS reply (matched by MeshPacket.from).
+  //   route {via: "channel", channel: n}: broadcast on a Nexus channel, so the remote must share that channel's key.
+  //   route {via: "dm"}: direct message, encrypted with the remote's public key.
+  // Remote jobs have their own queue, so a slow mesh never stalls the local node's commands.
+  runRemote(nodeId, command, route) {
+    const job = (this.remoteQueue || Promise.resolve()).then(() => this.runRemoteNow(nodeId, command, route));
+    this.remoteQueue = job.catch(() => {});
+    return job;
+  }
+
+  runRemoteNow(nodeId, command, route) {
+    if (!this.connected) return Promise.reject(new Error("Sin conexión"));
+    const target = parseInt(nodeId.replace("!", ""), 16) >>> 0;
+    if (!/^!?[0-9a-f]{8}$/i.test(nodeId) || !target) return Promise.reject(new Error("Identificador de nodo no válido"));
+    const text = remoteText("!" + target.toString(16).padStart(8, "0"), command);
+    const options = route.via === "dm" ? { pki: true, wantAck: true } : { channel: route.channel };
+    const to = route.via === "dm" ? target : BROADCAST;
+    this.emit("tx", `(${route.via === "dm" ? "DM" : "canal " + route.channel}) ${text}`);
+    return new Promise((resolve, reject) => {
+      const done = () => {
+        const job = this.remotePending;
+        if (job) (clearTimeout(job.guard), clearTimeout(job.timer));
+        this.remotePending = null;
+        resolve(job ? job.chunks.join("\n") : "");
+      };
+      this.remotePending = { target, chunks: [], done, timer: null, guard: setTimeout(done, REMOTE_TIMING.overall) };
+      const id = (Math.random() * 0xffffffff) >>> 0;
+      this.toRadio.writeValue(textPacketToRadio(to, text, id, options)).catch((e) => {
+        clearTimeout(this.remotePending.guard);
+        this.remotePending = null;
+        reject(e);
+      });
+    });
   }
 
   runNow(command) {

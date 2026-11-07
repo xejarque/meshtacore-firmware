@@ -9,7 +9,8 @@ const h = (tag, props = {}, ...kids) => {
 };
 
 export class SettingsPanel {
-  constructor({ root, run, catalogues, isConnected, label = "" }) {
+  constructor({ root, run, catalogues, isConnected, label = "", autoRead = true }) {
+    this.autoRead = autoRead;
     this.root = root;
     this.run = run;
     this.isConnected = isConnected;
@@ -33,6 +34,20 @@ export class SettingsPanel {
     return this.cache.get(cmd);
   }
 
+  // Reads the entry's state and hands the reply to `show`. With autoRead off (a remote node, where every read
+  // costs radio time) nothing is read until the user asks for it.
+  whenRead(entry, box, show) {
+    const cmd = entry.read.cmd;
+    if (this.autoRead || this.cache.has(cmd)) return this.read(cmd).then(show);
+    const b = h("button", { className: "sx-add", textContent: "Leer estado del nodo", disabled: !this.isConnected() });
+    b.onclick = () => {
+      b.textContent = "Leyendo… (puede tardar)";
+      b.disabled = true;
+      this.read(cmd).then(() => this.render());
+    };
+    box.append(b);
+  }
+
   invalidate(cmd) {
     this.cache.delete(cmd);
   }
@@ -51,7 +66,8 @@ export class SettingsPanel {
 
   // `readonly`: the command only reports (or flushes), so it must not raise the "unsaved changes" bar.
   async write(entry, cmd, risk, readonly = false) {
-    const text = risk === "danger" ? `Esto es delicado${this.label ? " en " + this.label : ""}:\n\n${cmd}\n\n¿Seguro que quieres enviarlo?` : null;
+    // On a remote node every write is confirmed (a mistake there cannot be fixed from the keyboard next to it).
+    const text = risk === "danger" ? `Esto es delicado${this.label ? " en " + this.label : ""}:\n\n${cmd}\n\n¿Seguro que quieres enviarlo?` : this.label && !readonly ? `Vas a enviar a ${this.label}:\n\n${cmd}\n\n¿Continuar?` : null;
     if (text && !confirm(text)) return false;
     this.busy.add(entry.id);
     this.render();
@@ -91,7 +107,7 @@ export class SettingsPanel {
   flagsBody(entry, box) {
     const body = h("div", { className: "sx-flags" });
     box.append(body);
-    this.read(entry.read.cmd).then((reply) => {
+    this.whenRead(entry, box, (reply) => {
       const state = C.readFlags(entry, reply);
       let lastGroup = null;
       for (const f of entry.flags) {
@@ -118,7 +134,7 @@ export class SettingsPanel {
   listBody(entry, box) {
     const body = h("div", { className: "sx-list" });
     box.append(body);
-    this.read(entry.read.cmd).then((reply) => {
+    this.whenRead(entry, box, (reply) => {
       const items = C.readList(entry, reply);
       if (items === null) return body.append(h("p", { className: "sx-note err" }, "No se pudo leer la lista. Respuesta: " + C.cleanReply(reply).slice(0, 160)));
       const chips = h("div", { className: "sx-chips" });
@@ -150,7 +166,7 @@ export class SettingsPanel {
   valuesBody(entry, box) {
     const body = h("div", { className: "sx-values" });
     box.append(body);
-    this.read(entry.read.cmd).then((reply) => {
+    this.whenRead(entry, box, (reply) => {
       const { state, values } = C.readValues(entry, reply);
       if (Object.values(values).every((v) => v === null)) return body.append(h("p", { className: "sx-note err" }, "No se pudo leer el valor. Respuesta: " + C.cleanReply(reply).slice(0, 160)));
       const inputs = {};
@@ -193,7 +209,7 @@ export class SettingsPanel {
   enumBody(entry, box) {
     const body = h("div", { className: "sx-enum" });
     box.append(body);
-    this.read(entry.read.cmd).then((reply) => {
+    this.whenRead(entry, box, (reply) => {
       const { current, raw } = C.readEnum(entry, reply);
       if (raw === null) return body.append(h("p", { className: "sx-note err" }, "No se pudo leer el valor. Respuesta: " + C.cleanReply(reply).slice(0, 160)));
       const select = h("select", { disabled: !this.isConnected() });

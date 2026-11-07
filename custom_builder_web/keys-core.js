@@ -154,10 +154,14 @@ export function channelUrl(name, pskBytes) {
 }
 
 // ---------- keeping secrets out of logs and recordings ----------
+// What can precede the command in what is logged: "(DM) ", "/mtcl " or "/mtc-device !1234abcd ".
+const LOGGED_PREFIX = String.raw`((?:\([^)]*\)\s+)?(?:\/[\w-]+\s+)?(?:!\w{8}\s+)?`;
+
 export function redact(command) {
+  const secret = (rest) => new RegExp(`^${LOGGED_PREFIX}${rest})\\S+`, "i");
   return String(command)
-    .replace(/^((?:\/\w+\s+)?U?CHPSK\s+\S+\s+)\S+/i, "$1***")
-    .replace(/^((?:\/\w+\s+)?ADDCH\s+\S+\s+)\S+/i, "$1***")
-    .replace(/^((?:\/\w+\s+)?SKEY\s+\d\s+)(?!OFF\b|WIPE\b)\S+/i, "$1***")
-    .replace(/^((?:\/\w+\s+)?MESHCORE\s+KEY\s+)\S+/i, "$1***");
+    .replace(secret(String.raw`U?CHPSK\s+\S+\s+`), "$1***")
+    .replace(secret(String.raw`ADDCH\s+\S+\s+`), "$1***")
+    .replace(secret(String.raw`SKEY\s+\d\s+(?!OFF\b|WIPE\b)`), "$1***")
+    .replace(secret(String.raw`MESHCORE\s+KEY\s+`), "$1***");
 }

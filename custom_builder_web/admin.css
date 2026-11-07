@@ -139,6 +139,17 @@ body.connected .admin .capture-bar { display: flex; margin-top: 0.5rem; }
 .admin .sx-actions { display: grid; gap: .7rem; }
 .admin .sx-action { display: flex; gap: .8rem; align-items: center; flex-wrap: wrap; }
 .admin .sx-action small { flex: 1; min-width: 220px; opacity: .8; }
+/* remote nodes */
+.admin .rx-nodes { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: .5rem; margin: .6rem 0; max-height: 280px; overflow: auto; }
+.admin .rx-node { display: flex; flex-direction: column; text-align: left; gap: .15rem; padding: .5rem .7rem; border-radius: 8px; border: 1px solid rgba(127,127,127,.35); background: transparent; color: inherit; cursor: pointer; font: inherit; }
+.admin .rx-node.on { border-color: var(--ok); box-shadow: 0 0 0 2px var(--ok) inset; }
+.admin .rx-node small { opacity: .75; }
+.admin .rx-route { display: flex; gap: .7rem; align-items: flex-start; padding: .6rem .8rem; border: 1px solid rgba(127,127,127,.3); border-radius: 10px; margin-bottom: .6rem; cursor: pointer; }
+.admin .rx-route.on { border-color: var(--ok); }
+.admin .rx-route ul { margin: .3rem 0 0 1rem; padding: 0; font-size: .88rem; opacity: .85; }
+.admin .rx-banner { padding: .7rem 1rem; margin-bottom: 1rem; border-radius: 10px; background: #fff3cd; color: #5c4400; border: 1px solid #e0b000; }
+.admin #remote .sx-addrow { margin: .6rem 0; }
+.admin #remote input[type=text], .admin #remote input[type=search] { flex: 1; padding: .45rem; margin: .3rem 0; font: inherit; }
 /* keys and channels */
 .admin .kx-table { width: 100%; border-collapse: collapse; margin-bottom: .8rem; font-size: .92rem; }
 .admin .kx-table th { text-align: left; font-size: .75rem; opacity: .7; padding: .3rem .5rem; }
