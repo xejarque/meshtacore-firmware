@@ -9,6 +9,8 @@
   //
   // "USERPREFS_FORCE_CLEAN_INSTALL": "1", // Wipe the stored config once on this build's first boot so the
   //                                       // defaults below replace it. Keeps the PKI private key and BLE bonds.
+  // "USERPREFS_FORCE_FS_FORMAT": "1",     // With FORCE_CLEAN_INSTALL: also reformat the internal LittleFS, for a
+  //                                       // node that logs "lfs error:493: Corrupted dir pair". Drops BLE bonds.
   //
   // Channels: indices 0 to 7 are all supported. Setting any USERPREFS_CHANNEL_<n>_* key configures
   // index <n>; the fields you leave out keep the values the firmware would have used anyway (default
