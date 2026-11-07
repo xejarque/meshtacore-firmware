@@ -8,7 +8,7 @@
 /**
  * The MeshCore settings Nexus changes at run time: whether this node relays MeshCore floods, how often it floods
  * its own ADVERT, the path hash size of the floods it originates, and how deep a flood may go before it is not relayed.
- * Kept in a file of its own (/prefs/meshcore_config.bin, written by /nexus SAVE), not in the Nexus vault.
+ * Kept in a file of its own (/prefs/meshcore_config.bin, written by /mtc SAVE), not in the Nexus vault.
  *
  * Every field's zero is the built-in behaviour, so a default config is all zeros and a missing file changes nothing.
  */

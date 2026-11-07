@@ -295,7 +295,7 @@ bool Router::shouldDecrementHopLimit(const meshtastic_MeshPacket *p)
                 return true;
             if (isTele && !meshtastic::nexusModule->shouldPreserveTelemetry())
                 return true;
-            LOG_DEBUG("Nexus Zero-Hop preservation for relay 0x%02X", p->relay_node);
+            LOG_DEBUG("MTC Zero-Hop preservation for relay 0x%02X", p->relay_node);
             return false;
         }
     }
@@ -589,13 +589,13 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
     if (isFromUs(p))
         p->hop_start = p->hop_limit;
 
-    // Nexus: output firewall. Gated by /nexus FIREWALL OUTDROP and the
+    // Nexus: output firewall. Gated by /mtc FIREWALL OUTDROP and the
     // relay_drop_mask bits. Lost in the Nexus-28001 rebase
     // - restored verbatim from Nexus-269. interceptOutgoing() lets the module
     // mutate the packet (e.g. drop_relay routing) before it's encrypted.
     if (meshtastic::nexusModule) {
         if (meshtastic::nexusModule->shouldDropOutput(*p)) {
-            LOG_INFO("Nexus: Output Firewall blocking packet %u", p->id);
+            LOG_INFO("MTC: Output Firewall blocking packet %u", p->id);
             packetPool.release(p);
             return meshtastic_Routing_Error_NONE;
         }
@@ -1673,13 +1673,13 @@ void Router::dispatchReceived(meshtastic_MeshPacket *p, RxSource src)
             skipHandle = true;
         }
 
-        // Nexus: input firewall for decoded packets. Gated by the /nexus FIREWALL
+        // Nexus: input firewall for decoded packets. Gated by the /mtc FIREWALL
         // DROP rules (DROPS / DROP / OUTDROP / PRALLOW / PRBLOCK). Runs after
         // CORE_PORTNUMS_ONLY so the upstream gate fires first and Nexus picks up
         // the operator-configured drops. Lost in the Nexus-28001 rebase
         // restored verbatim from Nexus-269.
         if (!skipHandle && meshtastic::nexusModule && meshtastic::nexusModule->shouldDropPacket(*p)) {
-            LOG_DEBUG("Nexus: Dropping decoded packet (Dynamic Filter)");
+            LOG_DEBUG("MTC: Dropping decoded packet (Dynamic Filter)");
             cancelSending(p->from, p->id);
             if (!meshtastic::nexusModule->skip_skip_handle)
                 skipHandle = true;
@@ -1709,7 +1709,7 @@ void Router::dispatchReceived(meshtastic_MeshPacket *p, RxSource src)
 
         // Nexus: input firewall for encrypted/private-channel packets.
         if (!skipHandle && meshtastic::nexusModule && meshtastic::nexusModule->shouldDropPrivate(*p)) {
-            LOG_DEBUG("Nexus: Dropping encrypted packet (Private Filter)");
+            LOG_DEBUG("MTC: Dropping encrypted packet (Private Filter)");
             cancelSending(p->from, p->id);
             if (!meshtastic::nexusModule->skip_skip_handle)
                 skipHandle = true;
@@ -1851,8 +1851,8 @@ void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)
         //
         // Nexus: input firewall must see opaque traffic before relay. Without this gate, the
         // v2.8.0 opaque-relay optimization (added upstream) bypasses the firewall hooks in
-        // dispatchReceived (lines ~1612/1644), so /nexus PRBLOCK / PRWHITELIST and the encrypted
-        // PRIVATE filter never fire for packets we can't decode. /nexus PRBLOCK ADD <hash> would
+        // dispatchReceived (lines ~1612/1644), so /mtc PRBLOCK / PRWHITELIST and the encrypted
+        // PRIVATE filter never fire for packets we can't decode. /mtc PRBLOCK ADD <hash> would
         // store the value but the comparison would never run, and the packet would relay opaquely
         // out from under the operator.
         // where PRBLOCK ADD 0xC3 stopped dropping opaque traffic.)
@@ -1860,7 +1860,7 @@ void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)
         // skip_skip_handle (SS) is honored here: if the operator set it, let the relay proceed
         // even though the firewall says drop, mirroring the in-band dispatchReceived semantics.
         // fw_drop_priv_blacklist / fw_drop_priv_whitelist / fw_drop_private still increment
-        // inside shouldDropPrivate() either way, so /nexus FWS keeps reporting truthfully.
+        // inside shouldDropPrivate() either way, so /mtc FWS keeps reporting truthfully.
         bool firewallDropped = meshtastic::nexusModule && !meshtastic::nexusModule->skip_skip_handle &&
                                meshtastic::nexusModule->shouldDropPrivate(*p);
         if (firewallDropped) {
@@ -1868,7 +1868,7 @@ void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)
             // string across both call sites. No implicit ACK: refusing to relay means downstream
             // observers do not get a "delivered" signal, and the orig side retransmitting is the
             // correct outcome for an operator-blocked channel.
-            LOG_DEBUG("Nexus: Dropping encrypted packet (Private Filter)");
+            LOG_DEBUG("MTC: Dropping encrypted packet (Private Filter)");
             packetPool.release(p);
             return;
         }
@@ -1876,7 +1876,7 @@ void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)
             perhapsGenerateImplicitAckForOwnOverheard(p);
 
         // Nexus v66: forward opaque packets to the phone when the operator
-        // has enabled /nexus FEATURES FORWARD_OPAQUE_TO_PHONE (or the more
+        // has enabled /mtc FEATURES FORWARD_OPAQUE_TO_PHONE (or the more
         // restrictive FORWARD_FOREIGN_PKI_TO_PHONE). v2.7 surfaced these via
         // RoutingModule::handleReceivedProtobuf -> service->handleFromRadio,
         // but v2.8's OPAQUE_RELAY_ONLY short-circuit bypasses that path for

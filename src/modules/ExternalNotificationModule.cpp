@@ -84,7 +84,7 @@ int32_t ExternalNotificationModule::runOnce()
     // Nexus-28005 (2026-09-13): the previous gate
     // `if (!moduleConfig.external_notification.enabled) return INT32_MAX;`
     // short-circuited the entire runOnce body when notifications were
-    // disabled, which meant /nexus BELL and /nexus STARWARS went silent
+    // disabled, which meant /mtc BELL and /mtc STARWARS went silent
     // even though triggerNexusBell() set isNagging=true. Now we only
     // short-circuit when both notifications are disabled AND no manual
     // trigger is in flight - this preserves the original fast-path
@@ -657,19 +657,19 @@ int ExternalNotificationModule::handleInputEvent(const InputEvent *event)
 #endif
 
 // Nexus: Always-compiled methods (not gated by MESHTASTIC_EXCLUDE_INPUTBROKER
-// since they don't depend on InputBroker). Required by /nexus TRIGGERBELL
-// and /nexus PLAYRTTTL <melody>.
+// since they don't depend on InputBroker). Required by /mtc TRIGGERBELL
+// and /mtc PLAYRTTTL <melody>.
 void ExternalNotificationModule::playRTTTL(const char *melody)
 {
     if (!melody || *melody == '\0')
         return;
-    LOG_INFO("Nexus: Playing RTTTL: %s", melody);
+    LOG_INFO("MTC: Playing RTTTL: %s", melody);
 
     // Nexus-28005 (2026-09-13): same manual-trigger fix as
     // triggerNexusBell above. The upstream port to v2.8.0 added the
     // buzzerShouldAlert gate to runOnce() PWM RTTTL branch so the
-    // song only plays across ticks when that flag is set. /nexus
-    // STARWARS and /nexus PLAY <RTTTL> are explicit operator actions;
+    // song only plays across ticks when that flag is set. /mtc
+    // STARWARS and /mtc PLAY <RTTTL> are explicit operator actions;
     // they must keep playing across ticks, not decay to silence after
     // one rtttl::begin() call.
     buzzerShouldAlert = true;
@@ -689,14 +689,14 @@ void ExternalNotificationModule::playRTTTL(const char *melody)
 
 void ExternalNotificationModule::triggerNexusBell()
 {
-    LOG_INFO("Nexus: Triggering Local Bell (Bypass)");
+    LOG_INFO("MTC: Triggering Local Bell (Bypass)");
 
     // Nexus-28005 (2026-09-13): the upstream port to v2.8.0
     // added a buzzerShouldAlert gate to runOnce() PWM RTTTL branch so
     // rtttl::play() only fires when that flag is set. Nexus-269
     // triggerNexusBell() relied on operators having received at least
     // one prior incoming-message alert (which sets buzzerShouldAlert
-    // via handleReceived line 447) before running /nexus BELL. On a
+    // via handleReceived line 447) before running /mtc BELL. On a
     // freshly-booted node with no prior messages the song decays to
     // silence after one tick. Setting buzzerShouldAlert = true here
     // restores the manual-trigger path Nexus-269 had implicitly.

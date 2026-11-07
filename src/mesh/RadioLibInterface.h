@@ -132,7 +132,7 @@ namespace meshtastic { class NexusModule; }
 class RadioLibInterface : public RadioInterface, protected concurrency::NotifiedWorkerThread
 {
     // Nexus port: NexusModule reads getInstantaneousRSSI() (a protected member) via
-    // RadioLibInterface::instance to power /nexus RSSI. Friend is preferred over moving
+    // RadioLibInterface::instance to power /mtc RSSI. Friend is preferred over moving
     // the method to public — the protected access keeps the API surface narrow.
     friend class meshtastic::NexusModule;
 
@@ -166,7 +166,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
      * this code for a long time.
      *
      * Nexus port (Nexus-28001, 2026-08-16): the `const` was removed so NexusModule can override the
-     * sync word at runtime via /nexus SYNCWORD. The override is applied at the top of
+     * sync word at runtime via /mtc SYNCWORD. The override is applied at the top of
      * RadioInterface::applyModemConfig() (which runs at boot AND on every LoRa config change,
      * including the deferred apply triggered by SYNCWORD itself). Nexus persists the value
      * in vault v40 and loads it via NexusModule::loadVault() during setupModules() — which
@@ -179,7 +179,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     const uint8_t meshCoreSyncWord = 0x12;
 
 #if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
-    /** True while RX listens on the hybrid sync word (Meshtastic and MeshCore); /nexus MESHCORE HYBRID OFF turns it off until reboot. */
+    /** True while RX listens on the hybrid sync word (Meshtastic and MeshCore); /mtc MESHCORE HYBRID OFF turns it off until reboot. */
     bool meshCoreHybridSync = true;
 #endif
 
@@ -229,7 +229,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
      */
     virtual int16_t getCurrentRSSI() = 0;
 
-    // Nexus port: instantaneous RSSI as float dBm, kept for /nexus RSSI command which
+    // Nexus port: instantaneous RSSI as float dBm, kept for /mtc RSSI command which
     // surfaces the live reading rather than the noise-floor-compensated getCurrentRSSI.
     // The Nexus cherry-pick auto-merged the .cpp definition but lost this declaration
     // because RadioLibInterface.h was in the conflict set. Restoring here so the
@@ -259,10 +259,10 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     }
 
     /**
-     * Nexus-28002 (2026-08-21): syncword getter for /nexus LRS.
+     * Nexus-28002 (2026-08-21): syncword getter for /mtc LRS.
      * Returns the actual byte programmed into the LoRa chip — either the
      * Meshtastic default 0x2B or NexusModule::syncword_override (vault v40).
-     * Source of truth is the `syncWord` member; /nexus LRS MUST read this
+     * Source of truth is the `syncWord` member; /mtc LRS MUST read this
      * instead of NexusModule::syncword_override directly so the chip-actual
      * byte is reported (Nexus-269 design, commit 86e833112).
      */
@@ -383,7 +383,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     uint32_t meshtasticCadBusy = 0, meshtasticTxAirtimeMs = 0, meshtasticRxAirtimeMs = 0;
 #endif
 
-    // Nexus LORACHIPSTATS (/nexus LCS): cumulative chip-state samples, one per
+    // Nexus LORACHIPSTATS (/mtc LCS): cumulative chip-state samples, one per
     // CHIP_STATE_SAMPLE_INTERVAL_MS (RAM-only, cleared on boot or LCS RESET).
     enum ChipStateSample : uint8_t {
         CHIP_TX = 0,   // sendingPacket in flight (software; no SPI touch during TX)
@@ -661,7 +661,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     /// Milliseconds until the next scheduled flood ADVERT, 0 when it is due.
     uint32_t meshCoreAdvertDueInMs() const;
 
-    /// Views for /nexus MESHCORE.
+    /// Views for /mtc MESHCORE.
     const MeshCoreConfig &getMeshCoreConfig() const { return meshCoreConfig; }
     const MeshCoreRepeater &getMeshCoreRepeater() const { return meshCoreRepeater; }
     MeshCoreRepeater &getMeshCoreRepeater() { return meshCoreRepeater; }

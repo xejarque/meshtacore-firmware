@@ -162,7 +162,7 @@ public:
     // wins. An older vault (v65-v67) predates the defaults: they are applied once and saved as v68. With no vault they
     // apply in RAM until the first SAVE.
     void applyZeroHopRoleDefaults(bool vaultHasV68);
-    // /nexus PPING (NexusCommands.cpp): the Meshtastic public ping. Independent from /nexus MESHCORE PPING, which only
+    // /mtc PPING (NexusCommands.cpp): the Meshtastic public ping. Independent from /mtc MESHCORE PPING, which only
     // switches the MeshCore channels; both share the reporting settings through applyPpingSetting, but each keeps its own
     // header mode (meshcore picks which one HEADER acts on).
     void handlePpingCommand(const char *args, char *reply, size_t replyLen);
@@ -185,18 +185,18 @@ private:
     void configureVoltRule(uint8_t slot, const char *args);
     void seedHibernatingFromRtc();
     void handleHealthCommand();
-    // /nexus MESHCORE [INFO|STATS|RELAY|ADVERT|RESET] (NexusMeshCoreCommand.cpp): the MeshCore relay and ADVERT settings.
+    // /mtc MESHCORE [INFO|STATS|RELAY|ADVERT|RESET] (NexusMeshCoreCommand.cpp): the MeshCore relay and ADVERT settings.
     // mp/replyId are only needed by the commands that answer later (DESCUBRIR); the rest ignore them.
     void handleMeshCoreCommand(const char *args, char *reply, size_t replyLen, const meshtastic_MeshPacket *mp = nullptr,
                                uint32_t replyId = 0, bool toPhoneOnly = false);
-    // /nexus MESHCORE REGION [...] or /nexus REGION [...] (NexusMeshCoreCommand.cpp): MeshCore region management.
+    // /mtc MESHCORE REGION [...] or /mtc REGION [...] (NexusMeshCoreCommand.cpp): MeshCore region management.
     void handleRegionCommand(const char *args, char *reply, size_t replyLen);
     // The MeshCore settings follow SAVE and LOAD, in their own flash file.
     void saveMeshCoreSettings();
     void loadMeshCoreSettings();
-    // /nexus VECINOS (NexusMeshCoreCommand.cpp): the direct Meshtastic neighbours in one reply.
+    // /mtc VECINOS (NexusMeshCoreCommand.cpp): the direct Meshtastic neighbours in one reply.
     void formatNeighbors(char *reply, size_t replyLen);
-    // /nexus MESHCORE VECINOS: direct MeshCore neighbours.
+    // /mtc MESHCORE VECINOS: direct MeshCore neighbours.
     void formatMeshCoreNeighbors(char *reply, size_t replyLen);
     // Where a delayed reply goes: the requester's chat, or the phone alone.
     struct ReplyContext {
@@ -206,9 +206,9 @@ private:
         bool phoneOnly = false;
         bool copyToPhone = true;
     };
-    // /nexus MESHCORE DESCUBRIR [secs]: send a zero-hop NODE_DISCOVER_REQ and collect the answers.
+    // /mtc MESHCORE DESCUBRIR [secs]: send a zero-hop NODE_DISCOVER_REQ and collect the answers.
     void handleMeshCoreDiscoverCommand(const char *args, const ReplyContext &requester, char *reply, size_t replyLen);
-    // /nexus MESHCORE FAV <hex_prefix> [ON|OFF]: keep a MeshCore contact across restarts.
+    // /mtc MESHCORE FAV <hex_prefix> [ON|OFF]: keep a MeshCore contact across restarts.
     void handleMeshCoreFavCommand(const char *args, char *reply, size_t replyLen);
     // Called from runOnce() when the discovery window closes: stores the answers and replies to the requester.
     void finishMeshCoreDiscover();
@@ -254,7 +254,7 @@ public:
     // Wire-shape heuristic for foreign PKI packets we couldn't decode (no destination key).
     // The mp.pki_encrypted flag is only set on successful PKI decrypt (Router.cpp:1052), so for
     // un-decodable foreign PKI DMs the firewall must look at the wire shape (channel 0 on the
-    // wire, encrypted, addressed to a specific non-us node) to apply /nexus FIREWALL PKI rules.
+    // wire, encrypted, addressed to a specific non-us node) to apply /mtc FIREWALL PKI rules.
     // See looksLikeForeignPKI() in NexusModule.cpp for the full predicate. (2026-09-04.)
     bool looksLikeForeignPKI(const meshtastic_MeshPacket &mp) const;
 
@@ -262,24 +262,24 @@ public:
     // Nexus-28003 (2026-08-24): bit definitions for the
     // nexus_security_bitmask (uint32_t, vault v65 slot at offset ~24 B
     // from start, see NexusVault struct definition below). All bits
-    // default OFF. Toggled via /nexus SECURITY; persisted via the
-    // existing /nexus SAVE / /nexus LOAD round-trip (no v66 vault bump
+    // default OFF. Toggled via /mtc SECURITY; persisted via the
+    // existing /mtc SAVE / /mtc LOAD round-trip (no v66 vault bump
     // needed — the slot has been there since v65).
     //
-    // Bit 0 — REQ_SIG: when ON, /nexus commands received on a Nexus
+    // Bit 0 — REQ_SIG: when ON, /mtc commands received on a Nexus
     //   channel (Nexus / Nexus2) must carry a valid XEdDSA signature
     //   from a trusted key (admin_key[0..2], secondary_keys[0..3], or
     //   NEXUS_MASTER_KEY_1..4). Verified via verifyTrustedSignature().
     //   Off-by-default to preserve Nexus-28001 channel-only semantics
-    //   (anyone on the Nexus channel can issue /nexus).
+    //   (anyone on the Nexus channel can issue /mtc).
     //
-    // Bit 1 — ALLOW_DM: when ON, /nexus commands received as DMs
+    // Bit 1 — ALLOW_DM: when ON, /mtc commands received as DMs
     //   (to == my_node_num) are accepted. DMs are NEVER signed in the
     //   Meshtastic PKI/admin model — they only carry the sender's
     //   public_key — so when this bit is set the sig rule is skipped
     //   for DMs and authorization falls back to isAuthorizedAdmin() on
     //   the sender's pubkey. Off-by-default to preserve the Nexus-28001
-    //   "channel-only" rule that DMs are NEVER an authorized /nexus path.
+    //   "channel-only" rule that DMs are NEVER an authorized /mtc path.
     //
     // Bit 2 — SILENT_LOG: when ON, packets rejected by REQ_SIG /
     //   ALLOW_DM are silently logged (LOG_WARN) and dropped without
@@ -297,7 +297,7 @@ public:
     static constexpr uint32_t NEXUS_SECURITY_SILENT_LOG    = (1u << 2);
     // bit 3 (Nexus-28004, 2026-08-30): when ON, any decoded packet
     //   seen on a Nexus channel from a non-self node is auto-favourited.
-    //   No flash save — operator must run /nexus SAVE to persist.
+    //   No flash save — operator must run /mtc SAVE to persist.
     static constexpr uint32_t NEXUS_SECURITY_AUTO_FAV_NEXUS  = (1u << 3);
     // bit 4 (Nexus-28004, 2026-08-30): when ON, any decoded packet
     //   seen on a Nexus channel that carries a valid Nexus-trusted signature
@@ -316,7 +316,7 @@ public:
     // bit 6+7-9 (2026-10-07): AUTO_FAV_EXTRA — like AUTO_FAV_NEXUS but for
     // ONE operator-chosen channel. Bit 6 = enable; bits 7-9 pack the channel
     // index (0-7) into the same bitmask ("store the channel as well as the
-    // enable bit"). Persisted with /nexus SAVE like the other bits; old vaults
+    // enable bit"). Persisted with /mtc SAVE like the other bits; old vaults
     // load with 0 = disabled / channel 0.
     static constexpr uint32_t NEXUS_SECURITY_AUTO_FAV_EXTRA = (1u << 6);
     static constexpr uint32_t NEXUS_SECURITY_AUTO_FAV_EXTRA_CH_SHIFT = 7;
@@ -574,7 +574,7 @@ public:
     uint8_t watchlistCount = 0;
 
     ReplyContext traceReply, netscanReply, clientscanReply, noiseReply;
-    // /nexus MESHCORE DESCUBRIR: where the delayed neighbour listing goes once the scan window closes.
+    // /mtc MESHCORE DESCUBRIR: where the delayed neighbour listing goes once the scan window closes.
     ReplyContext meshCoreDiscoverReply;
     bool meshCoreDiscoverPending = false;
     uint32_t meshCoreDiscoverUntil = 0;
@@ -752,7 +752,7 @@ public:
     uint64_t nexusVariantBits = 0;        // v67: generic variant-bitmask pool. RAM mirror of NexusVault::nexusVariantBits. Each variant carves its own bit range; today = station-g3 (PA/LNA). Future variants repurpose the same field.
 
 #ifdef STATION_G3
-    // Nexus-28005 (2026-09-15): /nexus G3 — station-g3 PA / LNA GPIO control.
+    // Nexus-28005 (2026-09-15): /mtc G3 — station-g3 PA / LNA GPIO control.
     // Three runtime states per pin; DISABLED is RAM-only and re-detected every boot.
     //
     // State semantics:
@@ -789,13 +789,13 @@ public:
     NexusG3PinState nexus_g3_lna_runtime = G3_DISABLED; // set by boot-detect in initOnce()
 
     // Dispatcher entry — called from NexusCommands.cpp when the operator types
-    //   /nexus G3                  (bare, same as STATUS)
-    //   /nexus G3 PA ON|OFF
-    //   /nexus G3 LNA ON|OFF|BYPASS
-    //   /nexus G3 STATUS
+    //   /mtc G3                  (bare, same as STATUS)
+    //   /mtc G3 PA ON|OFF
+    //   /mtc G3 LNA ON|OFF|BYPASS
+    //   /mtc G3 STATUS
     // G3 is an alias for FRONTEND; both route to the same handler.
     // Mutates nexusVariantBits + drives GPIO9 / GPIO10 on the station-g3.
-    // replyMsg / replySize are the standard /nexus reply buffer (NEXUS_MAX_REPLY);
+    // replyMsg / replySize are the standard /mtc reply buffer (NEXUS_MAX_REPLY);
     // mirrors the rest of handleNexusCommand's call sites in NexusCommands.cpp.
     void nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const char *cmd, char *replyMsg, size_t replySize);
 #endif // STATION_G3
@@ -1007,8 +1007,8 @@ public:
     bool sendToNexusChannel(const char *msg, size_t len, uint32_t replyId = 0);
 
     // Targeted CLI dispatch. Used by both handleReceived (over RF) and
-    // handleLocal (from the phone) to parse /nexus-device <id>, /nexus-node
-    // <name>, /nexus-mac <hex> and /nexus-group <name> prefixes.
+    // handleLocal (from the phone) to parse /mtc-device <id>, /mtc-node
+    // <name>, /mtc-mac <hex> and /mtc-group <name> prefixes.
     //
     // matchTargetedCmd() takes the full cmdBuf (including the prefix) and
     // returns a pointer to the command body if the targeted token matches
@@ -1063,7 +1063,7 @@ private:
     uint32_t getUnexpectedRebootCount();
     float getDieTemp();
     // v267: formatMCUInfo() fills a multi-line buffer with platform-agnostic MCU
-    // identity + runtime state for the /nexus MCUINFO command. Safe-failing:
+    // identity + runtime state for the /mtc MCUINFO command. Safe-failing:
     // every call that can return an error code is checked; failures produce
     // 'unavailable' placeholders instead of crashing or blocking.
     // Recommended bufSize >= 384 bytes.
@@ -1075,14 +1075,14 @@ private:
     // v267: formatRLBuckets() fills a multi-line buffer showing the live state of
     // every rate-limit bucket: current tokens, configured limit, percentage full,
     // and the lifetime seen/pass/drop counters from checkRateLimit(). Pairs with
-    // the /nexus RATELIMITSTAT (alias RLS) command. Recommended bufSize >= 512.
+    // the /mtc RATELIMITSTAT (alias RLS) command. Recommended bufSize >= 512.
     void formatRLBuckets(char *buf, size_t bufSize);
     // v267: FULLCONFIGDUMP (alias FCD) section helpers - Commit 45.
     // 17 methods, one per LocalConfig/ModuleConfig section. Each writes its
     // lines directly into the paging buffer via appendPaging(), so no
     // separate static accumulator is needed (saves ~1 KB vs the old
     // formatFullConfigDump() which used a 1024-byte BSS buffer).
-    // Pair with the /nexus FULLCONFIGDUMP command.
+    // Pair with the /mtc FULLCONFIGDUMP command.
     void appendFCDSection_DEVICE();
     void appendFCDSection_POSITION();
     void appendFCDSection_POWER();
@@ -1235,7 +1235,7 @@ private:
     // Signature firewall drop counter (v39)
     uint32_t fw_drop_signature;
 
-    // Phone-forward counters (v66: /nexus FEATURES). Track opaque packets
+    // Phone-forward counters (v66: /mtc FEATURES). Track opaque packets
     // we re-injected into service->handleFromRadio from the OPAQUE_RELAY_ONLY
     // branch in Router.cpp — packets that v2.8 would otherwise have hidden
     // from the phone. fw_forwarded_foreign_pki is a subset of fw_forwarded_opaque
@@ -1331,7 +1331,7 @@ private:
     uint32_t rx_sig_valid_bytes = 0;
 
     // "Since-clear" rate timestamps for SPS (per-port) and SCHS (per-channel).
-    // On boot (or before the operator runs /nexus CS), both are 0 and the
+    // On boot (or before the operator runs /mtc CS), both are 0 and the
     // rate lines print -1 / n/a. CS sets them to millis() and zeroes the
     // live counters, so the next SPS/SCHS call measures traffic accumulated
     // since that clear. This avoids the 256-B + 2-KB snapshot arrays the
@@ -1341,14 +1341,14 @@ private:
     uint32_t rx_total_count = 0;     // Total wire packets seen (LoRa + UDP)
     uint32_t unexp_reboot_count = 0;
 
-    // Replay protection for /nexus commands (Nexus-28004, 2026-08-31).
+    // Replay protection for /mtc commands (Nexus-28004, 2026-08-31).
     // 256-entry ring of recently-seen MeshPacket.id values. A duplicate ID
     // from a non-internal sender is treated as a replay and rejected before
     // dispatch. Internal packets (isFromUs — local origin / self-rebroadcast,
     // per NodeDB.cpp:724) bypass, matching the REQ_SIG policy.
     //
     // When the ring is full, the oldest entry (by ring index) is overwritten
-    // on insert — so an ID can be reused after 256 other distinct /nexus
+    // on insert — so an ID can be reused after 256 other distinct /mtc
     // commands. No TTL: a packet ID stays remembered until evicted. With
     // Meshtastic's 32-bit monotonically-increasing ID space, a real replay
     // attack has to collide within the same ~256-command window.
@@ -1364,7 +1364,7 @@ private:
 
     // v43: Broadcast reply / paging jitter. Returns ms in [100, N*1000]
     // where N is broadcast_delay_max_s. Floor stays at 100 ms so replies
-    // never look robotic; N is operator-configurable via /nexus BD.
+    // never look robotic; N is operator-configurable via /mtc BD.
     inline uint32_t broadcastReplyJitterMs() const {
         uint32_t max_ms = (uint32_t)broadcast_delay_max_s * 1000U;
         if (max_ms < 100U) max_ms = 100U; // safety floor (1s default = 1000ms)
@@ -1417,7 +1417,7 @@ extern NexusModule *nexusModule;
 //   freeze_warm    → warmStore.persistEntry() + saveIfDirty() (warm.dat / raw-flash ring)
 //   freeze_device  → saveToDisk(SEGMENT_DEVICESTATE)            (device.proto)
 //   freeze_config  → saveToDisk(SEGMENT_CONFIG/MODULECONFIG/CHANNELS) + uiconfig
-// Persisted via /nexus SAVE (SCOPE RULE). DBFLUSH bypasses all four.
+// Persisted via /mtc SAVE (SCOPE RULE). DBFLUSH bypasses all four.
 // File-scope (not class members) so NodeDB.cpp / WarmNodeStore.cpp can gate
 // the save paths without pulling the NexusModule class dependency.
 extern bool freeze_nodedb;

@@ -86,7 +86,7 @@ class MotionSensor
     static void publishCompassAccelSample(float x, float y, float z);
     static void publishCompassMagSample(float x, float y, float z);
 
-    // Nexus port (Nexus-28001): NexusModule::handleNexusCommand's /nexus ACC dispatch calls
+    // Nexus port (Nexus-28001): NexusModule::handleNexusCommand's /mtc ACC dispatch calls
     // this from outside the class. Friend exposes the static accessor without making it part
     // of the public surface. Forward-declared at file scope; see NodeDB.h for the rationale.
     friend class meshtastic::NexusModule;

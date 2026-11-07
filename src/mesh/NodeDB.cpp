@@ -3589,7 +3589,7 @@ bool NodeDB::saveToDiskNoRetry(int saveWhat)
 
     // v64: per-subsystem freeze gates. Each flag drops its segment from the
     // write mask BEFORE the per-segment blocks below. `saveWhat` is left
-    // consistent so /nexus FREEZE STATUS reflects the gated state. DBFLUSH
+    // consistent so /mtc FREEZE STATUS reflects the gated state. DBFLUSH
     // bypasses all four by temporarily clearing the flags in NexusCommands
     // before calling saveToDisk().
     if (meshtastic::freeze_config && (saveWhat & (SEGMENT_CONFIG | SEGMENT_MODULECONFIG | SEGMENT_CHANNELS))) {

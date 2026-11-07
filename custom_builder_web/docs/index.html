@@ -172,9 +172,9 @@
             usan una palabra de 8 bits en lugar de un registro: la híbrida es
             <code>0x1B</code>. Está verificada en una T1000-E; LR1120 y LR1121
             comparten el controlador pero no se han medido. SX128x y LR2021 no
-            tienen modo híbrido. Con <code>/mcore HYBRID OFF</code> el nodo
+            tienen modo híbrido. Con <code>/mc HYBRID OFF</code> el nodo
             vuelve a la palabra de Meshtastic y deja de oír MeshCore hasta que
-            se reinicia o se ejecuta <code>/mcore HYBRID ON</code>.
+            se reinicia o se ejecuta <code>/mc HYBRID ON</code>.
           </p>
         </section>
 
@@ -217,7 +217,7 @@
         <!-- §1 THE NEXUS CHANNEL & INVOCATIONS -->
         <!-- =================================================================== -->
         <section class="docs-section" id="sec-1">
-          <h2>§1. Canales de Control e Invocación (/nexus y /mtc)</h2>
+          <h2>§1. Canales de Control e Invocación (/mtc y /mtc)</h2>
           <p class="docs-paragraph">
             Los comandos Nexus se transmiten como mensajes de texto normales a
             través de la malla LoRa o mediante la interfaz Bluetooth/Serial con
@@ -236,7 +236,7 @@
               <tbody>
                 <tr class="cmd-row">
                   <td>
-                    <code>/nexus &lt;cmd&gt;</code> /
+                    <code>/mtc &lt;cmd&gt;</code> /
                     <code>/mtc &lt;cmd&gt;</code>
                   </td>
                   <td>Broadcast (Canal primario)</td>
@@ -246,7 +246,7 @@
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><code>/nexus-local &lt;cmd&gt;</code></td>
+                  <td><code>/mtl &lt;cmd&gt;</code></td>
                   <td>Local (Sin emisión RF)</td>
                   <td>
                     Se ejecuta exclusivamente en el nodo conectado (por app
@@ -254,32 +254,32 @@
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><code>/nexus-device !&lt;hex8&gt; &lt;cmd&gt;</code></td>
+                  <td><code>/mtc-device !&lt;hex8&gt; &lt;cmd&gt;</code></td>
                   <td>Nodo por Hex ID</td>
                   <td>
                     Dirigido directamente a un nodo específico (ej:
-                    <code>/nexus-device !3f2a89c1 INFO</code>). Omite el
+                    <code>/mtc-device !3f2a89c1 INFO</code>). Omite el
                     cooldown.
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><code>/nexus-node &lt;short4&gt; &lt;cmd&gt;</code></td>
+                  <td><code>/mtc-node &lt;short4&gt; &lt;cmd&gt;</code></td>
                   <td>Nodo por Nombre Corto</td>
                   <td>
                     Dirigido al nodo con nombre corto de 4 caracteres (ej:
-                    <code>/nexus-node MTC1 RSSI</code>).
+                    <code>/mtc-node MTC1 RSSI</code>).
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><code>/nexus-mac &lt;hex2&gt; &lt;cmd&gt;</code></td>
+                  <td><code>/mtc-mac &lt;hex2&gt; &lt;cmd&gt;</code></td>
                   <td>Nodo por Sufijo MAC</td>
                   <td>
                     Dirigido a los dos últimos bytes de la dirección MAC física
-                    (ej: <code>/nexus-mac 3f2a SYS</code>).
+                    (ej: <code>/mtc-mac 3f2a SYS</code>).
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><code>/nexus-group &lt;grp&gt; &lt;cmd&gt;</code></td>
+                  <td><code>/mtc-group &lt;grp&gt; &lt;cmd&gt;</code></td>
                   <td>Grupo Asignado</td>
                   <td>
                     Ejecuta en todos los nodos que pertenezcan al grupo
@@ -290,14 +290,14 @@
             </table>
           </div>
 
-          <h3>Redirección de Respuestas (/nexus R)</h3>
+          <h3>Redirección de Respuestas (/mtc R)</h3>
           <p class="docs-paragraph">
             Cualquier comando puede redirigir su respuesta hacia un canal
             específico o mensaje directo (DM):
           </p>
           <div class="code-block">
-            /nexus R CH 1 NODES # Ejecuta NODES y envía la respuesta al canal
-            secundario (índice 1) /nexus R DM !3f2a89c1 SYS # Ejecuta SYS y
+            /mtc R CH 1 NODES # Ejecuta NODES y envía la respuesta al canal
+            secundario (índice 1) /mtc R DM !3f2a89c1 SYS # Ejecuta SYS y
             envía el informe como mensaje privado al operador
           </div>
         </section>
@@ -452,7 +452,7 @@
                     Informe paginado consolidado del estado de todos los filtros
                     del cortafuegos.
                   </td>
-                  <td><code>/nexus FW</code></td>
+                  <td><code>/mtc FW</code></td>
                 </tr>
               </tbody>
             </table>
@@ -761,7 +761,7 @@
                   <td><code>SECURITY REQ_SIG &lt;ON|OFF&gt;</code></td>
                   <td>
                     Exige firma XEdDSA válida de clave confiable para aceptar
-                    comandos <code>/nexus</code>.
+                    comandos <code>/mtc</code>.
                   </td>
                 </tr>
                 <tr class="cmd-row">
@@ -1461,7 +1461,7 @@
                     se da en voltios (<code>3.7</code>) o milivoltios
                     (<code>3700</code>, de 500 a 30000). Una regla actúa tras
                     tres lecturas seguidas, cada 15 s, y se rearma con 50 mV de
-                    histéresis. Se guarda con <code>/nexus SAVE</code>.
+                    histéresis. Se guarda con <code>/mtc SAVE</code>.
                   </td>
                 </tr>
                 <tr class="cmd-row">
@@ -1648,7 +1648,7 @@
                   <td><code>GROUP ADD &lt;nombre&gt;</code></td>
                   <td>
                     Crea grupos de destino para invocar comandos con
-                    <code>/nexus-group &lt;grp&gt;</code>.
+                    <code>/mtc-group &lt;grp&gt;</code>.
                   </td>
                 </tr>
                 <tr class="cmd-row">
@@ -1724,7 +1724,7 @@
         <!-- §17 MESHCORE ESPECÍFICOS -->
         <!-- =================================================================== -->
         <section class="docs-section" id="sec-17">
-          <h2>§17. Comandos Específicos de MeshCore (/mcore)</h2>
+          <h2>§17. Comandos Específicos de MeshCore (/mc)</h2>
           <div class="docs-table-wrapper">
             <table class="docs-table">
               <thead>
@@ -1736,42 +1736,42 @@
               </thead>
               <tbody>
                 <tr class="cmd-row">
-                  <td><span class="cmd-badge">/mcore VECINOS</span></td>
-                  <td><code>/mcore VECINOS</code></td>
+                  <td><span class="cmd-badge">/mc VECINOS</span></td>
+                  <td><code>/mc VECINOS</code></td>
                   <td>
                     Muestra los contactos directos escuchados en la red MeshCore
                     con su SNR.
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><span class="cmd-badge">/mcore ADVERT</span></td>
-                  <td><code>/mcore ADVERT [mins]</code></td>
+                  <td><span class="cmd-badge">/mc ADVERT</span></td>
+                  <td><code>/mc ADVERT [mins]</code></td>
                   <td>
                     Fuerza la emisión de un anuncio de identidad MeshCore
                     firmado por el nodo.
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><span class="cmd-badge">/mcore RELAY</span></td>
-                  <td><code>/mcore RELAY &lt;ON|OFF&gt;</code></td>
+                  <td><span class="cmd-badge">/mc RELAY</span></td>
+                  <td><code>/mc RELAY &lt;ON|OFF&gt;</code></td>
                   <td>
                     Activa o apaga la retransmisión de tramas MeshCore en
                     caliente sin reiniciar.
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><span class="cmd-badge">/mcore PATHSIZE</span></td>
-                  <td><code>/mcore PATHSIZE [1-3|DEFAULT]</code></td>
+                  <td><span class="cmd-badge">/mc PATHSIZE</span></td>
+                  <td><code>/mc PATHSIZE [1-3|DEFAULT]</code></td>
                   <td>
                     Bytes de hash de ruta que añade cada repetidor a las tramas
                     que origina este nodo. Por defecto 2.
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><span class="cmd-badge">/mcore FLOODMAX</span></td>
+                  <td><span class="cmd-badge">/mc FLOODMAX</span></td>
                   <td>
                     <code
-                      >/mcore FLOODMAX [&lt;general&gt; &lt;sin región&gt;
+                      >/mc FLOODMAX [&lt;general&gt; &lt;sin región&gt;
                       &lt;advert&gt;|DEFAULT]</code
                     >
                   </td>
@@ -1782,16 +1782,16 @@
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><span class="cmd-badge">/mcore IDENTITY</span></td>
-                  <td><code>/mcore IDENTITY</code></td>
+                  <td><span class="cmd-badge">/mc IDENTITY</span></td>
+                  <td><code>/mc IDENTITY</code></td>
                   <td>
                     Identificador, tipo, nombre y clave pública del nodo
                     MeshCore, y el alias del repetidor si lo usa.
                   </td>
                 </tr>
                 <tr class="cmd-row">
-                  <td><span class="cmd-badge">/mcore HYBRID</span></td>
-                  <td><code>/mcore HYBRID [ON|OFF]</code></td>
+                  <td><span class="cmd-badge">/mc HYBRID</span></td>
+                  <td><code>/mc HYBRID [ON|OFF]</code></td>
                   <td>
                     Activa o desactiva la palabra de sincronismo híbrida en
                     SX126x y LR11x0. Solo en RAM: con OFF el nodo no oye
@@ -2493,7 +2493,7 @@
           <div class="cmd-card">
             <div class="cmd-header">
               <span class="cmd-name"
-                >¿Por qué usar /nexus o /mtc en lugar de la app?</span
+                >¿Por qué usar /mtc o /mtc en lugar de la app?</span
               >
             </div>
             <div class="cmd-desc">

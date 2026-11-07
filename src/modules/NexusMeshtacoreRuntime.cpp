@@ -89,7 +89,7 @@ void NexusModule::serviceStormSleep()
     if (!stormPending || !Throttle::deadlinePassed(stormStartDeadlineMs))
         return;
     stormPending = false;
-    LOG_WARN("Nexus: STORM sleep for %lu min", (unsigned long)stormSleepMinutes);
+    LOG_WARN("MTC: STORM sleep for %lu min", (unsigned long)stormSleepMinutes);
 #ifdef ARCH_NRF52
     nrf52RequestTimedSleep();
 #endif
@@ -167,7 +167,7 @@ int NexusModule::diffVaultV68(const NexusVault &v)
         diffs++;
     }
     if (v.version >= 70 && memcmp(volt_rules, v.volt_rules, sizeof(volt_rules)) != 0) {
-        snprintf(line, sizeof(line), "volt_rules: RAM and Vault differ (see /nexus VOLT)");
+        snprintf(line, sizeof(line), "volt_rules: RAM and Vault differ (see /mtc VOLT)");
         appendPaging(line);
         diffs++;
     }
@@ -291,7 +291,7 @@ void NexusModule::applyZeroHopRoleDefaults(bool vaultHasV68)
         if (saveVault())
             vaultVersionLoaded = 69;
         else
-            LOG_WARN("Nexus: could not save the migrated vault, Zero-Hop defaults apply again next boot");
+            LOG_WARN("MTC: could not save the migrated vault, Zero-Hop defaults apply again next boot");
     }
 }
 

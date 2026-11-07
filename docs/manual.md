@@ -3,7 +3,7 @@
 This manual covers the parts of Nexus that are **not** command syntax:
 how commands reach a node, what the trust keys are, and how to build a
 firmware that carries your own keys. For the command reference itself see
-[`nexus-commands.md`](nexus-commands.md).
+[`mtc-commands.md`](mtc-commands.md).
 
 ---
 
@@ -11,24 +11,26 @@ firmware that carries your own keys. For the command reference itself see
 
 Nexus commands travel over a normal mesh channel. It must be one of the trusted channels. You send a text message that starts with a dispatch prefix:
 
-| Prefix                        | Scope            | Description                                                                                                                                                     |
-| ----------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/nexus <cmd>`                | Broadcast        | Sent over the primary/first configured Nexus channel; every node on that channel may process it. Broadcast commands carry a **5-second rate limit** (per node). |
-| `/nexus-local <cmd>`          | Local            | Executed on the sending node only. Works on any channel, MeshCore (`MC:`) included, and answers on the channel it was typed in.                                 |
-| `/nl <cmd>`                   | Local            | Short form of `/nexus-local`.                                                                                                                                   |
-| `/mcore-local <cmd>`          | Local            | `/nexus-local` for the MeshCore and region commands.                                                                                                            |
-| `/ml <cmd>`                   | Local            | Short form of `/mcore-local`.                                                                                                                                   |
-| `/nexus-device !<hex8> <cmd>` | Targeted         | Sent to one node by its hex node ID (e.g. `/nexus-device !defc895b INFO`). Bypasses the broadcast rate limit.                                                   |
-| `/nexus-node <short4> <cmd>`  | Targeted         | Sent to one node by its 4-char short name. Bypasses the rate limit.                                                                                             |
-| `/nexus-mac <hex2> <cmd>`     | Targeted         | Sent by the last 2 bytes of the MAC address.                                                                                                                    |
-| `/nexus-group <grp> <cmd>`    | Group            | Sent to all nodes in group `<grp>`.                                                                                                                             |
-| `/mtc`                        | /nexus-* Aliases | Equivalent to `/nexus`.                                                                                                                                         |
+| Prefix | Scope | Description |
+| --- | --- | --- |
+| `/mt <cmd>` | Broadcast, Meshtastic | Sent over the primary/first configured trusted channel. Runs every command except the MESHCORE family (refused: use `/mc`). Broadcast commands carry a **5-second rate limit** (per node). |
+| `/mc <cmd>` | Broadcast, MeshCore | Same as `/mtc MESHCORE <cmd>`: the MeshCore and region commands. |
+| `/mtc <cmd>` | Broadcast, both | Runs any command, MeshCore or Meshtastic. |
+| `/mtl <cmd>` | Local, Meshtastic | Executed on the sending node only; never leaves the radio. Works on any channel, MeshCore (`MC:`) included, and answers on the channel it was typed in. |
+| `/mcl <cmd>` | Local, MeshCore | `/mc` run locally. |
+| `/mtcl <cmd>` | Local, both | `/mtc` run locally. |
+| `/mt-device`, `/mc-device`, `/mtc-device !<hex8> <cmd>` | Targeted | Sent to one node by its hex node ID (e.g. `/mtc-device !defc895b INFO`). Bypasses the broadcast rate limit. |
+| `/mt-node`, `/mc-node`, `/mtc-node <short4> <cmd>` | Targeted | Sent to one node by its 4-char short name. Bypasses the rate limit. |
+| `/mt-mac`, `/mc-mac`, `/mtc-mac <hex4> <cmd>` | Targeted | Sent by the **last 2 bytes** of the MAC address as a hex suffix (e.g. `/mtc-mac 1a2b INFO`). |
+| `/mt-group`, `/mc-group`, `/mtc-group <grp> <cmd>` | Group | Sent to all nodes in group `<grp>`. |
+
+The local roots (`/mtl`, `/mcl`, `/mtcl`) take no `-device`/`-node`/`-mac`/`-group` suffix and are refused when they arrive over the mesh. The old `/nexus*`, `/mcore*`, `/nl` and `/ml` roots no longer exist.
 
 Replies are queued back over the same channel the command arrived on.
 Broadcast commands are routed on the node's **trusted channel** (see §3)
 so that responses land where operators listen.
 
-> Full syntax and per-command arguments: [`nexus-commands.md`](nexus-commands.md).
+> Full syntax and per-command arguments: [`mtc-commands.md`](mtc-commands.md).
 
 ---
 
@@ -41,7 +43,7 @@ checking the sender's public key against **three independent lists**
 | #   | Source                                             | Where it lives                                                                         | Mutable at runtime?                                          |
 | --- | -------------------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
 | 1   | **Admin keys** - `config.security.admin_key[0..2]` | Node config, baked via `USERPREFS_USE_ADMIN_KEY_0/1/2` build flags or set from the app | Yes, via normal Meshtastic config                            |
-| 2   | **Secondary keys** - `nexus_secondary_keys[0..3]`  | Vault (on-flash, RAM-loaded)                                                           | **Yes** - `/nexus SKEY [1..4] <key\|OFF>` sets or wipes them |
+| 2   | **Secondary keys** - `nexus_secondary_keys[0..3]`  | Vault (on-flash, RAM-loaded)                                                           | **Yes** - `/mtc SKEY [1..4] <key\|OFF>` sets or wipes them |
 | 3   | **Master keys** - `NEXUS_MASTER_KEY_1..4`          | Compiled into the firmware binary                                                      | **No - irrevocable** (see §4)                                |
 
 The same three lists are used by signature verification
@@ -57,7 +59,7 @@ useful to know _which_ key authorized an action.
 - **Secondary keys** = the _revocable_ Nexus layer. This is what
   community/shared builds use: grant trust over the air, revoke it with
   `SKEY n OFF`, no reflashing involved. Vault-persisted, so they survive
-  reboot (`/nexus SAVE`).
+  reboot (`/mtc SAVE`).
 - **Master keys** = the _irrevocable_ floor - your own keys, you can bake them at
   compile time. Even if a node's config is wiped and its vault cleared,
   a firmware built with your master key still recognizes you.

@@ -588,7 +588,7 @@ size_t Channels::getMeshCoreKey(ChannelIndex chIndex, uint8_t key[32])
     static uint32_t warnedKeyless = 0; // one warning per slot: this runs for every MeshCore frame heard
     if (!(warnedKeyless & (1u << chIndex))) {
         warnedKeyless |= 1u << chIndex;
-        LOG_WARN("MeshCore ch %u '%s' is private and has no key: set the MeshCore key with /nexus CHPSK %u <hex> or as base64 "
+        LOG_WARN("MeshCore ch %u '%s' is private and has no key: set the MeshCore key with /mtc CHPSK %u <hex> or as base64 "
                  "in the app",
                  (unsigned)chIndex, ch.settings.name, (unsigned)chIndex);
     }

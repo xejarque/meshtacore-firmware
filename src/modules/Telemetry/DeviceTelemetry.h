@@ -15,7 +15,7 @@ class DeviceTelemetryModule : private concurrency::OSThread,
 
   public:
     // Nexus: external singleton accessor (mirrors PowerTelemetryModule::instance pattern).
-    // Used by getNexusDeviceTelemetry() in NexusModule.cpp so /nexus TELEMETRY can read
+    // Used by getNexusDeviceTelemetry() in NexusModule.cpp so /mtc TELEMETRY can read
     // battery / voltage / channel util / air util / uptime directly from the live module
     // without depending on nodeDB->nodeTelemetry, which is gated by
     // MESHTASTIC_EXCLUDE_TELEMETRYDB and is otherwise empty on memory-constrained variants.

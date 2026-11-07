@@ -308,8 +308,8 @@ class NexusModule;
 class NodeDB
 {
     // Nexus port: NexusModule calls pickNewNodeNum() and saveNodeDatabaseToDisk() directly
-    // to drive /nexus ID rotation (regenerate our NodeNum and persist) and to force a
-    // save after a manual /nexus NODEINFO edit. Friend is preferred over moving those
+    // to drive /mtc ID rotation (regenerate our NodeNum and persist) and to force a
+    // save after a manual /mtc NODEINFO edit. Friend is preferred over moving those
     // methods to public - they're internal NodeDB plumbing that Nexus orchestrates.
     friend class meshtastic::NexusModule;
 

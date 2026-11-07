@@ -30,7 +30,7 @@ bool reapplyToLive();
 /// Deletes the copy.
 bool clear();
 
-/// One-line summary of the stored copy for /nexus RESCUE SHOW.
+/// One-line summary of the stored copy for /mtc RESCUE SHOW.
 void describe(char *out, size_t outLen);
 
 } // namespace NexusRescue

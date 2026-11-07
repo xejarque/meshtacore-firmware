@@ -23,10 +23,10 @@ class LR2021Interface : public LR20x0Interface<LR2021>
     // or chip-side reject.
     bool configureSideDetectors(const uint8_t *sfs, uint8_t num);
 
-    // Storage + accessors used by /nexus LR2021_SF (NexusCommands.cpp) and
+    // Storage + accessors used by /mtc LR2021_SF (NexusCommands.cpp) and
     // the apply hooks in LR20x0Interface::init(), ::reconfigure(), and
     // ::fullBegin(). RAM-only persistence (the table is lost on reboot;
-    // operators re-set with /nexus LR2021_SF). A future vault bump could
+    // operators re-set with /mtc LR2021_SF). A future vault bump could
     // persist this - Nexus-28005 keeps it RAM-only because the apply runs
     // before vault-load validation.
     static constexpr uint8_t MAX_SF_TABLE = 3;
@@ -37,7 +37,7 @@ class LR2021Interface : public LR20x0Interface<LR2021>
 
     // Apply the stored side-detector table to the chip. Called from all
     // three reconfiguration paths in LR20x0Interface (init, reconfigure,
-    // fullBegin) so /nexus LORA re-programs the side detector no matter
+    // fullBegin) so /mtc LORA re-programs the side detector no matter
     // which internal code path setlora triggers (band-hop via fullBegin,
     // same-band via per-parameter setters, or recovery via fullBegin).
     // No-op when sideDetectorsCount() == 0 (boot default). If the chip

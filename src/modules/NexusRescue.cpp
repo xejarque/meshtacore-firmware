@@ -130,9 +130,9 @@ void snapshot()
     if (haveStored && pending.crc == stored.crc)
         return; // unchanged: no flash write
     if (writeCopy(pending))
-        LOG_INFO("Nexus: rescue copy updated");
+        LOG_INFO("MTC: rescue copy updated");
     else
-        LOG_ERROR("Nexus: rescue copy write failed");
+        LOG_ERROR("MTC: rescue copy write failed");
 }
 
 static void applyCopy(const RescueCopy &c)
@@ -168,7 +168,7 @@ bool restoreIfConfigWasMissing()
 {
     if (!nodeDB || !nodeDB->bootedWithMissingConfig() || !reapplyToLive())
         return false;
-    LOG_WARN("Nexus: config was missing at boot, rescue copy restored");
+    LOG_WARN("MTC: config was missing at boot, rescue copy restored");
     nodeDB->saveToDisk(SEGMENT_CONFIG | SEGMENT_MODULECONFIG | SEGMENT_CHANNELS | SEGMENT_DEVICESTATE);
     return true;
 }

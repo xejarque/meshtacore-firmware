@@ -306,7 +306,7 @@ void startAdv(void)
 {
 #ifdef NEXUS_ENABLE_AIRTAG
     if (nexus_airtag_enabled && inAirtagMode) {
-        LOG_INFO("Nexus: Starting AirTag Advertisement");
+        LOG_INFO("MTC: Starting AirTag Advertisement");
         Bluefruit.Advertising.stop();
         Bluefruit.Advertising.clearData();
         Bluefruit.ScanResponse.clearData();
@@ -840,7 +840,7 @@ void NRF52Bluetooth::tick()
         inAirtagMode = !inAirtagMode;
         lastModeSwitch = now;
 
-        LOG_INFO("Nexus: Switching BLE to %s mode", inAirtagMode ? "AirTag" : "Meshtastic");
+        LOG_INFO("MTC: Switching BLE to %s mode", inAirtagMode ? "AirTag" : "Meshtastic");
 
         Bluefruit.Advertising.stop();
         Bluefruit.Advertising.clearData();

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
-// Meshtacore additions to the /nexus CLI: RESCUE, CHEM, STORM, URL, PUBSILENCE, VWAKE, VOLT and MESHCORE. They live here, not
+// Meshtacore additions to the /mtc CLI: RESCUE, CHEM, STORM, URL, PUBSILENCE, VWAKE, VOLT and MESHCORE. They live here, not
 // in NexusCommands.cpp, so a merge of the jentastic upstream does not collide with them: the dispatch chain in
 // handleNexusCommand() carries a single call to handleMeshtacoreCommand().
 
@@ -40,10 +40,10 @@ bool NexusModule::handleMeshtacoreCommand(const meshtastic_MeshPacket &mp, uint3
         handleRegionCommand(args ? args + 1 : "", replyMsg, sizeof(replyMsg));
     } else if (strcasecmp(cmd, "VOLT") == 0 || strcasecmp(cmd, "VOLTAGE") == 0 || strncasecmp(cmd, "VOLT ", 5) == 0 ||
                strncasecmp(cmd, "VOLTAGE ", 8) == 0) {
-        // /nexus VOLT [LIST|WAKE|<1..4> [...]]: voltage threshold rules (NexusMeshtacoreVolt.cpp).
+        // /mtc VOLT [LIST|WAKE|<1..4> [...]]: voltage threshold rules (NexusMeshtacoreVolt.cpp).
         handleVoltCommand(mp, replyId, cmd);
     } else if (strcasecmp(cmd, "RESCUE") == 0 || strcasecmp(cmd, "RESCUE SHOW") == 0) {
-        // /nexus RESCUE [SHOW]: the copy restored after a factory reset or a wiped /prefs.
+        // /mtc RESCUE [SHOW]: the copy restored after a factory reset or a wiped /prefs.
         NexusRescue::describe(replyMsg, sizeof(replyMsg));
     } else if (strcasecmp(cmd, "RESCUE CLEAR") == 0) {
         snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: RESCUE %s", NexusRescue::clear() ? "copy deleted" : "delete failed");
@@ -51,20 +51,20 @@ bool NexusModule::handleMeshtacoreCommand(const meshtastic_MeshPacket &mp, uint3
         NexusRescue::snapshot();
         NexusRescue::describe(replyMsg, sizeof(replyMsg));
     } else if (strncasecmp(cmd, "CHEM ", 5) == 0 || strcasecmp(cmd, "CHEM") == 0) {
-        // /nexus CHEM [VARIANT|LIPO|NIMH|SODIUM|LIFEPO4]: battery OCV curve and low-voltage cutoff. Persist with SAVE.
+        // /mtc CHEM [VARIANT|LIPO|NIMH|SODIUM|LIFEPO4]: battery OCV curve and low-voltage cutoff. Persist with SAVE.
         handleChemCommand(cmd[4] ? cmd + 5 : "");
     } else if (strncasecmp(cmd, "STORM ", 6) == 0 || strcasecmp(cmd, "STORM") == 0) {
-        // /nexus STORM <minutes 1-1440>|OFF: radio off and deep sleep, then reboot.
+        // /mtc STORM <minutes 1-1440>|OFF: radio off and deep sleep, then reboot.
         handleStormCommand(cmd[5] ? cmd + 6 : "");
     } else if (isCommandWord(cmd, "URL")) {
-        // /nexus URL <channel URL>: merge the shared channels by name, keep Nexus channels and TX power.
+        // /mtc URL <channel URL>: merge the shared channels by name, keep Nexus channels and TX power.
         // The command buffer keeps 127 bytes: a URL that fills it was cut and must not half-apply.
         if (strlen(this->cmdBuf) >= sizeof(this->cmdBuf) - 1) // the whole message, prefix included, filled it
             snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: URL URL too long for one command");
         else
             handleSetUrlCommand(skipToken(cmd));
     } else if (strncasecmp(cmd, "PUBSILENCE ", 11) == 0 || strcasecmp(cmd, "PUBSILENCE") == 0) {
-        // /nexus PUBSILENCE [ON|OFF]: no ACKs, replies or unicast NodeInfo from us on public-key channels.
+        // /mtc PUBSILENCE [ON|OFF]: no ACKs, replies or unicast NodeInfo from us on public-key channels.
         const char *p = cmd[10] ? cmd + 11 : "";
         while (*p == ' ')
             p++;
@@ -79,7 +79,7 @@ bool NexusModule::handleMeshtacoreCommand(const meshtastic_MeshPacket &mp, uint3
                      (ext_flags & EXT_FLAG_PUBLIC_SILENCE) ? "ON" : "OFF");
         }
     } else if (strncasecmp(cmd, "VWAKE ", 6) == 0 || strcasecmp(cmd, "VWAKE") == 0) {
-        // /nexus VWAKE [<n>/<d>|DEFAULT]: LPCOMP battery wake threshold, a fraction of VDD
+        // /mtc VWAKE [<n>/<d>|DEFAULT]: LPCOMP battery wake threshold, a fraction of VDD
         // seen after the battery divider. Persist with SAVE.
         handleVwakeCommand(cmd[5] ? cmd + 6 : "");
     } else if (strcasecmp(cmd, "HEALTH") == 0 || strncasecmp(cmd, "HEALTH ", 7) == 0 || strcasecmp(cmd, "SALUT") == 0 ||

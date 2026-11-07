@@ -773,7 +773,7 @@ void MQTT::onSend(const meshtastic_MeshPacket &mp_encrypted, const meshtastic_Me
             uint8_t mode = meshtastic::nexusModule->mqtt_override_mode;
             if (mode == 1) {
                 allowUplink = true;
-                LOG_DEBUG("Nexus: MQTT Always-Upload Bypass active");
+                LOG_DEBUG("MTC: MQTT Always-Upload Bypass active");
             } else if (mode == 2) {
                 if (dontUplink && !isFromUs(&mp_decoded)) {
                     allowUplink = false;

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
-// /nexus MESHCORE (alias MCORE): reads and sets the MeshCore relay and ADVERT settings from the Nexus CLI. The settings
+// /mtc MESHCORE (alias MCORE): reads and sets the MeshCore relay and ADVERT settings from the Nexus CLI. The settings
 // live in RadioLibInterface (MeshCoreConfig); this file parses the operator's words and formats one reply. Like the other
-// tactical settings, a change is volatile until /nexus SAVE.
+// tactical settings, a change is volatile until /mtc SAVE.
 
 #include "Channels.h"
 #include "MeshService.h"
@@ -25,7 +25,7 @@
 #include "mesh/MeshCoreCompanion.h"
 #endif
 
-// Nexus's base64 encoder (NexusCommands.cpp), shared so a key reads the same as every other /nexus export.
+// Nexus's base64 encoder (NexusCommands.cpp), shared so a key reads the same as every other /mtc export.
 void nexus_base64_encode(char *out, const uint8_t *in, size_t in_len, bool url_safe);
 
 namespace meshtastic
@@ -1304,7 +1304,7 @@ bool NexusModule::formatMeshCorePingReply(const meshtastic_MeshPacket &mp, char 
         if ((size_t)l >= rMsgLen)
             l = (int)rMsgLen - 1;
     };
-    // MeshCore has its own header mode (PING_HEADER_DEFAULT / CUSTOM / NONE), set by /nexus MESHCORE PPING HEADER.
+    // MeshCore has its own header mode (PING_HEADER_DEFAULT / CUSTOM / NONE), set by /mtc MESHCORE PPING HEADER.
     // NONE, the factory setting, leaves the line to the hop count alone.
     const char *header = nullptr;
     if (mc_ping_header_mode == PING_HEADER_CUSTOM && pping_header[0] != '\0')
@@ -1374,7 +1374,7 @@ void NexusModule::handleMeshCorePpingCommand(const char *args, char *reply, size
                  public_ping ? 1 : 0, botStatus, ping_rssi ? 1 : 0, ping_snr ? 1 : 0, ping_freqerr ? 1 : 0, (int)ping_emoji_mode,
                  ping_allow_dm ? 1 : 0, pingHeaderModeName(mc_ping_header_mode), ping_trigger);
     } else if (strcasecmp(args, "ON") == 0) {
-        // Only the MeshCore side: /nexus PPING owns public_ping.
+        // Only the MeshCore side: /mtc PPING owns public_ping.
         if (botCh >= 0) {
             ping_channels[botCh] = true;
             snprintf(reply, replyLen, "MESHTACORE: PPING ON (MC:#bot on Ch %d)", botCh);

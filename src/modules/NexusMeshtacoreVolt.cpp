@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
-// /nexus VOLT: up to four voltage threshold rules that run a command, hibernate or wake the node when a battery or INA3221
+// /mtc VOLT: up to four voltage threshold rules that run a command, hibernate or wake the node when a battery or INA3221
 // channel crosses a level. Ported from JenTastic 2.8.105 (NexusModule::runVoltageAutomations and the VOLT command) and split into
 // small functions. It lives here, not in NexusModule.cpp / NexusCommands.cpp, so a merge of the jentastic upstream does not
 // collide with it. In the JenTastic vault the rules are v68; in this fork's vault they are v70.
@@ -240,7 +240,7 @@ void NexusModule::runVoltageAutomations()
             volt_debounce_count[i]++;
         if (volt_debounce_count[i] >= VOLT_DEBOUNCE_SAMPLES && !volt_triggered[i]) {
             volt_triggered[i] = true;
-            LOG_INFO("Nexus: Volt slot %d triggered (%u mV, dir %u, act %u, ch %u)", i + 1, (unsigned)currentMv,
+            LOG_INFO("MTC: Volt slot %d triggered (%u mV, dir %u, act %u, ch %u)", i + 1, (unsigned)currentMv,
                      (unsigned)rule.direction, (unsigned)rule.action, (unsigned)rule.channel);
             applyRuleAction(rule);
         }
@@ -259,7 +259,7 @@ void NexusModule::applyRuleAction(const NexusVoltRule &rule)
     case NEXUS_VOLT_ACT_HIBERNATE:
         setHibernating(true);
         runRuleCommand(rule.command);
-        LOG_INFO("Nexus: Entering voltage-induced hibernation (sniff interval 60s)...");
+        LOG_INFO("MTC: Entering voltage-induced hibernation (sniff interval 60s)...");
         // skipSaveNodeDb: saveToDisk() has no dirty check, so saving on every ~75 s cycle would wear the flash, and nothing new
         // was heard since the node went into hibernation.
         doDeepSleep(HIBERNATE_SNIFF_INTERVAL_MS, true, true);
@@ -267,7 +267,7 @@ void NexusModule::applyRuleAction(const NexusVoltRule &rule)
     case NEXUS_VOLT_ACT_WAKE:
         setHibernating(false);
         runRuleCommand(rule.command);
-        LOG_INFO("Nexus: Woke from hibernation by voltage rule!");
+        LOG_INFO("MTC: Woke from hibernation by voltage rule!");
         break;
     }
 }
@@ -290,12 +290,12 @@ void NexusModule::continueHibernation()
         const uint16_t currentMv = getVoltageReadingMv(hibernateChannel);
         if (currentMv >= hibernateMv + VOLT_AUTO_WAKE_MARGIN_MV) {
             setHibernating(false);
-            LOG_INFO("Nexus: Auto-woke from hibernation (ch %u cur %u mV >= %u mV)", (unsigned)hibernateChannel,
+            LOG_INFO("MTC: Auto-woke from hibernation (ch %u cur %u mV >= %u mV)", (unsigned)hibernateChannel,
                      (unsigned)currentMv, (unsigned)(hibernateMv + VOLT_AUTO_WAKE_MARGIN_MV));
             return;
         }
     }
-    LOG_INFO("Nexus: Hibernating sniff complete, returning to deep sleep (60s)...");
+    LOG_INFO("MTC: Hibernating sniff complete, returning to deep sleep (60s)...");
     doDeepSleep(HIBERNATE_SNIFF_INTERVAL_MS, true, true);
 }
 
@@ -340,7 +340,7 @@ void NexusModule::clearVoltRule(uint8_t slot)
     memset(&volt_rules[slot - 1], 0, sizeof(NexusVoltRule));
     volt_debounce_count[slot - 1] = 0;
     volt_triggered[slot - 1] = false;
-    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Volt slot [%d] cleared (RAM). /nexus SAVE to persist.", slot);
+    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Volt slot [%d] cleared (RAM). /mtc SAVE to persist.", slot);
 }
 
 // <voltage> <HIGH|LOW> <CMD|HIB|WAKE> [CH1..3|BAT] [command...]
@@ -386,7 +386,7 @@ void NexusModule::configureVoltRule(uint8_t slot, const char *args)
     volt_triggered[slot - 1] = false;
 
     snprintf(replyMsg, sizeof(replyMsg),
-             "MESHTACORE VOLT: [%d] %u.%02uV %s %s [%s]%s%.16s configured (RAM). Run /nexus SAVE to persist.", slot,
+             "MESHTACORE VOLT: [%d] %u.%02uV %s %s [%s]%s%.16s configured (RAM). Run /mtc SAVE to persist.", slot,
              targetMv / 1000, (targetMv % 1000) / 10, directionName(direction), actionName(action), channelName(channel),
              rule.command[0] ? " : " : "", rule.command);
 }

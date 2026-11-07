@@ -44,7 +44,7 @@
  *
  * The Nexus-specific helpers in `NexusModule.cpp`
  * (`getNexusPowerTelemetry`, `getNexusEnvironmentTelemetry`) are likewise
- * gated, so the Shadow CLI's `/nexus TELEMETRY` quietly returns false
+ * gated, so the Shadow CLI's `/mtc TELEMETRY` quietly returns false
  * instead of dereferencing an unregistered module.
  *
  * Tier choice (see NexusModule.cpp for full rationale):

@@ -127,7 +127,7 @@ void test_meshcore_channel_key_derivation(void)
     channels.getByIndex(1) = prev;
 }
 
-// MeshCore shows a private channel's key as 32 hex digits; the Meshtastic app takes it in base64. /nexus MESHCORE KEY
+// MeshCore shows a private channel's key as 32 hex digits; the Meshtastic app takes it in base64. /mtc MESHCORE KEY
 // converts one into the other, so the same private channel can be joined from both apps.
 void test_meshcore_key_hex_converts_to_base64(void)
 {
@@ -2125,7 +2125,7 @@ void test_advert_with_position_announces_real_hops(void)
 }
 
 /**
- * Pins the unified formatting for direct neighbors in /nexus VECINOS and MESHCORE VECINOS.
+ * Pins the unified formatting for direct neighbors in /mtc VECINOS and MESHCORE VECINOS.
  * Guards against regression of markdown bolding for node names, italics for metrics,
  * emoji indicators (direct bolt and signal), and UTF-8 truncation for long names.
  */

@@ -1372,7 +1372,7 @@ void RadioInterface::applyModemConfig()
     // Nexus port (Nexus-28001, 2026-08-16): apply NexusModule's syncword_override (vault v40)
     // before any driver reads syncWord (passed to lora.begin() and lora.setSyncWord()).
     // Runs at boot (via rIf->init() -> applyModemConfig()) AND on every LoRa re-config
-    // (including the deferred apply triggered by /nexus SYNCWORD itself).
+    // (including the deferred apply triggered by /mtc SYNCWORD itself).
     // syncword_override == 0 means "use Meshtastic default 0x2b"; any non-zero byte is the
     // operator's override. The NexusModule instance exists by the time this runs (Modules.cpp
     // creates it before initLoRa; NexusModule::setup -> loadVault runs in setupModules() before
@@ -1493,7 +1493,7 @@ void RadioInterface::applyModemConfig()
     // (e8af82c86, Aug 15), then died in the Nexus-269→Nexus-269-resync merge
     // (commit 4e0a2c57d, Aug 16) - 31 upstream-merge commits came in and the
     // rebaser silently dropped it from both init() and reconfigure(). Nexus-28001
-    // rebase inherited the broken state. /nexus PREAMBLE writes
+    // rebase inherited the broken state. /mtc PREAMBLE writes
     // NexusModule::preamble_override to RAM and vault v35; the deferred apply
     // (adminModule->handleSetConfig) calls applyModemConfig() which would
     // otherwise overwrite preambleLength back to the regional default, silently

@@ -115,7 +115,7 @@ bool FloodingRouter::perhapsHandleUpgradedPacket(const meshtastic_MeshPacket *p)
                 return true;
             // Nexus: input firewall gate before the upgraded-packet rebroadcast.
             // This branch runs inside shouldFilterReceived() (pre-handleReceived),
-            // so without this gate /nexus FIREWALL DROP would be bypassed for the
+            // so without this gate /mtc FIREWALL DROP would be bypassed for the
             // replacement copy that goes out on the wire.
             if (!nexusFirewallDrops(*p))
                 perhapsRebroadcast(p);

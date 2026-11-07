@@ -1,9 +1,9 @@
-# Nexus Firmware Fix: `/nexus-local` and `/jt-local` Ingress, Routing & Paging
+# Nexus Firmware Fix: `/mtl` and `/jt-local` Ingress, Routing & Paging
 
 **Author:** Jirachi ⭐ on Noctali (`Noctali.local`)  
 **Target:** Magnemite / Pokéteam  
 **Branch:** `fix/nexus-local-commands`  
-**Commit:** `9a696ee2f` (`fix(nexus): resolve /nexus-local and /jt-local command failures, routing & paging`)  
+**Commit:** `9a696ee2f` (`fix(nexus): resolve /mtl and /jt-local command failures, routing & paging`)  
 **Base Commit:** `806522535`  
 **Date:** 2026-10-19
 
@@ -11,13 +11,13 @@
 
 ## 1. Overview & Context
 
-Users reported that `/nexus-local` and `/jt-local` commands appeared dead, failed to execute, or produced complete silence in the client apps (Android, iOS, Web), whereas targeting the node explicitly via `/nexus-node <shortname> <cmd>` (or `/jt-node ...`) worked reliably.
+Users reported that `/mtl` and `/jt-local` commands appeared dead, failed to execute, or produced complete silence in the client apps (Android, iOS, Web), whereas targeting the node explicitly via `/mtc-node <shortname> <cmd>` (or `/jt-node ...`) worked reliably.
 
-This document details the architectural root causes that caused `-local` to fail, how `/nexus-node` behaved differently, and the comprehensive fix implemented and verified across both nRF52 and ESP32 platforms.
+This document details the architectural root causes that caused `-local` to fail, how `/mtc-node` behaved differently, and the comprehensive fix implemented and verified across both nRF52 and ESP32 platforms.
 
 ---
 
-## 2. Root Cause Analysis: Why `/nexus-node` Worked and `-local` Failed
+## 2. Root Cause Analysis: Why `/mtc-node` Worked and `-local` Failed
 
 ### A. Missing Ingress Confirmation in `MeshService::handleToRadio`
 
@@ -26,7 +26,7 @@ This document details the architectural root causes that caused `-local` to fail
   When a local client (phone or serial/web) sends a command, `handleToRadio()` invokes `nexusModule->handleLocal(p)`. For `-local` commands, `handleLocal` returned `ProcessMessage::STOP`.
   Because `STOP` caused `handleToRadio()` to return immediately without calling `sendToMesh()`, the routine that sends `sendQueueStatusToPhone(qs, ERRNO_OK, mp.id)` was **completely bypassed**.
 - **User Impact:**
-  The phone client was waiting for an acknowledgment that its outgoing message was accepted. Without this QueueStatus confirmation, the Meshtastic client app marked the outgoing `/nexus-local` command as stuck in "Sending..." or "Failed" (spinner or cloud with slash).
+  The phone client was waiting for an acknowledgment that its outgoing message was accepted. Without this QueueStatus confirmation, the Meshtastic client app marked the outgoing `/mtl` command as stuck in "Sending..." or "Failed" (spinner or cloud with slash).
 
 ### B. Destination Corruption in `handleLocal` Broke Channel vs DM & Paging
 
@@ -38,7 +38,7 @@ This document details the architectural root causes that caused `-local` to fail
   local.to = myNodeInfo.my_node_num; // <-- Forced destination to our own node!
   handleNexusCommand(local, tail, false, mp.id, true);
   ```
-  Even when an operator typed `/nexus-local HELP` in their public channel (where `mp.to == 0xFFFFFFFF`), `local.to` was overwritten to `myNodeInfo.my_node_num`.
+  Even when an operator typed `/mtl HELP` in their public channel (where `mp.to == 0xFFFFFFFF`), `local.to` was overwritten to `myNodeInfo.my_node_num`.
   In `handleNexusCommand`:
   1. `bool isDM = (mp.to == myNodeInfo.my_node_num);` evaluated to `true`.
   2. For paged commands (e.g. `HELP`, `SYS`, `NODES`, `VAULT`, `FIREWALL`), commands called:
@@ -59,7 +59,7 @@ This document details the architectural root causes that caused `-local` to fail
   ```
   And `NexusModule::sendReply()` also hardcoded `sendToPhone(0xFFFFFFFF, ...)`, ignoring `context.to`.
 - **User Impact:**
-  If an operator ran `/nexus-local` in a Direct Message (DM) to their radio:
+  If an operator ran `/mtl` in a Direct Message (DM) to their radio:
   The phone client strictly filters DM conversations to packets matching the conversation peer. A packet addressed to `0xFFFFFFFF` is categorized as a channel broadcast. The DM chat screen displayed **absolute silence**.
 
 ### D. Silent RF Ingress Rejection
@@ -105,12 +105,12 @@ This document details the architectural root causes that caused `-local` to fail
    - In `NexusModule::startPaging()`: added safety fallback `if (to == 0) to = 0xFFFFFFFF;` to prevent invalid destination 0.
 
 4. **Empty Command Fallback (`src/modules/NexusCommands.cpp`):**
-   If an operator sends `/nexus` or `/nexus-local` without arguments (`*cmd == '\0'`), the firmware now responds with:
+   If an operator sends `/mtc` or `/mtl` without arguments (`*cmd == '\0'`), the firmware now responds with:
    `MESHTACORE: Ready. Send HELP for command list.`
    instead of the confusing `MESHTACORE: Unknown command ''`.
 
 5. **Helpful Mesh Rejection Notice (`src/modules/NexusModule.cpp`):**
-   If a remote node sends `/nexus-local` over RF, unless `SILENT_LOG` is active, the node replies back over the mesh with:
+   If a remote node sends `/mtl` over RF, unless `SILENT_LOG` is active, the node replies back over the mesh with:
    `MESHTACORE SECURITY: -local prefix is for local interface only. Use -node over mesh.`
 
 ---

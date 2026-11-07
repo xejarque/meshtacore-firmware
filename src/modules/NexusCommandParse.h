@@ -5,6 +5,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -16,28 +17,62 @@ inline bool isCommandWord(const char *cmd, const char *word)
     return strncasecmp(cmd, word, n) == 0 && (cmd[n] == '\0' || isspace((unsigned char)cmd[n]));
 }
 
-// Short local-only roots: `/nl` is `/nexus-local`, `/ml` is `/mcore-local`. They carry no -device/-node/-mac/-group suffixes,
-// so they are matched here and not in NEXUS_PREFIX_ROOTS (adding them there would mint /nl-device and friends).
-// Returns the command body in *tail (never null; empty when the alias carries no arguments), or false when cmd is not one.
-inline bool matchLocalShortcut(const char *cmd, const char **tail, bool *mcoreRoot)
+// Which radio a command root addresses: /mt Meshtastic, /mc MeshCore, /mtc both.
+enum CmdScope : uint8_t { SCOPE_MT, SCOPE_MC, SCOPE_BOTH };
+
+// The three command roots. `root` takes the -device/-node/-mac/-group suffixes (or none, for a broadcast); `local` is the
+// short local-only form (/mtl, /mcl, /mtcl): it never leaves the radio and carries no suffixes.
+struct CmdRoot {
+    const char *root;
+    const char *local;
+    CmdScope scope;
+};
+
+inline const CmdRoot *cmdRoots(size_t *count)
 {
-    static const char *const ROOTS[] = {"/nl", "/ml"};
+    static const CmdRoot ROOTS[] = {{"/mt", "/mtl", SCOPE_MT}, {"/mc", "/mcl", SCOPE_MC}, {"/mtc", "/mtcl", SCOPE_BOTH}};
+    *count = sizeof(ROOTS) / sizeof(ROOTS[0]);
+    return ROOTS;
+}
+
+// Matches the local-only roots (/mtl, /mcl, /mtcl) as a whole word.
+// Returns the command body in *tail (never null; empty when the root carries no arguments) and its scope in *scope, or false
+// when cmd is not one.
+inline bool matchLocalShortcut(const char *cmd, const char **tail, CmdScope *scope)
+{
     if (!cmd)
         return false;
-    for (size_t i = 0; i < sizeof(ROOTS) / sizeof(ROOTS[0]); i++) {
-        const size_t n = strlen(ROOTS[i]);
-        if (strncasecmp(cmd, ROOTS[i], n) != 0 || (cmd[n] != '\0' && cmd[n] != ' '))
+    size_t count = 0;
+    const CmdRoot *roots = cmdRoots(&count);
+    for (size_t i = 0; i < count; i++) {
+        const size_t n = strlen(roots[i].local);
+        if (strncasecmp(cmd, roots[i].local, n) != 0 || (cmd[n] != '\0' && cmd[n] != ' '))
             continue;
         const char *p = cmd + n;
         while (*p == ' ')
             p++;
         if (tail)
             *tail = p;
-        if (mcoreRoot)
-            *mcoreRoot = (i == 1);
+        if (scope)
+            *scope = roots[i].scope;
         return true;
     }
     return false;
+}
+
+// Adapts a command body to the root it came in on. /mc runs MeshCore commands, so it prepends MCORE (into buf). /mt refuses
+// the MESHCORE/MCORE family and returns nullptr so the caller can point the operator at /mc. /mtc runs the body as typed.
+inline const char *applyCommandScope(CmdScope scope, const char *body, char *buf, size_t bufLen)
+{
+    if (scope == SCOPE_MC) {
+        if (body[0] == '\0')
+            return "MCORE";
+        snprintf(buf, bufLen, "MCORE %s", body);
+        return buf;
+    }
+    if (scope == SCOPE_MT && (isCommandWord(body, "MESHCORE") || isCommandWord(body, "MCORE")))
+        return nullptr;
+    return body;
 }
 
 // A RELAYS argument naming one relay by hex: `*AB`, `0xAB` or a bare two-digit hex byte. A pair of decimal digits is a top-N

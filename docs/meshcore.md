@@ -51,7 +51,7 @@ The register is written in `SX126xInterface::startReceive()`, immediately before
 
 LR11x0 (LR1110, LR1120, LR1121) takes an 8-bit sync word instead of a register. Hybrid receive uses `0x1B` (`MESHTASTIC_LR11X0_MESHCORE_RX_SYNCWORD`): the high nibble `1` comes from MeshCore's `0x12` and the low nibble `B` from Meshtastic's `0x2B`. It was verified on a T1000-E (LR1110); the LR1120 and LR1121 share the driver and have not been measured. It is written in `LR11x0Interface::setRxSyncWord()`. SX128x and LR20x0 have no hybrid receive.
 
-`/nexus MESHCORE HYBRID OFF` puts the plain Meshtastic sync word back on SX126x and LR11x0 and re-arms RX. While it is off the radio does not hear MeshCore at all. The switch lives in RAM: a reboot turns hybrid receive on again.
+`/mtc MESHCORE HYBRID OFF` puts the plain Meshtastic sync word back on SX126x and LR11x0 and re-arms RX. While it is off the radio does not hear MeshCore at all. The switch lives in RAM: a reboot turns hybrid receive on again.
 
 ### Transmit
 
@@ -118,7 +118,7 @@ Only payload types MeshCore itself floods are relayed: ACK, REQ, RESPONSE, TXT_M
 
 Additional bounds:
 
-- a flood is dropped once its path holds `flood_max` hops (64 by default), an unscoped flood (no region) once it holds `flood_max_unscoped` (64), and an ADVERT once it holds `flood_max_advert` (8); `/nexus MESHCORE FLOODMAX` changes the three;
+- a flood is dropped once its path holds `flood_max` hops (64 by default), an unscoped flood (no region) once it holds `flood_max_unscoped` (64), and an ADVERT once it holds `flood_max_advert` (8); `/mtc MESHCORE FLOODMAX` changes the three;
 - any flood whose next path would exceed 64 bytes is dropped;
 - our own ADVERT coming back is dropped;
 - forwarding is disabled for a `CLIENT_MUTE` role or `rebroadcast_mode = NONE`, the same policy as Meshtastic's own relay.
@@ -344,7 +344,7 @@ Text with a non-plain type is ignored.
 
 ## Nexus commands
 
-`/nexus MESHCORE` (alias `MCORE`) reads and sets the MeshCore settings. A change is volatile until `/nexus SAVE`, which writes `/prefs/meshcore_config.bin`. With `REQ_SIG` off, any Nexus channel can change them and the reply says so.
+`/mtc MESHCORE` (alias `MCORE`) reads and sets the MeshCore settings. A change is volatile until `/mtc SAVE`, which writes `/prefs/meshcore_config.bin`. With `REQ_SIG` off, any Nexus channel can change them and the reply says so.
 
 | Command                                         | Effect                                                                                                                        |
 | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -363,7 +363,7 @@ Text with a non-plain type is ignored.
 
 `FAV <hex_prefix> [ON|OFF]` keeps a contact across reboots by setting its `FAVORITE` flag, which is what the flash save order ranks first (see _Persistence_). The prefix is 1-4 bytes of the public key, written the way `DROP` takes it (`4d`, `!a1b2`, `0xA1B2`, `a1:b2`); a prefix matching more than one contact lists them instead of guessing. With no argument it lists the favourites already kept.
 
-`MESHCORE PPING` (alias `MCORE PPING`) and `/nexus PPING` are independent: `PPING ON|OFF` under MESHCORE only switches the MeshCore ping channels (`MC:#bot`), and `/nexus PPING ON|OFF` only switches the Meshtastic public ping (`public_ping`). A MeshCore ping is answered whenever its channel is on, whatever `public_ping` says. The reporting settings (`RSSI`, `SNR`, `FREQERR`, `EMOJI`, `CMD`, `FLAGS`, `ALLOWDM`, `CHAN`, `HEX`, `GETHEX`) are one shared set, and the route line of a MeshCore reply prints only the metrics that are on. `HEADER` is the exception: the custom text is shared, but the mode it applies is per layer, so `MESHCORE PPING HEADER NONE` leaves the Meshtastic header where it was. A MeshCore reply ships with no header at all (`NONE`), since its first line already carries the hop count:
+`MESHCORE PPING` (alias `MCORE PPING`) and `/mtc PPING` are independent: `PPING ON|OFF` under MESHCORE only switches the MeshCore ping channels (`MC:#bot`), and `/mtc PPING ON|OFF` only switches the Meshtastic public ping (`public_ping`). A MeshCore ping is answered whenever its channel is on, whatever `public_ping` says. The reporting settings (`RSSI`, `SNR`, `FREQERR`, `EMOJI`, `CMD`, `FLAGS`, `ALLOWDM`, `CHAN`, `HEX`, `GETHEX`) are one shared set, and the route line of a MeshCore reply prints only the metrics that are on. `HEADER` is the exception: the custom text is shared, but the mode it applies is per layer, so `MESHCORE PPING HEADER NONE` leaves the Meshtastic header where it was. A MeshCore reply ships with no header at all (`NONE`), since its first line already carries the hop count:
 
 ```
 📡 2 hops
@@ -372,7 +372,7 @@ Tibidabo RPT
 SNR: -3.2 dB · RSSI: -88 dBm · Δf -12Hz
 ```
 
-`HEADER <text>` puts that text in front of the hop count on the first line (`Relay Under Test · 📡 2 hops`), and `HEADER DEFAULT` restores the `🤖MESHTACORE Ping🤖` banner. The `CMD` / `TRIGGER` value is the same trigger `/nexus PPING CMD` sets: any leading character is accepted (`.ping` works, there is no `/` requirement), the incoming text must match it exactly, it is at most 15 characters, and `MESHCORE PING <target>` sends it as the ping body.
+`HEADER <text>` puts that text in front of the hop count on the first line (`Relay Under Test · 📡 2 hops`), and `HEADER DEFAULT` restores the `🤖MESHTACORE Ping🤖` banner. The `CMD` / `TRIGGER` value is the same trigger `/mtc PPING CMD` sets: any leading character is accepted (`.ping` works, there is no `/` requirement), the incoming text must match it exactly, it is at most 15 characters, and `MESHCORE PING <target>` sends it as the ping body.
 
 ## Threads, timers and coexistence
 

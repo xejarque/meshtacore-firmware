@@ -38,7 +38,7 @@
 // tier (1=LIGHT, 2=MEDIUM, 3=HEAVY) in the variant's build_flags. See
 // src/NexusSensorBudget.h for the full mapping. Include this BEFORE the
 // sensor module headers so the underlying #if guards pick up the umbrella
-// flag. Also gates the Shadow CLI /nexus TELEMETRY / POWER / ENV helpers
+// flag. Also gates the Shadow CLI /mtc TELEMETRY / POWER / ENV helpers
 // below to no-op when the corresponding module is not registered.
 #include "NexusSensorBudget.h"
 #if defined(ARCH_ESP32)
@@ -220,7 +220,7 @@ uint8_t nexus_airtag_key[28] = {0}; // Apple public key (Base64 decoded)
 
 // v64: per-subsystem freeze flags. File-scope so NodeDB.cpp / WarmNodeStore.cpp
 // can gate their save paths without re-introducing the NexusModule dependency
-// in low-level TUs. Persisted via /nexus SAVE (SCOPE RULE). DBFLUSH bypasses.
+// in low-level TUs. Persisted via /mtc SAVE (SCOPE RULE). DBFLUSH bypasses.
 // Bit layout (vault->freeze_flags): bit0=NodeDB, bit1=Warm, bit2=Device, bit3=Config.
 namespace meshtastic {
 bool freeze_nodedb = false;
@@ -253,7 +253,7 @@ bool meshtastic::getNexusEnvironmentTelemetry(meshtastic_Telemetry *m) {
 // channel util / air util / uptime) directly from the live DeviceTelemetryModule.
 // Bypasses nodeDB->nodeTelemetry, which is gated by MESHTASTIC_EXCLUDE_TELEMETRYDB and
 // is empty on memory-constrained variants (promicro, rak3401, heltec_v3). On those
-// variants, /nexus TELEMETRY previously lost its "DB:" line because the shim helper
+// variants, /mtc TELEMETRY previously lost its "DB:" line because the shim helper
 // returned nullptr unconditionally. This helper reads the live snapshot instead.
 bool meshtastic::getNexusDeviceTelemetry(meshtastic_Telemetry *m) {
 #if HAS_TELEMETRY
@@ -433,7 +433,7 @@ void NexusModule::initOnce() {
 #endif
 
 #ifdef STATION_G3
-    // Nexus-28005 (2026-09-15): /nexus G3 boot-detect + vault apply.
+    // Nexus-28005 (2026-09-15): /mtc G3 boot-detect + vault apply.
     //
     // Runs from the constructor after loadVault(), so nexusVariantBits is
     // already populated from disk when we get here. The boot-detect sequence is:
@@ -460,7 +460,7 @@ void NexusModule::initOnce() {
     //      LNA → OUTPUT HIGH (explicit drive avoids a floating LNA-P net
     //      coupling noise into the LNA). Then if vault says ON for this
     //      pin, override OFF → ON by driving the active level. This is how
-    //      /nexus PA ON (followed by /nexus SAVE) survives a reboot without
+    //      /mtc PA ON (followed by /mtc SAVE) survives a reboot without
     //      re-issuing the command.
     //
     // Runtime state (nexus_g3_pa_runtime / nexus_g3_lna_runtime) is the
@@ -485,7 +485,7 @@ void NexusModule::initOnce() {
         // digitalWrite(LOW) BEFORE pinMode(INPUT) forces the per-pin
         // output latch LOW while the pin is still in OUTPUT mode. This
         // clears any stale HIGH leftover from a prior boot stage (SPI
-        // flash access, prior /nexus G3 PA ON, deep-sleep state) that
+        // flash access, prior /mtc G3 PA ON, deep-sleep state) that
         // would otherwise contaminate the subsequent digitalRead() with a
         // false-positive HIGH reading → mis-classify no-jumper pads as
         // DISABLED. Cost: microseconds (no delay added) → watchdog-safe
@@ -503,7 +503,7 @@ void NexusModule::initOnce() {
         if (raw_pa == HIGH) {
             // Jumper installed (pulled HIGH through PL1 / PL2 net) → DISABLED.
             nexus_g3_pa_runtime = G3_DISABLED;
-            LOG_INFO("Nexus/G3: PA (GPIO9) DISABLED — physical jumper detected at boot (PL1). Firmware will not drive this pin.");
+            LOG_INFO("MTC/G3: PA (GPIO9) DISABLED — physical jumper detected at boot (PL1). Firmware will not drive this pin.");
         } else {
             // Jumper absent → start at OFF, then apply vault override if any.
             // Pin is already in INPUT (Hi-Z, no pull) from the setup above;
@@ -515,9 +515,9 @@ void NexusModule::initOnce() {
                 pinMode(PIN_PA, OUTPUT);
                 digitalWrite(PIN_PA, HIGH); // active-HIGH
                 nexus_g3_pa_runtime = G3_ON;
-                LOG_INFO("Nexus/G3: PA (GPIO9) vault ON — applying on boot (OUTPUT HIGH).");
+                LOG_INFO("MTC/G3: PA (GPIO9) vault ON — applying on boot (OUTPUT HIGH).");
             } else {
-                LOG_INFO("Nexus/G3: PA (GPIO9) OFF — vault default or freshly migrated (INPUT / Hi-Z).");
+                LOG_INFO("MTC/G3: PA (GPIO9) OFF — vault default or freshly migrated (INPUT / Hi-Z).");
             }
         }
 
@@ -532,7 +532,7 @@ void NexusModule::initOnce() {
         if (raw_lna == HIGH) {
             // Jumper installed (LNA-P pulls HIGH when present) → DISABLED.
             nexus_g3_lna_runtime = G3_DISABLED;
-            LOG_INFO("Nexus/G3: LNA (GPIO10) DISABLED — physical jumper detected at boot (LNA-P). Firmware will not drive this pin.");
+            LOG_INFO("MTC/G3: LNA (GPIO10) DISABLED — physical jumper detected at boot (LNA-P). Firmware will not drive this pin.");
         } else {
             // Jumper absent → start at OFF (bypassed), then apply vault
             // override if any. Drive HIGH explicitly so the LNA-P net
@@ -545,9 +545,9 @@ void NexusModule::initOnce() {
             if (lna_bits == VARIANT_LNA_ON) {
                 digitalWrite(PIN_LNA, LOW); // active-LOW → LOW = LNA engaged
                 nexus_g3_lna_runtime = G3_ON;
-                LOG_INFO("Nexus/G3: LNA (GPIO10) vault ON — applying on boot (OUTPUT LOW).");
+                LOG_INFO("MTC/G3: LNA (GPIO10) vault ON — applying on boot (OUTPUT LOW).");
             } else {
-                LOG_INFO("Nexus/G3: LNA (GPIO10) OFF — vault default or freshly migrated (OUTPUT HIGH / bypassed).");
+                LOG_INFO("MTC/G3: LNA (GPIO10) OFF — vault default or freshly migrated (OUTPUT HIGH / bypassed).");
             }
         }
     }
@@ -779,7 +779,7 @@ void NexusModule::sniffPacket(const meshtastic_MeshPacket &mp) {
             e.relay = (uint8_t)(mp.relay_node & 0xFF);
             e.hop_limit = static_cast<uint8_t>(mp.hop_limit);
             e.hop_start = static_cast<uint8_t>(mp.hop_start);
-            LOG_INFO("Nexus: ClientScan match from %08x via relay %02x (%ums)", mp.from, (unsigned int)(mp.relay_node & 0xFF), now - clientscan_start);
+            LOG_INFO("MTC: ClientScan match from %08x via relay %02x (%ums)", mp.from, (unsigned int)(mp.relay_node & 0xFF), now - clientscan_start);
             setIntervalFromNow(100); // Wake up ASAP if we are active
         }
     }
@@ -814,7 +814,7 @@ bool NexusModule::wantPacket(const meshtastic_MeshPacket *p) {
 
     // Nexus: Skip-Skip-Handle logic (Reverse skipHandle)
     if (skip_skip_handle) {
-        LOG_DEBUG("Nexus: skip_skip_handle active, forcing wantPacket evaluation");
+        LOG_DEBUG("MTC: skip_skip_handle active, forcing wantPacket evaluation");
         return true;
     }
 
@@ -830,7 +830,7 @@ bool NexusModule::wantPacket(const meshtastic_MeshPacket *p) {
 
 int NexusModule::onInputEvent(const InputEvent *event) {
     if (event->inputEvent == INPUT_BROKER_SEND_PING) {
-        LOG_INFO("Nexus: Tactical Button Trigger detected!");
+        LOG_INFO("MTC: Tactical Button Trigger detected!");
 
         // 1. Generate Tactical Report
         char report[200];
@@ -1016,7 +1016,7 @@ bool NexusModule::shouldInvalidatePacket(const meshtastic_MeshPacket &mp) {
                 payloadId = strtoul(user.id + 1, NULL, 16);
             }
             if (payloadId != 0 && payloadId != mp.from) {
-                LOG_WARN("Nexus: Invalid ID Mismatch - Header:!%08x vs Payload:!%08x", (unsigned int)mp.from, (unsigned int)payloadId);
+                LOG_WARN("MTC: Invalid ID Mismatch - Header:!%08x vs Payload:!%08x", (unsigned int)mp.from, (unsigned int)payloadId);
                 inv_drop_id++;
                 return true;
             }
@@ -1029,7 +1029,7 @@ bool NexusModule::shouldInvalidatePacket(const meshtastic_MeshPacket &mp) {
         memset(&user, 0, sizeof(user));
         if (pb_decode_from_bytes(mp.decoded.payload.bytes, mp.decoded.payload.size, &meshtastic_User_msg, &user)) {
             if (user.hw_model == meshtastic_HardwareModel_UNSET) {
-                LOG_WARN("Nexus: Invalid HW Unset from !%08x", (unsigned int)mp.from);
+                LOG_WARN("MTC: Invalid HW Unset from !%08x", (unsigned int)mp.from);
                 inv_drop_hw++;
                 return true;
             }
@@ -1051,7 +1051,7 @@ bool NexusModule::shouldInvalidatePacket(const meshtastic_MeshPacket &mp) {
                 bool exactZero = (pos.latitude_i == 0 && pos.longitude_i == 0);
                 bool nearZero = (fabs(lat) < 0.01f && fabs(lon) < 0.01f);
                 if (exactZero || nearZero) {
-                    LOG_WARN("Nexus: Invalid Null Island from !%08x (lat=%d, lon=%d)", (unsigned int)mp.from, pos.latitude_i, pos.longitude_i);
+                    LOG_WARN("MTC: Invalid Null Island from !%08x (lat=%d, lon=%d)", (unsigned int)mp.from, pos.latitude_i, pos.longitude_i);
                     inv_drop_null++;
                     return true;
                 }
@@ -1064,7 +1064,7 @@ bool NexusModule::shouldInvalidatePacket(const meshtastic_MeshPacket &mp) {
                 bool inPeninsula = (lat >= 35.0f && lat <= 44.0f && lon >= -10.0f && lon <= 5.0f);
                 bool inCanary = (lat >= 27.0f && lat <= 30.0f && lon >= -19.0f && lon <= -13.0f);
                 if (!inPeninsula && !inCanary) {
-                    LOG_WARN("Nexus: Invalid Outside Spain from !%08x (%.4f, %.4f)", (unsigned int)mp.from, lat, lon);
+                    LOG_WARN("MTC: Invalid Outside Spain from !%08x (%.4f, %.4f)", (unsigned int)mp.from, lat, lon);
                     inv_drop_spain++;
                     return true;
                 }
@@ -1075,7 +1075,7 @@ bool NexusModule::shouldInvalidatePacket(const meshtastic_MeshPacket &mp) {
             if (inv_out_germany) {
                 bool inGermany = (lat >= 47.0f && lat <= 55.5f && lon >= 5.5f && lon <= 15.5f);
                 if (!inGermany) {
-                    LOG_WARN("Nexus: Invalid Outside Germany from !%08x (%.4f, %.4f)", (unsigned int)mp.from, lat, lon);
+                    LOG_WARN("MTC: Invalid Outside Germany from !%08x (%.4f, %.4f)", (unsigned int)mp.from, lat, lon);
                     inv_drop_germany++;
                     return true;
                 }
@@ -1176,7 +1176,7 @@ bool NexusModule::checkRateLimit(const meshtastic_MeshPacket &mp) {
         return true; // Pass
     }
 
-    LOG_WARN("Nexus: Rate limit exceeded (bucket %d, Limit: %u pkts/hr)", idx, (unsigned int)limit);
+    LOG_WARN("MTC: Rate limit exceeded (bucket %d, Limit: %u pkts/hr)", idx, (unsigned int)limit);
     switch (idx) {
         case 0: rl_drop_text++; break;
         case 1: rl_drop_trace++; break;
@@ -1211,11 +1211,11 @@ bool NexusModule::checkMasterKeys(const uint8_t *senderPubKey) {
     //
     // That early-return short-circuited the secondary-keys loop below on
     // community/community-flavored builds where none of
-    // NEXUS_MASTER_KEY_{1..4} are #define'd. /nexus SKEY stores
+    // NEXUS_MASTER_KEY_{1..4} are #define'd. /mtc SKEY stores
     // runtime-mutable keys in the vault specifically because community
     // builds without baked-in master keys need a way to grant trust
     // without rebuilding firmware — but the early-return meant the
-    // secondary-keys loop NEVER ran on those builds, making /nexus SKEY
+    // secondary-keys loop NEVER ran on those builds, making /mtc SKEY
     // effectively broken (the command accepted keys but they were never
     // consulted on incoming packets).
     //
@@ -1226,7 +1226,7 @@ bool NexusModule::checkMasterKeys(const uint8_t *senderPubKey) {
     //
     // DO NOT RE-ADD the early-return. The secondary-keys path is the
     // trust mechanism for community builds; short-circuiting it was a
-    // silent regression that masked /nexus SKEY as broken.
+    // silent regression that masked /mtc SKEY as broken.
 
     for (int i = 0; i < numKeys; i++) {
         if (memcmp(senderPubKey, masterKeys[i], 32) == 0) {
@@ -1267,7 +1267,7 @@ bool NexusModule::isAuthorizedAdmin(const uint8_t *senderPubKey)
 
     // 2. Master keys (NEXUS_MASTER_KEY_1..4) + secondary_keys[0..3].
     //    checkMasterKeys() already covers both sources and is the same
-    //    code path used by AdminModule in Nexus-269 and the /nexus DM
+    //    code path used by AdminModule in Nexus-269 and the /mtc DM
     //    tombstone path in Nexus-28001+. Reusing it here guarantees
     //    AdminModule and any future caller see the same trust list.
     return checkMasterKeys(senderPubKey);
@@ -1637,7 +1637,7 @@ bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
 
     // 0.5 Nexus Ignore List Check
     if (isNexusIgnored(mp.from)) {
-        LOG_DEBUG("Nexus: Packet dropped from Nexus-Ignored node !%08x", (unsigned int)mp.from);
+        LOG_DEBUG("MTC: Packet dropped from Nexus-Ignored node !%08x", (unsigned int)mp.from);
         fw_drop_nexus_ignored++;
         return true;
     }
@@ -1645,7 +1645,7 @@ bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
     // Nexus: Relay Node Drop Filter (256-bit mask)
     uint8_t relayId = (uint8_t)(mp.relay_node & 0xFF);
     if (isRelayDropped(relayId)) {
-        LOG_DEBUG("Nexus: Packet dropped from Relay-Dropped node *%02X", relayId);
+        LOG_DEBUG("MTC: Packet dropped from Relay-Dropped node *%02X", relayId);
         fw_drop_relay++;
         return true;
     }
@@ -1771,7 +1771,7 @@ bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
 
         // 5. Granular TRACEROUTE filtering
         if (port == meshtastic_PortNum_TRACEROUTE_APP) {
-            // Nexus: TEMPORARY BYPASS during active /nexus TRACE command
+            // Nexus: TEMPORARY BYPASS during active /mtc TRACE command
             if (trace_active) return false;
 
             bool isLocal = (mp.from == myNodeInfo.my_node_num || mp.to == myNodeInfo.my_node_num);
@@ -2013,13 +2013,10 @@ void NexusModule::applyBS(meshtastic_Telemetry *m) {
 }
 
 
-// Nexus: Targeted prefix roots (file-scope single source of truth). Shared by:
-//   - handleReceived() cartesian loop below (mesh-radio dispatch)
-//   - handleLocal() isLocalOnly/isBroadcast/isTargetedPrefix checks
-//   - matchTargetedCmd() targeted dispatch helper
-// Adding a new root here propagates to all three call sites. No other duplicates.
-static const char* const NEXUS_PREFIX_ROOTS[] = {"/nexus", "/mtc", "/mcore"};
-static const size_t NEXUS_PREFIX_ROOTS_COUNT = sizeof(NEXUS_PREFIX_ROOTS) / sizeof(NEXUS_PREFIX_ROOTS[0]);
+// Command roots: the table lives in NexusCommandParse.h (cmdRoots()): /mt Meshtastic, /mc MeshCore, /mtc both, plus the
+// local-only /mtl, /mcl and /mtcl. Shared by handleReceived() (mesh dispatch), handleLocal() and matchTargetedCmd().
+// Replies when a root refuses a command (/mt with the MESHCORE family).
+static const char *const SCOPE_REFUSED_MT = "MESHTACORE: /mt does not accept MESHCORE, use /mc";
 
 // Nexus: auto Zero-Hop masks - traffic-driven (2026-10-07 code review):
 // called per DIRECTLY-HEARD packet (zero hops away, 2nd review) with the
@@ -2110,7 +2107,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
     // Run before any portnum guard so this fires for every decoded packet
     // wantPacket() lets through (TEXT_MESSAGE, ADMIN, POSITION, NODEINFO,
     // TELEMETRY, TRACEROUTE, plus any new portnums we add later). No flash
-    // save — the operator must /nexus SAVE to persist the new favourites.
+    // save — the operator must /mtc SAVE to persist the new favourites.
     // Self-packets are skipped so we don't fav our own node.
     if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
         mp.decoded.portnum != 0 &&
@@ -2127,7 +2124,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                 // nexus_set_favorite() inline lives in NexusCommands.cpp's TU
                 // and isn't visible here). Same call chain the inline uses.
                 nodeInfoLiteSetBit(n, NODEINFO_BITFIELD_IS_FAVORITE_MASK, true);
-                LOG_INFO("Nexus: AUTO_FAV_NEXUS fav'd !%08x on Nexus channel", (unsigned)mp.from);
+                LOG_INFO("MTC: AUTO_FAV_NEXUS fav'd !%08x on Nexus channel", (unsigned)mp.from);
             }
         }
         if (!alreadyFav && securityAutoFavTrusted()) {
@@ -2136,7 +2133,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                 auto n = nodeDB->getOrCreateMeshNode(mp.from);
                 if (n) {
                     nodeInfoLiteSetBit(n, NODEINFO_BITFIELD_IS_FAVORITE_MASK, true);
-                    LOG_INFO("Nexus: AUTO_FAV_TRUSTED fav'd !%08x (sig=%s)", (unsigned)mp.from, matchBuf);
+                    LOG_INFO("MTC: AUTO_FAV_TRUSTED fav'd !%08x (sig=%s)", (unsigned)mp.from, matchBuf);
                 }
             }
         }
@@ -2146,7 +2143,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
     // operator-chosen channel (security bitmask bit 6 = enable, bits 7-9 =
     // channel 0-7). Deliberately NOT gated on isNexusChannel(): the whole point
     // is faving a channel that is NOT one of the compile-time/hardcoded Nexus
-    // trusted channels. Same no-flash-save policy — operator runs /nexus SAVE.
+    // trusted channels. Same no-flash-save policy — operator runs /mtc SAVE.
     // Self-packets skipped, same as AUTO_FAV_NEXUS.
     if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
         mp.decoded.portnum != 0 &&
@@ -2160,7 +2157,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
             auto n = nodeDB->getOrCreateMeshNode(mp.from);
             if (n) {
                 nodeInfoLiteSetBit(n, NODEINFO_BITFIELD_IS_FAVORITE_MASK, true);
-                LOG_INFO("Nexus: AUTO_FAV_EXTRA fav'd !%08x on channel %u",
+                LOG_INFO("MTC: AUTO_FAV_EXTRA fav'd !%08x on channel %u",
                          (unsigned)mp.from, (unsigned)this->securityAutoFavExtraChannel());
             }
         }
@@ -2186,10 +2183,10 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
             bool isBot = (strncmp(cmdBuf, "\xF0\x9F\xA4\x96", 4) == 0);
 
             if (isCat || isSmile) {
-                LOG_INFO("Nexus: Emoji trigger detected (🐱/🙂). Triggering RSSI.");
+                LOG_INFO("MTC: Emoji trigger detected (🐱/🙂). Triggering RSSI.");
                 handleNexusCommand(mp, "RSSI", false, mp.id);
             } else if (isBot) {
-                LOG_INFO("Nexus: Emoji trigger detected (🤖). Triggering Hops Reaction.");
+                LOG_INFO("MTC: Emoji trigger detected (🤖). Triggering Hops Reaction.");
                 uint32_t hopsUsed = (mp.hop_start >= mp.hop_limit) ? (mp.hop_start - mp.hop_limit) : 0;
                 char hopEmoji[8] = {0};
                 hopsToEmoji(hopEmoji, sizeof(hopEmoji), hopsUsed);
@@ -2217,11 +2214,11 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
             }
         }
 
-        // public_ping is the Meshtastic switch (/nexus PPING). MeshCore pings follow only their own channel flags
-        // (/nexus MESHCORE PPING), so the two can be turned on and off independently.
+        // public_ping is the Meshtastic switch (/mtc PPING). MeshCore pings follow only their own channel flags
+        // (/mtc MESHCORE PPING), so the two can be turned on and off independently.
         if (public_ping || isMeshCorePing(mp, mp.to == myNodeInfo.my_node_num)) {
             if (ping_trigger[0] != '\0' && strcasecmp(cmdBuf, ping_trigger) == 0) {
-                // (SELF-ECHO GUARD 2026-08-02) Same rationale as the /nexus RSSI guard:
+                // (SELF-ECHO GUARD 2026-08-02) Same rationale as the /mtc RSSI guard:
                 // a loopback / MQTT-echo / retransmission has uninitialized rx_rssi/SNR,
                 // so replying produces zeroed telemetry. mp.from == 0 covers anonymous
                 // phone-originated echoes; mp.from == our node num covers self-rebroadcast.
@@ -2236,7 +2233,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                 // wants to receive DMs on the active channel regardless of the channel flag.
                 bool isPingDM = (mp.to == myNodeInfo.my_node_num);
                 if (isPingDM && !ping_allow_dm) {
-                    LOG_INFO("Nexus: Public Ping DM ignored (ping_allow_dm disabled)");
+                    LOG_INFO("MTC: Public Ping DM ignored (ping_allow_dm disabled)");
                     return ProcessMessage::CONTINUE;
                 }
 
@@ -2244,11 +2241,11 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
 
                 // 1. Direct Filter: Only process if NOT a direct link, OR if direct ignore is disabled
                 if (hopsUsed == 0 && ping_ignore_direct) {
-                    LOG_INFO("Nexus: Public Ping direct ignored (ping_ignore_direct active)");
+                    LOG_INFO("MTC: Public Ping direct ignored (ping_ignore_direct active)");
                 }
                 // 1b. Remote Filter: Only process if a direct link, OR if remote ignore is disabled
                 else if (hopsUsed > 0 && ping_ignore_remote) {
-                    LOG_INFO("Nexus: Public Ping remote ignored (ping_ignore_remote active)");
+                    LOG_INFO("MTC: Public Ping remote ignored (ping_ignore_remote active)");
                 }
                 else {
                     // 2. Channel check: Only reply if PPING is enabled for this specific channel.
@@ -2256,7 +2253,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                     //    channel broadcast, and the operator who enabled ALLOWDM clearly wants
                     //    DMs regardless of the per-channel flag.
                     if (isPingDM || (mp.channel < MAX_NUM_CHANNELS && ping_channels[mp.channel])) {
-                        LOG_INFO("Nexus: Public Ping triggered by !%08x on Ch %d (DM=%d)", mp.from, mp.channel, isPingDM ? 1 : 0);
+                        LOG_INFO("MTC: Public Ping triggered by !%08x on Ch %d (DM=%d)", mp.from, mp.channel, isPingDM ? 1 : 0);
 
                         // Emoji mode: 0=text, 1=emoji if indirect, 2=always emoji
                         bool useEmoji = (ping_emoji_mode == 2) ||
@@ -2376,7 +2373,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
 
                 // 1. Immediate Local Copy to phone UI
                 sendToPhone(0xFFFFFFFF, mp.channel, mp.id, rMsg, rLen);
-                LOG_INFO("Nexus: Local ping reply copy sent.");
+                LOG_INFO("MTC: Local ping reply copy sent.");
 
                 // 2. Queued Mesh Response
                 pendingReply.active = true;
@@ -2390,10 +2387,10 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                 if (!isDM) {
                     uint32_t jitter = broadcastReplyJitterMs();
                     pendingReply.send_at = Time::getMillis() + jitter;
-                    LOG_INFO("Nexus: Queuing broadcast ping with %ums jitter", jitter);
+                    LOG_INFO("MTC: Queuing broadcast ping with %ums jitter", jitter);
                 } else {
                     pendingReply.send_at = Time::getMillis() + 50; // Minimal yield
-                    LOG_INFO("Nexus: Queuing DM ping (50ms yield)");
+                    LOG_INFO("MTC: Queuing DM ping (50ms yield)");
                 }
                 setIntervalFromNow(50);
 
@@ -2405,32 +2402,32 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
             }
         }
 
-        // 2. Multi-prefix support: /nexus, /mtc
-        // Nexus: NEXUS_PREFIX_ROOTS (file scope, defined above this function) is the
-        // single source of truth for the valid prefix roots. The handleReceived cartesian
-        // loop, handleLocal's isTargetedPrefix/isLocalOnly/isBroadcast checks, and
-        // matchTargetedCmd() all read from this same table. Adding a root here propagates
-        // to all three call sites automatically.
+        // 2. Command roots: /mt, /mc, /mtc (broadcast, or with -device/-node/-mac/-group) and the local-only /mtl, /mcl, /mtcl.
+        // cmdRoots() (NexusCommandParse.h) is the single source of truth, shared with handleLocal() and matchTargetedCmd().
         int type = -1; // 0:local, 1:broadcast, 2:device, 3:node, 4:mac, 5:group
         size_t prefLen = 0;
-        size_t rootIdx = 0;
-        const char* suffixes[] = {"-local", "", "-device", "-node", "-mac", "-group"};
+        CmdScope scope = SCOPE_BOTH;
+        const char* suffixes[] = {"", "-device", "-node", "-mac", "-group"};
 
-        for (size_t p=0; p < NEXUS_PREFIX_ROOTS_COUNT; p++) {
-            for (int s=0; s<6; s++) {
-                char full[32];
-                snprintf(full, sizeof(full), "%s%s", NEXUS_PREFIX_ROOTS[p], suffixes[s]);
-                size_t flen = strlen(full);
-                if (strncasecmp(cmdBuf, full, flen) == 0) {
-                    if (cmdBuf[flen] == ' ' || cmdBuf[flen] == '\0') {
+        const char *localTail = nullptr;
+        if (matchLocalShortcut(cmdBuf, &localTail, &scope)) {
+            type = 0;
+        } else {
+            size_t rootCount = 0;
+            const CmdRoot *roots = cmdRoots(&rootCount);
+            for (size_t p = 0; p < rootCount && type == -1; p++) {
+                for (int s = 0; s < 5; s++) {
+                    char full[16];
+                    snprintf(full, sizeof(full), "%s%s", roots[p].root, suffixes[s]);
+                    size_t flen = strlen(full);
+                    if (strncasecmp(cmdBuf, full, flen) == 0 && (cmdBuf[flen] == ' ' || cmdBuf[flen] == '\0')) {
                         prefLen = flen;
-                        type = s;
-                        rootIdx = p;
+                        type = s + 1;
+                        scope = roots[p].scope;
                         break;
                     }
                 }
             }
-            if (type != -1) break;
         }
 
         if (type != -1) {
@@ -2441,7 +2438,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
             bool isTargetedMAC = (type == 4);
             bool isTargetedGroup = (type == 5);
 
-            // 3. Context Check: 2026-08-17 (Nexus-28001) — /nexus command authorization
+            // 3. Context Check: 2026-08-17 (Nexus-28001) — /mtc command authorization
             // is now CHANNEL-ONLY by default. 2026-08-24 (Nexus-28003):
             // the gate is now controlled by nexus_security_bitmask (vault v65 slot):
             //   bit 0  NEXUS_SECURITY_REQUIRE_SIG  — sig required on Nexus-ch cmds
@@ -2475,7 +2472,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
             bool isTargetedCommand = (isTargetedID || isTargetedName || isTargetedMAC || isTargetedGroup);
             bool addressedElsewhere = isTargetedCommand && (matchTargetedCmd(cmdBuf, nullptr) == nullptr);
 
-            LOG_INFO("Nexus: Command context check - isDM: %d, Channel: '%s', isNexusChannel: %d, isInternal: %d", isDM, ch ? ch->settings.name : "NULL", isNexusChannel, isInternal);
+            LOG_INFO("MTC: Command context check - isDM: %d, Channel: '%s', isNexusChannel: %d, isInternal: %d", isDM, ch ? ch->settings.name : "NULL", isNexusChannel, isInternal);
 
             // Replay protection (Nexus-28004, 2026-08-31): a duplicate
             // MeshPacket.id from a non-internal sender is treated as a replay
@@ -2492,7 +2489,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
             // picking back up resumes from there.
             if (!isInternal && !securityBypassRP()) {
                 if (checkReplay(mp.id)) {
-                    LOG_WARN("Nexus: SECURITY REJECTED /nexus from !%08x — replay detected (packet id %u)", (unsigned)mp.from, (unsigned)mp.id);
+                    LOG_WARN("MTC: SECURITY REJECTED /mtc from !%08x — replay detected (packet id %u)", (unsigned)mp.from, (unsigned)mp.id);
                     // Suppress the mesh reply if the packet was targeted to a
                     // different node — we never authorize it, but we also don't
                     // leak that we detected the replay to the sender. SILENT_LOG
@@ -2531,7 +2528,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                 } else {
                     char sigLabel[8] = {0};
                     bool sigOk = verifyTrustedSignature(&mp, sigLabel, sizeof(sigLabel));
-                    LOG_INFO("Nexus: SECURITY REQ_SIG check on Nexus-ch cmd — sig=%s", sigLabel);
+                    LOG_INFO("MTC: SECURITY REQ_SIG check on Nexus-ch cmd — sig=%s", sigLabel);
                     if (sigOk) {
                         authorized = true;
                     } else {
@@ -2550,13 +2547,13 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
             }
 
                 if (authorized) {
-                    // Nexus: Block /nexus-local if received over the mesh (Security Violation)
+                    // Nexus: Block /mtl if received over the mesh (Security Violation)
                     if (isLocalOnly) {
                         if (isInternal)
                             return handleLocal(mp);
-                        LOG_WARN("Nexus: Security Violation - /nexus-local received over RF from !%08x", mp.from);
+                        LOG_WARN("MTC: Security Violation - /mtl received over RF from !%08x", mp.from);
                         if (!securitySilentLog()) {
-                            const char *secReply = "MESHTACORE SECURITY: -local prefix is for local interface only. Use -node over mesh.";
+                            const char *secReply = "MESHTACORE SECURITY: local roots (/mtl /mcl /mtcl) are for the local interface only. Use -node over mesh.";
                             uint32_t to = (mp.to == myNodeInfo.my_node_num) ? mp.from : 0xFFFFFFFF;
                             queueMeshReply(to, mp.channel, mp.id, secReply, strlen(secReply), false, true);
                         }
@@ -2570,17 +2567,15 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                         if (cmdStart) {
                             // ID/Name/MAC are DMs (isBroadcast=false), group is broadcast.
                             bool isGroup = (kind == TARGET_GROUP);
-                            static char mcoreCmd[160];
-                            const char *finalCmd = cmdStart;
-                            if (strcasecmp(NEXUS_PREFIX_ROOTS[rootIdx], "/mcore") == 0) {
-                                if (cmdStart[0] == '\0') {
-                                    finalCmd = "MCORE";
-                                } else {
-                                    snprintf(mcoreCmd, sizeof(mcoreCmd), "MCORE %s", cmdStart);
-                                    finalCmd = mcoreCmd;
-                                }
+                            static char scopeCmd[160];
+                            const char *finalCmd = applyCommandScope(scope, cmdStart, scopeCmd, sizeof(scopeCmd));
+                            if (!finalCmd) {
+                                // Only a DM gets the refusal; a group command would make every member answer.
+                                if (!isGroup && isDM)
+                                    queueMeshReply(mp.from, mp.channel, mp.id, SCOPE_REFUSED_MT, strlen(SCOPE_REFUSED_MT), false, true);
+                                return ProcessMessage::CONTINUE;
                             }
-                            LOG_INFO("Nexus: Targeted command for us (kind=%u): %s", (unsigned)kind, finalCmd);
+                            LOG_INFO("MTC: Targeted command for us (kind=%u): %s", (unsigned)kind, finalCmd);
                             handleNexusCommand(mp, finalCmd, isGroup, mp.id, false);
                         }
                         return ProcessMessage::CONTINUE;
@@ -2588,21 +2583,15 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                     else if (isBroadcast) {
                         const char *cmdStart = cmdBuf + prefLen;
                         while(*cmdStart == ' ') cmdStart++;
-                        static char mcoreCmd[160];
-                        const char *finalCmd = cmdStart;
-                        if (strcasecmp(NEXUS_PREFIX_ROOTS[rootIdx], "/mcore") == 0) {
-                            if (cmdStart[0] == '\0') {
-                                finalCmd = "MCORE";
-                            } else {
-                                snprintf(mcoreCmd, sizeof(mcoreCmd), "MCORE %s", cmdStart);
-                                finalCmd = mcoreCmd;
-                            }
-                        }
+                        static char scopeCmd[160];
+                        const char *finalCmd = applyCommandScope(scope, cmdStart, scopeCmd, sizeof(scopeCmd));
+                        if (!finalCmd) // a broadcast refusal stays silent: every node on the channel would answer
+                            return ProcessMessage::CONTINUE;
                         handleNexusCommand(mp, finalCmd, true, mp.id, false);
                         return ProcessMessage::CONTINUE;
                     }
                 } else {
-                    LOG_WARN("Nexus: SECURITY REJECTED /nexus from !%08x — %s", (unsigned)mp.from, rejectReason ? rejectReason : "not authorized");
+                    LOG_WARN("MTC: SECURITY REJECTED /mtc from !%08x — %s", (unsigned)mp.from, rejectReason ? rejectReason : "not authorized");
 
                     // Reply with the security reason UNLESS the operator
                     // flipped SILENT_LOG ON. Replying helps debugging but
@@ -2624,7 +2613,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
         // Nexus: DM Forwarding Logic (v10)
         // If enabled, forward non-CLI DMs to the Nexus channel with full SIGINT metadata
                 if (dm_forward && mp.to == myNodeInfo.my_node_num) {
-            LOG_INFO("Nexus: DM Forwarding triggered for DM from !%08x", mp.from);
+            LOG_INFO("MTC: DM Forwarding triggered for DM from !%08x", mp.from);
 
             // 1. Prepare Tactical Report
             uint32_t hopsUsed = (mp.hop_start >= mp.hop_limit) ? (mp.hop_start - mp.hop_limit) : 0;
@@ -2691,27 +2680,12 @@ ProcessMessage NexusModule::handleLocal(const meshtastic_MeshPacket &mp) {
     memcpy(cmdBuf, mp.decoded.payload.bytes, std::min<size_t>(mp.decoded.payload.size, sizeof(cmdBuf) - 1));
     // Every local interface (BLE, serial, TCP, API) lands here before sendToMesh(), so the command runs on whatever channel
     // the client typed it in - a Meshtastic one or an "MC:" MeshCore one - and never leaves the radio. The reply is queued on
-    // mp.channel, so it comes back where it was asked. The nexusIsInternal() guard above is what keeps -local off RF.
+    // mp.channel, so it comes back where it was asked. The nexusIsInternal() guard above is what keeps the local roots off RF.
 
-    // Short local-only roots first: /nl and /ml are the same commands as /nexus-local and /mcore-local.
+    // Local-only roots: /mtl (Meshtastic), /mcl (MeshCore), /mtcl (both). They never leave the radio.
     const char *shortTail = nullptr;
-    bool shortIsMcore = false;
-    bool hasShortcut = matchLocalShortcut(cmdBuf, &shortTail, &shortIsMcore);
-    for (size_t r = 0; r < NEXUS_PREFIX_ROOTS_COUNT && !hasShortcut; ++r) {
-        size_t rootLength = strlen(NEXUS_PREFIX_ROOTS[r]);
-        if (strncasecmp(cmdBuf, NEXUS_PREFIX_ROOTS[r], rootLength) != 0)
-            continue;
-        const char *tail = cmdBuf + rootLength;
-        if (strncasecmp(tail, "-local", 6) != 0 || (tail[6] != ' ' && tail[6] != '\0'))
-            continue;
-        tail += 6;
-        while (*tail == ' ')
-            ++tail;
-        shortTail = tail;
-        shortIsMcore = (strcasecmp(NEXUS_PREFIX_ROOTS[r], "/mcore") == 0);
-        hasShortcut = true;
-    }
-    if (!hasShortcut)
+    CmdScope scope = SCOPE_BOTH;
+    if (!matchLocalShortcut(cmdBuf, &shortTail, &scope))
         return ProcessMessage::CONTINUE;
 
     meshtastic_MeshPacket local = mp;
@@ -2723,19 +2697,15 @@ ProcessMessage NexusModule::handleLocal(const meshtastic_MeshPacket &mp) {
         meshtastic_QueueStatus qs = router->getQueueStatus();
         service->sendQueueStatusToPhone(qs, ERRNO_OK, mp.id);
     }
-    // isBroadcast stays false for local ingress: -local never arrives over RF, so the
+    // isBroadcast stays false for local ingress: local roots never arrives over RF, so the
     // broadcast NAME/OWNER safety gate ("prevent mass-wiping a network") and the 5s
     // broadcast rate limit must not fire on local commands. Routing/paging read mp.to
     // directly, so nothing is lost by not passing the broadcast flag here.
-    static char mcoreLocal[160];
-    const char *finalTail = shortTail;
-    if (shortIsMcore) {
-        if (shortTail[0] == '\0') {
-            finalTail = "MCORE";
-        } else {
-            snprintf(mcoreLocal, sizeof(mcoreLocal), "MCORE %s", shortTail);
-            finalTail = mcoreLocal;
-        }
+    static char scopeLocal[160];
+    const char *finalTail = applyCommandScope(scope, shortTail, scopeLocal, sizeof(scopeLocal));
+    if (!finalTail) {
+        sendToPhone(local.from, mp.channel, mp.id, SCOPE_REFUSED_MT, strlen(SCOPE_REFUSED_MT));
+        return ProcessMessage::STOP;
     }
     handleNexusCommand(local, finalTail, false, mp.id, true);
     return ProcessMessage::STOP;
@@ -2846,7 +2816,7 @@ void NexusModule::interceptOutgoing(meshtastic_MeshPacket *p) {
             p->decoded.emoji = 1;
             p->decoded.bitfield |= (1 << 0); // REACTION flag
             p->decoded.has_bitfield = true;
-            LOG_INFO("Nexus: Emoji Mangle applied for text message");
+            LOG_INFO("MTC: Emoji Mangle applied for text message");
         }
     }
 }
@@ -2869,7 +2839,7 @@ int32_t NexusModule::runOnce() {
     if (!input_hooked && inputBroker) {
         inputEventObserver->observe(inputBroker);
         input_hooked = true;
-        LOG_INFO("Nexus: InputBroker hook established.");
+        LOG_INFO("MTC: InputBroker hook established.");
     }
 
     // 1. Process Deferred Replies (Jitter)
@@ -2894,7 +2864,7 @@ int32_t NexusModule::runOnce() {
             }
 
             if (service) service->sendToMesh(reply);
-            LOG_INFO("Nexus: Deferred reply sent to %08x", pendingReply.to);
+            LOG_INFO("MTC: Deferred reply sent to %08x", pendingReply.to);
         }
         pendingReply.active = false;
     }
@@ -2915,7 +2885,7 @@ int32_t NexusModule::runOnce() {
 
     // 3. Process Deferred LoRa Changes
     if (pendingLoRaConfig && Throttle::deadlinePassedAt(now, pendingLoRaApplyAt)) {
-        LOG_INFO("Nexus: Applying deferred LoRa configuration change (LIVE).");
+        LOG_INFO("MTC: Applying deferred LoRa configuration change (LIVE).");
         if (adminModule) adminModule->handleSetConfig(pendingConfig, false);
         pendingLoRaConfig = false;
         pendingLoRaApplyAt = 0;
@@ -2944,7 +2914,7 @@ int32_t NexusModule::runOnce() {
         while (*cmdPtr == ' ') cmdPtr++;
 
         if (*cmdPtr != '\0') {
-            LOG_INFO("Nexus: Macro executing step: %s", cmdPtr);
+            LOG_INFO("MTC: Macro executing step: %s", cmdPtr);
             // Execute the command (as a shadow command to reuse existing logic)
             macroStepExecuting = true;
             handleNexusCommand(macroRequest, cmdPtr, macroIsBroadcast, macro_reply_to, macro_to_phone, macroDepth);
@@ -3233,7 +3203,7 @@ int32_t NexusModule::runOnce() {
             }
 
             if (trigger) {
-                LOG_INFO("Nexus: Cron Triggering Job %d: %s", i, job.command);
+                LOG_INFO("MTC: Cron Triggering Job %d: %s", i, job.command);
                 cronLastRunMs[i] = now;
                 job.last_run = (job.mode == 0) ? static_cast<uint32_t>(Time::getUptimeSecs()) : wall_clock;
                 if (job.mode == 2) job.active = 0;
@@ -3446,7 +3416,7 @@ void NexusModule::formatMCUInfo(char *buf, size_t bufSize) {
     // MAC for display (already in NodeInfo but useful here)
     // Nexus port: dropped esp_efuse_mac_get_default() (was not declared in the SDK the
     // heltec-v4 build was using). MAC is already visible via other upstream reporting
-    // (/nexus STATS shows it from owner.macaddr), so we don't need it here.
+    // (/mtc STATS shows it from owner.macaddr), so we don't need it here.
     char devIdHex[20] = "n/a (sdk missing)";
 
     // Body only: the "MESHTACORE MCU Info:" title is supplied by startPaging() at
@@ -3694,7 +3664,7 @@ void NexusModule::i2cScanFinished(ScanI2C *i2cScanner)
             i2cScanResults.push_back({t, fd.address});
         }
     }
-    LOG_INFO("Nexus: SENSORS command has %u cached I2C devices", (unsigned)i2cScanResults.size());
+    LOG_INFO("MTC: SENSORS command has %u cached I2C devices", (unsigned)i2cScanResults.size());
 }
 
 static const char *nexusDeviceTypeName(ScanI2C::DeviceType t)
@@ -3891,7 +3861,7 @@ void NexusModule::formatRLBuckets(char *buf, size_t bufSize)
     //   seen/pass/drop = lifetime counters from checkRateLimit()
     //   drop% = drop/seen*100 (0 if seen=0)
     //
-    // Pairs with the /nexus RATELIMITSTAT (alias RLS) command. Output is sized
+    // Pairs with the /mtc RATELIMITSTAT (alias RLS) command. Output is sized
     // for 1 paging part in the common case (~470 bytes worst case at 6-digit
     // counts; appendPaging splits automatically if a future schema grows).
     const char *names[7]   = {"TX", "TR", "OT", "NI", "PO", "TL", "PR"};
@@ -3948,7 +3918,7 @@ void NexusModule::formatRLBuckets(char *buf, size_t bufSize)
 // =========================================================================
 // 17 sections of Meshtastic config, dumped field-by-field with human-readable
 // enum names. Excludes Security (public/private/admin keys + secrets) and
-// Channels (already exposed by /nexus CHANNELS). Each section is bracketed
+// Channels (already exposed by /mtc CHANNELS). Each section is bracketed
 // by `MESHTACORE Full Config: <NAME>\n--\n` header and `--\n` footer so the paging
 // output stays readable.
 //
@@ -4647,10 +4617,10 @@ bool NexusModule::queueMeshReply(uint32_t to, uint32_t ch, uint32_t replyId, con
     if (isBroadcast) {
         uint32_t jitter = broadcastReplyJitterMs();
         pendingReply.send_at = Time::getMillis() + jitter;
-        LOG_INFO("Nexus: Queuing broadcast reply with %ums jitter", jitter);
+        LOG_INFO("MTC: Queuing broadcast reply with %ums jitter", jitter);
     } else {
         pendingReply.send_at = Time::getMillis() + 50;
-        LOG_INFO("Nexus: Queuing DM reply (50ms yield)");
+        LOG_INFO("MTC: Queuing DM reply (50ms yield)");
     }
     setIntervalFromNow(50);
     return true;
@@ -4727,19 +4697,21 @@ const char* NexusModule::matchTargetedCmd(const char *cmdBuf, size_t *outKind) {
     if (!cmdBuf) return nullptr;
 
     // Suffixes (the part appended after the root). Per-suffix lengths match the literal
-    // "/nexus-" + suffix (e.g. "/nexus-device " is 14 chars). The root itself contributes
+    // root + suffix (e.g. "/mtc-device " is 12 chars). The root itself contributes
     // its own length, so we compute the total prefix length per attempt.
     static const char* const SUFFIXES[]    = {"-device ", "-node ", "-mac ", "-group "};
     static const size_t      SUFFIX_LENS[] = { 8,          6,        5,       7         }; // includes trailing space
     static const size_t      SUFFIX_COUNT  = sizeof(SUFFIXES) / sizeof(SUFFIXES[0]);
 
-    for (size_t r = 0; r < NEXUS_PREFIX_ROOTS_COUNT; r++) {
-        const char* root = NEXUS_PREFIX_ROOTS[r];
+    size_t rootCount = 0;
+    const CmdRoot *roots = cmdRoots(&rootCount);
+    for (size_t r = 0; r < rootCount; r++) {
+        const char* root = roots[r].root;
         size_t rootLen = strlen(root);
         for (size_t s = 0; s < SUFFIX_COUNT; s++) {
             size_t totalLen = rootLen + SUFFIX_LENS[s];
             if (strncasecmp(cmdBuf, root, rootLen) != 0) continue;
-            // Reject a root that isn't followed by the suffix (e.g. "/nexusx" must not match "/nexus").
+            // Reject a root that isn't followed by the suffix (e.g. "/mtcx" must not match "/mtc").
             if (strncasecmp(cmdBuf + rootLen, SUFFIXES[s], SUFFIX_LENS[s]) != 0) continue;
 
             const char *argPtr = cmdBuf + totalLen;
@@ -4911,7 +4883,7 @@ bool NexusModule::saveVault()
 {
     NexusVault *v = new (std::nothrow) NexusVault();
     if (!v) {
-        LOG_ERROR("Nexus: Heap allocation failed for saveVault!");
+        LOG_ERROR("MTC: Heap allocation failed for saveVault!");
         return false;
     }
     memset(v, 0, sizeof(NexusVault));
@@ -5081,7 +5053,7 @@ bool NexusModule::saveVault()
     }
     delete v;
     if (!saved)
-        LOG_ERROR("Nexus: Vault save failed; previous file preserved.");
+        LOG_ERROR("MTC: Vault save failed; previous file preserved.");
     return saved;
 }
 
@@ -5107,7 +5079,7 @@ bool NexusModule::loadVault()
         return false;
     const char *reason = nullptr;
     if (!readVaultForDisplay(v, &reason)) {
-        LOG_WARN("Nexus: Vault not loaded: %s. RAM unchanged.", reason ? reason : "allocation failure");
+        LOG_WARN("MTC: Vault not loaded: %s. RAM unchanged.", reason ? reason : "allocation failure");
         delete v;
         return false;
     }
@@ -5285,8 +5257,8 @@ bool NexusModule::loadVault()
         // GPIO bits sweeping constructor-time pinMode() calls on flash/
         // PSRAM strap pins.
         if (v->gpio_watch_mask != 0) {
-            LOG_WARN("Nexus: Vault held GPIO watch mask 0x%08lX%08lX. Default-off: ignoring. "
-                     "Re-enable with /nexus GPIO WATCH <pin>.",
+            LOG_WARN("MTC: Vault held GPIO watch mask 0x%08lX%08lX. Default-off: ignoring. "
+                     "Re-enable with /mtc GPIO WATCH <pin>.",
                      (unsigned long)(v->gpio_watch_mask >> 32),
                      (unsigned long)(v->gpio_watch_mask & 0xFFFFFFFFu));
         }
@@ -5323,7 +5295,7 @@ bool NexusModule::loadVault()
 
         noteLoadedVault(*v);
 
-        LOG_INFO("Nexus: Vault loaded successfully (v%u).", (unsigned int)v->version);
+        LOG_INFO("MTC: Vault loaded successfully (v%u).", (unsigned int)v->version);
     }
     delete v;
     return true;
@@ -5453,7 +5425,7 @@ bool NexusModule::shouldDropPrivate(const meshtastic_MeshPacket &mp) {
 
     // 0.2 Nexus Ignore List Check
     if (isNexusIgnored(mp.from)) {
-        LOG_DEBUG("Nexus: Private packet dropped from Nexus-Ignored node !%08x", (unsigned int)mp.from);
+        LOG_DEBUG("MTC: Private packet dropped from Nexus-Ignored node !%08x", (unsigned int)mp.from);
         fw_drop_nexus_ignored++;
         return true;
     }
@@ -5521,7 +5493,7 @@ bool NexusModule::shouldDropPrivate(const meshtastic_MeshPacket &mp) {
     return false;
 }
 
-// Nexus-28005 (2026-09-15): /nexus G3 (alias: FRONTEND) dispatcher body.
+// Nexus-28005 (2026-09-15): /mtc G3 (alias: FRONTEND) dispatcher body.
 // station-g3 PA / LNA GPIO control with three runtime states per pin
 // (DISABLED / OFF / ON). Gated entirely on #ifdef STATION_G3 — other boards
 // (heltec-v4, t-beam-1w, tracker-t1000-e, seeed_mesh_tracker_X1, …) don't
@@ -5545,7 +5517,7 @@ bool NexusModule::shouldDropPrivate(const meshtastic_MeshPacket &mp) {
 //
 // Vault persistence:
 //   - ON / OFF update nexusVariantBits immediately (RAM-side state mirrors).
-//   - The new bits are written to disk only on /nexus SAVE (Golden Rule
+//   - The new bits are written to disk only on /mtc SAVE (Golden Rule
 //     saveVault scope rule). We do NOT auto-save
 //     on every state change — flash wear concerns on daily-driven stations.
 //   - DISABLED is never persisted; it is re-detected every boot.
@@ -5559,7 +5531,7 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
     // Tokenize: first token after the keyword ("G3" or "FRONTEND") is the
     // subcommand (PA / LNA / STATUS), second is the action (ON / OFF / BYPASS).
     // Mirrors the strncasecmp prefix-then-tokenize pattern used by every other
-    // /nexus dispatcher branch in NexusCommands.cpp.
+    // /mtc dispatcher branch in NexusCommands.cpp.
     char sub[16] = {0};
     char arg[16] = {0};
     {
@@ -5579,7 +5551,7 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
         arg[i] = '\0';
     }
 
-    // Bare /nexus G3 (or /nexus G3 STATUS) → full state report.
+    // Bare /mtc G3 (or /mtc G3 STATUS) → full state report.
     auto format_status = [&](char *out, size_t outsz) {
         // Per-pin label: state (driven-level for OFF/ON, jumper note for DISABLED).
         auto pa_label  = [&](char *buf, size_t bufsz) {
@@ -5619,7 +5591,7 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
                  "MESHTACORE G3 STATUS\n"
                  "  PA  = %s\n"
                  "  LNA = %s\n"
-                 "  vault: PA=%s LNA=%s (run /nexus SAVE to persist)",
+                 "  vault: PA=%s LNA=%s (run /mtc SAVE to persist)",
                  pa_buf, lna_buf,
                  (pa_bits  == VARIANT_PA_ON)  ? "ON"  :
                  (pa_bits  == VARIANT_PA_OFF) ? "OFF" : "?",
@@ -5627,7 +5599,7 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
                  (lna_bits == VARIANT_LNA_OFF) ? "OFF" : "?");
     };
 
-    // Sub=empty (bare /nexus G3) → STATUS.
+    // Sub=empty (bare /mtc G3) → STATUS.
     if (sub[0] == '\0') {
         format_status(replyMsg, replySize);
         return;
@@ -5638,7 +5610,7 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
         return;
     }
 
-    // Nexus-28005 (2026-09-16): /nexus G3 REINIT — re-probe both PA / LNA
+    // Nexus-28005 (2026-09-16): /mtc G3 REINIT — re-probe both PA / LNA
     // jumper pads and restore from vault if jumper absent. Mirrors the boot-
     // detect sequence (pinMode(INPUT) → delay(1) → digitalRead) but uses the
     // CURRENT vault bits as the source of truth for the "jumper absent"
@@ -5650,7 +5622,7 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
         // Nexus-28006 (2026-09-17) — REINIT latch-clear prefix.
         // Same rationale as boot-detect: digitalWrite(LOW) while pin is
         // still OUTPUT forces the per-pin output latch LOW, clearing any
-        // stale HIGH from prior /nexus G3 PA ON (or other prior output
+        // stale HIGH from prior /mtc G3 PA ON (or other prior output
         // state) so the subsequent digitalRead() reads the actual
         // external jumper state instead of the stale latch. Microseconds,
         // watchdog-safe. Same prefix added to LNA below and to boot-detect
@@ -5661,18 +5633,18 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
         int raw_pa = digitalRead(PIN_PA);
         if (raw_pa == HIGH) {
             nexus_g3_pa_runtime = G3_DISABLED;
-            LOG_INFO("Nexus/G3 REINIT: PA (GPIO9) DISABLED — physical jumper detected. Firmware will not drive this pin.");
+            LOG_INFO("MTC/G3 REINIT: PA (GPIO9) DISABLED — physical jumper detected. Firmware will not drive this pin.");
         } else {
             uint64_t pa_bits = nexusVariantBits & VARIANT_PA_MASK;
             if (pa_bits == VARIANT_PA_ON) {
                 pinMode(PIN_PA, OUTPUT);
                 digitalWrite(PIN_PA, HIGH); // active-HIGH
                 nexus_g3_pa_runtime = G3_ON;
-                LOG_INFO("Nexus/G3 REINIT: PA (GPIO9) vault ON — OUTPUT HIGH.");
+                LOG_INFO("MTC/G3 REINIT: PA (GPIO9) vault ON — OUTPUT HIGH.");
             } else {
                 pinMode(PIN_PA, INPUT); // true Hi-Z, no pull
                 nexus_g3_pa_runtime = G3_OFF;
-                LOG_INFO("Nexus/G3 REINIT: PA (GPIO9) vault OFF — INPUT / Hi-Z.");
+                LOG_INFO("MTC/G3 REINIT: PA (GPIO9) vault OFF — INPUT / Hi-Z.");
             }
         }
 
@@ -5688,19 +5660,19 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
         int raw_lna = digitalRead(PIN_LNA);
         if (raw_lna == HIGH) {
             nexus_g3_lna_runtime = G3_DISABLED;
-            LOG_INFO("Nexus/G3 REINIT: LNA (GPIO10) DISABLED — physical jumper detected. Firmware will not drive this pin.");
+            LOG_INFO("MTC/G3 REINIT: LNA (GPIO10) DISABLED — physical jumper detected. Firmware will not drive this pin.");
         } else {
             uint64_t lna_bits = (nexusVariantBits & VARIANT_LNA_MASK) >> VARIANT_LNA_SHIFT;
             if (lna_bits == VARIANT_LNA_ON) {
                 pinMode(PIN_LNA, OUTPUT);
                 digitalWrite(PIN_LNA, LOW); // active-LOW → LOW = ON
                 nexus_g3_lna_runtime = G3_ON;
-                LOG_INFO("Nexus/G3 REINIT: LNA (GPIO10) vault ON — OUTPUT LOW.");
+                LOG_INFO("MTC/G3 REINIT: LNA (GPIO10) vault ON — OUTPUT LOW.");
             } else {
                 pinMode(PIN_LNA, OUTPUT);
                 digitalWrite(PIN_LNA, HIGH); // bypassed
                 nexus_g3_lna_runtime = G3_OFF;
-                LOG_INFO("Nexus/G3 REINIT: LNA (GPIO10) vault OFF — OUTPUT HIGH / bypassed.");
+                LOG_INFO("MTC/G3 REINIT: LNA (GPIO10) vault OFF — OUTPUT HIGH / bypassed.");
             }
         }
 
@@ -5757,7 +5729,7 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
             nexus_g3_pa_runtime = G3_ON;
             nexusVariantBits = (nexusVariantBits & ~VARIANT_PA_MASK) | VARIANT_PA_ON;
             snprintf(replyMsg, replySize,
-                     "MESHTACORE G3: PA=ON (GPIO9 OUTPUT HIGH). RAM-only — run /nexus SAVE to persist.");
+                     "MESHTACORE G3: PA=ON (GPIO9 OUTPUT HIGH). RAM-only — run /mtc SAVE to persist.");
         } else if (strcasecmp(arg, "OFF") == 0) {
             if (nexus_g3_pa_runtime == G3_DISABLED) {
                 snprintf(replyMsg, replySize,
@@ -5769,7 +5741,7 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
             nexus_g3_pa_runtime = G3_OFF;
             nexusVariantBits = (nexusVariantBits & ~VARIANT_PA_MASK) | VARIANT_PA_OFF;
             snprintf(replyMsg, replySize,
-                     "MESHTACORE G3: PA=OFF (GPIO9 INPUT / Hi-Z). RAM-only — run /nexus SAVE to persist.");
+                     "MESHTACORE G3: PA=OFF (GPIO9 INPUT / Hi-Z). RAM-only — run /mtc SAVE to persist.");
         } else {
             snprintf(replyMsg, replySize, "MESHTACORE G3: PA expects ON|OFF (got '%s')", arg);
         }
@@ -5793,7 +5765,7 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
             nexus_g3_lna_runtime = G3_ON;
             nexusVariantBits = (nexusVariantBits & ~VARIANT_LNA_MASK) | (VARIANT_LNA_ON << VARIANT_LNA_SHIFT);
             snprintf(replyMsg, replySize,
-                     "MESHTACORE G3: LNA=ON (GPIO10 OUTPUT LOW). RAM-only — run /nexus SAVE to persist.");
+                     "MESHTACORE G3: LNA=ON (GPIO10 OUTPUT LOW). RAM-only — run /mtc SAVE to persist.");
         } else if (want_off) {
             if (nexus_g3_lna_runtime == G3_DISABLED) {
                 snprintf(replyMsg, replySize,
@@ -5806,7 +5778,7 @@ void NexusModule::nexusG3HandleCommand(const meshtastic_MeshPacket &mp, const ch
             nexus_g3_lna_runtime = G3_OFF;
             nexusVariantBits = (nexusVariantBits & ~VARIANT_LNA_MASK) | (VARIANT_LNA_OFF << VARIANT_LNA_SHIFT);
             snprintf(replyMsg, replySize,
-                     "MESHTACORE G3: LNA=OFF (GPIO10 OUTPUT HIGH / bypassed). RAM-only — run /nexus SAVE to persist.");
+                     "MESHTACORE G3: LNA=OFF (GPIO10 OUTPUT HIGH / bypassed). RAM-only — run /mtc SAVE to persist.");
         } else {
             snprintf(replyMsg, replySize, "MESHTACORE G3: LNA expects ON|OFF|BYPASS (got '%s')", arg);
         }

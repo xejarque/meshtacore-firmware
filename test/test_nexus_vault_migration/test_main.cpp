@@ -229,50 +229,34 @@ void test_no_vault_applies_defaults_in_ram_without_saving()
 // Unit test for matchTargetedCmd() prefix dispatch.
 //
 // What is under test:
-//   - matchTargetedCmd() recognizes `/nexus` and `/mtc` as valid prefix roots (case-insensitively).
-//   - matchTargetedCmd() rejects legacy `/jt`, `/jent`, and `/jentastic` prefix roots.
+//   - matchTargetedCmd() recognizes `/mt`, `/mc` and `/mtc` as valid prefix roots (case-insensitively).
+//   - matchTargetedCmd() rejects the retired `/nexus` and `/mcore` roots and the legacy `/jt`, `/jent`, `/jentastic` ones.
 //
 // Why that behavior is required:
-//   - Nexus command CLI now standardizes on `/nexus` and `/mtc`, and all legacy Jentastic prefixes
-//     must be ignored to prevent unintended execution or ambiguous alias routing.
+//   - The CLI standardizes on `/mt`, `/mc` and `/mtc`; every older prefix must be ignored to prevent unintended execution or
+//     ambiguous alias routing. `/mt` and `/mtc` share a first letter pair, so each must match only its own suffix.
 //
 // The regression guarded:
-//   - If `/mtc` is missing or case-sensitivity breaks, nodes ignore targeted /mtc commands.
-//   - If `/jt` roots remain active, obsolete prefix callers continue executing against deprecated roots.
-void test_nexus_prefix_roots_mtc_and_nexus()
+//   - If a root is missing or case-sensitivity breaks, nodes ignore targeted commands on that root.
+//   - If an old root stays active, obsolete callers keep executing against it.
+void test_nexus_prefix_roots_mt_mc_and_mtc()
 {
     TestNexusModule module;
     strncpy(owner.short_name, "TEST", sizeof(owner.short_name));
 
     size_t kind = 0;
-    const char *cmd = module.matchTargetedCmd("/nexus-node TEST INFO", &kind);
-    TEST_ASSERT_NOT_NULL(cmd);
-    TEST_ASSERT_EQUAL_STRING("INFO", cmd);
-    TEST_ASSERT_EQUAL_size_t(TestNexusModule::TARGET_NAME, kind);
+    const char *roots[] = {"/mt-node TEST INFO", "/mc-node TEST INFO", "/mtc-node TEST INFO", "/MTC-NODE TEST INFO"};
+    for (const char *line : roots) {
+        const char *cmd = module.matchTargetedCmd(line, &kind);
+        TEST_ASSERT_NOT_NULL_MESSAGE(cmd, line);
+        TEST_ASSERT_EQUAL_STRING("INFO", cmd);
+        TEST_ASSERT_EQUAL_size_t(TestNexusModule::TARGET_NAME, kind);
+    }
 
-    cmd = module.matchTargetedCmd("/mtc-node TEST INFO", &kind);
-    TEST_ASSERT_NOT_NULL(cmd);
-    TEST_ASSERT_EQUAL_STRING("INFO", cmd);
-    TEST_ASSERT_EQUAL_size_t(TestNexusModule::TARGET_NAME, kind);
-
-    cmd = module.matchTargetedCmd("/MTC-NODE TEST INFO", &kind);
-    TEST_ASSERT_NOT_NULL(cmd);
-    TEST_ASSERT_EQUAL_STRING("INFO", cmd);
-    TEST_ASSERT_EQUAL_size_t(TestNexusModule::TARGET_NAME, kind);
-
-    cmd = module.matchTargetedCmd("/mcore-node TEST INFO", &kind);
-    TEST_ASSERT_NOT_NULL(cmd);
-    TEST_ASSERT_EQUAL_STRING("INFO", cmd);
-    TEST_ASSERT_EQUAL_size_t(TestNexusModule::TARGET_NAME, kind);
-
-    cmd = module.matchTargetedCmd("/jt-node TEST INFO", &kind);
-    TEST_ASSERT_NULL(cmd);
-
-    cmd = module.matchTargetedCmd("/jent-node TEST INFO", &kind);
-    TEST_ASSERT_NULL(cmd);
-
-    cmd = module.matchTargetedCmd("/jentastic-node TEST INFO", &kind);
-    TEST_ASSERT_NULL(cmd);
+    const char *retired[] = {"/nexus-node TEST INFO", "/mcore-node TEST INFO", "/jt-node TEST INFO",
+                             "/jent-node TEST INFO",  "/jentastic-node TEST INFO", "/mtcx-node TEST INFO"};
+    for (const char *line : retired)
+        TEST_ASSERT_NULL_MESSAGE(module.matchTargetedCmd(line, &kind), line);
 }
 
 } // namespace
@@ -292,7 +276,7 @@ void setup()
     RUN_TEST(test_v68_vault_on_router_preserves_operator_choice);
     RUN_TEST(test_v67_vault_on_client_role_does_not_migrate);
     RUN_TEST(test_no_vault_applies_defaults_in_ram_without_saving);
-    RUN_TEST(test_nexus_prefix_roots_mtc_and_nexus);
+    RUN_TEST(test_nexus_prefix_roots_mt_mc_and_mtc);
     exit(UNITY_END());
 }
 

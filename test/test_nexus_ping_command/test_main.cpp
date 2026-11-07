@@ -1,9 +1,9 @@
-// Unit tests for /nexus PPING (NexusModule::handlePpingCommand) and the settings it shares with /nexus MESHCORE PPING
+// Unit tests for /mtc PPING (NexusModule::handlePpingCommand) and the settings it shares with /mtc MESHCORE PPING
 // (NexusModule::applyPpingSetting).
 //
 // What is under test:
 //   - PPING ON/OFF switch only the Meshtastic public ping (public_ping) and leave the per-channel flags alone, so
-//     /nexus MESHCORE PPING can be turned on and off independently.
+//     /mtc MESHCORE PPING can be turned on and off independently.
 //   - SETHEX/GETHEX keep the mask layout of the first release: bit0 public_ping, 1 rssi, 2 snr, 3 freqerr.
 //   - Anything that is not a 16-bit hex mask changes nothing.
 //   - The reporting toggles (RSSI, SNR, FREQERR, FLAGS, OM...) reach the flags both handlers read.
@@ -40,7 +40,7 @@ void test_off_switches_only_the_meshtastic_ping()
 
     TEST_ASSERT_FALSE(m.public_ping);
     TEST_ASSERT_TRUE(m.ping_channels[0]);
-    TEST_ASSERT_TRUE(m.ping_channels[3]); // MeshCore channels are /nexus MESHCORE PPING's business
+    TEST_ASSERT_TRUE(m.ping_channels[3]); // MeshCore channels are /mtc MESHCORE PPING's business
     TEST_ASSERT_NOT_NULL(strstr(m.reply, "DISABLED"));
 
     m.run("ON");

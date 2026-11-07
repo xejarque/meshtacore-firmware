@@ -220,44 +220,67 @@ static void test_relay_id_leaves_counts_and_text_to_the_stats_handler()
     TEST_ASSERT_FALSE(isRelayIdArg(""));
 }
 
-// /nl and /ml are the local-only shortcuts for /nexus-local and /mcore-local. What matters is that the root ends where the
-// command begins: a root followed by anything but a space or the end of the line is a different word and must not be eaten, or
-// `/nlist` would run LIST and `/mlx` would run MX against the local node.
-static void test_local_shortcuts_read_nl_and_ml()
+// /mtl, /mcl and /mtcl are the local-only roots. What matters is that the root ends where the command begins: a root followed
+// by anything but a space or the end of the line is a different word and must not be eaten, or `/mtlx` would run X against the
+// local node.
+static void test_local_roots_read_mtl_mcl_and_mtcl()
 {
     const char *tail = nullptr;
-    bool mcore = false;
+    CmdScope scope = SCOPE_BOTH;
 
-    TEST_ASSERT_TRUE(matchLocalShortcut("/nl INFO", &tail, &mcore));
+    TEST_ASSERT_TRUE(matchLocalShortcut("/mtl INFO", &tail, &scope));
     TEST_ASSERT_EQUAL_STRING("INFO", tail);
-    TEST_ASSERT_FALSE(mcore);
+    TEST_ASSERT_EQUAL(SCOPE_MT, scope);
 
-    TEST_ASSERT_TRUE(matchLocalShortcut("/mL INFO", &tail, &mcore));
+    TEST_ASSERT_TRUE(matchLocalShortcut("/mCL INFO", &tail, &scope));
     TEST_ASSERT_EQUAL_STRING("INFO", tail);
-    TEST_ASSERT_TRUE(mcore);
+    TEST_ASSERT_EQUAL(SCOPE_MC, scope);
 
-    TEST_ASSERT_TRUE(matchLocalShortcut("/nl", &tail, &mcore));
+    TEST_ASSERT_TRUE(matchLocalShortcut("/mtcl SAVE", &tail, &scope));
+    TEST_ASSERT_EQUAL_STRING("SAVE", tail);
+    TEST_ASSERT_EQUAL(SCOPE_BOTH, scope);
+
+    TEST_ASSERT_TRUE(matchLocalShortcut("/mtl", &tail, &scope));
     TEST_ASSERT_EQUAL_STRING("", tail);
-    TEST_ASSERT_FALSE(mcore);
 
-    TEST_ASSERT_TRUE(matchLocalShortcut("/ml   stats", &tail, &mcore));
+    TEST_ASSERT_TRUE(matchLocalShortcut("/mcl   stats", &tail, &scope));
     TEST_ASSERT_EQUAL_STRING("stats", tail);
-    TEST_ASSERT_TRUE(mcore);
+    TEST_ASSERT_EQUAL(SCOPE_MC, scope);
 }
 
-static void test_local_shortcuts_reject_longer_words_and_full_roots()
+static void test_local_roots_reject_longer_words_and_old_roots()
 {
     const char *tail = nullptr;
-    bool mcore = false;
+    CmdScope scope = SCOPE_BOTH;
 
-    TEST_ASSERT_FALSE(matchLocalShortcut("/nlist", &tail, &mcore));
-    TEST_ASSERT_FALSE(matchLocalShortcut("/mlx", &tail, &mcore));
-    TEST_ASSERT_FALSE(matchLocalShortcut("/nl-local INFO", &tail, &mcore));
-    TEST_ASSERT_FALSE(matchLocalShortcut("/nexus-local INFO", &tail, &mcore));
-    TEST_ASSERT_FALSE(matchLocalShortcut("/mcore-local INFO", &tail, &mcore));
-    TEST_ASSERT_FALSE(matchLocalShortcut("nl INFO", &tail, &mcore));
-    TEST_ASSERT_FALSE(matchLocalShortcut("", &tail, &mcore));
-    TEST_ASSERT_FALSE(matchLocalShortcut(nullptr, &tail, &mcore));
+    TEST_ASSERT_FALSE(matchLocalShortcut("/mtlx", &tail, &scope));
+    TEST_ASSERT_FALSE(matchLocalShortcut("/mclx INFO", &tail, &scope));
+    TEST_ASSERT_FALSE(matchLocalShortcut("/mtcl-node INFO", &tail, &scope));
+    TEST_ASSERT_FALSE(matchLocalShortcut("/mtc INFO", &tail, &scope)); // the network root is not a local one
+    TEST_ASSERT_FALSE(matchLocalShortcut("/nl INFO", &tail, &scope));
+    TEST_ASSERT_FALSE(matchLocalShortcut("/ml INFO", &tail, &scope));
+    TEST_ASSERT_FALSE(matchLocalShortcut("/nexus-local INFO", &tail, &scope));
+    TEST_ASSERT_FALSE(matchLocalShortcut("/mcore-local INFO", &tail, &scope));
+    TEST_ASSERT_FALSE(matchLocalShortcut("mtl INFO", &tail, &scope));
+    TEST_ASSERT_FALSE(matchLocalShortcut("", &tail, &scope));
+    TEST_ASSERT_FALSE(matchLocalShortcut(nullptr, &tail, &scope));
+}
+
+// /mc runs MeshCore commands (MCORE is prepended), /mt refuses the MESHCORE family, /mtc runs the body as typed.
+static void test_command_scope()
+{
+    char buf[64];
+
+    TEST_ASSERT_EQUAL_STRING("MCORE INFO", applyCommandScope(SCOPE_MC, "INFO", buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL_STRING("MCORE", applyCommandScope(SCOPE_MC, "", buf, sizeof(buf)));
+
+    TEST_ASSERT_NULL(applyCommandScope(SCOPE_MT, "MESHCORE INFO", buf, sizeof(buf)));
+    TEST_ASSERT_NULL(applyCommandScope(SCOPE_MT, "mcore", buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL_STRING("MCOREX", applyCommandScope(SCOPE_MT, "MCOREX", buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL_STRING("INFO", applyCommandScope(SCOPE_MT, "INFO", buf, sizeof(buf)));
+
+    TEST_ASSERT_EQUAL_STRING("MESHCORE INFO", applyCommandScope(SCOPE_BOTH, "MESHCORE INFO", buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL_STRING("INFO", applyCommandScope(SCOPE_BOTH, "INFO", buf, sizeof(buf)));
 }
 
 void setup()
@@ -277,8 +300,9 @@ void setup()
     RUN_TEST(test_auto_base_and_hex_masks_need_the_whole_argument);
     RUN_TEST(test_relay_id_accepts_star_0x_and_hex_bytes);
     RUN_TEST(test_relay_id_leaves_counts_and_text_to_the_stats_handler);
-    RUN_TEST(test_local_shortcuts_read_nl_and_ml);
-    RUN_TEST(test_local_shortcuts_reject_longer_words_and_full_roots);
+    RUN_TEST(test_local_roots_read_mtl_mcl_and_mtcl);
+    RUN_TEST(test_local_roots_reject_longer_words_and_old_roots);
+    RUN_TEST(test_command_scope);
     exit(UNITY_END());
 }
 

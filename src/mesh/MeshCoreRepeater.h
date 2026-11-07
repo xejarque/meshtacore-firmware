@@ -36,7 +36,7 @@ class MeshCoreRepeater
     /**
      * path_len byte of a flood we originate: no hops yet, path hashes of the configured size (upper bits = hash size - 1).
      * The sender picks the size and every repeater appends hashes of that size, so this is what clients show as the path
-     * width. Two bytes unless /nexus MESHCORE PATHSIZE says otherwise.
+     * width. Two bytes unless /mtc MESHCORE PATHSIZE says otherwise.
      */
     static uint8_t ownFloodPathLenByte() { return (uint8_t)((ownPathHashSize - 1) << 6); }
     static uint8_t getOwnPathHashSize() { return ownPathHashSize; }
@@ -263,7 +263,7 @@ class MeshCoreRepeater
     static constexpr size_t DEDUP_ENTRIES = 160;
 
     // MeshCore's flood_max, flood_max_unscoped and flood_max_advert (NodePrefs.h): a flood is not forwarded once it has crossed
-    // this many repeaters. The defaults are MeshCore's own; /nexus MESHCORE FLOODMAX changes them.
+    // this many repeaters. The defaults are MeshCore's own; /mtc MESHCORE FLOODMAX changes them.
     uint8_t floodMax = MeshCoreConfig::DEFAULT_FLOOD_MAX;
     uint8_t floodMaxUnscoped = MeshCoreConfig::DEFAULT_FLOOD_MAX_UNSCOPED;
     uint8_t floodMaxAdvert = MeshCoreConfig::DEFAULT_FLOOD_MAX_ADVERT;

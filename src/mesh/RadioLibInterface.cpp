@@ -1052,7 +1052,7 @@ void RadioLibInterface::handleReceiveInterrupt(const CapturedRxInfo *captured)
                     mp->rx_snr = captured->snr;
                 mp->rx_rssi = captured->rssi;
                 mp->has_rx_rssi = true;
-                // Nexus operator data (/nexus CRSTATS, PPING FREQERR): read by the task with the frame
+                // Nexus operator data (/mtc CRSTATS, PPING FREQERR): read by the task with the frame
                 mp->rx_frequency_error = captured->frequencyError;
                 if (captured->headerInfoValid)
                     mp->rx_coding_rate = captured->rxCR;
@@ -1635,7 +1635,7 @@ uint32_t RadioLibInterface::altModemPacketTime(uint32_t pl, RadioLibTime_t repor
 
 // Nexus port (Nexus-28001, 2026-08-16): read NexusModule::syncword_override (vault v40) and
 // apply to the subclass syncWord member. Called from RadioInterface::applyModemConfig() at
-// boot AND on every LoRa re-config (including the deferred apply triggered by /nexus
+// boot AND on every LoRa re-config (including the deferred apply triggered by /mtc
 // SYNCWORD). syncword_override == 0 leaves the default 0x2b in place.
 void RadioLibInterface::applyNexusSyncwordOverride()
 {

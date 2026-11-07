@@ -79,7 +79,7 @@
 #include "modules/PositionModule.h"
 #endif
 
-// Nexus-28002 (2026-08-21): /nexus HOPSCALE reads live state from the
+// Nexus-28002 (2026-08-21): /mtc HOPSCALE reads live state from the
 // HopScalingModule. The module is gated on HAS_VARIABLE_HOPS — mirror that
 // gate so the include only fires when the module is actually compiled in.
 #if HAS_VARIABLE_HOPS
@@ -98,7 +98,7 @@
 #include "modules/ExternalNotificationModule.h"
 #include "RadioLibInterface.h"
 #if (defined(USE_LR2021) || defined(ARCH_PORTDUINO)) && !RADIOLIB_EXCLUDE_LR2021
-// Nexus-28005: /nexus LR2021_SF handler uses LR2021Interface accessors
+// Nexus-28005: /mtc LR2021_SF handler uses LR2021Interface accessors
 // (sideDetectorsCount, setSideDetectors, clearSideDetectors) for the
 // multi-SF side-detector table. Guard mirrors src/mesh/LR2021Interface.cpp:3
 // so the driver and the call sites pre-process together: SX126x-only builds
@@ -190,9 +190,9 @@ extern void getMacAddr(uint8_t *dmac);
 //
 // Stack-overflow / crash prevention for the REDIRECT (R / REDIRECT) command
 // chain in handleNexusCommand. Bug report 2026-09-17:
-// "/nexus R CH <x> <cmd>" crashed the node — root cause was
+// "/mtc R CH <x> <cmd>" crashed the node — root cause was
 // unbounded recursion via redirect_depth + 1, which would explode the
-// stack on a chain like "/nexus R CH a R CH b R CH c ..." or on any
+// stack on a chain like "/mtc R CH a R CH b R CH c ..." or on any
 // operator-typo that triggered a sub-command which itself was a
 // REDIRECT. No upper bound existed before — every recursive
 // handleNexusCommand call grew the stack by the function's frame
@@ -201,10 +201,10 @@ extern void getMacAddr(uint8_t *dmac);
 // BSS / heap and the node crashes.
 //
 // Cap at 3 — allows a sensible chain like
-//   /nexus R CH a R DM b <leaf-command>
-//   /nexus R DM a R CH b <leaf-command>
-//   /nexus R CH a R CH b <leaf-command>
-//   /nexus R DM a R DM b <leaf-command>
+//   /mtc R CH a R DM b <leaf-command>
+//   /mtc R DM a R CH b <leaf-command>
+//   /mtc R CH a R CH b <leaf-command>
+//   /mtc R DM a R DM b <leaf-command>
 // before refusing, while still keeping the call stack at <1 KB on
 // nRF52 and well within ESP32 budgets for any normal operator flow.
 // Anything deeper is either operator error (recursion loop) or a
@@ -326,7 +326,7 @@ static const char* getRebroadcastModeName(int mode) {
 // NexusModule.h as `inline`.
 
 // Internal tactical helper: case-insensitive substring search used by
-// /nexus SEARCH / ALIAS resolution.
+// /mtc SEARCH / ALIAS resolution.
 static const char* nexus_strcasestr(const char* haystack, const char* needle) {
     if (!haystack || !needle) return NULL;
     if (!*needle) return haystack;
@@ -343,7 +343,7 @@ static const char* nexus_strcasestr(const char* haystack, const char* needle) {
 }
 
 #if !MESHTASTIC_EXCLUDE_GPS
-// GNSS model name lookup (used by /nexus GPS command).
+// GNSS model name lookup (used by /mtc GPS command).
 // Pulls in gps/GPS.h enum values — kept here as TU-local static rather
 // than moving to the header, to avoid dragging GPS.h into every
 // translation unit that includes NexusModule.h.
@@ -369,7 +369,7 @@ static const char* getGnssModelName(int model) {
 }
 #endif
 
-// Base64 encoder for /nexus export paths (masks, keys, streams).
+// Base64 encoder for /mtc export paths (masks, keys, streams).
 // Uses a local `table` for url_safe vs standard alphabet — does NOT depend
 // on a file-scope b64_table.
 void nexus_base64_encode(char *out, const uint8_t *in, size_t in_len, bool url_safe = false) {
@@ -742,7 +742,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 if (pp_rLen > NEXUS_MAX_REPLY_BODY) pp_rLen = NEXUS_MAX_REPLY_BODY;
                 uint32_t pp_to = pp_isDM ? (mp.from ? mp.from : myNodeInfo.my_node_num) : 0xFFFFFFFF;
                 sendToPhone(pp_to, mp.channel, replyId, replyMsg, pp_rLen);
-                LOG_INFO("Nexus: Local reply copy sent.");
+                LOG_INFO("MTC: Local reply copy sent.");
             }
             if (!toPhoneOnly) {
                 size_t pp_rLen = strlen(replyMsg);
@@ -815,7 +815,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         while (*p == ' ') p++;
 
         if (foundTarget && *p != '\0') {
-            LOG_INFO("Nexus: Command REDIRECT to %08x Ch %d: %s", (unsigned int)targetTo, (int)targetCh, p);
+            LOG_INFO("MTC: Command REDIRECT to %08x Ch %d: %s", (unsigned int)targetTo, (int)targetCh, p);
             // Re-execute with overridden context
             meshtastic_MeshPacket mock = mp;
             mock.channel = targetCh;
@@ -833,16 +833,16 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     }
 
     // Nexus: Command Rate Limiting for nRF52 Stability (code review fix)
-    // Only apply cooldown to broadcast commands (/nexus), not targeted ones (/nexus-device, /nexus-node, /nexus-mac)
+    // Only apply cooldown to broadcast commands (/mtc), not targeted ones (/mtc-device, /mtc-node, /mtc-mac)
     if (isBroadcast && commandDepth == 1 && redirect_depth == 0 && !pagingRendering) {
         if (last_cmd_time != 0 && Throttle::isWithinTimespanMs(last_cmd_time, 5000)) {
-            LOG_WARN("Nexus: Broadcast rate limit triggered.");
+            LOG_WARN("MTC: Broadcast rate limit triggered.");
             return;
         }
         last_cmd_time = Time::getMillis();
     }
 
-    LOG_INFO("Nexus: command received: %.*s (Broadcast: %d)", (int)strcspn(cmd, " "), cmd, isBroadcast);
+    LOG_INFO("MTC: command received: %.*s (Broadcast: %d)", (int)strcspn(cmd, " "), cmd, isBroadcast);
     // Bind replyMsg by REFERENCE to the persistent member array. This keeps
     // sizeof(replyMsg) == NEXUS_MAX_REPLY (not sizeof(char*)) so every
     // snprintf(replyMsg, sizeof(replyMsg), ...) below writes the full body.
@@ -856,7 +856,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     bool isSensitive = (strncasecmp(cmd, "NAME ", 5) == 0 || strncasecmp(cmd, "OWNER ", 6) == 0);
 
     if (isSensitive && isBroadcast && !isDM) {
-        LOG_WARN("Nexus: Blocking broadcast NAME/OWNER for safety.");
+        LOG_WARN("MTC: Blocking broadcast NAME/OWNER for safety.");
         return; // Silent ignore to prevent mass-wiping a network
     }
 
@@ -1948,10 +1948,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     }
     else if (strcasecmp(cmd, "FREEZE") == 0 || strncasecmp(cmd, "FREEZE ", 7) == 0) {
-        // v64: /nexus FREEZE — per-subsystem freeze flags. Each flag gates one
+        // v64: /mtc FREEZE — per-subsystem freeze flags. Each flag gates one
         // /prefs/*.proto writer. `ON` sets all four; per-subsystem commands
         // (`NODEFREEZE`, `WARMFREEZE`, `DEVICEFREEZE`, `CONFIGFREEZE`) toggle
-        // one. Persistence via /nexus SAVE (SCOPE RULE). DBFLUSH bypasses all.
+        // one. Persistence via /mtc SAVE (SCOPE RULE). DBFLUSH bypasses all.
         //
         // Backward compat aliases: `DISK` → all four on (legacy ON); `DB` →
         // nodedb on (legacy DB); naked `OFF` → all four off.
@@ -2000,7 +2000,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             } else {
                 freeze_nodedb = v;
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MESHTACORE: NodeDB freeze %s. (Persist via /nexus SAVE.)",
+                         "MESHTACORE: NodeDB freeze %s. (Persist via /mtc SAVE.)",
                          freeze_nodedb ? "ON" : "OFF");
             }
         } else if (strncasecmp(sub, "WARMFREEZE", 10) == 0) {
@@ -2012,7 +2012,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             } else {
                 freeze_warm = v;
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MESHTACORE: Warm freeze %s. (Persist via /nexus SAVE.)",
+                         "MESHTACORE: Warm freeze %s. (Persist via /mtc SAVE.)",
                          freeze_warm ? "ON" : "OFF");
             }
         } else if (strncasecmp(sub, "DEVICEFREEZE", 12) == 0) {
@@ -2024,7 +2024,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             } else {
                 freeze_device = v;
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MESHTACORE: Device freeze %s. (Persist via /nexus SAVE.)",
+                         "MESHTACORE: Device freeze %s. (Persist via /mtc SAVE.)",
                          freeze_device ? "ON" : "OFF");
             }
         } else if (strncasecmp(sub, "CONFIGFREEZE", 12) == 0) {
@@ -2036,7 +2036,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             } else {
                 freeze_config = v;
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MESHTACORE: Config freeze %s. (Persist via /nexus SAVE.)",
+                         "MESHTACORE: Config freeze %s. (Persist via /mtc SAVE.)",
                          freeze_config ? "ON" : "OFF");
             }
         } else if (strcasecmp(sub, "DB") == 0 || strcasecmp(sub, "DBONLY") == 0) {
@@ -2207,10 +2207,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             memset(sec, 0, sizeof(sec));
         }
     }
-    // Nexus v66: /nexus FEATURES — toggle feature bits persisted in NexusVault::features_mask
+    // Nexus v66: /mtc FEATURES — toggle feature bits persisted in NexusVault::features_mask
     // (uint64). Four bits today: FORWARD_OPAQUE_TO_PHONE (0), FORWARD_FOREIGN_PKI_TO_PHONE (1),
     // DISABLE_AGC_RESET (2), LATEBASE (3).
-    // RAM-only per SAVEVAULT SCOPE RULE — operators persist via /nexus SAVE. Mirrors the FIREWALL
+    // RAM-only per SAVEVAULT SCOPE RULE — operators persist via /mtc SAVE. Mirrors the FIREWALL
     // command's RAM-only posture (only FEATURES persist).
     else if (strcasecmp(cmd, "FEATURES") == 0 || strncasecmp(cmd, "FEATURES ", 9) == 0) {
         const char *sub = nullptr;
@@ -2356,7 +2356,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
     }
-    // Nexus-28005 (2026-09-12): /nexus LR2021_SF — configure the LR2021
+    // Nexus-28005 (2026-09-12): /mtc LR2021_SF — configure the LR2021
     // hardware's multi-SF side-detector table. RAM-only persistence: stored on
     // the LR2021Interface instance, applied on next radio init via the hook in
     // LR20x0Interface::init(). UX mirrors ZephCore's `config extra.sf <list>`.
@@ -2378,7 +2378,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     // to the same handler body.
     // Nexus-28005 (2026-09-14): the entire `else if (...)` block — not
     // just its body — is gated on LR2021 hardware. On non-LR2021 builds (e.g.
-    // station-g3 with SX1262) the command simply does not exist: a /nexus
+    // station-g3 with SX1262) the command simply does not exist: a /mtc
     // LR2021_SF falls through to the default `Unknown command` reply, the same
     // behavior as every other variant-gated command in this dispatcher.
     //
@@ -2540,8 +2540,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     }
     else if (strncasecmp(cmd, "BD ", 3) == 0 || strcasecmp(cmd, "BD") == 0) {
-        // /nexus BD SET <1..300>   -> set broadcast reply / paging max delay (s)
-        // /nexus BD GET            -> report current value
+        // /mtc BD SET <1..300>   -> set broadcast reply / paging max delay (s)
+        // /mtc BD GET            -> report current value
         // Floor stays at 100ms; range scales 100..N*1000 ms.
         // NOTE: BD SET no longer persists (public).
         const char *p = cmd + 2;
@@ -2564,7 +2564,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 broadcast_delay_max_s = (uint16_t)v;
                 // saveVault removed (SCOPE RULE: only SAVE persists in tactical)
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MESHTACORE BD: max delay set to %us (jitter 100..%ums). (RAM-only; /nexus SAVE to persist.)",
+                         "MESHTACORE BD: max delay set to %us (jitter 100..%ums). (RAM-only; /mtc SAVE to persist.)",
                          (unsigned)broadcast_delay_max_s,
                          (unsigned)(broadcast_delay_max_s * 1000U));
             }
@@ -3222,7 +3222,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         // "DB:" line on those targets even though DeviceTelemetryModule was alive and
         // collecting data. getNexusDeviceTelemetry() reads the live snapshot directly.
         // Nexus-28006 (2026-09-17) — TELEMETRY stack-overflow fix.
-        // Bug report 2026-09-17 19:10 UTC: /nexus R CH Channel
+        // Bug report 2026-09-17 19:10 UTC: /mtc R CH Channel
         // TELEMETRY crashed the node (reboot). Root cause: the three
         // meshtastic_Telemetry locals (dm/pm/em, ~300-500 bytes each,
         // protobuf-generated struct with device + environment + power +
@@ -3292,7 +3292,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         // See the static-storage tombstone above the `dm` declaration for
         // why this is static instead of stack-allocated. Same pattern,
         // same Nexus-28006 stack-overflow fix (2026-09-17 19:10 UTC).
-        // Note: there is a SEPARATE `em` declaration in the /nexus ENV
+        // Note: there is a SEPARATE `em` declaration in the /mtc ENV
         // handler below — that one stays stack-allocated because the
         // bug report was about TELEMETRY specifically. Don't convert
         // the ENV one's `em` without auditing that handler first.
@@ -3696,9 +3696,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
 #if !MESHTASTIC_EXCLUDE_GPS
         // Primary path: live GPS read from the gpsStatus cache — the same source
-        // /nexus SENSORS and the OLED screen use. nodePositions[our_num] only
+        // /mtc SENSORS and the OLED screen use. nodePositions[our_num] only
         // populates on `updatePosition(LOCAL)` events (broadcast timer, NodeInfo
-        // commits), so reading it directly causes "/nexus POS: No fix." replies
+        // commits), so reading it directly causes "/mtc POS: No fix." replies
         // even when the GPS has a current lock. Mirroring the SENSORS read path
         // keeps the textual reply and the on-screen fix icon in agreement.
         if (gps && gps->isConnected() && gpsStatus) {
@@ -3772,7 +3772,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     }
     else if (strcasecmp(cmd, "REBOOT") == 0) {
-        LOG_INFO("Nexus: Reboot triggered");
+        LOG_INFO("MTC: Reboot triggered");
         snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Rebooting in 20s...");
         if (adminModule) {
             adminModule->reboot(20);
@@ -3843,7 +3843,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         const char *taskName = pcTaskGetName(NULL);
         if (!taskName) taskName = "?";
         // Truncate task name to 12 chars to keep reply under 200 B.
-        // Static (BSS) so we don't add 13B to every /nexus RAM call stack.
+        // Static (BSS) so we don't add 13B to every /mtc RAM call stack.
         static char tn[13];
         memset(tn, 0, sizeof(tn));
         strncpy(tn, taskName, sizeof(tn) - 1);
@@ -4131,25 +4131,25 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     }
     else if (strncasecmp(cmd, "SECURITY ", 9) == 0 || strcasecmp(cmd, "SECURITY") == 0 ||
              strncasecmp(cmd, "SEC ",     4) == 0 || strcasecmp(cmd, "SEC")     == 0) {
-        // /nexus SECURITY (or SEC) — inspect and toggle the nexus_security_bitmask
+        // /mtc SECURITY (or SEC) — inspect and toggle the nexus_security_bitmask
         // (Nexus-28003, 2026-08-24). The bitmask lives in the vault at v65;
         // no v66 bump needed — the slot has been there since v65.
         //
         // Forms:
-        //   /nexus SECURITY                            → overview (like SETTINGS)
-        //   /nexus SECURITY REQ_SIG [on|off]           → toggle bit 0
-        //   /nexus SECURITY ALLOW_DM [on|off]          → toggle bit 1
-        //   /nexus SECURITY SILENT_LOG [on|off]        → toggle bit 2
-        //   /nexus SECURITY AUTO_FAV_NEXUS [on|off]    → toggle bit 3
-        //   /nexus SECURITY AUTO_FAV_TRUSTED [on|off]  → toggle bit 4
-        //   /nexus SECURITY BYPASS_RP [on|off]         → toggle bit 5 (inverted: on=bypass active)
-        //   /nexus SECURITY AUTO_FAV_EXTRA [on|off|<0-7>] → bit 6 enable; a digit 0-7 sets bits 7-9 (channel) AND enables
-        //   /nexus SECURITY [on|off]                   → shortcut to set/clear ALL bits
+        //   /mtc SECURITY                            → overview (like SETTINGS)
+        //   /mtc SECURITY REQ_SIG [on|off]           → toggle bit 0
+        //   /mtc SECURITY ALLOW_DM [on|off]          → toggle bit 1
+        //   /mtc SECURITY SILENT_LOG [on|off]        → toggle bit 2
+        //   /mtc SECURITY AUTO_FAV_NEXUS [on|off]    → toggle bit 3
+        //   /mtc SECURITY AUTO_FAV_TRUSTED [on|off]  → toggle bit 4
+        //   /mtc SECURITY BYPASS_RP [on|off]         → toggle bit 5 (inverted: on=bypass active)
+        //   /mtc SECURITY AUTO_FAV_EXTRA [on|off|<0-7>] → bit 6 enable; a digit 0-7 sets bits 7-9 (channel) AND enables
+        //   /mtc SECURITY [on|off]                   → shortcut to set/clear ALL bits
         //
         // Bit semantics (all default OFF):
-        //   REQ_SIG    — when ON, /nexus commands on Nexus channels must carry
+        //   REQ_SIG    — when ON, /mtc commands on Nexus channels must carry
         //                a valid XEdDSA signature from a trusted key.
-        //   ALLOW_DM   — when ON, /nexus commands received as DMs are accepted.
+        //   ALLOW_DM   — when ON, /mtc commands received as DMs are accepted.
         //                DMs are never signed; auth falls back to isAuthorizedAdmin().
         //   SILENT_LOG — when ON, packets rejected by REQ_SIG/ALLOW_DM are
         //                silently logged and dropped. When OFF, the sender
@@ -4181,13 +4181,13 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         bool turnOn = false;
         bool turnOff = false;
         bool isOverview = true;
-        // AUTO_FAV_EXTRA channel form: /nexus SECURITY AFX <0-7> sets bits 7-9
+        // AUTO_FAV_EXTRA channel form: /mtc SECURITY AFX <0-7> sets bits 7-9
         // of the bitmask and enables bit 6 in the same round trip.
         bool hasExtraCh = false;
         int setExtraCh = 0;
         // Nexus-28006 (2026-09-16) — code review 1D fix.
         // Set to true on the unknown-bit path (operator typo, e.g.
-        // /nexus SECURITY BOGUS). Gates the bit-toggle + overview blocks
+        // /mtc SECURITY BOGUS). Gates the bit-toggle + overview blocks
         // below so they don't clobber replyMsg with their own snprintf.
         // After populating replyMsg, fall through to the dispatcher tail
         // at the end of handleNexusCommand (which sends the unknown-bit
@@ -4196,7 +4196,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         // their snprintf and overwrite the error message.
         bool securityReject = false;
 
-        // Use skipToken() so both /nexus SECURITY REQ_SIG on and the /nexus SEC
+        // Use skipToken() so both /mtc SECURITY REQ_SIG on and the /mtc SEC
         // REQ_SIG on shortcut advance past the command word correctly. The
         // previous implementation hardcoded cmd[8] which only worked for the
         // 8-char "SECURITY" form — the 3-char "SEC" form landed the parser in
@@ -4235,7 +4235,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 // active (default)". See NexusModule.h:NEXUS_SECURITY_BYPASS_RP.
                 targetName = "BYPASS_RP";
             } else if (arg[0] == '\0' && (strcasecmp(sub, "on") == 0 || strcasecmp(sub, "off") == 0)) {
-                // Bare "/nexus SECURITY on|off" — set ALL bits uniformly.
+                // Bare "/mtc SECURITY on|off" — set ALL bits uniformly.
                 targetName = "ALL";
             }
 
@@ -4245,7 +4245,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 else if (strcasecmp(arg, "off") == 0) turnOff = true;
                 else if (strcmp(targetName, "AUTO_FAV_EXTRA") == 0 && arg[0] != '\0') {
                     // AUTO_FAV_EXTRA takes a channel number INSTEAD of on/off:
-                    // /nexus SECURITY AFX 3 -> select channel 3 and enable.
+                    // /mtc SECURITY AFX 3 -> select channel 3 and enable.
                     if (arg[1] == '\0' && arg[0] >= '0' && arg[0] <= '7') {
                         setExtraCh = arg[0] - '0';
                         hasExtraCh = true;
@@ -4260,7 +4260,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     isOverview = true;
                 }
             } else if (arg[0] == '\0' && sub[0] == '\0') {
-                // Bare "/nexus SECURITY" — overview.
+                // Bare "/mtc SECURITY" — overview.
                 isOverview = true;
             } else if (sub[0] != '\0') {
                 snprintf(replyMsg, sizeof(replyMsg),
@@ -4269,7 +4269,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 // Previously: `return;` here dropped replyMsg before the
                 // dispatcher tail at the end of handleNexusCommand could
                 // sendToPhone / queueMeshReply it. Operator saw silence after
-                // /nexus SECURITY BOGUS despite replyMsg being correctly populated.
+                // /mtc SECURITY BOGUS despite replyMsg being correctly populated.
                 // Set the securityReject flag so the bit-toggle + overview
                 // blocks below skip their work (which would clobber this
                 // unknown-bit message with their own snprintf), then fall
@@ -4281,7 +4281,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (!isOverview && !securityReject) {
             // Apply the bit change. "ALL" is a shortcut for "set every bit to
             // the same on/off value". Persistent via the in-memory bitmask;
-            // operator must run /nexus SAVE to flush to /nexus.bin.
+            // operator must run /mtc SAVE to flush to /nexus.bin.
             uint32_t newMask = nexus_security_bitmask;
             if (targetName && strcmp(targetName, "ALL") == 0) {
                 if (turnOn) newMask = NEXUS_SECURITY_REQUIRE_SIG | NEXUS_SECURITY_ALLOW_DM |
@@ -4306,7 +4306,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
             nexus_security_bitmask = newMask;
 
-            // Tiny ack (no full overview; operator can run /nexus SECURITY for that).
+            // Tiny ack (no full overview; operator can run /mtc SECURITY for that).
             // Nexus-28006 (2026-09-16) — code review 1D fix.
             // Previously: trailing `return;` dropped replyMsg before the
             // dispatcher tail at the end of handleNexusCommand could
@@ -4314,11 +4314,11 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             // dispatcher tail picks up replyMsg and delivers the ack.
             if (hasExtraCh) {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MESHTACORE SECURITY: AUTO_FAV_EXTRA ON ch%u -> 0x%08lX (run /nexus SAVE to persist)",
+                         "MESHTACORE SECURITY: AUTO_FAV_EXTRA ON ch%u -> 0x%08lX (run /mtc SAVE to persist)",
                          (unsigned)setExtraCh, (unsigned long)newMask);
             } else {
                 snprintf(replyMsg, sizeof(replyMsg),
-                         "MESHTACORE SECURITY: %s -> 0x%08lX (run /nexus SAVE to persist)",
+                         "MESHTACORE SECURITY: %s -> 0x%08lX (run /mtc SAVE to persist)",
                          targetName,
                          (unsigned long)newMask);
             }
@@ -4331,7 +4331,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         // below already encode the bitmask, no need to dump the raw hex too.
         //
         // Nexus-28005 (2026-09-13): trailing `return;` added to fix
-        // silent-fail on bare /nexus SECURITY (and SECURITY LIST). Without
+        // silent-fail on bare /mtc SECURITY (and SECURITY LIST). Without
         // the return, control falls through to the next else-if block
         // (VAULT), then to the rest of the dispatcher chain, then to the
         // terminal `else` at line ~8979 which overwrites replyMsg with
@@ -4345,7 +4345,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         // The Nexus-28005 `return;` mentioned above skips the terminal-else
         // overwrite but ALSO skips the dispatcher tail at the very end of
         // handleNexusCommand (the one with sendToPhone + queueMeshReply).
-        // So bare /nexus SECURITY was silent at the caller — replyMsg was
+        // So bare /mtc SECURITY was silent at the caller — replyMsg was
         // populated but never delivered.
         //
         // Fix: gate this entire overview block on `!securityReject` (so
@@ -4368,7 +4368,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     }
     else if (strcasecmp(cmd, "VAULT") == 0 || strcasecmp(cmd, "VST") == 0) {
-        // /nexus VAULT (or VST) - inspect the persistent vault without applying it.
+        // /mtc VAULT (or VST) - inspect the persistent vault without applying it.
         // Reports: file validity, version, struct size, key fields, and a summary
         // of whether the persistent vault matches the current RAM state.
         // Heap, not BSS: NexusVault is ~2.35 KB at v42 (was ~1.5 KB at v30).
@@ -4424,9 +4424,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     }
     else if (strncasecmp(cmd, "VAULT DIFF", 10) == 0 || strcasecmp(cmd, "VDF") == 0) {
-        // /nexus VAULT DIFF - compare the persistent vault to the current RAM
+        // /mtc VAULT DIFF - compare the persistent vault to the current RAM
         // state. Reports which fields differ so the operator knows what
-        // /nexus SAVE will actually persist.
+        // /mtc SAVE will actually persist.
         // Heap, not BSS: see VST block above for rationale (saves ~2.35 KB of
         // BSS, costs same in heap only if VST/VDF is ever called).
         static NexusVault *v = nullptr;
@@ -4447,12 +4447,12 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         bool valid = readVaultForDisplay(v, &reason);
         if (!valid) {
             snprintf(replyMsg, sizeof(replyMsg),
-                     "MESHTACORE VAULT DIFF:\nNo valid vault (%s) - any RAM state will be saved on next /nexus SAVE",
+                     "MESHTACORE VAULT DIFF:\nNo valid vault (%s) - any RAM state will be saved on next /mtc SAVE",
                      reason);
         } else {
             // Build a paginated diff. We compare every persisted field in
             // NexusVault (v43) against its RAM counterpart so the operator
-            // can see exactly what /nexus SAVE will change. AirTag fields
+            // can see exactly what /mtc SAVE will change. AirTag fields
             // are intentionally skipped: saveVault() never writes them, so
             // diffing would produce a constant spurious mismatch.
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "VAULT DIFF");
@@ -5525,7 +5525,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             // Previously: `return;` here dropped replyMsg before the
             // dispatcher tail at the end of handleNexusCommand could
             // sendToPhone / queueMeshReply it. Operator saw silence after
-            // /nexus DELNODE despite replyMsg being correctly populated.
+            // /mtc DELNODE despite replyMsg being correctly populated.
             // Drop the return; — the dispatcher tail picks up replyMsg.
             // Note: the rest of the DELNODE / FAV / UNFAV / IGNORE block
             // below this `if (delNode)` is gated by other conditions (setFav,
@@ -5558,7 +5558,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     else if (strcasecmp(cmd, "RATELIMITSTAT") == 0 ||
              strncasecmp(cmd, "RATELIMITSTAT ", 13) == 0 ||
              strcasecmp(cmd, "RLS") == 0 || strncasecmp(cmd, "RLS ", 4) == 0) {
-        // /nexus RATELIMITSTAT (alias RLS) - show live state of all 7 RL buckets.
+        // /mtc RATELIMITSTAT (alias RLS) - show live state of all 7 RL buckets.
         // Reports current tokens, configured limit, % full, and the lifetime
         // seen/pass/drop counters (the same numbers exposed in FWS but joined
         // with the live token state). The "RL" shortcut is taken by RATELIMIT
@@ -5575,9 +5575,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     else if (strcasecmp(cmd, "FULLCONFIGDUMP") == 0 ||
              strcasecmp(cmd, "FCD") == 0 ||
              strncasecmp(cmd, "FCD ", 4) == 0) {
-        // /nexus FULLCONFIGDUMP (alias FCD) - dump every LocalConfig and
+        // /mtc FULLCONFIGDUMP (alias FCD) - dump every LocalConfig and
         // ModuleConfig field on the node. Excludes Security (per scope) and
-        // Channels (already has a dedicated /nexus CHANNELS command). Paging
+        // Channels (already has a dedicated /mtc CHANNELS command). Paging
         // writes directly into paging_buf via per-section appendPaging() calls;
         // no static accumulator buffer is needed (saves ~1 KB of BSS).
         // Total output ~6 KB produces ~35 paging parts at 2s each.
@@ -5652,8 +5652,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: RL PRIVATE set to %u pkts/hr", val);
         } else if (strcasecmp(target, "STATUS") == 0 || strcasecmp(target, "STAT") == 0 ||
                    strcasecmp(target, "BUCKETS") == 0) {
-            // /nexus RATELIMIT STATUS [alias STAT/BUCKETS] - delegate to the
-            // bucket-state view (same output as /nexus RATELIMITSTAT / RLS).
+            // /mtc RATELIMIT STATUS [alias STAT/BUCKETS] - delegate to the
+            // bucket-state view (same output as /mtc RATELIMITSTAT / RLS).
             memset(cmdBuf.rlsBuf, 0, sizeof(cmdBuf.rlsBuf));
             formatRLBuckets(cmdBuf.rlsBuf, sizeof(cmdBuf.rlsBuf));
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "RL Buckets");
@@ -5712,7 +5712,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE VERSION: %s", metadata.firmware_version);
     }
     else if (strcasecmp(cmd, "LORA-STATUS") == 0 || strcasecmp(cmd, "LRS") == 0) {
-        // Nexus-28002 (2026-08-21): /nexus LRS sources ALL chip-side values from
+        // Nexus-28002 (2026-08-21): /mtc LRS sources ALL chip-side values from
         // the RadioInterface wrapper getters — NOT from config.lora or nexusModule state.
         // The wrapper's own fields (bw, sf, cr, preambleLength, preambleTimeMsec,
         // slotTimeMsec, power) are written by applyModemConfig() with all regional clamps
@@ -5720,7 +5720,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         // syncWord lives on RadioLibInterface and reflects either the Meshtastic default
         // 0x2B or NexusModule::syncword_override (vault v40).
         //
-        // Nexus-269 design (commit 86e833112): "/nexus LRS MUST source its data from
+        // Nexus-269 design (commit 86e833112): "/mtc LRS MUST source its data from
         // these getters, not from Nexus-side state." The previous Nexus-28001 form
         // (config.lora.tx_power, config.lora.spread_factor, etc.) reported operator intent,
         // not chip reality — could drift on regional clamps and setOutputPower() errors.
@@ -5845,7 +5845,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         for (int i = 0; i < 32; i++) totalBytes += nexus_port_bytes[i];
 
         // Rate window. Rates are "since-clear": measured from sps_last_clear_ms
-        // (set by /nexus CS) to now. Before CS has run, sps_last_clear_ms is 0
+        // (set by /mtc CS) to now. Before CS has run, sps_last_clear_ms is 0
         // and the rate lines print -1 / n/a so the operator sees the absence
         // of a reference window rather than a misleading number.
         uint32_t now_ms = Time::getMillis();
@@ -5972,7 +5972,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
         snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging sorted packet stats (%u of %u active)...", (unsigned int)spsToShow, (unsigned int)activeCount);
-        // Rate snapshot is now anchored to /nexus CS (sets sps_last_clear_ms
+        // Rate snapshot is now anchored to /mtc CS (sets sps_last_clear_ms
         // and zeroes the live counters). No per-call snapshot staging needed.
         // Clean up static scratch buffers so the next call starts fresh.
         memset(tLine, 0, sizeof(tLine));
@@ -6084,7 +6084,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     }
     else if (strncasecmp(cmd, "NODECRC ", 8) == 0 || strcasecmp(cmd, "NODECRC") == 0) {
-        // Nexus-28002 (2026-08-22): /nexus NODECRC <base64-pubkey>
+        // Nexus-28002 (2026-08-22): /mtc NODECRC <base64-pubkey>
         // Compute the 2.8 deterministic NodeNum = crc32(public_key). Mirrors
         // src/mesh/NodeDB.cpp:491 (my_node_num = crc32Buffer(public_key, 32))
         // and the upstream ErriezCRC32 library at .pio/libdeps/.../ErriezCRC32/,
@@ -6115,7 +6115,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     }
     else if (strcasecmp(cmd, "CRSTATS") == 0 || strcasecmp(cmd, "CRS") == 0) {
-        // /nexus CRSTATS (alias CRS): per-LoRa-coding-rate packet distribution.
+        // /mtc CRSTATS (alias CRS): per-LoRa-coding-rate packet distribution.
         // Counts display-domain CR 5..8 only (short interleave, SX126x/RF95).
         // Long-interleave (display 9..11) and unknown (0) are excluded by design.
         // Layout: per-row Direct, Relayed, Total, % of grand total.
@@ -6124,7 +6124,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 
         if (grandTotal == 0) {
             snprintf(replyMsg, sizeof(replyMsg),
-                "MESHTACORE CR Stats:\nNo packets recorded.\nReset with /nexus CS (CLRSTATS).");
+                "MESHTACORE CR Stats:\nNo packets recorded.\nReset with /mtc CS (CLRSTATS).");
         } else {
             static char line[64];
             size_t off = 0;
@@ -6355,7 +6355,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         for (int i = 0; i < 256; i++) totalBytes += channel_bytes[i];
 
         // Rate window. Same "since-clear" semantic as SPS: rates are measured
-        // from schs_last_clear_ms (set by /nexus CS) to now. Before CS has run,
+        // from schs_last_clear_ms (set by /mtc CS) to now. Before CS has run,
         // schs_last_clear_ms is 0 and the rate lines print -1 / n/a so the
         // operator sees the absence of a reference window.
         uint32_t ch_now_ms = Time::getMillis();
@@ -6462,7 +6462,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
         snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging sorted channel stats (%u of %u active)...", (unsigned int)schsToShow, (unsigned int)activeCount);
-        // Rate snapshot is now anchored to /nexus CS (sets schs_last_clear_ms
+        // Rate snapshot is now anchored to /mtc CS (sets schs_last_clear_ms
         // and zeroes the live counters). No per-call snapshot staging needed.
         // Clean up static scratch buffers so the next call starts fresh.
         memset(tLine, 0, sizeof(tLine));
@@ -6602,7 +6602,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         snprintf(line, sizeof(line), "Sig Drop: %u\n", (unsigned int)fw_drop_signature);
         appendPaging(line);
 
-        // Nexus v66: phone-forward counters from /nexus FEATURES. Forwards are
+        // Nexus v66: phone-forward counters from /mtc FEATURES. Forwards are
         // NOT drops — surfaced as their own row so the headline Drop% stays
         // accurate. Subset relation: ForeignPKI <= Opaque.
         snprintf(line, sizeof(line), "Fwd Phone: Opaque:%u ForeignPKI:%u\n",
@@ -6671,7 +6671,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
 #endif
     }
     else if (strcasecmp(cmd, "MCUINFO") == 0 || strcasecmp(cmd, "MCU") == 0) {
-        // /nexus MCUINFO: platform-agnostic MCU identity + runtime state. v267.
+        // /mtc MCUINFO: platform-agnostic MCU identity + runtime state. v267.
         // Output covers chip model/revision, flash, IDF/SoftDevice version,
         // CPU freq, heap (free + min-ever + integrity flag), die temp, boot
         // reason, MAC/device ID, RNG sample, uptime. Every call that can
@@ -6683,7 +6683,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging MCU info...");
     }
     else if (strcasecmp(cmd, "SENSORS") == 0) {
-        // /nexus SENSORS: list I2C devices detected at boot + live power/env
+        // /mtc SENSORS: list I2C devices detected at boot + live power/env
         // telemetry + GPS. The I2C list is captured once in i2cScanFinished
         // (called from main.cpp:939 via the ScanI2CConsumer hook), not re-scanned
         // on demand. Power/env/GPS are read live via the existing getNexus*
@@ -7279,7 +7279,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 } else {
                     // Dedup: if the name (case-insensitive, exact length) is
                     // already in a slot, report the existing slot and skip
-                    // the write. Prevents /nexus GROUP ADD foo from
+                    // the write. Prevents /mtc GROUP ADD foo from
                     // accidentally double-booking slot 0 and slot 1.
                     int existing = -1;
                     for (int i = 0; i < 4; i++) {
@@ -7491,14 +7491,14 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging FIREWALL help...");
         } else if (strcasecmp(sub, "FEATURES") == 0) {
             // Nexus v66: FEATURES help. Four bits today (FORWARD_OPAQUE_TO_PHONE,
-            // FORWARD_FOREIGN_PKI_TO_PHONE, DISABLE_AGC_RESET, LATEBASE). RAM-only — persist via /nexus SAVE.
+            // FORWARD_FOREIGN_PKI_TO_PHONE, DISABLE_AGC_RESET, LATEBASE). RAM-only — persist via /mtc SAVE.
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help FEATURES");
             appendPaging("Usage: FEATURES [LIST]                  -> Show mask + named bits ON/OFF\n");
             appendPaging("Usage: FEATURES OFF                     -> Clear all bits\n");
             appendPaging("Usage: FEATURES <hex>|0x<hex>           -> Set mask directly (uint64)\n");
             appendPaging("Usage: FEATURES <NAME> [ON|OFF]         -> Toggle named bit (default ON)\n");
             appendPaging("Names: FORWARD_OPAQUE_TO_PHONE (alias OPAQUE), FORWARD_FOREIGN_PKI_TO_PHONE (alias PKI), DISABLE_AGC_RESET (alias AGC), LATEBASE (alias LB)\n");
-            appendPaging("Persistence: RAM-only. /nexus SAVE to write features_mask to /nexus.bin vault.");
+            appendPaging("Persistence: RAM-only. /mtc SAVE to write features_mask to /nexus.bin vault.");
             snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging FEATURES help...");
         } else if (strcasecmp(sub, "SIGINT") == 0 || strcasecmp(sub, "SCAN") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help SIGINT/SCAN");
@@ -7731,7 +7731,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
              strncasecmp(cmd, "OKMQTT ", 7) == 0 ||
              strcasecmp(cmd, "OMQ") == 0 ||
              strncasecmp(cmd, "OMQ ", 4) == 0) {
-        // /nexus OKTOMQTT (alias OKMQTT, OMQ) - read/write the LoRa config's
+        // /mtc OKTOMQTT (alias OKMQTT, OMQ) - read/write the LoRa config's
         // ok_to_mqtt bit (proto field config_ok_to_mqtt, bit 105 in the
         // LocalConfig.lora message). Router.cpp:652 reads this live each time
         // a packet is sent, so changes take effect immediately on the next
@@ -7752,14 +7752,14 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 config.lora.config_ok_to_mqtt ? "ON" : "OFF");
         } else if (strcasecmp(p, "ON") == 0 || strcasecmp(p, "TRUE") == 0 ||
                    strcasecmp(p, "ENABLE") == 0 || strcasecmp(p, "1") == 0) {
-            LOG_INFO("Nexus: OKTOMQTT set to ON");
+            LOG_INFO("MTC: OKTOMQTT set to ON");
             config.lora.config_ok_to_mqtt = true;
             nodeDB->saveToDisk(SEGMENT_CONFIG);
             snprintf(replyMsg, sizeof(replyMsg),
                 "MESHTACORE: OKTOMQTT set to ON (saved; next outgoing packet will carry ok_to_mqtt=1)");
         } else if (strcasecmp(p, "OFF") == 0 || strcasecmp(p, "FALSE") == 0 ||
                    strcasecmp(p, "DISABLE") == 0 || strcasecmp(p, "0") == 0) {
-            LOG_INFO("Nexus: OKTOMQTT set to OFF");
+            LOG_INFO("MTC: OKTOMQTT set to OFF");
             config.lora.config_ok_to_mqtt = false;
             nodeDB->saveToDisk(SEGMENT_CONFIG);
             snprintf(replyMsg, sizeof(replyMsg),
@@ -8063,7 +8063,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     // 4. Send to mesh - neighbors will repeat this specific ID
                     if (service) service->sendToMesh(reply);
 
-                    LOG_INFO("Nexus: ClientScan initialized for ID !%08x (%us)", (unsigned int)clientscan_target_id, (unsigned int)duration);
+                    LOG_INFO("MTC: ClientScan initialized for ID !%08x (%us)", (unsigned int)clientscan_target_id, (unsigned int)duration);
 
                     // We don't want handleNexusCommand to send another reply
                     replyMsg[0] = '\0';
@@ -8209,7 +8209,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             // Nexus port: upstream 2.8.0 dropped most Nexus-specific TM fields (enabled,
 // position_dedup_enabled, position_precision_bits, rate_limit_enabled, drop_unknown_enabled,
 // exhaust_hop_telemetry, exhaust_hop_position, router_preserve_hops). The corresponding
-// /nexus TM setters (ENABLE, DEDUP, DEDUP_PREC, CACHE_REPLY, RATELIMIT, UNKNOWN, EXHAUST_TELE,
+// /mtc TM setters (ENABLE, DEDUP, DEDUP_PREC, CACHE_REPLY, RATELIMIT, UNKNOWN, EXHAUST_TELE,
 // EXHAUST_POS, PRESERVE) are removed too. Only the fields upstream retained can still be set:
 // DEDUP_INT (position_min_interval_secs), CACHE_HOPS (nodeinfo_direct_response_max_hops),
 // RATELIMIT_WIN (rate_limit_window_secs), RATELIMIT_MAX (rate_limit_max_packets),
@@ -8498,7 +8498,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
         }
     }
     else if (strcasecmp(cmd, "NODES28") == 0 || strcasecmp(cmd, "N28") == 0) {
-        // Nexus-28002 (2026-08-21): /nexus NODES28 lists nodeDB entries that
+        // Nexus-28002 (2026-08-21): /mtc NODES28 lists nodeDB entries that
         // match at least one of two criteria (P or V). Both flags are shown per row.
         //
         // Dispatch ordering: the regular NODES handler at line ~2163 used to be
@@ -8572,7 +8572,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
             }
 
             // Send the count summary via the primary replyMsg (paging handles
-            // the body). Mirrors the /nexus FAVS, IGNORED, ADMINS pattern.
+            // the body). Mirrors the /mtc FAVS, IGNORED, ADMINS pattern.
             snprintf(replyMsg, sizeof(replyMsg),
                      "MESHTACORE NODES28: %u/%u matched (P=structural2.8, V=XEdDSA-signed)",
                      (unsigned)matched, (unsigned)totalNodes);
@@ -8584,7 +8584,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
         // MotionSensor::getMotionData(). The replacement is the static
         // MotionSensor::getLatestCompassAccelSample() which reads the most recent
         // sample the accelerometer thread has cached. ageMs tells us how stale it is;
-        // we use 10s as the "fresh enough" threshold for /nexus ACC.
+        // we use 10s as the "fresh enough" threshold for /mtc ACC.
         uint32_t ageMs = 0;
         float x = 0, y = 0, z = 0;
         if (MotionSensor::getLatestCompassAccelSample(x, y, z, ageMs) && ageMs < 10000) {
@@ -8596,7 +8596,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
         snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE Motion: Feature excluded.");
 #endif
     }
-    // Nexus-28002 (2026-08-20): /nexus CHECKSIG — inspect the
+    // Nexus-28002 (2026-08-20): /mtc CHECKSIG — inspect the
     // signature state of the command packet itself. Compact 4-line
     // output with inline emoji (same convention as the auto-prefix
     // below: ✅ verified, 🚫 not verified, 📄 no signature field):
@@ -8693,7 +8693,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
                  prefixEmoji, (unsigned)mp.decoded.xeddsa_signature.size,
                  upstreamEmoji, trustedLine);
     }
-    // Nexus-28005 (2026-09-15): /nexus G3 (alias: FRONTEND) — station-g3
+    // Nexus-28005 (2026-09-15): /mtc G3 (alias: FRONTEND) — station-g3
     // PA / LNA GPIO control. Handler lives in NexusModule::nexusG3HandleCommand
     // (NexusModule.cpp) — no new TU. The
     // entire handler is gated on #ifdef STATION_G3 so the call resolves to a
@@ -8792,7 +8792,7 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
             if (rLen > NEXUS_MAX_REPLY_BODY) rLen = NEXUS_MAX_REPLY_BODY;
             uint32_t to = isDM ? (mp.from ? mp.from : myNodeInfo.my_node_num) : 0xFFFFFFFF;
             sendToPhone(to, mp.channel, replyId, replyMsg, rLen);
-            LOG_INFO("Nexus: Local reply copy sent.");
+            LOG_INFO("MTC: Local reply copy sent.");
         }
 
         if (!toPhoneOnly) {
@@ -8808,13 +8808,13 @@ if (strncasecmp(p, "DEDUP_INT ", 10) == 0) { valid = parseUInt(p + 10, tmNum); m
     // Nexus: Move configuration application to runOnce() via timer
     if (pendingLoRaConfig) {
         // The mutation that staged pendingConfig owns its deadline.
-        LOG_INFO("Nexus: LoRa shift scheduled in 5000ms");
+        LOG_INFO("MTC: LoRa shift scheduled in 5000ms");
         setIntervalFromNow(50);
     }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// PPING. /nexus PPING drives the Meshtastic public ping (public_ping); /nexus MESHCORE PPING drives the MeshCore channels.
+// PPING. /mtc PPING drives the Meshtastic public ping (public_ping); /mtc MESHCORE PPING drives the MeshCore channels.
 // The reporting settings (RSSI, SNR, FREQERR, header, emoji...) are one set shared by both.
 // ---------------------------------------------------------------------------------------------------------------------
 

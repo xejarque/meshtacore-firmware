@@ -296,7 +296,7 @@ class RadioInterface
 
     /**
      * Nexus-28002 (2026-08-21): rest of the Nexus-269 LRS getter set.
-     * /nexus LRS uses these to surface the actual chip-side values written by
+     * /mtc LRS uses these to surface the actual chip-side values written by
      * applyModemConfig() - NOT config.lora.* (operator intent). The wrapper's
      * own fields are the truth: configured values, then limitPower() clamps,
      * then passed verbatim to lora.setOutputPower() / lora.begin(). For
@@ -315,7 +315,7 @@ class RadioInterface
     /**
      * Nexus-28002 (2026-08-21): restored runtime TCXO/XTAL detection from Nexus-269.
      * Set by RadioInterface::initLoRa() at the per-driver init-success sites
-     * (SX1262/68, LLCC68, LR1110/1120/1121). Read by /nexus HW to report the
+     * (SX1262/68, LLCC68, LR1110/1120/1121). Read by /mtc HW to report the
      * actual clock source the radio is running on, not just the board's compile-time
      * possibility. Default false (XTAL) - overwritten to true on any TCXO path.
      *

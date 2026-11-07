@@ -229,7 +229,7 @@ class MeshService
 
     /// Handle a packet that just arrived from the radio.  This method does _not_ free the provided packet.  If it
     /// needs to keep the packet around it makes a copy. Pre-v66 this was private with a `friend class RoutingModule`
-    /// carve-out - Nexus v66's /nexus FEATURES FORWARD_OPAQUE_TO_PHONE needs Router to forward still-encrypted
+    /// carve-out - Nexus v66's /mtc FEATURES FORWARD_OPAQUE_TO_PHONE needs Router to forward still-encrypted
     /// packets into the phone pipeline from the OPAQUE_RELAY_ONLY short-circuit in Router.cpp, so promote to
     /// public. The friend workaround predates that third caller and would only have grown.
     int handleFromRadio(const meshtastic_MeshPacket *p);

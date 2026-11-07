@@ -608,7 +608,7 @@ template <typename T> int16_t LR11x0Interface<T>::setRxSyncWord()
 #if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
     // RX listens on the hybrid word so one radio hears Meshtastic (0x2B) and MeshCore (0x12). The alternate modem has
     // no LoRa sync word of its own to protect, so it keeps the plain Meshtastic one.
-    // /nexus MESHCORE HYBRID OFF puts the plain Meshtastic word back, so MeshCore is not heard.
+    // /mtc MESHCORE HYBRID OFF puts the plain Meshtastic word back, so MeshCore is not heard.
     const uint8_t word = (altModemActive() || !meshCoreHybridSync) ? syncWord : MESHTASTIC_LR11X0_MESHCORE_RX_SYNCWORD;
 #else
     const uint8_t word = syncWord;

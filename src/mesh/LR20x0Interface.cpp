@@ -3,7 +3,7 @@
 #if (defined(USE_LR2021) || defined(ARCH_PORTDUINO)) && RADIOLIB_EXCLUDE_LR2021 != 1
 #include "LR20x0Band.h"
 #include "LR20x0Interface.h"
-#include "LR2021Interface.h" // Nexus-28005: apply hook for /nexus LR2021_SF uses LR2021Interface accessors
+#include "LR2021Interface.h" // Nexus-28005: apply hook for /mtc LR2021_SF uses LR2021Interface accessors
 #include "error.h"
 #include "mesh/NodeDB.h"
 #include "modules/NexusModule.h" // Nexus FSK/FLRC: altModem state (Phase 2: LR2021/X1)
@@ -217,7 +217,7 @@ template <typename T> bool LR20x0Interface<T>::init()
     LOG_INFO("Power output set to %d", power);
 
     // Nexus-28005 (2026-09-13): boot-time safety-net apply for the
-    // LR2021 multi-SF side-detector table. The /nexus LR2021_SF CLI handler
+    // LR2021 multi-SF side-detector table. The /mtc LR2021_SF CLI handler
     // already applies immediately on the command (see NexusCommands.cpp), so
     // under normal operation this hook is a no-op (table is empty after
     // boot because storage is RAM-only). It catches two edge cases:
@@ -535,8 +535,8 @@ template <typename T> bool LR20x0Interface<T>::reconfigure()
     // reconfigure() (this function), not init(), and the same-band path
     // reconfigures via per-parameter setters (setFrequency,
     // setSpreadingFactor, setBandwidth, etc.) — none of which touch the
-    // side detector slots. Without this call, /nexus LR2021_SF 7 followed
-    // by /nexus LORA leaves the chip in single-SF RX even though the
+    // side detector slots. Without this call, /mtc LR2021_SF 7 followed
+    // by /mtc LORA leaves the chip in single-SF RX even though the
     // table is stored in RAM. The band-hop path (line 230) and recovery
     // path (line 297) both call fullBegin() which already applies; this
     // covers the fast per-parameter-setter path. Same source of truth
@@ -822,7 +822,7 @@ template <typename T> int16_t LR20x0Interface<T>::setRxSyncWord()
 #if MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
     // RX listens on the hybrid word so one radio hears Meshtastic (0x2B) and MeshCore (0x12). The alternate modem has
     // no LoRa sync word of its own to protect, so it keeps the plain Meshtastic one.
-    // /nexus MESHCORE HYBRID OFF puts the plain Meshtastic word back, so MeshCore is not heard.
+    // /mtc MESHCORE HYBRID OFF puts the plain Meshtastic word back, so MeshCore is not heard.
     const uint8_t word = (altModemActive() || !meshCoreHybridSync) ? syncWord : MESHTASTIC_LR20X0_MESHCORE_RX_SYNCWORD;
 #else
     const uint8_t word = syncWord;

@@ -612,13 +612,13 @@ template <typename T> void SX126xInterface<T>::addReceiveMetadata(meshtastic_Mes
     // Nexus port (Nexus-28001, 2026-08-16): re-populate mp->rx_frequency_error. Upstream dropped
     // this field in 2.8.0 (Nexus restored it as a Nexus-only operator-data extension). Captured
     // here so every radio driver contributes frequency-error data to NexusModule's SIGINT tooling
-    // (/nexus RSSI, /nexus PPING FREQERR, /nexus ALERT META, /nexus CRSTATS) and TraceRouteModule::lastRxFreqErr.
+    // (/mtc RSSI, /mtc PPING FREQERR, /mtc ALERT META, /mtc CRSTATS) and TraceRouteModule::lastRxFreqErr.
     mp->rx_frequency_error = lora.getFrequencyError();
     LOG_TRACE("Corrected frequency offset: %f", mp->rx_frequency_error);
 
     // Nexus port (Nexus-28001, 2026-08-16): re-populate mp->rx_coding_rate. Raw LoRa header CR
     // (1-7), see upstream's LOG_WARN path in RadioLibInterface.h:648 for the same call.
-    // Used by NexusModule's cr_stats[][] accumulator (/nexus CRSTATS) and display paths.
+    // Used by NexusModule's cr_stats[][] accumulator (/mtc CRSTATS) and display paths.
     // RadioLib has no getCodingRate() getter; this is the only way to recover the sender's CR
     // on receive. Failures fall back to 0 (raw 0 = reserved / unknown), Nexus nexusCRDisplay()
     // maps it to display 0.
@@ -687,7 +687,7 @@ template <typename T> void SX126xInterface<T>::applyReceiveConfig()
         if (meshCoreHybridSync) {
             setSyncWordRegister(MESHTASTIC_MESHCORE_RX_SYNCWORD);
         } else {
-            // /nexus MESHCORE HYBRID OFF: plain Meshtastic sync word, so MeshCore is not heard.
+            // /mtc MESHCORE HYBRID OFF: plain Meshtastic sync word, so MeshCore is not heard.
             const int err = lora.setSyncWord(syncWord);
             if (err != RADIOLIB_ERR_NONE)
                 LOG_ERROR("SX126X setSyncWord %s%d", radioLibErr, err);
