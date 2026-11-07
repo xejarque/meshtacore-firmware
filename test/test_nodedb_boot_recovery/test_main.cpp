@@ -18,6 +18,7 @@
 #if defined(FSCom) && !(MESHTASTIC_EXCLUDE_PKI_KEYGEN || MESHTASTIC_EXCLUDE_PKI)
 
 #include "mesh/NodeDB.h"
+#include "modules/NexusRescue.h"
 #include "mesh/TypeConversions.h"
 #include <ErriezCRC32.h>
 #include <cstdio>
@@ -252,6 +253,55 @@ static void test_restoredConfig_recoversOriginalIdentity(void)
     assertIdentityMatchesBaseline();
 }
 
+#if HAS_NEXUS
+// Puts the sandbox back on a healthy keyed boot after a test that damaged config.proto.
+static void bootHealthyAgain(void)
+{
+    writeFileBytes(configFileName, goodConfigBytes.data(), goodConfigBytes.size());
+    rebootNodeDB();
+    TEST_ASSERT_FALSE(NodeDBTestShim::decodeFailed(nodeDB));
+}
+
+static void test_undecodableConfig_withoutRescueCopy_staysRadioSilent(void)
+{
+    TEST_MESSAGE("=== Corrupt config, no .bak and no rescue copy: nothing to run on, radio stays silent ===");
+    NexusRescue::clear();
+    FSCom.remove((std::string(configFileName) + ".bak").c_str());
+    writeFileBytes(configFileName, kGarbage, sizeof(kGarbage));
+
+    rebootNodeDB();
+
+    TEST_ASSERT_TRUE(NodeDBTestShim::decodeFailed(nodeDB));
+    TEST_ASSERT_FALSE(NexusRescue::restoreInMemoryIfConfigUndecodable());
+    TEST_ASSERT_EQUAL(meshtastic_Config_LoRaConfig_RegionCode_UNSET, config.lora.region);
+    TEST_ASSERT_FALSE(config.lora.tx_enabled);
+
+    bootHealthyAgain();
+}
+
+static void test_undecodableConfig_runsOnTheRescueCopyWithoutTouchingTheFile(void)
+{
+    TEST_MESSAGE("=== Corrupt config, no .bak, rescue copy present: region and TX come back in memory only ===");
+    NexusRescue::snapshot(); // healthy boot: copies region US and the channels
+    FSCom.remove((std::string(configFileName) + ".bak").c_str());
+    writeFileBytes(configFileName, kGarbage, sizeof(kGarbage));
+    const uint64_t fpGarbage = fileFingerprint(configFileName);
+
+    rebootNodeDB();
+
+    TEST_ASSERT_TRUE(NodeDBTestShim::decodeFailed(nodeDB));
+    TEST_ASSERT_EQUAL(meshtastic_Config_LoRaConfig_RegionCode_UNSET, config.lora.region);
+    TEST_ASSERT_TRUE(NexusRescue::restoreInMemoryIfConfigUndecodable());
+    TEST_ASSERT_EQUAL(meshtastic_Config_LoRaConfig_RegionCode_US, config.lora.region);
+    TEST_ASSERT_TRUE(config.lora.tx_enabled);
+    // Nothing was saved: the damaged file is exactly as the corruption left it, and the NodeNum has not moved.
+    TEST_ASSERT_EQUAL_UINT64(fpGarbage, fileFingerprint(configFileName));
+    TEST_ASSERT_EQUAL_UINT32(baseNodeNum, myNodeInfo.my_node_num);
+
+    bootHealthyAgain();
+}
+#endif
+
 // --- Absent config: fresh install, not a freeze ---
 
 static void test_absentConfig_takesFreshInstallPath(void)
@@ -414,6 +464,10 @@ NBR_TEST_ENTRY void setup()
     RUN_TEST(test_corruptConfig_freezesIdentity_leavesFileUntouched);
     RUN_TEST(test_degradedBoot_runtimeConfigSaveStillPersists);
     RUN_TEST(test_restoredConfig_recoversOriginalIdentity);
+#if HAS_NEXUS
+    RUN_TEST(test_undecodableConfig_withoutRescueCopy_staysRadioSilent);
+    RUN_TEST(test_undecodableConfig_runsOnTheRescueCopyWithoutTouchingTheFile);
+#endif
 
     printf("\n=== Fresh install vs freeze scoping ===\n");
     RUN_TEST(test_absentConfig_takesFreshInstallPath);
