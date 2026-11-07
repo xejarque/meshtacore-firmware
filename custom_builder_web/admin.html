@@ -45,7 +45,17 @@
         ejecutan en local con <code>/mtcl</code>: no salen por radio.
       </p>
 
-      <div class="grid">
+      <nav class="tabs" role="tablist">
+        <button role="tab" id="tab-panel" aria-selected="true" data-tab="panel">Panel en vivo</button>
+        <button role="tab" id="tab-console" aria-selected="false" data-tab="console">Consola</button>
+        <label class="muted pause"><input type="checkbox" id="pause" /> Pausar refresco</label>
+      </nav>
+
+      <div id="view-panel" class="panel-view">
+        <div id="panel" class="cards"><p class="muted">Conecta el nodo para ver el panel.</p></div>
+      </div>
+
+      <div class="grid" id="view-console" hidden>
         <aside>
           <input id="search" type="search" placeholder="Buscar comando…" />
           <div id="list" class="list"></div>

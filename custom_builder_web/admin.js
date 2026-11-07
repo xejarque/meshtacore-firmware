@@ -1,13 +1,23 @@
 // Meshtacore node admin - console UI. Transport lives in ble.js.
 import { NodeLink } from "./ble.js";
+import { Panel } from "./panel.js";
 
 // Read-only commands only: no setters, and nothing that transmits or hops frequency.
-const CAPTURE_COMMANDS = ["INFO", "LORA", "LORA-STATUS", "RSSI", "NODES", "CHS", "CH", "POWER", "VOLT", "TM"];
+// RSSI is left out on purpose: it measures the command packet itself and stays silent for a local one.
+const CAPTURE_COMMANDS = ["INFO", "LORA", "LORA-STATUS", "NODES", "CHS", "CH", "POWER", "VOLT", "TM"];
 
 const link = new NodeLink();
 const ui = {};
 const recording = []; // {command, response, at}
 let catalogue = [];
+let panel;
+
+function showTab(name) {
+  for (const t of ["panel", "console"]) {
+    document.getElementById("tab-" + t).setAttribute("aria-selected", String(t === name));
+    document.getElementById("view-" + t).hidden = t !== name;
+  }
+}
 
 function log(msg, cls) {
   const line = document.createElement("div");
@@ -66,8 +76,10 @@ link
     ui.node.textContent = id;
     document.body.classList.add("connected");
     log("Conectado. Nodo " + id, "ok");
+    panel.start();
   })
   .on("disconnected", () => {
+    panel.stop();
     document.body.classList.remove("connected");
     ui.status.textContent = "Desconectado";
     log("Conexión Bluetooth cerrada.", "err");
@@ -131,14 +143,25 @@ function select(cmd) {
 
 async function init() {
   ["status", "node", "log", "list", "detail", "search", "recCount"].forEach((id) => (ui[id] = document.getElementById(id)));
+  panel = new Panel(link, document.getElementById("panel"));
+  document.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+  document.getElementById("pause").onchange = (e) => (panel.paused = e.target.checked);
   document.getElementById("connect").onclick = connect;
   document.getElementById("disconnect").onclick = () => link.disconnect();
   const capture = document.getElementById("capture");
   capture.onclick = () => captureAll(capture);
   document.getElementById("download").onclick = downloadRecording;
   ui.search.oninput = () => renderList(ui.search.value);
+  if (new URLSearchParams(location.search).has("demo")) {
+    ui.status.textContent = "Modo demo (captura de ejemplo, sin nodo)";
+    try {
+      panel.loadRecording(await (await fetch("tests/fixtures/gat562-capture.json")).json());
+    } catch (e) {
+      log("No se pudo cargar la demo: " + e.message, "err");
+    }
+  }
   try {
-    catalogue = (await (await fetch("admin.commands.json")).json()).commands;
+    catalogue =(await (await fetch("admin.commands.json")).json()).commands;
     renderList("");
   } catch (e) {
     log("No se pudo cargar el catálogo de comandos: " + e.message, "err");

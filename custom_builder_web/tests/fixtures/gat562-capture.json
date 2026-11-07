@@ -1,0 +1,56 @@
+{
+ "node": "!9bdbf569",
+ "capturedAt": "2026-11-07T16:07:48.640Z",
+ "outputs": [
+  {
+   "command": "INFO",
+   "response": "🔴 MESHTACORE: Paging INFO...\nP1: MESHTACORE Info:\n!9bdbf569 [MGAT] CLIENT\nMAC: ee:11:e9:4e:25:8a\nVer: 2.8.201.a0260fb\nTgt: gat562_mesh_trial_tracker (nrf52)\nRepo: derpyspike/jentastic\nBuilt: 2026-11-06\nFlags: none",
+   "at": "2026-11-07T16:06:40.242Z"
+  },
+  {
+   "command": "LORA",
+   "response": "🔴 MESHTACORE LORA:\nSF:7 BW:62 CR:6\nPreset:0 (OFF)\nFreq:869.6180MHz\nPower:22dBm\nIgnoreMQTT:0\nRebroadcast:CORE_ONLY",
+   "at": "2026-11-07T16:06:42.910Z"
+  },
+  {
+   "command": "LORA-STATUS",
+   "response": "🔴 MESHTACORE LORA Status:\nFreq: 869.618MHz\nBW:62.50kHz SF:7 CR:6\nPre:16 (32ms)\nSlot:16ms CW:3-8\nSW:0x2B\nChipPwr:22dBm\nSpeed:2278 b/s",
+   "at": "2026-11-07T16:06:45.640Z"
+  },
+  {
+   "command": "RSSI",
+   "response": "",
+   "at": "2026-11-07T16:06:50.642Z"
+  },
+  {
+   "command": "NODES",
+   "response": "🔴 MESHTACORE: NodeDB results paged...\nP1: MESHTACORE NodeDB:\n!9bdbf569:MGAT:-1:0:K+ !f3a45b84:5b84:0:12:K+ !a35c4cc8:3IGD:6:12:K+ !4d98d281:X-No:4:0:K+ !4d96efcd:nitc:3:0:K+ !4dcb2b42:🐓:2:0:K+ !4d5d5286:VNG-:3:0:K+ !9d2fec97:DLF@:2:-7\nP2: :K+ !4da2e6c0:SBD-:2:0:K+ !b22e566f:Vnz2:3:12:K+ !ad04cfac:CRM0:5:12:K+ !ba3d072c:HIR2:7:12:K+ !1369012f:M1SD:3:11:K+ !d061ec70:KARB:5:12:K+ !69119a4c:LoNi:3:12:K+ !9d16f473:BCNP:3:12:K+ !3e2e199\nP3: 0:SJ32:2:12:K+ !5a72f44c:GUN:3:-7:K+ !02ee5c74:BASE:6:12:K+ !5fb7373f:REPE:7:12:K+ !c87ff367:T8:5:12:K+ !6308a00a:RCBR:4:12:K+ !16af0351:PIPO:5:12:K+ !5fa409e9:3BCX:5:12:K+ !7f18dd75:NMG:2:12:K+ \nP4: !9e77f224:WaM2:2:12:K+ !b3172edc:blau:6:13:K+ !e0bc325a:325a:3:0:K+ !9ee7093c:Bc73:3:2:K+ !e0ee7367:Jcn1:3:1:K+ !b2e361b3:alzi:4:12:K+ !d45b8c94:CVX1:3:-5:K+ !9c9b9cc3:itwr:2:-8:K+ !b03cbce4:HIR4\nP5: :6:12:K+ !d9557b72:REAN:4:-5:K+ !9acf7c0e:ReSo:2:12:K+ !9d174acf:TdS:5:-6:K+ !435ad348:LLGS:4:-6:K+ !e8e6f27c:gold:7:12:K+ !036d7bf4:MM:5:12:K+ !aefbc6f4:₿:3:-6:K+ !4de1afd9:Mesh:4:0:K+ !4d666e\nP6: f2:Cast:4:0:K+ !4d862682:4.0 :2:0:K+ !d45b9560:CVX3:4:12:K+ !9e7864e0:ttkA:6:12:K+ !066ed4ac:V4SD:3:12:K+ !b36f4869:4869:3:12:K+ !c3079551:ACH:2:12:K+ !4d64344a:2.0 :4:0:K+ !4d1f31f0:🎹:3:0:K+ \nP7: !9ea030e8:JR-C:4:1:K+ !9e9d299c:BGNH:7:-8:K+ !97d2fe39:fe39:4:-7:K+ !87e26dad:∴ :3:-1:K+ !770cb117:B117:5:-7:K+ !025e25e4:ALB:3:-7:K+ !aca97d5c:ZATZ:7:-8:K+ !f4dc88db:TRMA:3:1:K+ !210e2ad4:MA6:\nP8: 4:-8:K+ !b5915c3b:M1CL:3:1:K+ !3c6ecaac:3IGD:3:0:K+ !8b2ab766:1ITJ:6:-4:K+ !0a1a376d:376d:1:-0:K+ !9eecc428:CRM1:5:-2:K+ !87bd7f89:MART:0:10:K+ !6bfba5c8:3CRS:5:2:K+ !fa6f12dc:SPT:6:-0:K+ !04c5ae\nP9: f0:ALT1:6:-8:K+ !9d8d22c7:MA4:7:-8:K+ !a1d77460:7460:6:-2:K+ !179aaf7c:v0id:1:-9:K+ !45a26985:msm:3:-2:K+ !8a486932:RIU:5:-5:K+ !1e7b9b05:iv1W:6:-8:K+ !6d0edc3d:RHEL:1:-3:K+ !a8c67793:lolt:5:-4:K\nP10: + !3d98cbf9:RHES:2:-4:K+ !5256c271:CVA:6:-8:K+ !9e9d7e90:WA04:3:-8:K+ !9e7685a4:FLOW:2:-4:K+ !6ecb9990:DMSH:5:-6:K+ !043d30dc:30dc:7:1:K+ !f661fe5c:MACC:3:1:K+ !03637aa5:ARDM:6:1:K+ !a16973de:TE\nP11: SD:1:-3:K+ !07883d20:3d20:6:1:K+ !ca528891:RGAI:3:-0:K+ !81879b8f:n4n0:3:-7:K+ !62d91d8c:1d8c:4\nP12: :-7:K+ !c903bd04:Qan5:4:-6:K+ !9932b1c0:MIK6:5:-8:K+ !7d027057:SBJ2:2:0:K+ !6c746e6c:IJL6:5:-7:K+ !a35ad9a0:HFM3:3:-7:K+ !cba2ebb0:RUT:5:-6:K+ !02ee4398:rme1:3:-8:K+ !b03c4f18:4f18:2:-5:K+ !bee7\nP13: 9476:MA09:5:-6:K+ !37e8bca1:FECA:5:-6:K+ !5de64df7:4df7:1:-6:K+ !db2f11b8:PTR1:5:-6:K+ !1beb52f1:PYAB:3:-6:K+ !a65cf5a5:Coco:5:-6:K+ !bd43350a:AGM0:3:-7:K+ !6985a260:XTEL:2:-1:K+ !43b6e3fc:mhkF:\nP14: 7:-0:K+ !c99a6ef5:3JcD:2:-6:K+ !2bc2319f:Z114:7:-6:K+ !faadcbe4:6e2b:4:-6:K+ !02ee2140:OSKS:6:-6:K+ !129c5c32:MPL1:1:-1:K+ !19e08899:MS07:1:-7:K+ !849b7244:2FES:5:-8:K+ !0ed2cbfd:LOVE:4:-7:K+ ",
+   "at": "2026-11-07T16:07:20.411Z"
+  },
+  {
+   "command": "CHS",
+   "response": "🔴 MESHTACORE: Paging sorted channel stats (23 of 23 active)...\nP1: MESHTACORE Channel Stats:\nTotal: 455 pkts (20.9KB)\nRates: n/a (run CS to start a window)\nCh0(SFNarrow): 312 pkts (68.6%) 14.1KB (67.6%) | -1.0 pph, -1 bph\nCh7(MC:#bot): 59 pkts (13.0%) 3.2KB (15.\nP2: 2%) | -1.0 pph, -1 bph\nCh121(??): 33 pkts (7.3%) 1.2KB (5.6%) | -1.0 pph, -1 bph\nCh236(??): 12 pkts (2.6%) 527B (2.5%) | -1.0 pph, -1 bph\nCh1(Nexus): 5 pkts (1.1%) 149B (0.7%) | -1.0 pph, -1 bph\n\nP3: Ch49(??): 5 pkts (1.1%) 265B (1.2%) | -1.0 pph, -1 bph\nCh5(MC:Public): 4 pkts (0.9%) 104B (0.5%) | -1.0 pph, -1 bph\nCh84(??): 4 pkts (0.9%) 217B (1.0%) | -1.0 pph, -1 bph\nCh6(MC:#test): 3 pkts (0\nP4: .7%) 39B (0.2%) | -1.0 pph, -1 bph\nCh234(??): 3 pkts (0.7%) 148B (0.7%) | -1.0 pph, -1 bph\nCh2(Bots): 2 pkts (0.4%) 94B (0.4%) | -1.0 pph, -1 bph\nCh171(??): 2 pkts (0.4%) 172B (0.8%) | -1.0 pph, \nP5: -1 bph\nCh4(Barcelona): 1 pkts (0.2%) 79B (0.4%) | -1.0 pph, -1 bph\nCh32(??): 1 pkts (0.2%) 96B (0.4%) | -1.0 pph, -1 bph\nCh51(??): 1 pkts (0.2%) 88B (0.4%) | -1.0 pph, -1 bph\nCh55(??): 1 pkts (0.\nP6: 2%) 35B (0.2%) | -1.0 pph, -1 bph\nCh68(??): 1 pkts (0.2%) 32B (0.1%) | -1.0 pph, -1 bph\nCh75(??): 1 pkts (0.2%) 100B (0.5%) | -1.0 pph, -1 bph\nCh130(??): 1 pkts (0.2%) 16B (0.1%) | -1.0 pph, -1 b\nP7: ph\nCh136(??): 1 pkts (0.2%) 86B (0.4%) | -1.0 pph, -1 bph\nCh137(??): 1 pkts (0.2%) 42B (0.2%) | -1.0 pph, -1 bph\nCh142(??): 1 pkts (0.2%) 137B (0.6%) | -1.0 pph, -1 bph\nCh183(??): 1 pkts (0.2%) 4\nP8: 2B (0.2%) | -1.0 pph, -1 bph\n",
+   "at": "2026-11-07T16:07:37.660Z"
+  },
+  {
+   "command": "CH",
+   "response": "🔴 MESHTACORE CHANNELS:\n0:SFNarrow(1) 1:Nexus(2) 2:Bots(2) 3:Catalunya(2) 4:Barcelona(2) 5:MC:Public(2) 6:MC:#test(2) 7:MC:#bot(2) ",
+   "at": "2026-11-07T16:07:40.392Z"
+  },
+  {
+   "command": "POWER",
+   "response": "🔴 MESHTACORE POWER:\nNo Sensor Data\nChU:0.8% TxU:0.7%",
+   "at": "2026-11-07T16:07:43.091Z"
+  },
+  {
+   "command": "VOLT",
+   "response": "🔴 MESHTACORE: Paging VOLT rules...\nP1: MESHTACORE VOLT Rules:\nMESHTACORE VOLT (Bat: 4.19V, Hib: NO):\n[1] OFF\n[2] OFF\n[3] OFF\n[4] OFF\n",
+   "at": "2026-11-07T16:07:45.881Z"
+  },
+  {
+   "command": "TM",
+   "response": "🔴 MESHTACORE TM: Module compiled but DISABLED in config.",
+   "at": "2026-11-07T16:07:48.640Z"
+  }
+ ]
+}
