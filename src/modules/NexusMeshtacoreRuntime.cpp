@@ -11,6 +11,9 @@
 #include "PowerStatus.h"
 #include "Router.h"
 #include "Throttle.h"
+#include "UptimeClock.h"
+#include "memGet.h"
+#include "mesh/RadioLibInterface.h"
 #include "configuration.h"
 #include "main.h"
 #include "modules/NexusModule.h"
@@ -94,6 +97,48 @@ void NexusModule::serviceStormSleep()
     nrf52RequestTimedSleep();
 #endif
     doDeepSleep(stormSleepMinutes * 60UL * 1000UL, false, false);
+}
+
+// A node nobody can reach must heal itself: reboot when the heap stays exhausted or when the radio has heard nothing at
+// all (not even a corrupt frame) for a long time, which on a quiet summit is rare enough to be worth a clean start.
+void NexusModule::serviceSurvivalWatch()
+{
+    constexpr uint32_t CHECK_EVERY_MS = 60 * 1000;
+    constexpr uint32_t HEAP_FLOOR_BYTES = 4096;
+    constexpr uint8_t HEAP_LOW_CHECKS = 3; // consecutive minutes below the floor
+    constexpr uint32_t RX_SILENCE_MS = 12UL * 60 * 60 * 1000;
+
+    if (rebootAtMsec != 0 || (survivalCheckArmed && Throttle::isWithinTimespanMs(survivalLastCheckMs, CHECK_EVERY_MS)))
+        return;
+    const uint32_t now = Time::getMillis();
+    survivalLastCheckMs = now;
+    if (!survivalCheckArmed) { // first pass: start both clocks from here
+        survivalCheckArmed = true;
+        survivalRxChangeMs = now;
+        return;
+    }
+
+    const uint32_t freeHeap = memGet.getFreeHeap();
+    if (freeHeap != UINT32_MAX && freeHeap != 0 && freeHeap < HEAP_FLOOR_BYTES) {
+        if (++survivalHeapLowChecks >= HEAP_LOW_CHECKS) {
+            LOG_ERROR("MTC: heap exhausted (%lu bytes free), rebooting", (unsigned long)freeHeap);
+            rebootAtMsec = Time::timerEndsAtMillis(2000);
+            return;
+        }
+    } else {
+        survivalHeapLowChecks = 0;
+    }
+
+    if (RadioLibInterface::instance) {
+        const uint32_t rxTotal = RadioLibInterface::instance->rxGood + RadioLibInterface::instance->rxBad;
+        if (rxTotal != survivalRxTotal) {
+            survivalRxTotal = rxTotal;
+            survivalRxChangeMs = now;
+        } else if (!Throttle::isWithinTimespanMs(survivalRxChangeMs, RX_SILENCE_MS)) {
+            LOG_ERROR("MTC: radio heard nothing for %lu h, rebooting", (unsigned long)(RX_SILENCE_MS / 3600000UL));
+            rebootAtMsec = Time::timerEndsAtMillis(2000);
+        }
+    }
 }
 
 void NexusModule::serviceReadyAnnounce()

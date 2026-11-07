@@ -1024,6 +1024,8 @@ document.addEventListener("DOMContentLoaded", () => {
       extraBuildFlags.push("-DMESHTASTIC_EXCLUDE_ATAK=1");
       extraBuildFlags.push("-DMESHTASTIC_EXCLUDE_WAYPOINT=1");
       extraBuildFlags.push("-DMESHTASTIC_EXCLUDE_RANGETEST=1");
+      // A relay has no phone to serve: no MeshCore companion (Ed25519 checks on every frame, contact store in flash).
+      extraBuildFlags.push("-DMESHTASTIC_ENABLE_MESHCORE_COMPANION=0");
 
       if (includeGps === "no") {
         extraBuildFlags.push("-DMESHTASTIC_EXCLUDE_GPS=1");

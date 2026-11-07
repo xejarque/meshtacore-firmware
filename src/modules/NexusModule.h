@@ -135,6 +135,13 @@ public:
     void handleStormCommand(const char *arg);
     void handleChemCommand(const char *arg);
     void serviceStormSleep();
+    // Self-healing: reboot on a starved heap or a radio that has heard nothing for hours.
+    void serviceSurvivalWatch();
+    bool survivalCheckArmed = false;
+    uint8_t survivalHeapLowChecks = 0;
+    uint32_t survivalLastCheckMs = 0;
+    uint32_t survivalRxChangeMs = 0;
+    uint32_t survivalRxTotal = 0;
     bool stormPending = false;
     uint32_t stormStartDeadlineMs = 0;
     uint32_t stormSleepMinutes = 0;

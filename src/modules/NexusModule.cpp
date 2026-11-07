@@ -2842,6 +2842,7 @@ int32_t NexusModule::runOnce() {
     serviceLowBatterySleep();
     serviceReadyAnnounce();
     serviceStormSleep();
+    serviceSurvivalWatch();
 
     // 0. Delayed InputBroker Hook (Ensure inputBroker is initialized)
     if (!input_hooked && inputBroker) {

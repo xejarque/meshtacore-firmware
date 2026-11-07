@@ -145,7 +145,7 @@ static constexpr uint8_t MESHCORE_ALIAS_ADVERT_MAX_ATTEMPTS = 3;
 static constexpr uint32_t MESHCORE_ADVERT_RETRY_MS = 60 * 1000;           // no identity / no valid time
 static constexpr uint32_t MESHCORE_ADVERT_NUDGE_MS = 1000;                // radio busy: ask again
 static constexpr uint32_t MESHCORE_SERVICE_MS = 5 * 1000;                 // longest wait between housekeeping steps
-static constexpr uint32_t MESHCORE_CONTACTS_SAVE_MIN_MS = 10 * 60 * 1000; // flash wear: at most one save per 10 minutes
+static constexpr uint32_t MESHCORE_CONTACTS_SAVE_MIN_MS = 60 * 60 * 1000; // flash wear: at most one save per hour
 static constexpr uint32_t MESHCORE_TX_POLL_MS = 100;                      // a raw frame is on air: look again for a lost TX-done
 
 /** Runs RadioLibInterface::meshCoreAdvertTick() on its own schedule. */

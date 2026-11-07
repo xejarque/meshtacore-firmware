@@ -138,6 +138,9 @@ template <size_t N> uint32_t fingerprint(const MeshCoreNodeStore<N> &store)
     for (size_t i = 0; i < count; i++) {
         uint8_t rec[RECORD_LEN];
         writeRecord(rec, *picked[i]);
+        // lastAdvert and the position move on almost every advert heard; a flash write for those alone would wear the
+        // flash for nothing. They are the three u32 before the trailing nodeNum.
+        memset(&rec[RECORD_LEN - 16], 0, 12);
         uint32_t h = 2166136261u; // FNV-1a
         for (size_t k = 0; k < RECORD_LEN; k++)
             h = (h ^ rec[k]) * 16777619u;

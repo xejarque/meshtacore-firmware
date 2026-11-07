@@ -21,6 +21,7 @@
 
 #include "modules/NexusMeshCoreKey.h"
 
+#include "mesh/MeshCoreNodeStore.h" // MeshCoreNode, which the NODES/CONTACTS/REPEATERS commands name even without a companion
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 #include "mesh/MeshCoreCompanion.h"
 #endif
