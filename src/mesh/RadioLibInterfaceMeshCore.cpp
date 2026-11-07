@@ -306,18 +306,22 @@ static void loadMeshCoreContacts()
 #endif
 }
 
-static void saveMeshCoreContacts()
+// False when the file was not replaced, so the caller keeps the old fingerprint and tries again at the next window.
+static bool saveMeshCoreContacts()
 {
 #ifdef FSCom
     uint8_t image[MeshCoreNodeFile::IMAGE_MAX];
     const size_t n = meshCoreCompanion.exportContacts(image, sizeof(image));
     if (n == 0)
-        return;
+        return true; // nothing worth keeping, nothing to retry
     SafeFile out(meshCoreContactsPath, true); // atomic replace
     out.write(image, n);
-    if (!out.close())
+    if (!out.close()) {
         LOG_WARN("MeshCore contacts: could not save %s", meshCoreContactsPath);
+        return false;
+    }
 #endif
+    return true;
 }
 #endif
 
@@ -365,8 +369,8 @@ uint32_t RadioLibInterface::meshCoreServiceTick()
     if (meshCoreContactsLoaded && Throttle::hasElapsed(lastMeshCoreContactsSaveMs, MESHCORE_CONTACTS_SAVE_MIN_MS)) {
         const uint32_t fingerprint = meshCoreCompanion.contactsFingerprint();
         if (fingerprint != meshCoreContactsFingerprint) {
-            saveMeshCoreContacts();
-            meshCoreContactsFingerprint = fingerprint;
+            if (saveMeshCoreContacts())
+                meshCoreContactsFingerprint = fingerprint;
             lastMeshCoreContactsSaveMs = millis();
         }
     }

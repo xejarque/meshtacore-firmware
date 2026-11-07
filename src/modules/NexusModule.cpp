@@ -421,7 +421,9 @@ void NexusModule::initOnce() {
             f.close();
         }
     }
-    if (isUnexpectedReset()) {
+    // Saturates: a node stuck in a watchdog loop would otherwise rewrite this flash block on every boot, forever.
+    constexpr uint32_t UNEXP_REBOOT_COUNT_CAP = 1000;
+    if (isUnexpectedReset() && counter < UNEXP_REBOOT_COUNT_CAP) {
         counter++;
         FSCom.mkdir("/prefs");
         auto f = FSCom.open("/prefs/unexpRebootCount", FILE_O_WRITE);
