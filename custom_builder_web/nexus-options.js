@@ -124,11 +124,11 @@
     return "nx_" + opt.id;
   }
 
-  function helpText(opt) {
-    const t = opt.cmd ? "Equivale a " : "";
+  function helpText(opt, cmd = opt.cmd) {
+    const t = cmd ? "Equivale a " : "";
     return el("small", { class: "helper-text" }, [
       document.createTextNode(t),
-      el("code", { text: opt.cmd || "" }),
+      el("code", { text: cmd || "" }),
     ]);
   }
 
@@ -136,32 +136,165 @@
   let channelNameFor = null;
   let renderedManifest = null;
 
+  function channelName(bit) {
+    return String((channelNameFor && channelNameFor(bit)) || "").trim();
+  }
+
   // Etiqueta "Canal N · nombre" si la opción pide nombres de canal y la página conoce el nombre.
   function bitLabel(opt, b) {
     if (!opt.labelsFromChannels || !channelNameFor) return b.label;
-    const name = String(channelNameFor(b.bit) || "").trim();
+    const name = channelName(b.bit);
     return name ? `Canal ${b.bit} · ${name}` : `Canal ${b.bit}`;
+  }
+
+  // Reparte los bits de una máscara de canales entre los que llevan el prefijo (p. ej. "MC:") y los demás, según el
+  // nombre actual de cada canal. Pura: nameFor(bit) da el nombre.
+  function splitBitsByName(opt, nameFor) {
+    const out = { plain: [], prefixed: [] };
+    for (const b of opt.bits)
+      (String(nameFor(b.bit) || "").startsWith(opt.channelSplit.prefix)
+        ? out.prefixed
+        : out.plain
+      ).push(b);
+    return out;
+  }
+
+  function bitCheckbox(opt, b, checked) {
+    const input = el("input", {
+      type: "checkbox",
+      "data-nx-bit": String(b.bit),
+      "data-nx-opt": opt.id,
+    });
+    input.checked = checked;
+    return input;
+  }
+
+  function bitLabelNode(opt, b, input) {
+    const label = el("label", { class: "nx-bit" }, [
+      input,
+      document.createTextNode(" " + bitLabel(opt, b)),
+    ]);
+    label.dataset.nxBitLabel = String(b.bit);
+    label.dataset.nxOpt = opt.id;
+    // `roles` (opcional): la opción solo tiene efecto con esos device roles; fuera de ellos se oculta.
+    if (Array.isArray(b.roles)) label.dataset.nxRoles = b.roles.join(",");
+    return label;
+  }
+
+  function isDefaultOn(opt, b) {
+    return ((toBigInt(opt.default || 0) >> BigInt(b.bit)) & 1n) === 1n;
   }
 
   function bitmaskControl(opt) {
     const box = el("div", { class: "nx-bits", id: fieldId(opt) });
-    const defaultMask = toBigInt(opt.default || 0);
-    for (const b of opt.bits) {
-      const input = el("input", {
-        type: "checkbox",
-        "data-nx-bit": String(b.bit),
-      });
-      input.checked = ((defaultMask >> BigInt(b.bit)) & 1n) === 1n;
-      const label = el("label", { class: "nx-bit" }, [
-        input,
-        document.createTextNode(" " + bitLabel(opt, b)),
-      ]);
-      label.dataset.nxBitLabel = String(b.bit);
-      // `roles` (opcional): la opción solo tiene efecto con esos device roles; fuera de ellos se oculta.
-      if (Array.isArray(b.roles)) label.dataset.nxRoles = b.roles.join(",");
-      box.appendChild(label);
-    }
+    for (const b of opt.bits)
+      box.appendChild(
+        bitLabelNode(opt, b, bitCheckbox(opt, b, isDefaultOn(opt, b))),
+      );
     return box;
+  }
+
+  // ---- máscara de canales repartida en dos listas (Meshtastic / MeshCore) ----
+
+  function splitListId(opt, side) {
+    return `${fieldId(opt)}__${side}`;
+  }
+
+  function splitSwitchId(opt) {
+    return `${fieldId(opt)}__switch`;
+  }
+
+  function prefixedInputs(opt) {
+    const list = document.getElementById(splitListId(opt, "prefixed"));
+    return list ? Array.from(list.querySelectorAll("input[data-nx-opt]")) : [];
+  }
+
+  // El interruptor de MeshCore no es una opción más: refleja si hay algún canal MeshCore marcado (igual que
+  // /mc PPING ON y OFF, que solo mueven los canales MC:).
+  function syncSplitSwitch(opt) {
+    const input = document.getElementById(splitSwitchId(opt));
+    if (!input) return;
+    const boxes = prefixedInputs(opt);
+    input.checked = boxes.some((i) => i.checked);
+    input.disabled = boxes.length === 0;
+  }
+
+  function onSplitSwitchChange(opt, input) {
+    const boxes = prefixedInputs(opt);
+    if (input.checked) {
+      const wanted = opt.channelSplit.prefixed.switchChannel.toLowerCase();
+      const bot = boxes.find(
+        (i) => channelName(Number(i.dataset.nxBit)).toLowerCase() === wanted,
+      );
+      if (bot) bot.checked = true;
+    } else {
+      for (const i of boxes) i.checked = false;
+    }
+    // Sin canal MC:#bot no hay nada que activar: el interruptor vuelve a reflejar lo marcado.
+    syncSplitSwitch(opt);
+  }
+
+  // Vuelve a repartir las casillas entre las dos listas, conservando lo marcado. Se llama al dibujar y al renombrar
+  // un canal (un canal que empieza por el prefijo pasa a la lista de MeshCore).
+  function fillSplitLists(opt) {
+    const plain = document.getElementById(splitListId(opt, "plain"));
+    const prefixed = document.getElementById(splitListId(opt, "prefixed"));
+    if (!plain || !prefixed) return;
+    const before = document.querySelectorAll(`input[data-nx-opt="${opt.id}"]`);
+    const checked = new Set();
+    if (before.length)
+      before.forEach((i) => {
+        if (i.checked) checked.add(Number(i.dataset.nxBit));
+      });
+    else for (const b of opt.bits) if (isDefaultOn(opt, b)) checked.add(b.bit);
+
+    const parts = splitBitsByName(opt, channelName);
+    for (const side of ["plain", "prefixed"]) {
+      const list = side === "plain" ? plain : prefixed;
+      list.textContent = "";
+      for (const b of parts[side])
+        list.appendChild(
+          bitLabelNode(opt, b, bitCheckbox(opt, b, checked.has(b.bit))),
+        );
+      if (!parts[side].length)
+        list.appendChild(
+          el("small", {
+            class: "helper-text",
+            text:
+              side === "prefixed"
+                ? `Ningún canal de la tabla empieza por «${opt.channelSplit.prefix}».`
+                : "Todos los canales de la tabla son de MeshCore.",
+          }),
+        );
+    }
+    syncSplitSwitch(opt);
+  }
+
+  function renderSplitPart(opt, side) {
+    const cfg = opt.channelSplit[side];
+    const list = el("div", { class: "nx-bits", id: splitListId(opt, side) });
+    const group = el("div", { class: "form-group mt-2" }, [
+      el("label", { text: cfg.label }),
+      list,
+      helpText(opt, cfg.cmd),
+    ]);
+    if (side !== "prefixed") return group;
+    list.addEventListener("change", () => syncSplitSwitch(opt));
+    const input = el("input", { type: "checkbox", id: splitSwitchId(opt) });
+    input.addEventListener("change", () => onSplitSwitchChange(opt, input));
+    return el("div", {}, [
+      el("div", { class: "toggle-row mt-2" }, [
+        el("div", { class: "toggle-label" }, [
+          el("strong", { text: cfg.switchLabel }),
+          helpText(opt, cfg.switchCmd),
+        ]),
+        el("label", { class: "switch" }, [
+          input,
+          el("span", { class: "slider" }),
+        ]),
+      ]),
+      group,
+    ]);
   }
 
   // Vuelve a escribir las etiquetas de los canales tras editar sus nombres en la tabla de canales.
@@ -169,10 +302,14 @@
     if (!renderedManifest) return;
     for (const opt of renderedManifest.options) {
       if (opt.type !== "bitmask" || !opt.labelsFromChannels) continue;
-      const box = document.getElementById(fieldId(opt));
-      if (!box) continue;
+      if (opt.channelSplit) {
+        fillSplitLists(opt);
+        continue;
+      }
       for (const b of opt.bits) {
-        const label = box.querySelector(`label[data-nx-bit-label="${b.bit}"]`);
+        const label = document.querySelector(
+          `label[data-nx-bit-label="${b.bit}"][data-nx-opt="${opt.id}"]`,
+        );
         const input = label && label.querySelector("input");
         if (label && input)
           label.replaceChildren(
@@ -253,6 +390,36 @@
     ]);
   }
 
+  // Cuerpo de un grupo. Si el grupo declara `sections`, las opciones se agrupan bajo un subtítulo cada una; la parte de
+  // una máscara de canales (`channelSplit`) que abre una sección (el interruptor y su lista) va la primera.
+  function groupBody(manifest, g) {
+    const options = manifest.options.filter((o) => o.group === g.id && !o.form);
+    if (options.length === 0) return null;
+    const body = el("div", {}, [
+      el("p", { class: "helper-text", text: g.description }),
+    ]);
+    if (!g.sections) {
+      for (const opt of options) body.appendChild(renderOption(opt));
+      return body;
+    }
+    for (const s of g.sections) {
+      const section = el("div", { class: "nx-section" }, [
+        el("h4", { class: "nx-section-title", text: s.title }),
+      ]);
+      for (const opt of options)
+        if (opt.channelSplit && opt.channelSplit.prefixed.section === s.id)
+          section.appendChild(renderSplitPart(opt, "prefixed"));
+      for (const opt of options) {
+        if (opt.channelSplit) {
+          if (opt.channelSplit.plain.section === s.id)
+            section.appendChild(renderSplitPart(opt, "plain"));
+        } else if (opt.section === s.id) section.appendChild(renderOption(opt));
+      }
+      body.appendChild(section);
+    }
+    return body;
+  }
+
   // opts.channelName(i): nombre real del canal i (lo da la tabla de canales de la página).
   function render(manifest, container, opts = {}) {
     renderedManifest = manifest;
@@ -260,13 +427,9 @@
       typeof opts.channelName === "function" ? opts.channelName : null;
     container.textContent = "";
     for (const g of manifest.groups) {
-      const body = el("div", {}, [
-        el("p", { class: "helper-text", text: g.description }),
-      ]);
       // Las opciones con `form` ya tienen su control en builder.html: aquí solo se emiten.
-      const shown = manifest.options.filter((o) => o.group === g.id && !o.form);
-      if (shown.length === 0) continue;
-      for (const opt of shown) body.appendChild(renderOption(opt));
+      const body = groupBody(manifest, g);
+      if (!body) continue;
       container.appendChild(
         el("details", { class: "collapsible mt-3" }, [
           el("summary", { text: g.title }),
@@ -274,6 +437,8 @@
         ]),
       );
     }
+    for (const opt of manifest.options)
+      if (opt.channelSplit && !opt.form) fillSplitLists(opt);
   }
 
   // Oculta y desmarca los bits con `roles` que no aplican al device role actual, para que no se emitan.
@@ -281,9 +446,10 @@
     if (!manifest) return;
     for (const opt of manifest.options) {
       if (opt.type !== "bitmask") continue;
-      const box = document.getElementById(fieldId(opt));
-      if (!box) continue;
-      for (const label of box.querySelectorAll("label[data-nx-roles]")) {
+      const labels = document.querySelectorAll(
+        `label[data-nx-roles][data-nx-opt="${opt.id}"]`,
+      );
+      for (const label of labels) {
         const allowed = label.dataset.nxRoles.split(",").includes(role);
         label.hidden = !allowed;
         const input = label.querySelector("input");
@@ -316,13 +482,20 @@
           values[opt.id] = formData[opt.form];
         continue;
       }
+      if (opt.type === "bitmask") {
+        // Las casillas pueden estar repartidas en varias listas (channelSplit): se leen por opción, no por contenedor.
+        const inputs = document.querySelectorAll(
+          `input[data-nx-opt="${opt.id}"]`,
+        );
+        if (inputs.length === 0) continue;
+        values[opt.id] = Array.from(inputs)
+          .filter((i) => i.checked)
+          .map((i) => Number(i.getAttribute("data-nx-bit")));
+        continue;
+      }
       const node = document.getElementById(fieldId(opt));
       if (!node) continue;
       if (opt.type === "bool") values[opt.id] = node.checked;
-      else if (opt.type === "bitmask")
-        values[opt.id] = Array.from(
-          node.querySelectorAll("input[data-nx-bit]:checked"),
-        ).map((i) => Number(i.getAttribute("data-nx-bit")));
       else values[opt.id] = node.value;
     }
     return values;
@@ -365,6 +538,7 @@
     render,
     refreshBitLabels,
     applyRoles,
+    splitBitsByName,
     remapChannelBits,
     readValues,
     invalidValues,

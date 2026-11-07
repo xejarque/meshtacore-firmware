@@ -165,3 +165,63 @@ test("channel masks follow the firmware numbering: position among the enabled ch
     [3],
   );
 });
+
+test("every option of a group with sections names one of them; a channel split names real sections", () => {
+  for (const g of manifest.groups.filter((g) => g.sections)) {
+    const ids = g.sections.map((s) => s.id);
+    for (const o of manifest.options.filter(
+      (o) => o.group === g.id && !o.form,
+    )) {
+      if (o.channelSplit)
+        for (const side of ["plain", "prefixed"])
+          assert.ok(
+            ids.includes(o.channelSplit[side].section),
+            `${o.id} ${side}`,
+          );
+      else assert.ok(ids.includes(o.section), `${g.id}/${o.id} section`);
+    }
+  }
+  const pping = manifest.options.find((o) => o.id === "pping_channels");
+  assert.equal(pping.channelSplit.plain.section, "meshtastic");
+  assert.equal(pping.channelSplit.prefixed.section, "meshcore");
+  assert.equal(
+    manifest.options.find((o) => o.id === "pping_mc_header_mode").section,
+    "meshcore",
+  );
+  assert.equal(
+    manifest.options.find((o) => o.id === "pping_enabled").section,
+    "meshtastic",
+  );
+});
+
+test("splitBitsByName puts the MC: channels in the MeshCore list, following renames", () => {
+  const { splitBitsByName } = require("../nexus-options.js");
+  const opt = manifest.options.find((o) => o.id === "pping_channels");
+  const names = [
+    "SFNarrow",
+    "Test",
+    "Bots",
+    "Catalunya",
+    "Barcelona",
+    "MC:Public",
+    "MC:#test",
+    "MC:#bot",
+  ];
+  const split = splitBitsByName(opt, (bit) => names[bit]);
+  assert.deepEqual(
+    split.prefixed.map((b) => b.bit),
+    [5, 6, 7],
+  );
+  assert.deepEqual(
+    split.plain.map((b) => b.bit),
+    [0, 1, 2, 3, 4],
+  );
+  // A renamed channel changes list; the prefix is case-sensitive like the firmware's strncmp.
+  names[1] = "MC:nuevo";
+  names[2] = "mc:minusculas";
+  const after = splitBitsByName(opt, (bit) => names[bit]);
+  assert.ok(after.prefixed.some((b) => b.bit === 1));
+  assert.ok(after.plain.some((b) => b.bit === 2));
+  // Every bit lands in exactly one list.
+  assert.equal(after.plain.length + after.prefixed.length, opt.bits.length);
+});

@@ -821,3 +821,13 @@ details.collapsible[open] summary {
 .nx-bit[hidden] {
   display: none;
 }
+/* Subsecciones de un grupo de opciones (p. ej. Meshtastic / MeshCore / Compartido en los bots) */
+.nx-section {
+  margin-top: 1rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(128, 128, 128, 0.25);
+}
+.nx-section-title {
+  margin: 0 0 0.25rem;
+  font-size: 0.95rem;
+}

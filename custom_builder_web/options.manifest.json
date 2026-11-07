@@ -5,7 +5,12 @@
     {
       "id": "bots",
       "title": "Bots (PPING)",
-      "description": "Bot de ping público de Meshtastic (/mt PPING) y de MeshCore (/mc PPING). Valores iniciales: solo se aplican en el primer arranque o tras un factory reset; un vault guardado (/mtc SAVE) manda siempre."
+      "description": "Bot de ping público de Meshtastic (/mt PPING) y de MeshCore (/mc PPING). Valores iniciales: solo se aplican en el primer arranque o tras un factory reset; un vault guardado (/mtc SAVE) manda siempre.",
+      "sections": [
+        { "id": "meshtastic", "title": "Meshtastic" },
+        { "id": "meshcore", "title": "MeshCore" },
+        { "id": "shared", "title": "Compartido (Meshtastic y MeshCore)" }
+      ]
     },
     {
       "id": "firewall",
@@ -37,6 +42,7 @@
     {
       "id": "pping_enabled",
       "group": "bots",
+      "section": "meshtastic",
       "type": "bool",
       "key": "USERPREFS_NEXUS_PPING_ENABLED",
       "label": "Bot PPING de Meshtastic activo",
@@ -46,11 +52,28 @@
     {
       "id": "pping_channels",
       "group": "bots",
+      "section": "meshtastic",
       "type": "bitmask",
       "key": "USERPREFS_NEXUS_PPING_CHANNELS",
       "label": "Canales donde responde el bot",
       "cmd": "/mt PPING CHAN",
       "labelsFromChannels": true,
+      "channelSplit": {
+        "prefix": "MC:",
+        "plain": {
+          "section": "meshtastic",
+          "label": "Canales de Meshtastic donde responde el bot",
+          "cmd": "/mt PPING CHAN"
+        },
+        "prefixed": {
+          "section": "meshcore",
+          "label": "Canales de MeshCore donde responde el bot",
+          "cmd": "/mc PPING CHAN",
+          "switchLabel": "Bot PPING de MeshCore activo",
+          "switchCmd": "/mc PPING ON",
+          "switchChannel": "MC:#bot"
+        }
+      },
       "always": true,
       "default": 132,
       "width": 8,
@@ -101,6 +124,7 @@
     {
       "id": "pping_trigger",
       "group": "bots",
+      "section": "shared",
       "type": "string",
       "key": "USERPREFS_NEXUS_PPING_TRIGGER",
       "label": "Comando disparador",
@@ -111,6 +135,7 @@
     {
       "id": "pping_rssi",
       "group": "bots",
+      "section": "shared",
       "type": "bool",
       "key": "USERPREFS_NEXUS_PPING_RSSI",
       "label": "Incluir RSSI",
@@ -120,6 +145,7 @@
     {
       "id": "pping_snr",
       "group": "bots",
+      "section": "shared",
       "type": "bool",
       "key": "USERPREFS_NEXUS_PPING_SNR",
       "label": "Incluir SNR",
@@ -129,6 +155,7 @@
     {
       "id": "pping_freqerr",
       "group": "bots",
+      "section": "shared",
       "type": "bool",
       "key": "USERPREFS_NEXUS_PPING_FREQERR",
       "label": "Incluir error de frecuencia",
@@ -138,6 +165,7 @@
     {
       "id": "pping_flags",
       "group": "bots",
+      "section": "shared",
       "type": "bool",
       "key": "USERPREFS_NEXUS_PPING_FLAGS",
       "label": "Incluir flags",
@@ -147,6 +175,7 @@
     {
       "id": "pping_ignore_direct",
       "group": "bots",
+      "section": "shared",
       "type": "bool",
       "key": "USERPREFS_NEXUS_PPING_IGNORE_DIRECT",
       "label": "Ignorar pings directos",
@@ -156,6 +185,7 @@
     {
       "id": "pping_ignore_remote",
       "group": "bots",
+      "section": "shared",
       "type": "bool",
       "key": "USERPREFS_NEXUS_PPING_IGNORE_REMOTE",
       "label": "Ignorar pings remotos",
@@ -165,6 +195,7 @@
     {
       "id": "pping_allow_dm",
       "group": "bots",
+      "section": "shared",
       "type": "bool",
       "key": "USERPREFS_NEXUS_PPING_ALLOW_DM",
       "label": "Responder también por mensaje directo",
@@ -174,6 +205,7 @@
     {
       "id": "pping_emoji_mode",
       "group": "bots",
+      "section": "shared",
       "type": "enum",
       "key": "USERPREFS_NEXUS_PPING_EMOJI_MODE",
       "label": "Modo emoji",
@@ -197,6 +229,7 @@
     {
       "id": "pping_mt_header_mode",
       "group": "bots",
+      "section": "meshtastic",
       "type": "enum",
       "key": "USERPREFS_NEXUS_PPING_MT_HEADER_MODE",
       "label": "Cabecera del bot de Meshtastic",
@@ -220,6 +253,7 @@
     {
       "id": "pping_mc_header_mode",
       "group": "bots",
+      "section": "meshcore",
       "type": "enum",
       "key": "USERPREFS_NEXUS_PPING_MC_HEADER_MODE",
       "label": "Cabecera del bot de MeshCore",
@@ -243,6 +277,7 @@
     {
       "id": "pping_header",
       "group": "bots",
+      "section": "shared",
       "type": "string",
       "key": "USERPREFS_NEXUS_PPING_HEADER",
       "label": "Texto de cabecera propio (ambas capas)",
