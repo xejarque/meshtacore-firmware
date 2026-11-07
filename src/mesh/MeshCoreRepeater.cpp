@@ -839,14 +839,20 @@ uint32_t MeshCoreRepeater::relayDueInMs() const
 
 size_t MeshCoreRepeater::takePendingFrame(uint8_t *buf, size_t bufLen)
 {
+    bool droppedOne = false;
     for (int pick = pickNext(); pick >= 0; pick = pickNext()) {
         QueuedFrame &f = queue[pick];
+        // pickNext() also returns the soonest frame that is not due yet. Once a bad advert has been dropped the
+        // caller was woken for that frame, not for this one: taking it now would skip its jitter and the holdoff.
+        if (droppedOne && !Throttle::deadlinePassed(f.deadlineMs))
+            return 0;
         if (f.needsVerify) {
             FrameInfo info;
             if (!parse(f.data, f.len, &info) || !advertSignatureValid(&f.data[info.header_len], info.payload_len)) {
                 LOG_DEBUG("MeshCore: advert with a bad signature, drop");
                 release(pick);
                 rxDropped++;
+                droppedOne = true;
                 continue;
             }
             f.needsVerify = false;
