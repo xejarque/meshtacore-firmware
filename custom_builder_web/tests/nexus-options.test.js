@@ -78,3 +78,12 @@ test("every manifest key is unique and well formed", () => {
     if (o.type === "bitmask") for (const b of o.bits) assert.ok(b.bit < o.width, `${o.id} bit ${b.bit}`);
   }
 });
+
+test("invalidValues reports what emitOption would silently drop", () => {
+  const { invalidValues } = require("../nexus-options.js");
+  const intOpt = manifest.options.find((o) => o.type === "int");
+  assert.deepEqual(invalidValues(manifest, { [intOpt.id]: "" }), []);
+  assert.deepEqual(invalidValues(manifest, { [intOpt.id]: String(intOpt.min) }), []);
+  assert.equal(invalidValues(manifest, { [intOpt.id]: String(intOpt.max + 1) }).length, 1);
+  assert.equal(invalidValues(manifest, { [intOpt.id]: "abc" }).length, 1);
+});
