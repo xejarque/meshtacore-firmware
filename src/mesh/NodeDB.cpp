@@ -1723,14 +1723,19 @@ void NodeDB::installDefaultModuleConfig()
 
     moduleConfig.has_canned_message = true;
 
-#if USERPREFS_MQTT_ENABLED && !MESHTASTIC_EXCLUDE_MQTT
-    moduleConfig.mqtt.enabled = true;
+#if !MESHTASTIC_EXCLUDE_MQTT
+#ifdef USERPREFS_MQTT_ENABLED
+    // An explicit USERPREFS value wins, including the builder's "0" for "MQTT off".
+    moduleConfig.mqtt.enabled = (USERPREFS_MQTT_ENABLED) ? true : false;
+#else
+    moduleConfig.mqtt.enabled = true; // factory default: the Spanish community broker below
+#endif
 #endif
 
 #ifdef USERPREFS_MQTT_ADDRESS
     strncpy(moduleConfig.mqtt.address, USERPREFS_MQTT_ADDRESS, sizeof(moduleConfig.mqtt.address));
 #else
-    strncpy(moduleConfig.mqtt.address, default_mqtt_address, sizeof(moduleConfig.mqtt.address));
+    strncpy(moduleConfig.mqtt.address, default_mqtt_es_address, sizeof(moduleConfig.mqtt.address));
 #endif
 
 #ifdef USERPREFS_MQTT_USERNAME
@@ -1748,7 +1753,7 @@ void NodeDB::installDefaultModuleConfig()
 #ifdef USERPREFS_MQTT_ROOT_TOPIC
     strncpy(moduleConfig.mqtt.root, USERPREFS_MQTT_ROOT_TOPIC, sizeof(moduleConfig.mqtt.root));
 #else
-    strncpy(moduleConfig.mqtt.root, default_mqtt_root, sizeof(moduleConfig.mqtt.root));
+    strncpy(moduleConfig.mqtt.root, default_mqtt_es_root, sizeof(moduleConfig.mqtt.root));
 #endif
 
 #ifdef USERPREFS_MQTT_ENCRYPTION_ENABLED
@@ -1765,6 +1770,19 @@ void NodeDB::installDefaultModuleConfig()
 
 #ifdef USERPREFS_MQTT_PROXY_TO_CLIENT_ENABLED
     moduleConfig.mqtt.proxy_to_client_enabled = USERPREFS_MQTT_PROXY_TO_CLIENT_ENABLED;
+#elif !HAS_NETWORKING
+    // No WiFi/Ethernet of its own (nRF52, RP2040): MQTT can only go through the phone, and
+    // MQTT::isValidConfig() rejects the config otherwise.
+    moduleConfig.mqtt.proxy_to_client_enabled = true;
+#endif
+
+#if !MESHTASTIC_EXCLUDE_MQTT
+    // Map reporting is part of the Spanish factory profile.
+    moduleConfig.mqtt.map_reporting_enabled = true;
+    moduleConfig.mqtt.has_map_report_settings = true;
+    moduleConfig.mqtt.map_report_settings.publish_interval_secs = default_mqtt_es_map_publish_interval_secs;
+    moduleConfig.mqtt.map_report_settings.position_precision = default_mqtt_es_map_position_precision;
+    moduleConfig.mqtt.map_report_settings.should_report_location = true;
 #endif
 
     moduleConfig.has_neighbor_info = true;

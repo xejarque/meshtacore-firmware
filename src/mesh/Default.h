@@ -81,6 +81,13 @@ enum class TrafficType { POSITION, TELEMETRY };
 #define default_mqtt_encryption_enabled true
 #define default_mqtt_tls_enabled false
 
+// Meshtacore factory MQTT: the Spanish community broker. A regional broker is not "the default broker"
+// (see isDefaultServer), so the region is part of the root here instead of being appended at runtime.
+#define default_mqtt_es_address "mqtt.meshtastic.es"
+#define default_mqtt_es_root "msh/EU_868"
+#define default_mqtt_es_map_publish_interval_secs 3600
+#define default_mqtt_es_map_position_precision 14
+
 #define IF_ROUTER(routerVal, normalVal)                                                                                          \
     ((config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER ||                                                        \
       config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE)                                                     \

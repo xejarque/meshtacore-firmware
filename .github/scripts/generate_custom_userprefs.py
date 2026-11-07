@@ -423,7 +423,9 @@ def main():
         prefs["USERPREFS_MQTT_ADDRESS"] = args.mqtt_address or "mqtt.meshtastic.es"
         prefs["USERPREFS_MQTT_USERNAME"] = args.mqtt_username or "meshdev"
         prefs["USERPREFS_MQTT_PASSWORD"] = args.mqtt_password or "large4cats"
-        prefs["USERPREFS_MQTT_ROOT_TOPIC"] = args.mqtt_root or "msh"
+        # A regional broker (not mqtt.meshtastic.org) never gets the region appended by the
+        # firmware, so a bare "msh" would publish outside the msh/<region> tree.
+        prefs["USERPREFS_MQTT_ROOT_TOPIC"] = args.mqtt_root or f"msh/{args.lora_region}"
         prefs["USERPREFS_MQTT_ENCRYPTION_ENABLED"] = (
             "true" if args.mqtt_encryption_enabled else "false"
         )
@@ -431,7 +433,8 @@ def main():
             "true" if args.mqtt_tls_enabled else "false"
         )
     else:
-        prefs.pop("USERPREFS_MQTT_ENABLED", None)
+        # Firmware default is MQTT on (Spanish broker): "off" must be explicit, not an absent key.
+        prefs["USERPREFS_MQTT_ENABLED"] = "0"
         prefs.pop("USERPREFS_MQTT_ADDRESS", None)
         prefs.pop("USERPREFS_MQTT_USERNAME", None)
         prefs.pop("USERPREFS_MQTT_PASSWORD", None)

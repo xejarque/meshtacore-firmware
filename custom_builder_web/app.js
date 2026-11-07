@@ -1040,7 +1040,7 @@ document.addEventListener("DOMContentLoaded", () => {
       mqtt_enabled: isMqttOn,
       mqtt_proxy: isMqttProxy,
       mqtt_address: mAddress || "mqtt.meshtastic.es",
-      mqtt_root: mRoot || "msh",
+      mqtt_root: mRoot || `msh/${loraRegion}`,
       mqtt_username: mUser || "meshdev",
       mqtt_password: mPass || "large4cats",
       mqtt_encryption_enabled: mEnc,
@@ -1388,7 +1388,8 @@ ${encryptedConfig}
     if (data.mqtt_enabled) {
       prefs["USERPREFS_MQTT_ADDRESS"] =
         data.mqtt_address || "mqtt.meshtastic.es";
-      prefs["USERPREFS_MQTT_ROOT_TOPIC"] = data.mqtt_root || "msh";
+      prefs["USERPREFS_MQTT_ROOT_TOPIC"] =
+        data.mqtt_root || `msh/${data.lora_region}`;
       prefs["USERPREFS_MQTT_USERNAME"] = data.mqtt_username || "meshdev";
       prefs["USERPREFS_MQTT_PASSWORD"] = data.mqtt_password || "large4cats";
       prefs["USERPREFS_MQTT_ENCRYPTION_ENABLED"] = data.mqtt_encryption_enabled
