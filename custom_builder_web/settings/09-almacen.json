@@ -1,0 +1,87 @@
+{
+  "id": "09",
+  "title": "Almacén y límites",
+  "icon": "💾",
+  "intro": "Cómo guarda el nodo su configuración y cuántos paquetes deja pasar. La configuración de Nexus vive en una memoria cifrada del nodo (el «vault»): lo que cambias se queda en RAM hasta que pulsas Guardar. Desde aquí puedes ver qué cambios no se han guardado, pausar las escrituras en flash o limitar los paquetes por hora de cada tipo.",
+  "entries": [
+    {
+      "id": "vault.tools",
+      "type": "actions",
+      "title": "Estado del almacén",
+      "help": "Consultas sobre lo guardado y lo que está solo en memoria. Lo que devuelve el nodo aparece justo debajo.",
+      "risk": "write",
+      "actions": [
+        { "title": "Ver contenido del vault", "cmd": "VAULT", "readonly": true, "help": "Versión, tamaño y huecos usados de grupos, alias, macros y tareas programadas." },
+        { "title": "Ver cambios sin guardar", "cmd": "VAULT DIFF", "readonly": true, "help": "Compara lo que hay en memoria con lo guardado y lista las diferencias." },
+        { "title": "Estado de la lista de nodos", "cmd": "DBINFO", "readonly": true, "help": "Cuántos nodos conoce, cuántos están en línea y cuántos son vecinos directos." },
+        { "title": "Forzar escritura de la lista de nodos", "cmd": "DBFLUSH", "readonly": true, "help": "Escribe ahora mismo la lista de nodos en flash, incluso con las escrituras congeladas." },
+        { "title": "Recargar desde flash (LOAD)", "cmd": "LOAD", "risk": "danger", "help": "Descarta todo lo que no hayas guardado y vuelve a lo que hay en flash." }
+      ]
+    },
+    {
+      "id": "vault.freeze",
+      "type": "flags",
+      "title": "Congelar escrituras en flash",
+      "help": "Evita que el nodo escriba en su memoria flash, útil en pruebas o para no desgastarla. Mientras esté congelado, lo que cambies no se guarda aunque pulses Guardar.",
+      "risk": "write",
+      "read": { "cmd": "FREEZE", "mode": "pairs" },
+      "flags": [
+        {
+          "key": "NODEDB",
+          "readPattern": "NodeDB:\\s+(frozen|unfrozen)",
+          "write": { "on": "FREEZE NODEFREEZE ON", "off": "FREEZE NODEFREEZE OFF" },
+          "title": "Lista de nodos",
+          "help": "No se escribe la lista de nodos en flash."
+        },
+        {
+          "key": "WARM",
+          "readPattern": "Warm:\\s+(frozen|unfrozen)",
+          "write": { "on": "FREEZE WARMFREEZE ON", "off": "FREEZE WARMFREEZE OFF" },
+          "title": "Datos «tibios»",
+          "help": "No se escriben los datos de uso frecuente que el nodo guarda entre reinicios."
+        },
+        {
+          "key": "DEVICE",
+          "readPattern": "Device:\\s+(frozen|unfrozen)",
+          "write": { "on": "FREEZE DEVICEFREEZE ON", "off": "FREEZE DEVICEFREEZE OFF" },
+          "title": "Estado del dispositivo",
+          "help": "No se escribe el estado general del dispositivo."
+        },
+        {
+          "key": "CONFIG",
+          "readPattern": "Config:\\s+(frozen|unfrozen)",
+          "write": { "on": "FREEZE CONFIGFREEZE ON", "off": "FREEZE CONFIGFREEZE OFF" },
+          "title": "Configuración",
+          "help": "No se escribe la configuración. Tus ajustes de Meshtastic no sobreviven a un reinicio mientras esté congelada."
+        }
+      ]
+    },
+    {
+      "id": "vault.bd",
+      "type": "values",
+      "title": "Retardo máximo de respuestas",
+      "help": "Hasta cuántos segundos puede esperar el nodo antes de contestar o enviar páginas. Un retardo aleatorio evita que varios nodos contesten a la vez y choquen en redes densas.",
+      "risk": "write",
+      "read": { "cmd": "BD", "pattern": "max delay = (\\d+)s" },
+      "fields": [{ "key": "secs", "title": "Segundos", "min": 1, "max": 300 }],
+      "write": { "set": "BD SET {secs}" }
+    },
+    {
+      "id": "limits.rate",
+      "type": "values",
+      "title": "Límite de paquetes por hora",
+      "help": "Máximo de paquetes por hora que acepta el nodo de cada tipo. El valor por defecto es 0, que es como llega de fábrica. Cada tipo se aplica por separado.",
+      "risk": "write",
+      "read": { "cmd": "RATELIMIT", "pattern": "TX:(\\d+) TR:(\\d+) OT:(\\d+) NI:(\\d+) PO:(\\d+) TL:(\\d+) PR:(\\d+)" },
+      "fields": [
+        { "key": "text", "title": "Mensajes de texto", "min": 0, "max": 10000, "write": "RATELIMIT TEXT {value}" },
+        { "key": "trace", "title": "Traceroute", "min": 0, "max": 10000, "write": "RATELIMIT TRACE {value}" },
+        { "key": "other", "title": "Otros", "min": 0, "max": 10000, "write": "RATELIMIT OTHER {value}" },
+        { "key": "ni", "title": "NodeInfo", "min": 0, "max": 10000, "write": "RATELIMIT NODEINFO {value}" },
+        { "key": "pos", "title": "Posición", "min": 0, "max": 10000, "write": "RATELIMIT POSITION {value}" },
+        { "key": "tel", "title": "Telemetría", "min": 0, "max": 10000, "write": "RATELIMIT TELEMETRY {value}" },
+        { "key": "priv", "title": "Privados", "min": 0, "max": 10000, "write": "RATELIMIT PRIVATE {value}" }
+      ]
+    }
+  ]
+}

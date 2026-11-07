@@ -1,0 +1,89 @@
+{
+  "id": "08",
+  "title": "Emisiones periódicas",
+  "icon": "⏱️",
+  "intro": "Cada cuánto anuncia tu nodo quién es, dónde está y cómo está de batería. Intervalos más cortos hacen que te vean antes pero gastan batería y tiempo de aire de todos: en una malla grande conviene ser moderado. El valor 2147483 es el «nunca» interno del nodo. Es posible que el nodo se reinicie tras aplicar un cambio y haya que reconectar el Bluetooth. Los cambios viven en la memoria del nodo hasta que pulses Guardar.",
+  "entries": [
+    {
+      "id": "cfg.ni",
+      "type": "values",
+      "title": "Anuncio de identidad (NodeInfo)",
+      "help": "Cada cuántos segundos emite tu nodo su nombre, modelo y clave pública. 43200 son 12 horas.",
+      "risk": "write",
+      "read": { "cmd": "CONFIG", "pattern": "\\bNI:(\\d+)s" },
+      "fields": [{ "key": "secs", "title": "Segundos", "min": 3600, "max": 86400 }],
+      "write": { "set": "CONFIG NI {secs}" }
+    },
+    {
+      "id": "cfg.pos",
+      "type": "values",
+      "title": "Posición",
+      "help": "Cada cuántos segundos emite tu nodo su posición. Si el nodo no tiene GPS ni posición fija no envía nada aunque pongas un valor.",
+      "risk": "write",
+      "read": { "cmd": "CONFIG", "pattern": "\\bPOS:(\\d+)s" },
+      "fields": [{ "key": "secs", "title": "Segundos", "min": 30, "max": 86400 }],
+      "write": { "set": "CONFIG POS {secs}" }
+    },
+    {
+      "id": "cfg.tel_d",
+      "type": "values",
+      "title": "Telemetría del dispositivo",
+      "help": "Batería, tensión, uso del canal y tiempo encendido. 900 son 15 minutos.",
+      "risk": "write",
+      "read": { "cmd": "CONFIG", "pattern": "TEL:\\s*D:(\\d+)s" },
+      "fields": [{ "key": "secs", "title": "Segundos", "min": 900, "max": 86400 }],
+      "write": { "set": "CONFIG TEL_D {secs}" }
+    },
+    {
+      "id": "cfg.tel_e",
+      "type": "values",
+      "title": "Telemetría ambiental",
+      "help": "Temperatura, humedad y presión, si tu nodo tiene sensores.",
+      "risk": "write",
+      "read": { "cmd": "CONFIG", "pattern": "\\bE:(\\d+)s" },
+      "fields": [{ "key": "secs", "title": "Segundos", "min": 900, "max": 86400 }],
+      "write": { "set": "CONFIG TEL_E {secs}" }
+    },
+    {
+      "id": "cfg.tel_p",
+      "type": "values",
+      "title": "Telemetría de potencia",
+      "help": "Corriente, tensión y potencia medidas por un sensor INA219 o INA226, si lo tiene.",
+      "risk": "write",
+      "read": { "cmd": "CONFIG", "pattern": "\\bP:(\\d+)s" },
+      "fields": [{ "key": "secs", "title": "Segundos", "min": 900, "max": 86400 }],
+      "write": { "set": "CONFIG TEL_P {secs}" }
+    },
+    {
+      "id": "cfg.position_switches",
+      "type": "flags",
+      "title": "Modo de posición",
+      "help": "Cómo obtiene y cuándo emite su posición el nodo.",
+      "risk": "write",
+      "read": { "cmd": "CONFIG", "mode": "pairs" },
+      "flags": [
+        {
+          "key": "SMART",
+          "readPattern": "Smart:(0|1)",
+          "write": { "on": "CONFIG SMART ON", "off": "CONFIG SMART OFF" },
+          "title": "Posición inteligente",
+          "help": "Emite la posición cuando te has movido lo suficiente, en vez de cada intervalo fijo. Ahorra aire si estás parado."
+        },
+        {
+          "key": "FIXED",
+          "readPattern": "Fixed:(0|1)",
+          "write": { "on": "CONFIG FIXED ON", "off": "CONFIG FIXED OFF" },
+          "title": "Posición fija",
+          "help": "El nodo usa una posición guardada a mano y no consulta el GPS. Para nodos que no se mueven."
+        },
+        {
+          "key": "GPS",
+          "readPattern": "GPS:(0|1)",
+          "write": { "on": "CONFIG GPS ON", "off": "CONFIG GPS OFF" },
+          "title": "Receptor GPS",
+          "help": "Enciende o apaga el receptor GPS de la placa. Apagado ahorra batería."
+        }
+      ]
+    }
+  ]
+}

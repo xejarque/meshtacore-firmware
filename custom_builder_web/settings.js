@@ -49,7 +49,8 @@ export class SettingsPanel {
     return hay.includes(this.filter);
   }
 
-  async write(entry, cmd, risk) {
+  // `readonly`: the command only reports (or flushes), so it must not raise the "unsaved changes" bar.
+  async write(entry, cmd, risk, readonly = false) {
     const text = risk === "danger" ? `Esto es delicado${this.label ? " en " + this.label : ""}:\n\n${cmd}\n\n¿Seguro que quieres enviarlo?` : null;
     if (text && !confirm(text)) return false;
     this.busy.add(entry.id);
@@ -58,7 +59,7 @@ export class SettingsPanel {
       const reply = await this.run(cmd);
       this.notes.set(entry.id, { text: C.cleanReply(reply), ok: !/ERROR|invalid|unknown|expects|cannot|full/i.test(reply) });
       if (entry.read) this.invalidate(entry.read.cmd);
-      this.dirty = true;
+      if (!readonly) this.dirty = true;
     } catch (e) {
       this.notes.set(entry.id, { text: "Error: " + e.message, ok: false });
     }
@@ -154,22 +155,31 @@ export class SettingsPanel {
       if (Object.values(values).every((v) => v === null)) return body.append(h("p", { className: "sx-note err" }, "No se pudo leer el valor. Respuesta: " + C.cleanReply(reply).slice(0, 160)));
       const inputs = {};
       const row = h("div", { className: "sx-addrow" });
-      for (const f of entry.fields) {
-        inputs[f.key] = h("input", { type: "number", min: f.min, max: f.max, value: values[f.key], title: f.help || "" });
-        row.append(h("label", { className: "sx-field" }, h("small", {}, f.title), inputs[f.key]));
-      }
-      const apply = h("button", { className: "sx-add", textContent: "Aplicar", disabled: !this.isConnected() });
-      apply.onclick = () => {
+      const attempt = (build) => {
         try {
-          const cmd = C.valuesCommand(entry, Object.fromEntries(entry.fields.map((f) => [f.key, inputs[f.key].value])));
-          this.write(entry, cmd, entry.risk);
+          this.write(entry, build(), entry.risk);
         } catch (e) {
           this.notes.set(entry.id, { text: e.message, ok: false });
           this.render();
         }
       };
-      row.append(apply);
-      if (entry.write.off) {
+      for (const f of entry.fields) {
+        inputs[f.key] = h("input", { type: "number", min: f.min, max: f.max, value: values[f.key], title: f.help || "" });
+        const cell = h("label", { className: "sx-field" }, h("small", {}, f.title), inputs[f.key]);
+        if (f.write) {
+          // a field with its own command gets its own Apply button (e.g. one rate limit per bucket)
+          const own = h("button", { className: "sx-add", textContent: "Aplicar", disabled: !this.isConnected() });
+          own.onclick = () => attempt(() => C.fieldCommand(f, inputs[f.key].value));
+          cell.append(own);
+        }
+        row.append(cell);
+      }
+      if (entry.write && entry.write.set) {
+        const apply = h("button", { className: "sx-add", textContent: "Aplicar", disabled: !this.isConnected() });
+        apply.onclick = () => attempt(() => C.valuesCommand(entry, Object.fromEntries(entry.fields.map((f) => [f.key, inputs[f.key].value]))));
+        row.append(apply);
+      }
+      if (entry.write && entry.write.off) {
         const off = h("button", { className: "sx-clear", textContent: "Desactivar", disabled: !this.isConnected() || state === "OFF" });
         off.onclick = () => this.write(entry, entry.write.off, entry.risk);
         row.append(off);
@@ -212,7 +222,7 @@ export class SettingsPanel {
     const row = h("div", { className: "sx-actions" });
     for (const a of entry.actions) {
       const b = h("button", { className: (a.risk || entry.risk) === "danger" ? "sx-clear" : "sx-add", textContent: a.title, title: a.help, disabled: !this.isConnected() || this.busy.has(entry.id) });
-      b.onclick = () => this.write(entry, a.cmd, a.risk || entry.risk);
+      b.onclick = () => this.write(entry, a.cmd, a.risk || entry.risk, a.readonly === true);
       row.append(h("div", { className: "sx-action" }, b, h("small", {}, a.help)));
     }
     box.append(row);

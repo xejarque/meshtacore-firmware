@@ -26,7 +26,7 @@ export function readFlags(entry, reply) {
   for (const f of entry.flags) {
     // readPattern: a regex of its own whose group 1 is ON|OFF (replies like "ZH OFF (POS:OFF ...)").
     const m = new RegExp(f.readPattern || `(?:^|[\\s])${escapeRe(f.readKey || f.key)}\\s*:\\s*(on|off)\\b`, "im").exec(text);
-    out[f.key] = m ? ["on", "1"].includes(m[1].toLowerCase()) : null;
+    out[f.key] = m ? ["on", "1", "frozen"].includes(m[1].toLowerCase()) : null;
   }
   return out;
 }
@@ -48,12 +48,20 @@ export function readValues(entry, reply) {
   return { state: s ? s[1].toUpperCase() : null, values };
 }
 
+const checkRange = (f, raw) => {
+  const v = Number(raw);
+  if (raw === "" || !Number.isInteger(v) || v < f.min || v > f.max) throw new Error(`«${f.title}» debe estar entre ${f.min} y ${f.max}`);
+  return v;
+};
+
+// The command of a field that carries its own `write` template (one command per field).
+export function fieldCommand(field, raw) {
+  return fill(field.write, { value: checkRange(field, raw) });
+}
+
 // The command that applies numeric fields; refuses anything outside each field's range.
 export function valuesCommand(entry, values) {
-  for (const f of entry.fields) {
-    const v = Number(values[f.key]);
-    if (!Number.isInteger(v) || v < f.min || v > f.max) throw new Error(`«${f.title}» debe estar entre ${f.min} y ${f.max}`);
-  }
+  for (const f of entry.fields) checkRange(f, values[f.key]);
   return fill(entry.write.set, values);
 }
 
@@ -111,7 +119,11 @@ export function validateEntry(entry, knownCommands) {
   need(["read", "write", "danger"].includes(entry.risk), "risk inválido");
   need(["flags", "values", "list", "actions", "enum"].includes(entry.type), "type inválido");
   if (entry.type === "enum") need(entry.read && entry.read.pattern && entry.options && entry.options.every((o) => o.value && o.title && o.help) && entry.write && entry.write.set, "enum necesita read.pattern, options (value, title, help) y write.set");
-  if (entry.type === "values") need(entry.read && entry.read.pattern && entry.fields && entry.fields.length && entry.write && entry.write.set, "values necesita read.pattern, fields y write.set");
+  if (entry.type === "values") {
+    const perField = entry.fields && entry.fields.every((f) => f.write);
+    need(entry.read && entry.read.pattern && entry.fields && entry.fields.length && ((entry.write && entry.write.set) || perField), "values necesita read.pattern, fields y write.set (o write por campo)");
+    for (const f of entry.fields || []) need(f.key && f.title && Number.isInteger(f.min) && Number.isInteger(f.max), `campo sin key, title o rango (${f.key})`);
+  }
   const cmds = [];
   for (const a of entry.actions || []) {
     need(a.title && a.cmd && a.help, "acción sin title, cmd o help");
@@ -124,6 +136,7 @@ export function validateEntry(entry, knownCommands) {
     need(f.key && f.title && f.help, `flag sin key, title o help (${f.key})`);
     if (f.write) templates.push(...Object.values(f.write));
   }
+  for (const f of entry.fields || []) if (f.write) templates.push(f.write);
   for (const t of templates) cmds.push(t.split(/\s+/)[0]);
   for (const c of cmds) need(knownCommands.has(norm(c)), `el comando ${c} no está en el catálogo de comandos`);
   if (entry.type === "flags") need(entry.read && ["tokens", "pairs"].includes(entry.read.mode), "flags necesita read.mode");

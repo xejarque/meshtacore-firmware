@@ -1,0 +1,14 @@
+{
+ "node": "!f3a45b84",
+ "capturedAt": "2026-11-07T20:31:00",
+ "outputs": [
+  { "command": "CONFIG", "response": "🔴 MESHTACORE CONFIG:\nRole: CLIENT\nNI:43200s\nTEL: D:2147483s E:3600s P:3600s\nPOS:2147483s(811) Smart:0\nGPS:0 Fixed:0 HM:0 RM:0\nLoc: None" },
+  { "command": "RATELIMIT", "response": "🔴 MESHTACORE RL Limits: TX:0 TR:0 OT:0 NI:0 PO:0 TL:0 PR:0" },
+  { "command": "BD", "response": "🔴 MESHTACORE BD: max delay = 5s (range 100..5000ms)" },
+  { "command": "FREEZE", "response": "🔴 MESHTACORE FREEZE:\n  NodeDB:  unfrozen\n  Warm:    unfrozen\n  Device:  unfrozen\n  Config:  unfrozen\n(DBFLUSH bypasses all four)" },
+  { "command": "VAULT", "response": "🔴 MESHTACORE VAULT:\nVer:v71 Size:2607B\nDrop:0x0000000000000000\nOutDr:0x0000000000000000\nInv:0x00000000\nGroups:0/4\nAliases:0/16\nMacros:0/4\nCron:0/8\nWake:0 Chem:0 Ext:0x00 ZH:0/0 Cmd:/ping Volt:0" },
+  { "command": "DBINFO", "response": "🔴 MESHTACORE DBINFO:\nNodes: 120/120 (100%)\nOnline: 59\nDirect: 0\nFavs: 0" },
+  { "command": "TRUSTED", "response": "🔴 MESHTACORE TRUSTED Slots:\n[0]  (OFF)\n[1]  (OFF)" },
+  { "command": "TM CONFIG", "response": "🔴 MESHTACORE TM Config:\nIN:21600 CR:0 RLW:0 RLM:0\nUK:0" }
+ ]
+}

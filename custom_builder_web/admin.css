@@ -127,7 +127,7 @@ body.connected .admin .capture-bar { display: flex; margin-top: 0.5rem; }
 .admin .sx-add, .admin .sx-clear, .admin .sx-save button { padding: .45rem .9rem; border-radius: 8px; border: 1px solid rgba(127,127,127,.4); background: transparent; color: inherit; cursor: pointer; font: inherit; }
 .admin .sx-add { background: var(--ok); border-color: var(--ok); color: #fff; }
 .admin .sx-clear { color: var(--bad); border-color: var(--bad); }
-.admin .sx-note { font-size: .85rem; margin: .6rem 0 0; }
+.admin .sx-note { font-size: .85rem; margin: .6rem 0 0; white-space: pre-wrap; }
 .admin .sx-note.ok { color: var(--ok); } .admin .sx-note.err { color: var(--bad); }
 .admin .sx-values .sx-addrow { align-items: flex-end; }
 .admin .sx-field { display: flex; flex-direction: column; gap: .2rem; }

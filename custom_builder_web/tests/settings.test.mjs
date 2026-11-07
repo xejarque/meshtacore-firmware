@@ -166,6 +166,44 @@ test("radio: toggles, power and preamble read from the real replies", () => {
   assert.throws(() => S.valuesCommand(entry("radio.preamble"), { len: 2 }), /entre 6 y 1024/);
 });
 
+const system = json("./fixtures/gat562-system.json");
+const sysReply = (cmd) => system.outputs.find((o) => o.command === cmd).response;
+
+test("CONFIG: every interval and switch is read from the one multi-line reply", () => {
+  const value = (id) => S.readValues(entry(id), sysReply("CONFIG")).values.secs;
+  assert.equal(value("cfg.ni"), 43200);
+  assert.equal(value("cfg.pos"), 2147483);
+  assert.equal(value("cfg.tel_d"), 2147483);
+  assert.equal(value("cfg.tel_e"), 3600);
+  assert.equal(value("cfg.tel_p"), 3600);
+  assert.deepEqual(S.readFlags(entry("cfg.position_switches"), sysReply("CONFIG")), { SMART: false, FIXED: false, GPS: false });
+  assert.equal(S.valuesCommand(entry("cfg.tel_d"), { secs: 900 }), "CONFIG TEL_D 900");
+  assert.throws(() => S.valuesCommand(entry("cfg.ni"), { secs: 5 }), /entre 3600 y 86400/);
+});
+
+test("FREEZE: frozen reads on, unfrozen reads off (the word contains the other one)", () => {
+  const e = entry("vault.freeze");
+  assert.ok(Object.values(S.readFlags(e, sysReply("FREEZE"))).every((v) => v === false));
+  const live = S.readFlags(e, "🔴 MESHTACORE FREEZE:\n  NodeDB:  frozen\n  Warm:    unfrozen\n  Device:  unfrozen\n  Config:  frozen");
+  assert.deepEqual(live, { NODEDB: true, WARM: false, DEVICE: false, CONFIG: true });
+  assert.equal(S.flagCommand(e, e.flags[0], true), "FREEZE NODEFREEZE ON");
+});
+
+test("RATELIMIT: seven buckets, each with its own command", () => {
+  const e = entry("limits.rate");
+  const { values } = S.readValues(e, sysReply("RATELIMIT"));
+  assert.deepEqual(Object.values(values), [0, 0, 0, 0, 0, 0, 0]);
+  assert.equal(S.fieldCommand(e.fields[3], "30"), "RATELIMIT NODEINFO 30");
+  assert.throws(() => S.fieldCommand(e.fields[0], ""), /entre 0 y 10000/);
+  assert.equal(S.readValues(entry("vault.bd"), sysReply("BD")).values.secs, 5);
+});
+
+test("read-only actions are marked, and LOAD (which throws away unsaved work) is the delicate one", () => {
+  const acts = entry("vault.tools").actions;
+  assert.ok(acts.filter((a) => a.readonly).every((a) => !a.risk));
+  assert.equal(acts.find((a) => a.cmd === "LOAD").risk, "danger");
+});
+
 test("fill refuses an empty value, safeArg refuses a second command smuggled in", () => {
   assert.throws(() => S.fill("RDROP {value}", { value: "" }), /falta el valor/);
   assert.ok(S.safeArg("!abcd1234"));
