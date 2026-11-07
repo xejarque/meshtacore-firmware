@@ -193,6 +193,63 @@ static void test_version_one_image_still_loads_with_default_path_size_and_limits
     TEST_ASSERT_EQUAL_UINT8(64, out.effectiveFloodMax());
 }
 
+static void test_firewall_settings_round_trip()
+{
+    MeshCoreConfig in;
+    in.dropMask = MeshCoreConfig::DROP_ADVERT | MeshCoreConfig::DROP_SOURCE;
+    in.advertGapMin = 30;
+    in.hopRatePerMin = 12;
+    uint8_t image[MeshCoreConfig::IMAGE_LEN];
+    TEST_ASSERT_EQUAL_UINT32(MeshCoreConfig::IMAGE_LEN, MeshCoreConfig::encode(in, image, sizeof(image)));
+
+    MeshCoreConfig out;
+    TEST_ASSERT_TRUE(MeshCoreConfig::decode(image, sizeof(image), &out));
+    TEST_ASSERT_EQUAL_UINT8(in.dropMask, out.dropMask);
+    TEST_ASSERT_EQUAL_UINT8(30, out.advertGapMin);
+    TEST_ASSERT_EQUAL_UINT8(12, out.hopRatePerMin);
+}
+
+static void test_default_config_has_the_firewall_off()
+{
+    const MeshCoreConfig defaults;
+    TEST_ASSERT_EQUAL_UINT8(0, defaults.dropMask);
+    TEST_ASSERT_EQUAL_UINT8(0, defaults.advertGapMin);
+    TEST_ASSERT_EQUAL_UINT8(0, defaults.hopRatePerMin);
+}
+
+static void test_version_two_image_still_loads_with_the_firewall_off()
+{
+    // Nodes already running have a version 2 file (no firewall): the upgrade must not switch any rule on.
+    uint8_t v2[MeshCoreConfig::BODY_LEN_V2 + 4] = {};
+    memcpy(v2, MeshCoreConfig::MAGIC, sizeof(MeshCoreConfig::MAGIC));
+    v2[3] = 2;
+    v2[4] = MeshCoreConfig::RELAY_ON;
+    v2[5] = 6;
+    v2[6] = 3;
+    const uint32_t crc = crc32Buffer(v2, MeshCoreConfig::BODY_LEN_V2);
+    for (size_t i = 0; i < 4; i++)
+        v2[MeshCoreConfig::BODY_LEN_V2 + i] = (uint8_t)(crc >> (8 * i));
+
+    MeshCoreConfig out;
+    out.dropMask = 0xFF;
+    TEST_ASSERT_TRUE(MeshCoreConfig::decode(v2, sizeof(v2), &out));
+    TEST_ASSERT_EQUAL_UINT8(MeshCoreConfig::RELAY_ON, out.relay);
+    TEST_ASSERT_EQUAL_UINT8(3, out.effectivePathHashSize());
+    TEST_ASSERT_EQUAL_UINT8(0, out.dropMask);
+    TEST_ASSERT_EQUAL_UINT8(0, out.advertGapMin);
+}
+
+static void test_every_drop_rule_has_its_own_bit_and_tag()
+{
+    uint8_t seen = 0;
+    for (const MeshCoreConfig::DropRule &rule : MeshCoreConfig::DROP_RULES) {
+        TEST_ASSERT_NOT_NULL(rule.tag);
+        TEST_ASSERT_EQUAL_UINT8(0, seen & rule.bit);
+        seen |= rule.bit;
+    }
+    TEST_ASSERT_EQUAL_UINT8(0xFF, seen);
+}
+
 static void test_out_of_range_path_size_or_flood_limit_loads_nothing()
 {
     uint8_t image[MeshCoreConfig::IMAGE_LEN];
@@ -234,6 +291,10 @@ void setup()
     RUN_TEST(test_path_size_and_flood_limits_round_trip);
     RUN_TEST(test_zero_path_size_and_flood_limits_mean_meshcore_defaults);
     RUN_TEST(test_version_one_image_still_loads_with_default_path_size_and_limits);
+    RUN_TEST(test_firewall_settings_round_trip);
+    RUN_TEST(test_default_config_has_the_firewall_off);
+    RUN_TEST(test_version_two_image_still_loads_with_the_firewall_off);
+    RUN_TEST(test_every_drop_rule_has_its_own_bit_and_tag);
     RUN_TEST(test_out_of_range_path_size_or_flood_limit_loads_nothing);
     exit(UNITY_END());
 }

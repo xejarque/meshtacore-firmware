@@ -1973,6 +1973,7 @@ void test_direct_message_from_an_ignored_node_is_cut_by_its_source_hash()
     const size_t advertLen = makeNeighborAdvert(sender, 0x39, "Spammer", advert);
     gIgnoredNum = MeshCoreNodeStore<1>::nodeNumForKey(sender.getIdentityPub());
     MeshCoreRepeater::setIgnorePredicate(ignoresOnlyOneNode);
+    repeater.setFirewall(MeshCoreConfig::DROP_SOURCE, 0, 0);
     repeater.handleReceivedFrame(advert, advertLen, -6.0f, kAirtimeMs);
 
     uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
@@ -2001,10 +2002,91 @@ void test_anonymous_request_from_an_ignored_node_is_dropped_on_its_key()
     uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
     const size_t len = makeFloodFrame(frame, 0x07, 0, 2, 0, 0x10, 1 + 32 + 2 + 16);
     memcpy(&frame[2 + 1], sender.getIdentityPub(), 32);
-    repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs)); // the companion is not handed it either
     TEST_ASSERT_EQUAL_UINT32(1, repeater.rxIgnored);
     TEST_ASSERT_FALSE(repeater.hasPendingFrame());
-    TEST_ASSERT_TRUE(repeater.isIgnoredFrame(frame, len)); // what the companion gate asks
+}
+
+// The one-byte source hash also names 1 in 256 innocent senders, so cutting on it is a rule that starts off.
+void test_source_hash_cut_is_off_unless_the_rule_is_on()
+{
+    MeshCoreRepeater repeater, sender;
+    uint8_t advert[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t advertLen = makeNeighborAdvert(sender, 0x3B, "Spammer", advert);
+    gIgnoredNum = MeshCoreNodeStore<1>::nodeNumForKey(sender.getIdentityPub());
+    MeshCoreRepeater::setIgnorePredicate(ignoresOnlyOneNode);
+    repeater.handleReceivedFrame(advert, advertLen, -6.0f, kAirtimeMs);
+
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = makeFloodFrame(frame, kTxtMsg, 0, 2, 0, 0x10, kTxtMsgPayloadLen);
+    frame[2 + 1] = sender.getIdentityPub()[0];
+    TEST_ASSERT_TRUE(repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs));
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.rxIgnored); // only the advert
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+}
+
+// A /mtc DROP rule drops its frame types before the relay or the companion see them, and counts them.
+void test_drop_rule_silences_its_payload_types_only()
+{
+    MeshCoreRepeater repeater;
+    repeater.setFirewall(MeshCoreConfig::DROP_TEXT | MeshCoreConfig::DROP_GROUP, 0, 0);
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+
+    size_t len = makeFloodFrame(frame, kTxtMsg, 1, 2, 0x70, 0x10, kTxtMsgPayloadLen);
+    TEST_ASSERT_FALSE(repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs));
+    len = makeFloodFrame(frame, 0x05, 1, 2, 0x70, 0x20, 1 + 2 + 16); // GRP_TXT
+    TEST_ASSERT_FALSE(repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs));
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+    for (size_t i = 0; i < MeshCoreConfig::DROP_RULE_COUNT; i++) {
+        const uint8_t bit = MeshCoreConfig::DROP_RULES[i].bit;
+        TEST_ASSERT_EQUAL_UINT32(bit == MeshCoreConfig::DROP_TEXT || bit == MeshCoreConfig::DROP_GROUP ? 1 : 0,
+                                 repeater.getRuleDrops(i));
+    }
+
+    len = makeFloodFrame(frame, 0x00, 1, 2, 0x70, 0x30, 1 + 1 + 2 + 16); // REQ: its rule is off
+    TEST_ASSERT_TRUE(repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs));
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+}
+
+void test_advert_gap_keeps_one_advert_per_key_per_window()
+{
+    MeshCoreRepeater repeater, sender;
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = makeNeighborAdvert(sender, 0x3C, "Cima", frame);
+    repeater.setFirewall(0, 10, 0); // ten minutes
+
+    TEST_ASSERT_TRUE(repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs));
+    Time::advanceTestMillis(9 * 60 * 1000UL);
+    TEST_ASSERT_FALSE(repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs));
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.rxRateLimited);
+    Time::advanceTestMillis(2 * 60 * 1000UL);
+    TEST_ASSERT_TRUE(repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs));
+
+    MeshCoreRepeater other;
+    uint8_t otherFrame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t otherLen = makeNeighborAdvert(other, 0x3D, "Otra", otherFrame);
+    TEST_ASSERT_TRUE(repeater.handleReceivedFrame(otherFrame, otherLen, -6.0f, kAirtimeMs)); // another key: own window
+}
+
+void test_hop_rate_caps_what_one_neighbouring_repeater_forwards_a_minute()
+{
+    MeshCoreRepeater repeater;
+    repeater.setFirewall(0, 0, 3);
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    for (int i = 0; i < 3; i++) {
+        const size_t len = makeFloodFrame(frame, kTxtMsg, 1, 2, 0x70, (uint8_t)(0x10 + i), kTxtMsgPayloadLen);
+        TEST_ASSERT_TRUE(repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs));
+    }
+    size_t len = makeFloodFrame(frame, kTxtMsg, 1, 2, 0x70, 0x40, kTxtMsgPayloadLen);
+    TEST_ASSERT_FALSE(repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs));
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.rxRateLimited);
+
+    // Another repeater has its own count, and the window starts over after a minute.
+    len = makeFloodFrame(frame, kTxtMsg, 1, 2, 0x90, 0x50, kTxtMsgPayloadLen);
+    TEST_ASSERT_TRUE(repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs));
+    Time::advanceTestMillis(61000);
+    len = makeFloodFrame(frame, kTxtMsg, 1, 2, 0x70, 0x60, kTxtMsgPayloadLen);
+    TEST_ASSERT_TRUE(repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs));
 }
 
 void test_one_byte_path_hashes_are_never_matched_against_the_ignore_list()
@@ -2132,6 +2214,10 @@ void setup()
     RUN_TEST(test_traffic_forwarded_by_an_ignored_node_is_dropped_by_its_path_hash);
     RUN_TEST(test_direct_message_from_an_ignored_node_is_cut_by_its_source_hash);
     RUN_TEST(test_anonymous_request_from_an_ignored_node_is_dropped_on_its_key);
+    RUN_TEST(test_source_hash_cut_is_off_unless_the_rule_is_on);
+    RUN_TEST(test_drop_rule_silences_its_payload_types_only);
+    RUN_TEST(test_advert_gap_keeps_one_advert_per_key_per_window);
+    RUN_TEST(test_hop_rate_caps_what_one_neighbouring_repeater_forwards_a_minute);
     RUN_TEST(test_one_byte_path_hashes_are_never_matched_against_the_ignore_list);
     RUN_TEST(test_taking_a_node_off_the_ignore_list_lets_its_traffic_through_again);
     exit(UNITY_END());

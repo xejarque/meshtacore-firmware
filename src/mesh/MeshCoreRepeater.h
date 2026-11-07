@@ -91,7 +91,11 @@ class MeshCoreRepeater
      * if enabled. airtimeMs is the frame's on-air time (RadioInterface::getPacketTime), used to
      * size the adaptive relay delay.
      */
-    void handleReceivedFrame(const uint8_t *raw, size_t len, float snr, uint32_t airtimeMs);
+    /**
+     * Returns false when the firewall dropped the frame (a /mtc DROP rule, an ignored node, a rate limit): nothing else, the
+     * companion included, should see it. True for everything else, even a frame that is not MeshCore at all.
+     */
+    bool handleReceivedFrame(const uint8_t *raw, size_t len, float snr, uint32_t airtimeMs);
 
     /** True when at least one raw MeshCore frame is queued for transmission. */
     bool hasPendingFrame() const;
@@ -258,8 +262,13 @@ class MeshCoreRepeater
     typedef bool (*IgnorePredicate)(uint32_t nodeNum);
     static void setIgnorePredicate(IgnorePredicate predicate) { ignorePredicate = predicate; }
 
-    /** True when raw comes from an ignored node. For callers that must keep a frame from other consumers (the companion). */
-    bool isIgnoredFrame(const uint8_t *raw, size_t len);
+    /**
+     * The firewall (MeshCoreConfig::DROP_*, the advert gap and the hop rate): which frames are dropped before anything else
+     * looks at them. Ignored nodes are dropped whatever these say.
+     */
+    void setFirewall(uint8_t dropMask, uint8_t advertGapMin, uint8_t hopRatePerMin);
+    uint8_t getDropMask() const { return fwDropMask; }
+    uint32_t getRuleDrops(size_t rule) const { return rule < MeshCoreConfig::DROP_RULE_COUNT ? fwRuleDrops[rule] : 0; }
 
     /// One direct neighbour as the relay heard it: a node whose own ADVERT arrived without crossing any repeater.
     struct NeighborView {
@@ -285,7 +294,7 @@ class MeshCoreRepeater
 
     // Counters for observability
     uint32_t rxSeen = 0, rxFlood = 0, rxDup = 0, rxDropped = 0, txRelayed = 0, txDropped = 0, rxDirectForUs = 0,
-             discoverReplies = 0, rxIgnored = 0;
+             discoverReplies = 0, rxIgnored = 0, rxRateLimited = 0;
 
     // Contention measurements: attempts that found the radio or the channel busy, and the airtime of MeshCore frames.
     uint32_t deferRadio = 0, deferChannel = 0, txAirtimeMs = 0, rxAirtimeMs = 0;
@@ -303,6 +312,35 @@ class MeshCoreRepeater
     };
     IgnoredPrefix ignoredCache[IGNORED_CACHE_SIZE];
     uint8_t ignoredNext = 0;
+
+    uint8_t fwDropMask = 0;
+    uint8_t fwAdvertGapMin = 0;
+    uint8_t fwHopRatePerMin = 0;
+    uint32_t fwRuleDrops[MeshCoreConfig::DROP_RULE_COUNT] = {};
+
+    // Last time an advert of each of the latest keys was kept, and how many frames each neighbouring repeater got through.
+    static constexpr size_t ADVERT_SEEN_SIZE = 16;
+    struct AdvertSeen {
+        uint32_t key = 0;
+        uint32_t atMs = 0;
+    };
+    AdvertSeen advertSeen[ADVERT_SEEN_SIZE];
+    uint8_t advertSeenNext = 0;
+    static constexpr size_t HOP_RATE_SIZE = 8;
+    struct HopRate {
+        uint8_t prefix[3] = {0};
+        uint8_t size = 0;
+        uint8_t count = 0;
+        uint32_t windowStartMs = 0;
+    };
+    HopRate hopRates[HOP_RATE_SIZE];
+    uint8_t hopRatesNext = 0;
+
+    /** True when the firewall drops this frame; counts it against the rule that did. */
+    bool frameFiltered(const uint8_t *raw, const FrameInfo &info);
+    bool rateLimited(const uint8_t *raw, const FrameInfo &info);
+    /** The receive path past the firewall. */
+    void processFrame(const uint8_t *raw, size_t len, float snr, uint32_t airtimeMs);
 
     /** True when the frame comes from an ignored node: its ADVERT or anonymous request, a message whose one-byte source hash
      * is one's, or a flood whose last hop is one. */

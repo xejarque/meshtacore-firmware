@@ -211,7 +211,16 @@ bool MeshCoreRepeater::parse(const uint8_t *raw, size_t len, FrameInfo *out)
     return true;
 }
 
-void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, float snr, uint32_t airtimeMs)
+bool MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, float snr, uint32_t airtimeMs)
+{
+    FrameInfo info;
+    if (parse(raw, len, &info) && frameFiltered(raw, info))
+        return false;
+    processFrame(raw, len, snr, airtimeMs);
+    return true;
+}
+
+void MeshCoreRepeater::processFrame(const uint8_t *raw, size_t len, float snr, uint32_t airtimeMs)
 {
     (void)snr;       // only used by the relay half (discovery replies report it)
     (void)airtimeMs; // only used by the relay half
@@ -230,11 +239,6 @@ void MeshCoreRepeater::handleReceivedFrame(const uint8_t *raw, size_t len, float
         handleDiscoverResponse(raw, info, snr);
 
 #if MESHTASTIC_ENABLE_MESHCORE_RELAY
-    // An ignored node is dropped before anything is queued, relayed or filed as a neighbour.
-    if (isIgnoredSource(raw, info)) {
-        rxIgnored++;
-        return;
-    }
 #if MESHTASTIC_ENABLE_MESHCORE_NEIGHBORS
     if (info.payload_type == MC_PAYLOAD_TYPE_ADVERT && info.path_hash_count == 0)
         noteDirectAdvert(raw, info, snr);
@@ -1246,10 +1250,115 @@ void MeshCoreRepeater::rememberIgnored(const uint8_t *pub, uint32_t num)
     slot.nodeNum = num;
 }
 
-bool MeshCoreRepeater::isIgnoredFrame(const uint8_t *raw, size_t len)
+void MeshCoreRepeater::setFirewall(uint8_t dropMask, uint8_t advertGapMin, uint8_t hopRatePerMin)
 {
-    FrameInfo info;
-    return ignorePredicate && parse(raw, len, &info) && isIgnoredSource(raw, info);
+    fwDropMask = dropMask;
+    fwAdvertGapMin = advertGapMin;
+    fwHopRatePerMin = hopRatePerMin;
+}
+
+// The payload types a /mtc DROP rule silences. CONTROL (neighbour discovery) is never one of them.
+static uint8_t dropBitFor(uint8_t payloadType)
+{
+    switch (payloadType) {
+    case MC_PAYLOAD_TYPE_ADVERT:
+        return MeshCoreConfig::DROP_ADVERT;
+    case MC_PAYLOAD_TYPE_REQ:
+    case MC_PAYLOAD_TYPE_RESPONSE:
+    case MC_PAYLOAD_TYPE_ANON_REQ:
+        return MeshCoreConfig::DROP_REQUEST;
+    case MC_PAYLOAD_TYPE_TXT_MSG:
+        return MeshCoreConfig::DROP_TEXT;
+    case MC_PAYLOAD_TYPE_GRP_TXT:
+    case MC_PAYLOAD_TYPE_GRP_DATA:
+        return MeshCoreConfig::DROP_GROUP;
+    case MC_PAYLOAD_TYPE_ACK:
+    case MC_PAYLOAD_TYPE_MULTIPART:
+        return MeshCoreConfig::DROP_ACK;
+    case MC_PAYLOAD_TYPE_PATH:
+        return MeshCoreConfig::DROP_PATH;
+    case MC_PAYLOAD_TYPE_TRACE:
+        return MeshCoreConfig::DROP_TRACE;
+    default:
+        return 0;
+    }
+}
+
+bool MeshCoreRepeater::frameFiltered(const uint8_t *raw, const FrameInfo &info)
+{
+    // Cheap, stateless checks first; the rate limits keep state, so they only see what the others let through.
+    const uint8_t bit = dropBitFor(info.payload_type) & fwDropMask;
+    if (bit) {
+        for (size_t i = 0; i < MeshCoreConfig::DROP_RULE_COUNT; i++) {
+            if (MeshCoreConfig::DROP_RULES[i].bit == bit)
+                fwRuleDrops[i]++;
+        }
+        return true;
+    }
+    if (isIgnoredSource(raw, info)) {
+        rxIgnored++;
+        return true;
+    }
+    if (rateLimited(raw, info)) {
+        rxRateLimited++;
+        return true;
+    }
+    return false;
+}
+
+bool MeshCoreRepeater::rateLimited(const uint8_t *raw, const FrameInfo &info)
+{
+    const uint32_t now = Time::getMillis();
+
+    // One advert per key per gap: a node that re-announces itself every few seconds is noise, not presence.
+    if (fwAdvertGapMin != 0 && info.payload_type == MC_PAYLOAD_TYPE_ADVERT && info.payload_len >= MC_PUB_KEY_SIZE) {
+        const uint32_t key = MeshCoreNodeStore<1>::nodeNumForKey(&raw[info.header_len]);
+        AdvertSeen *slot = nullptr;
+        for (AdvertSeen &seen : advertSeen) {
+            if (seen.key == key) {
+                slot = &seen;
+                break;
+            }
+        }
+        const uint32_t gapMs = (uint32_t)fwAdvertGapMin * 60000UL;
+        if (slot && Throttle::isWithinTimespanMs(slot->atMs, gapMs))
+            return true;
+        if (!slot) {
+            slot = &advertSeen[advertSeenNext];
+            advertSeenNext = (uint8_t)((advertSeenNext + 1) % ADVERT_SEEN_SIZE);
+            slot->key = key;
+        }
+        slot->atMs = now;
+    }
+
+    // At most N frames a minute from one neighbouring repeater, named by the last hop of the path (2- or 3-byte hashes).
+    const bool flood = info.route_type == MC_ROUTE_FLOOD || info.route_type == MC_ROUTE_TRANSPORT_FLOOD;
+    if (fwHopRatePerMin != 0 && flood && info.path_hash_count != 0 && info.path_hash_size >= 2) {
+        const uint8_t *lastHop = &raw[info.header_len - info.path_hash_size];
+        HopRate *slot = nullptr;
+        for (HopRate &hop : hopRates) {
+            if (hop.size == info.path_hash_size && memcmp(hop.prefix, lastHop, hop.size) == 0) {
+                slot = &hop;
+                break;
+            }
+        }
+        if (!slot) {
+            slot = &hopRates[hopRatesNext];
+            hopRatesNext = (uint8_t)((hopRatesNext + 1) % HOP_RATE_SIZE);
+            slot->size = info.path_hash_size;
+            memcpy(slot->prefix, lastHop, slot->size);
+            slot->windowStartMs = now;
+            slot->count = 0;
+        }
+        if (!Throttle::isWithinTimespanMs(slot->windowStartMs, 60000UL)) {
+            slot->windowStartMs = now;
+            slot->count = 0;
+        }
+        if (slot->count >= fwHopRatePerMin)
+            return true;
+        slot->count++;
+    }
+    return false;
 }
 
 bool MeshCoreRepeater::isIgnoredSource(const uint8_t *raw, const FrameInfo &info)
@@ -1276,7 +1385,8 @@ bool MeshCoreRepeater::isIgnoredSource(const uint8_t *raw, const FrameInfo &info
 
     // Direct messages, requests, responses and paths carry a one-byte source hash: 1 in 256 senders shares it. Cutting on
     // it also cuts those few; with a short ignore list that is the price of silencing the node's direct traffic.
-    if ((info.payload_type == MC_PAYLOAD_TYPE_TXT_MSG || info.payload_type == MC_PAYLOAD_TYPE_REQ ||
+    if ((fwDropMask & MeshCoreConfig::DROP_SOURCE) &&
+        (info.payload_type == MC_PAYLOAD_TYPE_TXT_MSG || info.payload_type == MC_PAYLOAD_TYPE_REQ ||
          info.payload_type == MC_PAYLOAD_TYPE_RESPONSE || info.payload_type == MC_PAYLOAD_TYPE_PATH) &&
         info.payload_len >= 2) {
         for (IgnoredPrefix &known : ignoredCache) {

@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "modules/NexusMeshCoreFirewall.h"
 #include "modules/NexusMeshCoreKey.h"
 
 #include "mesh/MeshCoreNodeStore.h" // MeshCoreNode, which the NODES/CONTACTS/REPEATERS commands name even without a companion
@@ -1200,6 +1201,111 @@ static void handleMeshCoreUndropCommand(const char *arg, char *reply, size_t rep
     (void)arg;
     snprintf(reply, replyLen, "MESHTACORE: companion disabled");
 #endif
+}
+
+bool meshCoreFirewallSetRule(const char *tag, bool on)
+{
+    RadioLibInterface *radio = RadioLibInterface::instance;
+    for (const MeshCoreConfig::DropRule &rule : MeshCoreConfig::DROP_RULES) {
+        if (strcasecmp(tag, rule.tag) != 0)
+            continue;
+        if (!radio)
+            return true; // a known tag on a node without a radio: nothing to change
+        const MeshCoreConfig cfg = radio->currentMeshCoreConfig();
+        const uint8_t mask = on ? (cfg.dropMask | rule.bit) : (cfg.dropMask & (uint8_t)~rule.bit);
+        radio->setMeshCoreFirewall(mask, cfg.advertGapMin, cfg.hopRatePerMin);
+        return true;
+    }
+    return false;
+}
+
+bool meshCoreFirewallCommand(const char *cmd, char *reply, size_t replyLen)
+{
+    const bool gap = strncasecmp(cmd, "MCGAP", 5) == 0 && (cmd[5] == '\0' || cmd[5] == ' ');
+    const bool rate = strncasecmp(cmd, "MCRATE", 6) == 0 && (cmd[6] == '\0' || cmd[6] == ' ');
+    if (!gap && !rate)
+        return false;
+    RadioLibInterface *radio = RadioLibInterface::instance;
+    if (!radio) {
+        snprintf(reply, replyLen, "MESHTACORE: no radio");
+        return true;
+    }
+    const MeshCoreConfig cfg = radio->currentMeshCoreConfig();
+    const char *arg = cmd + (gap ? 5 : 6);
+    while (*arg == ' ')
+        arg++;
+    if (*arg == '\0') {
+        if (gap)
+            snprintf(reply, replyLen, "MESHTACORE: MCGAP %u min (0 = off), one advert per key in that time", cfg.advertGapMin);
+        else
+            snprintf(reply, replyLen, "MESHTACORE: MCRATE %u frames/min (0 = off) from one neighbouring repeater",
+                     cfg.hopRatePerMin);
+        return true;
+    }
+    uint32_t value = 0;
+    if (!parseWholeNumber(arg, &value) || value > 255) {
+        snprintf(reply, replyLen, "MESHTACORE: %s takes 0-255", gap ? "MCGAP" : "MCRATE");
+        return true;
+    }
+    radio->setMeshCoreFirewall(cfg.dropMask, gap ? (uint8_t)value : cfg.advertGapMin, rate ? (uint8_t)value : cfg.hopRatePerMin);
+    snprintf(reply, replyLen, "MESHTACORE: %s %u%s", gap ? "MCGAP" : "MCRATE", (unsigned)value, value == 0 ? " (off)" : "");
+    return true;
+}
+
+size_t meshCoreFirewallActiveTags(char *out, size_t outLen)
+{
+    RadioLibInterface *radio = RadioLibInterface::instance;
+    size_t len = 0;
+    if (outLen)
+        out[0] = '\0';
+    if (!radio)
+        return 0;
+    const uint8_t mask = radio->getMeshCoreRepeater().getDropMask();
+    for (const MeshCoreConfig::DropRule &rule : MeshCoreConfig::DROP_RULES) {
+        if ((mask & rule.bit) == 0)
+            continue;
+        const int n = snprintf(out + len, outLen - len, "%s ", rule.tag);
+        if (n < 0 || (size_t)n >= outLen - len)
+            break;
+        len += (size_t)n;
+    }
+    return len;
+}
+
+size_t meshCoreFirewallLimits(char *out, size_t outLen)
+{
+    RadioLibInterface *radio = RadioLibInterface::instance;
+    if (!radio) {
+        if (outLen)
+            out[0] = '\0';
+        return 0;
+    }
+    const MeshCoreConfig cfg = radio->currentMeshCoreConfig();
+    const int n = snprintf(out, outLen, "MCGAP:%u MCRATE:%u", cfg.advertGapMin, cfg.hopRatePerMin);
+    return n < 0 ? 0 : ((size_t)n < outLen ? (size_t)n : outLen - 1);
+}
+
+size_t meshCoreFirewallCounters(char *out, size_t outLen)
+{
+    RadioLibInterface *radio = RadioLibInterface::instance;
+    if (!radio) {
+        if (outLen)
+            out[0] = '\0';
+        return 0;
+    }
+    const MeshCoreRepeater &repeater = radio->getMeshCoreRepeater();
+    size_t len = (size_t)snprintf(out, outLen, "NIGN:%lu LIMIT:%lu", (unsigned long)repeater.rxIgnored,
+                                  (unsigned long)repeater.rxRateLimited);
+    for (size_t i = 0; i < MeshCoreConfig::DROP_RULE_COUNT && len < outLen; i++) {
+        if (repeater.getRuleDrops(i) == 0)
+            continue;
+        const int n = snprintf(out + len, outLen - len, " %s:%lu", MeshCoreConfig::DROP_RULES[i].tag,
+                               (unsigned long)repeater.getRuleDrops(i));
+        if (n < 0 || (size_t)n >= outLen - len)
+            break;
+        len += (size_t)n;
+    }
+    return len < outLen ? len : outLen - 1;
 }
 
 static void handleMeshCoreDropsCommand(char *reply, size_t replyLen)

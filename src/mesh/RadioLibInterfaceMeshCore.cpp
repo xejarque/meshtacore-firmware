@@ -458,6 +458,7 @@ void RadioLibInterface::applyMeshCoreConfig()
     MeshCoreRepeater::setOwnPathHashSize(meshCoreConfig.effectivePathHashSize());
     meshCoreRepeater.setFloodLimits(meshCoreConfig.effectiveFloodMax(), meshCoreConfig.effectiveFloodMaxUnscoped(),
                                     meshCoreConfig.effectiveFloodMaxAdvert());
+    meshCoreRepeater.setFirewall(meshCoreConfig.dropMask, meshCoreConfig.advertGapMin, meshCoreConfig.hopRatePerMin);
 }
 
 bool RadioLibInterface::saveMeshCoreConfig()
@@ -513,6 +514,21 @@ void RadioLibInterface::setMeshCoreAdvertHours(uint8_t hours)
 {
     ensureMeshCoreConfigLoaded();
     meshCoreConfig.advertHours = hours;
+}
+
+MeshCoreConfig RadioLibInterface::currentMeshCoreConfig()
+{
+    ensureMeshCoreConfigLoaded();
+    return meshCoreConfig;
+}
+
+void RadioLibInterface::setMeshCoreFirewall(uint8_t dropMask, uint8_t advertGapMin, uint8_t hopRatePerMin)
+{
+    ensureMeshCoreConfigLoaded();
+    meshCoreConfig.dropMask = dropMask;
+    meshCoreConfig.advertGapMin = advertGapMin;
+    meshCoreConfig.hopRatePerMin = hopRatePerMin;
+    meshCoreRepeater.setFirewall(dropMask, advertGapMin, hopRatePerMin);
 }
 
 void RadioLibInterface::setMeshCorePathHashSize(uint8_t bytes)

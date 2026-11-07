@@ -97,6 +97,7 @@
 #include "modules/TraceRouteModule.h"
 #include "modules/ExternalNotificationModule.h"
 #include "RadioLibInterface.h"
+#include "modules/NexusMeshCoreFirewall.h"
 #if (defined(USE_LR2021) || defined(ARCH_PORTDUINO)) && !RADIOLIB_EXCLUDE_LR2021
 // Nexus-28005: /mtc LR2021_SF handler uses LR2021Interface accessors
 // (sideDetectorsCount, setSideDetectors, clearSideDetectors) for the
@@ -1045,6 +1046,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 break;
             }
         }
+
+        if (!handled)
+            handled = meshCoreFirewallSetRule(portStr, setDrop); // MC* tags: the MeshCore rules
 
         if (handled) {
             snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: %s filter %s", portStr, setDrop ? "ACTIVE" : "DISABLED");
@@ -2155,6 +2159,19 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
             appendPaging("\n\n");
 
+            // === MESHCORE === (the same rules, for MeshCore frames; ignored nodes are the NIGN list)
+            {
+                appendPaging("== MESHCORE ==");
+                if (meshCoreFirewallActiveTags(line, sizeof(line)) > 0)
+                    appendPaging(line);
+                appendPaging("\n");
+                if (meshCoreFirewallLimits(line, sizeof(line)) > 0) {
+                    appendPaging(line);
+                    appendPaging("\n");
+                }
+                appendPaging("\n");
+            }
+
             // === HEXDROPS / HEXOUTDROPS ===
             {
                 uint64_t dr = getNexusDropHex();
@@ -2431,6 +2448,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     }
 #endif
+    else if (meshCoreFirewallCommand(cmd, replyMsg, sizeof(replyMsg))) {
+        // MCGAP / MCRATE: the MeshCore firewall's rate limits; the reply is already in replyMsg
+    }
     else if (strcasecmp(cmd, "DROPS") == 0) {
         int l = snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE ACTIVE DROPS:\n");
 
@@ -2439,6 +2459,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 l += snprintf(replyMsg + l, sizeof(replyMsg) - l, "%s ", r.tag);
             }
         }
+        if (l >= 0 && (size_t)l < sizeof(replyMsg) - 8) { l += (int)meshCoreFirewallActiveTags(replyMsg + l, sizeof(replyMsg) - l); }
         if (trace_alert && l >= 0 && (size_t)l < sizeof(replyMsg) - 8) { l += snprintf(replyMsg + l, sizeof(replyMsg) - l, "TA:%d ", trace_alert_mode); }
         if (meta_alert && l >= 0 && (size_t)l < sizeof(replyMsg) - 8) { l += snprintf(replyMsg + l, sizeof(replyMsg) - l, "MA:%d ", meta_alert_mode); }
         if (isZeroHopEnabled() && l >= 0 && (size_t)l < sizeof(replyMsg) - 8) { l += snprintf(replyMsg + l, sizeof(replyMsg) - l, "ZH "); }
@@ -6632,6 +6653,13 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                  (unsigned int)rl_drop_nodeinfo, (unsigned int)rl_drop_position,
                  (unsigned int)rl_drop_telemetry, (unsigned int)rl_drop_private);
         appendPaging(line);
+
+        // MeshCore frames dropped by the same firewall: ignored nodes, rate limits, and one count per MC rule that fired.
+        if (meshCoreFirewallCounters(line, sizeof(line)) > 0) {
+            appendPaging("MC Drop: ");
+            appendPaging(line);
+            appendPaging("\n");
+        }
 
         snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging firewall stats...");
         memset(line, 0, sizeof(line));

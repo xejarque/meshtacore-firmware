@@ -987,18 +987,18 @@ void RadioLibInterface::handleReceiveInterrupt(const CapturedRxInfo *captured)
             // The saved settings (path hash size, flood limits, relay mode) normally load on the first service tick, a few
             // seconds after boot. A frame heard before that must already be handled with them.
             ensureMeshCoreConfigLoaded();
+            // The firewall (/mtc DROP rules, NIGN, rate limits) runs first: a dropped frame reaches neither the companion nor
+            // the relay.
+            if (meshCoreRepeater.handleReceivedFrame((const uint8_t *)&radioBuffer, length, iface->getSNR(),
+                                                     getPacketTime(length, false))) {
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
-            // An ignored node (/mtc NIGN) never reaches the companion either: no contact, no neighbour, no message.
-            if (!meshCoreRepeater.isIgnoredFrame((const uint8_t *)&radioBuffer, length)) {
-            // The frequency error comes with the captured frame when the readout task took it; on the thread path the
-            // chip still holds this frame's status, so it is read here, as addReceiveMetadata() does for Meshtastic.
-            const float mcFreqErr = captured ? captured->frequencyError : readFrequencyError();
-            meshCoreCompanion.handleFrame((const uint8_t *)&radioBuffer, length, iface->getSNR(), (int32_t)lround(iface->getRSSI()),
-                                          mcFreqErr);
-            }
+                // The frequency error comes with the captured frame when the readout task took it; on the thread path the
+                // chip still holds this frame's status, so it is read here, as addReceiveMetadata() does for Meshtastic.
+                const float mcFreqErr = captured ? captured->frequencyError : readFrequencyError();
+                meshCoreCompanion.handleFrame((const uint8_t *)&radioBuffer, length, iface->getSNR(),
+                                              (int32_t)lround(iface->getRSSI()), mcFreqErr);
 #endif
-            meshCoreRepeater.handleReceivedFrame((const uint8_t *)&radioBuffer, length, iface->getSNR(),
-                                                 getPacketTime(length, false));
+            }
             wakeMeshCoreRelay(); // when the adaptive relay delay elapses
             airTime->logAirtime(RX_LOG, rxMsec);
             meshCoreRepeater.rxAirtimeMs += rxMsec;

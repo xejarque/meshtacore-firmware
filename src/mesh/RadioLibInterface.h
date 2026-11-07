@@ -641,6 +641,13 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     /// Set the flood ADVERT period in hours, 0 for the built-in default. The next scheduled flood uses it.
     void setMeshCoreAdvertHours(uint8_t hours);
 
+    /// The settings in force, loaded from flash first if that has not happened yet.
+    MeshCoreConfig currentMeshCoreConfig();
+
+    /// Set the firewall: MeshCoreConfig::DROP_* bits, minutes between two kept adverts of one key, and frames a minute from one
+    /// neighbouring repeater (0 = no limit). Applies at once; /mtc SAVE keeps it.
+    void setMeshCoreFirewall(uint8_t dropMask, uint8_t advertGapMin, uint8_t hopRatePerMin);
+
     /// Set the path hash size in bytes (1..3) of the floods this node originates, 0 for the default.
     void setMeshCorePathHashSize(uint8_t bytes);
 
