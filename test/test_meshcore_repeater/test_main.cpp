@@ -508,6 +508,24 @@ static size_t queueDistinctFlood(MeshCoreRepeater &repeater, uint8_t hops, uint8
     return len;
 }
 
+// The post-TX hold-off is a start plus a length, so it survives the 32-bit clock being past 2^31 ms (~24 days of uptime):
+// a repeater that never armed one must not read as held off, and an armed one must end.
+void test_holdoff_neither_blocks_nor_sticks_after_24_days_of_uptime()
+{
+    Time::setTestMillis(0x90000000u);
+    MeshCoreRepeater repeater;
+    queueDistinctFlood(repeater, 2, 0x50);
+    Time::advanceTestMillis(3000);
+    TEST_ASSERT_TRUE(repeater.isRelayDue());
+
+    repeater.afterTransmit(1000); // holds off 1-3 slots of 1000 ms
+    queueDistinctFlood(repeater, 2, 0x51);
+    Time::advanceTestMillis(1);
+    TEST_ASSERT_FALSE(repeater.isRelayDue());
+    Time::advanceTestMillis(3000);
+    TEST_ASSERT_TRUE(repeater.isRelayDue());
+}
+
 // A full queue keeps the floods with the fewest hops (ZephCore: the new one expels the worst only if it ranks above it).
 void test_full_queue_evicts_the_flood_with_most_hops()
 {
@@ -1792,6 +1810,7 @@ void setup()
     RUN_TEST(test_relay_respects_role_and_rebroadcast_mode);
     RUN_TEST(test_relay_mode_overrides_role_and_rebroadcast_policy);
     RUN_TEST(test_second_flood_is_queued_beside_the_first);
+    RUN_TEST(test_holdoff_neither_blocks_nor_sticks_after_24_days_of_uptime);
     RUN_TEST(test_full_queue_evicts_the_flood_with_most_hops);
     RUN_TEST(test_flood_dropped_for_room_is_relayed_when_heard_again);
     RUN_TEST(test_evicted_flood_is_forgotten);
