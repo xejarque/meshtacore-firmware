@@ -1,6 +1,7 @@
 // Meshtastic BLE transport for the Meshtacore admin page.
 // Web Bluetooth -> Meshtastic service -> local Nexus command (/mtcl) -> text replies.
 // Protobuf is hand-encoded: only the handful of fields this page needs.
+import { isNexusReply } from "./settings-core.js";
 
 const SERVICE = "6ba1b218-15a8-461f-9fa8-5dcae273eafd";
 const TO_RADIO = "f75c76d2-129e-4dad-a1dd-7866124401e7";
@@ -8,7 +9,8 @@ const FROM_RADIO = "2c55e69e-4993-11ed-b878-0242ac120002";
 const FROM_NUM = "ed9da18c-a800-4f66-a670-aa7547e34453";
 const LOCAL_ROOT = "/mtcl";
 const PORTNUM_TEXT = 1;
-const REPLY_QUIET_MS = 2500;
+const REPLY_QUIET_MS = 2500; // silence that ends a paged reply
+const SINGLE_QUIET_MS = 700; // silence that ends a one-message reply
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -164,11 +166,15 @@ export class NodeLink {
   }
 
   onReply(text) {
+    // The node forwards ordinary mesh chatter to the phone too; only Nexus replies belong to a command.
+    if (!isNexusReply(text)) return;
     this.emit("rx", text);
     if (!this.pending) return;
     this.pending.chunks.push(text);
+    // A paged reply keeps coming for a while; a single-message reply is done almost at once.
+    if (/Paging/.test(text) || /^P\d+: /.test(text)) this.pending.paged = true;
     clearTimeout(this.pending.timer);
-    this.pending.timer = setTimeout(this.pending.done, REPLY_QUIET_MS);
+    this.pending.timer = setTimeout(this.pending.done, this.pending.paged ? REPLY_QUIET_MS : SINGLE_QUIET_MS);
   }
 
   // Queues one command; resolves with the text collected until the node goes quiet.

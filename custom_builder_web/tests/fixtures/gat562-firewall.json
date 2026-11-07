@@ -1,0 +1,101 @@
+{
+ "node": "!9bdbf569",
+ "capturedAt": "2026-11-07T17:41:26",
+ "outputs": [
+  {
+   "command": "DROPS",
+   "response": "🔴 MESHTACORE ACTIVE DROPS:\nP_OFF T_OFF ",
+   "at": "2026-11-07T17:40:25"
+  },
+  {
+   "command": "OUTDROPS",
+   "response": "🔴 MESHTACORE ACTIVE OUTDROPS:\n",
+   "at": "2026-11-07T17:40:28"
+  },
+  {
+   "command": "HEXDROPS",
+   "response": "🔴 MESHTACORE HEXDROPS: 0x0000000000000000",
+   "at": "2026-11-07T17:40:31"
+  },
+  {
+   "command": "HEXOUTDROPS",
+   "response": "🔴 MESHTACORE HEXOUTDROPS: 0x0000000000000000",
+   "at": "2026-11-07T17:40:35"
+  },
+  {
+   "command": "FW",
+   "response": "🔴 MESHTACORE: Paging firewall status...\nP1: MESHTACORE FW STATUS:\n== DROPS ==\n\n== OUTDROPS ==\n\n== HEX ==\nDROPS:     0x0000000000000000\nOUTDROPS:  0x0000000000000000\n\n== INVALID ==\nNULL:OFF(0) SPAIN:OFF(0) GERM:OFF(0) HW:OFF(0) ID:OFF(0)\n\n=\nP2: = PRALLOW == (empty)\n== PRBLOCK == (empty)\n",
+   "at": "2026-11-07T17:40:40"
+  },
+  {
+   "command": "INVALID",
+   "response": "🔴 MESHTACORE INVALID Rules:\nNULL:OFF (0) SPAIN:OFF (0)\nGERM:OFF (0) HW:OFF (0)\nID:OFF (0)",
+   "at": "2026-11-07T17:40:43"
+  },
+  {
+   "command": "PRWHITELIST LIST",
+   "response": "🔴 MESHTACORE Whitelist: ",
+   "at": "2026-11-07T17:40:46"
+  },
+  {
+   "command": "PRBLACKLIST LIST",
+   "response": "🔴 MESHTACORE Blacklist: ",
+   "at": "2026-11-07T17:40:50"
+  },
+  {
+   "command": "RDROP",
+   "response": "🔴 MESHTACORE RDROP: ",
+   "at": "2026-11-07T17:40:53"
+  },
+  {
+   "command": "IDR",
+   "response": "🔴 MESHTACORE IDR: ",
+   "at": "2026-11-07T17:40:56"
+  },
+  {
+   "command": "FAVS",
+   "response": "🔴 MESHTACORE: Paging Favorites to mesh...\nP1: MESHTACORE Favorites:\n!f3a45b84:5b84 ",
+   "at": "2026-11-07T17:40:59"
+  },
+  {
+   "command": "IGNORED",
+   "response": "🔴 MESHTACORE: Paging Ignored to mesh...\nP1: MESHTACORE Ignored:\n",
+   "at": "2026-11-07T17:41:03"
+  },
+  {
+   "command": "NIGN",
+   "response": "🔴 MESHTACORE: Paging ignore list (0 nodes)...\nP1: MESHTACORE MESHTACORE Ignores:\nList empty.\n",
+   "at": "2026-11-07T17:41:06"
+  },
+  {
+   "command": "FSIG",
+   "response": "🔴 MESHTACORE: Paging signatures...\nP1: MESHTACORE Signatures:\nS1: OFF\nS2: OFF\nS3: OFF\nS4: OFF\nS5: OFF\nS6: OFF\nS7: OFF\nS8: OFF\n",
+   "at": "2026-11-07T17:41:09"
+  },
+  {
+   "command": "ZH",
+   "response": "🔴 MESHTACORE: ZH OFF (POS:OFF TELE:OFF RTR:OFF[0] CLI:OFF[0])",
+   "at": "2026-11-07T17:41:13"
+  },
+  {
+   "command": "SECURITY",
+   "response": "🔴 MESHTACORE SECURITY:\n REQ_SIG:off\n ALLOW_DM:off\n SILENT:off\n FAV_NX:off\n FAV_TR:off\n FAV_XT:off ch0\n BYPASS_RP:off (5/256)",
+   "at": "2026-11-07T17:41:16"
+  },
+  {
+   "command": "FEATURES",
+   "response": "🔴 MESHTACORE FEATURES: 0x0000000000000000\nFORWARD_OPAQUE_TO_PHONE:      off\nFORWARD_FOREIGN_PKI_TO_PHONE: off\nDISABLE_AGC_RESET:            off\nLATEBASE:                     off",
+   "at": "2026-11-07T17:41:19"
+  },
+  {
+   "command": "HOPMASK",
+   "response": "🔴 MESHTACORE Hop Masking: OFF (S:3, L:3)",
+   "at": "2026-11-07T17:41:23"
+  },
+  {
+   "command": "CH-HOPMASK",
+   "response": "🔴 MESHTACORE Ch Hopmasks:\n",
+   "at": "2026-11-07T17:41:26"
+  }
+ ]
+}

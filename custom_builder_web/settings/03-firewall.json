@@ -1,0 +1,170 @@
+{
+  "id": "03",
+  "title": "Cortafuegos",
+  "icon": "🛡️",
+  "intro": "El cortafuegos de Nexus decide qué paquetes ignora tu nodo: no los reenvía, no los entrega a la app y no los apunta en la lista de nodos. Todo está apagado por defecto. Los favoritos se saltan el cortafuegos (salvo que lo cambies con «Favoritos exentos»). Los cambios viven en la memoria del nodo hasta que pulses Guardar.",
+  "entries": [
+    {
+      "id": "fw.drops",
+      "type": "flags",
+      "title": "Qué paquetes ignora tu nodo",
+      "help": "Cada interruptor activado hace que el nodo descarte ese tipo de paquete cuando lo recibe. Sirve para quitar ruido de la malla o protegerte de abusos. Si dudas, déjalo apagado.",
+      "risk": "write",
+      "read": { "cmd": "DROPS", "mode": "tokens", "pattern": "ACTIVE DROPS:\\s*([^\\n]*)" },
+      "write": { "on": "DROP {key}", "off": "UNDROP {key}" },
+      "flags": [
+        { "group": "Tipos de mensaje", "key": "NI", "aliases": ["NODEINFO"], "title": "NodeInfo", "help": "Las tarjetas de presentación (nombre, modelo y clave) que anuncia cada nodo. Si las ignoras, tu nodo deja de aprender quién hay en la malla." },
+        { "group": "Tipos de mensaje", "key": "PO", "aliases": ["POSITION"], "title": "Posiciones", "help": "Las coordenadas que comparten los nodos." },
+        { "group": "Tipos de mensaje", "key": "TL", "aliases": ["TELEMETRY"], "title": "Telemetría", "help": "Batería, tensión, sensores y estadísticas de los demás nodos. Es mucho del tráfico de fondo de una malla." },
+        { "group": "Tipos de mensaje", "key": "NB", "aliases": ["NEIGHBOR"], "title": "NeighborInfo", "help": "Las listas de vecinos que publican algunos nodos." },
+        { "group": "Tipos de mensaje", "key": "TX", "aliases": ["TEXT"], "title": "Mensajes de texto", "help": "Los mensajes de chat. Al activarlo tu nodo no verá ni reenviará texto en claro." },
+        { "group": "Tipos de mensaje", "key": "AK", "aliases": ["ACKS"], "title": "Confirmaciones (ACK)", "help": "Los acuses de recibo de enrutado. Quitarlos puede romper los reintentos de otros nodos." },
+        { "group": "Tipos de mensaje", "key": "AD", "aliases": ["ADMIN"], "title": "Mensajes de administración", "help": "Los paquetes de administración de Meshtastic." },
+        { "group": "Tipos de mensaje", "key": "SF", "aliases": ["STORE_FORWARD"], "title": "Almacenar y reenviar", "help": "Las repeticiones del servicio de almacenamiento y reenvío." },
+        { "group": "Tipos de mensaje", "key": "KV", "aliases": ["KEYVER"], "title": "Verificación de claves", "help": "Los paquetes de verificación de clave entre nodos." },
+        { "group": "Tipos de mensaje", "key": "AL", "aliases": ["ALERT"], "title": "Alertas y emergencias", "help": "Los avisos de emergencia. Ignorarlos puede ocultar una alerta real." },
+        { "group": "Tipos de mensaje", "key": "WP", "aliases": ["WAYPOINT"], "title": "Puntos de ruta", "help": "Los puntos de interés que se difunden por la malla." },
+
+        { "group": "Traceroute", "key": "TR", "aliases": ["TRACEROUTE"], "title": "Todos los traceroute", "help": "Descarta cualquier traceroute, también los que pasan por tu nodo. Nadie podrá trazar rutas a través de ti." },
+        { "group": "Traceroute", "key": "TRR", "aliases": ["TRACEROUTE_REMOTE"], "title": "Traceroute en los que eres relé", "help": "Descarta los traceroute en los que tu nodo es un salto intermedio. Protege el trazado de rutas." },
+        { "group": "Traceroute", "key": "TRL", "aliases": ["TRACEROUTE_LOCAL"], "title": "Traceroute hacia o desde ti", "help": "Descarta los traceroute dirigidos a tu nodo o enviados por él. Es una forma de pasar desapercibido." },
+        { "group": "Traceroute", "key": "TRD", "aliases": ["TRACEROUTE_DIRECT", "TR_DIRECT"], "title": "Traceroute directos (0 saltos)", "help": "Descarta los traceroute que llegan sin pasar por ningún relé." },
+        { "group": "Traceroute", "key": "TRDR", "aliases": ["TRACEROUTE_DIRECT_REMOTE", "TR_DIRECT_REMOTE"], "title": "Traceroute directos donde eres relé", "help": "Igual que el anterior, pero solo cuando tu nodo hace de relé." },
+        { "group": "Traceroute", "key": "TRDL", "aliases": ["TRACEROUTE_DIRECT_LOCAL", "TR_DIRECT_LOCAL"], "title": "Traceroute directos hacia o desde ti", "help": "Descarta los traceroute directos que tienen a tu nodo como origen o destino." },
+
+        { "group": "Peticiones de datos", "key": "RNI", "aliases": ["REQ_NODEINFO"], "title": "Peticiones de NodeInfo", "help": "Descarta los paquetes que piden tu NodeInfo (los que llevan «quiero respuesta»)." },
+        { "group": "Peticiones de datos", "key": "RTL", "aliases": ["REQ_TELEMETRY"], "title": "Peticiones de telemetría", "help": "Descarta las peticiones de telemetría dirigidas a ti." },
+        { "group": "Peticiones de datos", "key": "RPO", "aliases": ["REQ_POSITION"], "title": "Peticiones de posición", "help": "Descarta las peticiones de tu posición." },
+        { "group": "Peticiones de datos", "key": "BRNI", "aliases": ["BR_NODEINFO"], "title": "Peticiones de NodeInfo por difusión", "help": "Descarta las peticiones de NodeInfo enviadas a todos. Importante en la malla española: evita las tormentas de respuestas que generan." },
+        { "group": "Peticiones de datos", "key": "BRTL", "aliases": ["BR_TELEMETRY"], "title": "Peticiones de telemetría por difusión", "help": "Descarta las peticiones de telemetría enviadas a todos." },
+        { "group": "Peticiones de datos", "key": "BRPO", "aliases": ["BR_POSITION"], "title": "Peticiones de posición por difusión", "help": "Descarta las peticiones de posición enviadas a todos." },
+
+        { "group": "Cifrado y privados", "key": "PR", "aliases": ["PRIVATE"], "title": "Canales privados ajenos", "help": "Descarta los paquetes cifrados de canales que tu nodo no tiene configurados. Para filtrar solo algunos, usa las listas blanca y negra más abajo." },
+        { "group": "Cifrado y privados", "key": "PK", "aliases": ["PKI"], "title": "Mensajes directos cifrados (PKI)", "help": "Descarta todos los mensajes directos cifrados con clave pública." },
+        { "group": "Cifrado y privados", "key": "PKR", "aliases": ["PKI_REMOTE"], "title": "PKI ajenos que pasan por ti", "help": "Descarta los paquetes PKI que no van ni vienen de tu nodo." },
+        { "group": "Cifrado y privados", "key": "PKL", "aliases": ["PKI_LOCAL"], "title": "PKI hacia o desde ti", "help": "Descarta los paquetes PKI dirigidos a tu nodo o enviados por él." },
+
+        { "group": "Cabecera del paquete", "key": "H6", "aliases": ["HOP6"], "title": "Paquetes con 6 saltos máximos", "help": "Descarta paquetes cuyo máximo de saltos configurado es 6. Reduce el alcance de quien los emite." },
+        { "group": "Cabecera del paquete", "key": "H7", "aliases": ["HOP7"], "title": "Paquetes con 7 saltos máximos", "help": "Descarta paquetes cuyo máximo de saltos configurado es 7." },
+        { "group": "Cabecera del paquete", "key": "PH", "aliases": ["PREHOP"], "title": "Saltos imposibles", "help": "Descarta paquetes con datos de saltos corruptos o imposibles. En Meshtastic 2.8 casi no hace falta." },
+
+        { "group": "Límites de frecuencia", "key": "RLTX", "aliases": ["RL_TEXT"], "title": "Limitar texto", "help": "Descarta el texto que supere el límite de frecuencia configurado para mensajes." },
+        { "group": "Límites de frecuencia", "key": "RLTR", "aliases": ["RL_TRACE"], "title": "Limitar traceroute", "help": "Descarta los traceroute que superen su límite." },
+        { "group": "Límites de frecuencia", "key": "RLOT", "aliases": ["RL_OTHER"], "title": "Limitar otros tipos", "help": "Descarta el resto de paquetes que superen su límite." },
+        { "group": "Límites de frecuencia", "key": "RLNI", "aliases": ["RL_NODEINFO"], "title": "Limitar NodeInfo", "help": "Descarta los NodeInfo que superen su límite." },
+        { "group": "Límites de frecuencia", "key": "RLPO", "aliases": ["RL_POSITION"], "title": "Limitar posiciones", "help": "Descarta las posiciones que superen su límite." },
+        { "group": "Límites de frecuencia", "key": "RLTL", "aliases": ["RL_TELEMETRY"], "title": "Limitar telemetría", "help": "Descarta la telemetría que supere su límite." },
+        { "group": "Límites de frecuencia", "key": "RLPR", "aliases": ["RL_PRIVATE"], "title": "Limitar canales privados", "help": "Descarta los paquetes de canales privados que superen su límite." },
+
+        { "group": "Subtipos de telemetría", "key": "TD", "aliases": ["TELE_DEVICE"], "title": "Telemetría del dispositivo", "help": "Batería, tensión y tiempo encendido de otros nodos." },
+        { "group": "Subtipos de telemetría", "key": "TP", "aliases": ["TELE_POWER"], "title": "Telemetría de energía", "help": "Mediciones de consumo y alimentación." },
+        { "group": "Subtipos de telemetría", "key": "TE", "aliases": ["TELE_ENV"], "title": "Telemetría ambiental", "help": "Temperatura, humedad, presión y otros sensores del entorno." },
+        { "group": "Subtipos de telemetría", "key": "TO", "aliases": ["TELE_OTHER"], "title": "Resto de telemetría", "help": "Los subtipos de telemetría que no entran en los tres anteriores." },
+
+        { "group": "Subtipos de posición", "key": "PM", "aliases": ["POS_MANUAL"], "title": "Posiciones manuales", "help": "Posiciones fijadas a mano por su dueño." },
+        { "group": "Subtipos de posición", "key": "PG", "aliases": ["POS_GPS"], "title": "Posiciones de GPS", "help": "Posiciones obtenidas de un receptor GPS." },
+        { "group": "Subtipos de posición", "key": "POO", "aliases": ["POS_OTHER"], "title": "Otras posiciones", "help": "Posiciones de cualquier otro origen." },
+
+        { "group": "Reglas generales", "key": "NM", "aliases": ["NO_MQTT"], "title": "Sin permiso para MQTT", "help": "Descarta los paquetes cuyo emisor no ha dado permiso para subirlos a MQTT." },
+        { "group": "Reglas generales", "key": "FB", "aliases": ["FAV_BYPASS"], "title": "Favoritos exentos", "help": "Cuando está activo, los nodos favoritos se saltan todo el cortafuegos." },
+        { "group": "Reglas generales", "key": "SS", "aliases": ["SKIP_SKIP"], "title": "Respetar «skip_skip» en relés opacos", "help": "Hace que los relés opacos respeten el ajuste skip_skip_handle." }
+      ]
+    },
+    {
+      "id": "fw.outdrops",
+      "type": "flags",
+      "title": "Qué paquetes no envía tu nodo",
+      "help": "Es el cortafuegos de salida: tu nodo no transmite los paquetes de estos tipos que genera él mismo. Sirve para ahorrar aire y pasar desapercibido.",
+      "risk": "write",
+      "read": { "cmd": "OUTDROPS", "mode": "tokens", "pattern": "ACTIVE OUTDROPS:\\s*([^\\n]*)" },
+      "write": { "on": "OUTDROP {key}", "off": "UNOUTDROP {key}" },
+      "flags": [
+        { "key": "NI", "title": "No enviar mi NodeInfo", "help": "Tu nodo deja de anunciarse a los demás." },
+        { "key": "PO", "title": "No enviar mi posición", "help": "Tu nodo no emite su posición." },
+        { "key": "TL", "title": "No enviar mi telemetría", "help": "Tu nodo no emite batería ni sensores." },
+        { "key": "TR", "title": "No enviar traceroute", "help": "Tu nodo no lanza traceroute." },
+        { "key": "AD", "title": "No enviar administración", "help": "Tu nodo no emite paquetes de administración." },
+        { "key": "RO", "title": "No enviar paquetes de enrutado", "help": "Tu nodo no emite paquetes de enrutado (etiqueta RO de la documentación)." }
+      ]
+    },
+    {
+      "id": "fw.invalid",
+      "type": "flags",
+      "title": "Reglas de validación",
+      "help": "Descartan paquetes que parecen falsos o rotos. Solo miran paquetes sin cifrar. Todas empiezan apagadas.",
+      "risk": "write",
+      "read": { "cmd": "INVALID", "mode": "pairs" },
+      "write": { "on": "INVALID {key}", "off": "UNINVALID {key}" },
+      "flags": [
+        { "key": "NULL", "title": "Isla Nula (0,0)", "help": "Descarta posiciones en 0,0 o a menos de 0,01° de ahí. Nació para parar a un inyector que llenaba la malla de nodos en ese punto. Mientras esté activa también se pierden los «sin posición» legítimos." },
+        { "key": "SPAIN", "title": "Solo posiciones de España", "help": "Descarta posiciones fuera de la península y Canarias (son dos cuadros aproximados). Portugal, Francia, Marruecos o coordenadas falsas caen fuera." },
+        { "key": "GERMANY", "readKey": "GERM", "title": "Solo posiciones de Alemania", "help": "Descarta posiciones fuera de un cuadro aproximado de Alemania." },
+        { "key": "HW", "title": "NodeInfo sin hardware", "help": "Descarta NodeInfo que no declaran modelo de hardware (nodos sin inicializar, corruptos o sintéticos)." },
+        { "key": "ID", "title": "NodeInfo con identidad falsa", "help": "Descarta NodeInfo cuyo identificador interno no coincide con el del emisor: alguien se hace pasar por otro nodo." }
+      ]
+    },
+    {
+      "id": "fw.relay_drop",
+      "type": "list",
+      "title": "Ignorar paquetes de ciertos relés",
+      "help": "Descarta los paquetes que ha retransmitido un relé concreto, identificado por el último byte de su ID. Útil contra un router mal configurado que rompe la inundación gestionada.",
+      "risk": "write",
+      "read": { "cmd": "RDROP", "pattern": "RDROP:\\s*([^\\n]*)" },
+      "list": { "add": "RDROP {value}", "remove": "RUNDROP {value}", "clear": "RDROP CLEAR", "placeholder": "Byte del relé, p. ej. A4" }
+    },
+    {
+      "id": "fw.idr",
+      "type": "list",
+      "title": "Ignorar duplicados de ciertos relés",
+      "help": "Para clientes y bases cliente: ignora los duplicados que llegan por un relé concreto. Anula el efecto de un router mal configurado sin descartar sus paquetes originales.",
+      "risk": "write",
+      "read": { "cmd": "IDR", "pattern": "IDR:\\s*([^\\n]*)" },
+      "list": { "add": "IDR {value}", "remove": "UNIDR {value}", "clear": "IDR CLEAR", "placeholder": "Byte del relé, p. ej. A4" }
+    },
+    {
+      "id": "fw.prwhitelist",
+      "type": "list",
+      "title": "Lista blanca de canales privados",
+      "help": "Solo funciona con canales opacos, es decir, los que tu nodo no tiene configurados. En cuanto añades uno, el cortafuegos pasa a dejar entrar solo los de la lista.",
+      "risk": "write",
+      "read": { "cmd": "PRWHITELIST LIST", "pattern": "Whitelist:\\s*([^\\n]*)" },
+      "list": { "add": "PRWHITELIST ADD {value}", "remove": "PRWHITELIST REM {value}", "placeholder": "Hash del canal, p. ej. 0xC3" }
+    },
+    {
+      "id": "fw.prblacklist",
+      "type": "list",
+      "title": "Lista negra de canales privados",
+      "help": "Bloquea los canales opacos cuyo hash esté en la lista. Los demás siguen pasando.",
+      "risk": "write",
+      "read": { "cmd": "PRBLACKLIST LIST", "pattern": "Blacklist:\\s*([^\\n]*)" },
+      "list": { "add": "PRBLACKLIST ADD {value}", "remove": "PRBLACKLIST REM {value}", "placeholder": "Hash del canal, p. ej. 0xC3" }
+    },
+    {
+      "id": "fw.favorites",
+      "type": "list",
+      "title": "Nodos favoritos",
+      "help": "Los favoritos se saltan el cortafuegos y se priorizan. Acepta el ID (!abcd1234) o el nombre corto.",
+      "risk": "write",
+      "read": { "cmd": "FAVS", "items": "(![0-9a-f]{8})(?::\\S*)?" },
+      "list": { "add": "FAV {value}", "remove": "UNFAV {value}", "placeholder": "!abcd1234 o nombre corto" }
+    },
+    {
+      "id": "fw.ignored",
+      "type": "list",
+      "title": "Nodos ignorados",
+      "help": "Los paquetes de estos nodos se descartan. Es la lista de ignorados de Meshtastic.",
+      "risk": "write",
+      "read": { "cmd": "IGNORED", "items": "(![0-9a-f]{8})(?::\\S*)?" },
+      "list": { "add": "IGNORE {value}", "remove": "UNIGNORE {value}", "placeholder": "!abcd1234 o nombre corto" }
+    },
+    {
+      "id": "fw.nign",
+      "type": "list",
+      "title": "Lista de ignorados de Nexus",
+      "help": "Una segunda lista de ignorados, propia de Nexus, de hasta 64 nodos. Va aparte de la de Meshtastic.",
+      "risk": "write",
+      "read": { "cmd": "NIGN", "items": "(![0-9a-f]{8})" },
+      "list": { "add": "NIGN ADD {value}", "remove": "NIGN REM {value}", "placeholder": "!abcd1234" }
+    }
+  ]
+}

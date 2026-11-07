@@ -1,8 +1,7 @@
 // Meshtacore node admin - console UI. Transport lives in ble.js.
 import { NodeLink } from "./ble.js";
 import { Panel } from "./panel.js";
-import { PresetWizard } from "./wizards.js";
-import { parseLora } from "./parsers.js";
+import { SettingsPanel } from "./settings.js";
 
 // Read-only commands only: no setters, and nothing that transmits or hops frequency.
 // RSSI is left out on purpose: it measures the command packet itself and stays silent for a local one.
@@ -13,10 +12,19 @@ const ui = {};
 const recording = []; // {command, response, at}
 let catalogue = [];
 let panel;
-let presetWizard;
+let settingsPanel;
+const demoReplies = new Map(); // command -> recorded reply; filled only in ?demo mode
+const isDemo = new URLSearchParams(location.search).has("demo");
+const TABS = ["panel", "settings", "console"];
+
+// In demo mode reads come from recordings and nothing is ever sent.
+async function demoRun(command) {
+  if (demoReplies.has(command)) return demoReplies.get(command);
+  return `🔴 MESHTACORE: (demo) no se envía: ${command}`;
+}
 
 function showTab(name) {
-  for (const t of ["panel", "wizards", "console"]) {
+  for (const t of TABS) {
     document.getElementById("tab-" + t).setAttribute("aria-selected", String(t === name));
     document.getElementById("view-" + t).hidden = t !== name;
   }
@@ -80,11 +88,11 @@ link
     document.body.classList.add("connected");
     log("Conectado. Nodo " + id, "ok");
     panel.start();
-    presetWizard.refreshCurrent();
+    settingsPanel.reset();
   })
   .on("disconnected", () => {
     panel.stop();
-    presetWizard.render();
+    settingsPanel.reset();
     document.body.classList.remove("connected");
     ui.status.textContent = "Desconectado";
     log("Conexión Bluetooth cerrada.", "err");
@@ -157,27 +165,33 @@ async function init() {
   capture.onclick = () => captureAll(capture);
   document.getElementById("download").onclick = downloadRecording;
   ui.search.oninput = () => renderList(ui.search.value);
-  try {
-    const { presets } = await (await fetch("admin.presets.json")).json();
-    presetWizard = new PresetWizard(link, document.getElementById("preset-wizard"), presets);
-    presetWizard.onApplied = () => panel.refresh("radio");
-    presetWizard.render();
-  } catch (e) {
-    log("No se pudo cargar el catálogo de presets: " + e.message, "err");
-  }
-  if (new URLSearchParams(location.search).has("demo")) {
-    ui.status.textContent = "Modo demo (captura de ejemplo, sin nodo)";
+  if (isDemo) {
+    ui.status.textContent = "Modo demo (capturas de ejemplo, sin nodo)";
     try {
-      const recording = await (await fetch("tests/fixtures/gat562-capture.json")).json();
-      panel.loadRecording(recording);
-      presetWizard.setCurrent(parseLora(recording.outputs.find((o) => o.command === "LORA").response));
-      presetWizard.selectByCommand(new URLSearchParams(location.search).get("preset"));
+      for (const file of ["gat562-capture.json", "gat562-firewall.json"]) {
+        const rec = await (await fetch("tests/fixtures/" + file)).json();
+        rec.outputs.forEach((o) => demoReplies.set(o.command, o.response));
+        if (file === "gat562-capture.json") panel.loadRecording(rec);
+      }
     } catch (e) {
       log("No se pudo cargar la demo: " + e.message, "err");
     }
   }
-  const startTab = new URLSearchParams(location.search).get("tab");
-  if (["panel", "wizards", "console"].includes(startTab)) showTab(startTab);
+  try {
+    const files = await (await fetch("settings/index.json")).json();
+    const catalogues = await Promise.all(files.map(async (f) => (await fetch("settings/" + f)).json()));
+    settingsPanel = new SettingsPanel({ root: document.getElementById("settings"), catalogues, run: isDemo ? demoRun : runRecorded, isConnected: isDemo ? () => true : () => link.connected });
+    settingsPanel.render();
+  } catch (e) {
+    log("No se pudo cargar el catálogo de ajustes: " + e.message, "err");
+  }
+  const params = new URLSearchParams(location.search);
+  if (TABS.includes(params.get("tab"))) showTab(params.get("tab"));
+  if (settingsPanel && (params.get("section") || params.get("find"))) {
+    settingsPanel.section = params.get("section") || settingsPanel.section;
+    settingsPanel.filter = (params.get("find") || "").toLowerCase();
+    settingsPanel.render();
+  }
   try {
     catalogue =(await (await fetch("admin.commands.json")).json()).commands;
     renderList("");

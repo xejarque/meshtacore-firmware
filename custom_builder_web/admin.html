@@ -47,7 +47,7 @@
 
       <nav class="tabs" role="tablist">
         <button role="tab" id="tab-panel" aria-selected="true" data-tab="panel">Panel en vivo</button>
-        <button role="tab" id="tab-wizards" aria-selected="false" data-tab="wizards">Asistentes</button>
+        <button role="tab" id="tab-settings" aria-selected="false" data-tab="settings">Ajustes Nexus</button>
         <button role="tab" id="tab-console" aria-selected="false" data-tab="console">Consola</button>
         <label class="muted pause"><input type="checkbox" id="pause" /> Pausar refresco</label>
       </nav>
@@ -56,9 +56,8 @@
         <div id="panel" class="cards"><p class="muted">Conecta el nodo para ver el panel.</p></div>
       </div>
 
-      <div id="view-wizards" class="panel-view" hidden>
-        <h2>Preset LoRa</h2>
-        <div id="preset-wizard"></div>
+      <div id="view-settings" class="panel-view" hidden>
+        <div id="settings"></div>
       </div>
 
       <div class="grid" id="view-console" hidden>

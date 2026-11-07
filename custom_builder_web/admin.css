@@ -86,3 +86,49 @@ body.connected .admin .capture-bar { display: flex; margin-top: 0.5rem; }
 .admin .pdetail button.run:disabled { opacity: .4; cursor: not-allowed; }
 .admin .out.ok { color: var(--ok); }
 .admin .out.err { color: var(--bad); }
+
+/* ---- Nexus settings ---- */
+.admin .sx-layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+@media (max-width: 800px) { .admin .sx-layout { grid-template-columns: 1fr; } }
+.admin .sx-nav { display: flex; flex-direction: column; gap: .25rem; position: sticky; top: 1rem; }
+.admin .sx-nav input { width: 100%; padding: .5rem; box-sizing: border-box; margin-bottom: .5rem; }
+.admin .sx-nav button { text-align: left; padding: .5rem .75rem; border: 0; border-radius: 8px; background: none; color: inherit; cursor: pointer; font: inherit; }
+.admin .sx-nav button:hover { background: rgba(127,127,127,.12); }
+.admin .sx-nav button.on { background: var(--ok); color: #fff; font-weight: 600; }
+.admin .sx-main h2 { margin: 0 0 .25rem; }
+.admin .sx-intro { opacity: .8; max-width: 70ch; margin: 0 0 1.25rem; }
+.admin .sx-card { border: 1px solid rgba(127,127,127,.3); border-radius: 12px; padding: 1.1rem 1.25rem; margin-bottom: 1rem; background: rgba(127,127,127,.04); }
+.admin .sx-card.busy { opacity: .6; pointer-events: none; }
+.admin .sx-card h3 { margin: 0 0 .25rem; font-size: 1.05rem; }
+.admin .sx-help { margin: 0 0 .75rem; opacity: .8; font-size: .9rem; max-width: 75ch; }
+.admin .sx-badge { margin-left: .5rem; font-size: .65rem; padding: .1rem .45rem; border-radius: 999px; background: var(--bad); color: #fff; vertical-align: middle; }
+.admin .sx-group { margin: 1rem 0 .25rem; font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; opacity: .6; }
+.admin .sx-flags { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: .35rem .75rem; }
+.admin .sx-flags .sx-group { grid-column: 1 / -1; }
+.admin .sx-flag { display: flex; gap: .75rem; align-items: flex-start; padding: .55rem .65rem; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+.admin .sx-flag:hover { background: rgba(127,127,127,.1); }
+.admin .sx-flag.on { background: rgba(42,157,111,.12); border-color: rgba(42,157,111,.35); }
+.admin .sx-flag-text { display: flex; flex-direction: column; gap: .15rem; }
+.admin .sx-flag-text small { opacity: .75; line-height: 1.3; }
+.admin .sx-flag-text code { font-size: .7rem; opacity: .6; }
+.admin .sx-switch { position: relative; flex: 0 0 38px; height: 22px; margin-top: 2px; }
+.admin .sx-switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
+.admin .sx-switch i { position: absolute; inset: 0; border-radius: 999px; background: rgba(127,127,127,.4); transition: background .2s; }
+.admin .sx-switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .2s; }
+.admin .sx-switch input:checked + i { background: var(--ok); }
+.admin .sx-switch input:checked + i::after { transform: translateX(16px); }
+.admin .sx-switch input:disabled + i { opacity: .4; }
+.admin .sx-chips { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .6rem; }
+.admin .sx-chip { display: inline-flex; align-items: center; gap: .4rem; padding: .2rem .35rem .2rem .7rem; border-radius: 999px; border: 1px solid rgba(127,127,127,.4); font-family: ui-monospace, monospace; font-size: .8rem; }
+.admin .sx-x { border: 0; background: none; color: inherit; cursor: pointer; opacity: .6; }
+.admin .sx-x:hover { opacity: 1; color: var(--bad); }
+.admin .sx-addrow { display: flex; gap: .5rem; flex-wrap: wrap; }
+.admin .sx-addrow input { flex: 1; min-width: 200px; padding: .45rem; font-family: ui-monospace, monospace; }
+.admin .sx-add, .admin .sx-clear, .admin .sx-save button { padding: .45rem .9rem; border-radius: 8px; border: 1px solid rgba(127,127,127,.4); background: transparent; color: inherit; cursor: pointer; font: inherit; }
+.admin .sx-add { background: var(--ok); border-color: var(--ok); color: #fff; }
+.admin .sx-clear { color: var(--bad); border-color: var(--bad); }
+.admin .sx-note { font-size: .85rem; margin: .6rem 0 0; }
+.admin .sx-note.ok { color: var(--ok); } .admin .sx-note.err { color: var(--bad); }
+.admin .sx-save { display: none; }
+.admin .sx-save.show { display: flex; gap: 1rem; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 5; margin-bottom: 1rem; padding: .7rem 1rem; border-radius: 10px; background: #fff3cd; color: #5c4400; border: 1px solid var(--warn); }
+.admin .sx-save.show button { background: #5c4400; color: #fff; border-color: #5c4400; font-weight: 600; }
