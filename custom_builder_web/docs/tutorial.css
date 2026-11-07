@@ -1,0 +1,230 @@
+/* Tutorial de administración remota: letra grande y alto contraste para lectores que lo pasan mal con pantallas.
+   Se carga DESPUÉS de docs.css y solo redefine lo que cambia. */
+
+.tutorial {
+  font-size: 1.2rem;
+  line-height: 1.75;
+}
+
+.tutorial .docs-main {
+  max-width: 860px;
+}
+
+.tutorial h1 {
+  font-size: 2.4rem;
+  line-height: 1.2;
+}
+
+.tutorial h2 {
+  font-size: 1.9rem;
+  margin-top: 3.2rem;
+}
+
+.tutorial h3 {
+  font-size: 1.4rem;
+}
+
+.tutorial p,
+.tutorial li {
+  font-size: 1.2rem;
+}
+
+.tutorial .docs-lead {
+  font-size: 1.3rem;
+  color: var(--text-main);
+}
+
+.tutorial code {
+  font-size: 1em;
+  padding: 0.1rem 0.4rem;
+}
+
+.tutorial .code-block {
+  font-size: 1.1rem;
+  line-height: 1.6;
+  padding: 1.1rem 1.3rem;
+  user-select: all; /* un toque o doble clic y se selecciona todo para copiar */
+}
+
+.tutorial .callout {
+  font-size: 1.15rem;
+  padding: 1.2rem 1.5rem;
+  border-left-width: 8px;
+}
+
+.tutorial .callout strong {
+  font-size: 1.2rem;
+}
+
+.callout-warning {
+  background: rgba(154, 103, 0, 0.12);
+  border-color: var(--accent-amber);
+  color: var(--text-main);
+}
+
+/* Pasos numerados grandes */
+.steps {
+  list-style: none;
+  counter-reset: paso;
+  padding: 0;
+  margin: 1.5rem 0;
+}
+
+.steps > li {
+  counter-increment: paso;
+  position: relative;
+  background: var(--card-bg);
+  border: 2px solid var(--card-border);
+  border-radius: 12px;
+  padding: 1.3rem 1.4rem 1.3rem 5rem;
+  margin-bottom: 1.2rem;
+  box-shadow: var(--card-shadow);
+}
+
+.steps > li::before {
+  content: counter(paso);
+  position: absolute;
+  left: 1.1rem;
+  top: 1.1rem;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 1.6rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.steps > li > strong:first-child {
+  display: block;
+  font-size: 1.3rem;
+  margin-bottom: 0.4rem;
+}
+
+.steps .code-block {
+  margin: 0.8rem 0 0.4rem;
+}
+
+/* Diagramas incrustados */
+.diagram {
+  margin: 1.8rem 0;
+  border: 2px solid var(--card-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--card-bg);
+}
+
+.diagram iframe {
+  display: block;
+  width: 100%;
+  height: 640px;
+  border: 0;
+  background: #fff;
+}
+
+.diagram figcaption {
+  padding: 0.9rem 1.2rem;
+  font-size: 1.05rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--card-border);
+}
+
+/* Botón grande para abrir el dibujo a pantalla completa (el dibujo incrustado se ve pequeño) */
+.diagram figcaption a {
+  display: block;
+  width: fit-content;
+  margin-top: 0.8rem;
+  padding: 0.7rem 1.4rem;
+  border-radius: 10px;
+  background: var(--accent-blue);
+  color: #fff;
+  font-size: 1.2rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.diagram figcaption a:hover {
+  filter: brightness(1.1);
+}
+
+/* Glosario */
+.glossary {
+  display: grid;
+  gap: 0.8rem;
+  margin: 1.2rem 0;
+}
+
+.glossary > div {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 0.9rem 1.2rem;
+}
+
+.glossary dt {
+  font-weight: 800;
+  font-size: 1.2rem;
+}
+
+.glossary dd {
+  margin: 0.2rem 0 0;
+}
+
+/* Tabla de opciones: texto grande y sin mayúsculas forzadas */
+.tutorial .docs-table {
+  font-size: 1.08rem;
+}
+
+.tutorial .docs-table th {
+  font-size: 0.95rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.tutorial .cmd-badge {
+  font-size: 1rem;
+}
+
+/* Indicador de dificultad / estado de prueba */
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  border: 2px solid;
+  vertical-align: middle;
+}
+
+.badge-ok {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+
+.badge-adv {
+  color: var(--accent-amber);
+  border-color: var(--accent-amber);
+  background: rgba(154, 103, 0, 0.12);
+}
+
+.tutorial a:focus-visible,
+.tutorial button:focus-visible {
+  outline: 3px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
+@media (max-width: 860px) {
+  .tutorial h1 {
+    font-size: 2rem;
+  }
+  .steps > li {
+    padding: 4.4rem 1rem 1.2rem;
+  }
+  .diagram iframe {
+    height: 520px;
+  }
+}

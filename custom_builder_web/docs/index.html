@@ -118,6 +118,17 @@
         </div>
 
         <div class="sidebar-category">
+          <div class="sidebar-cat-title">Guías paso a paso</div>
+          <ul class="sidebar-menu">
+            <li>
+              <a href="administracion-remota.html"
+                >Administración remota (con dibujos)</a
+              >
+            </li>
+          </ul>
+        </div>
+
+        <div class="sidebar-category">
           <div class="sidebar-cat-title">Ayuda & FAQ</div>
           <ul class="sidebar-menu">
             <li><a href="#faq">Preguntas Frecuentes</a></li>
@@ -173,9 +184,9 @@
             usan una palabra de 8 bits en lugar de un registro: la híbrida es
             <code>0x1B</code>. Está verificada en una T1000-E; LR1120 y LR1121
             comparten el controlador pero no se han medido. SX128x y LR2021 no
-            tienen modo híbrido. Con <code>/mc HYBRID OFF</code> el nodo
-            vuelve a la palabra de Meshtastic y deja de oír MeshCore hasta que
-            se reinicia o se ejecuta <code>/mc HYBRID ON</code>.
+            tienen modo híbrido. Con <code>/mc HYBRID OFF</code> el nodo vuelve
+            a la palabra de Meshtastic y deja de oír MeshCore hasta que se
+            reinicia o se ejecuta <code>/mc HYBRID ON</code>.
           </p>
         </section>
 
@@ -259,8 +270,7 @@
                   <td>Nodo por Hex ID</td>
                   <td>
                     Dirigido directamente a un nodo específico (ej:
-                    <code>/mtc-device !3f2a89c1 INFO</code>). Omite el
-                    cooldown.
+                    <code>/mtc-device !3f2a89c1 INFO</code>). Omite el cooldown.
                   </td>
                 </tr>
                 <tr class="cmd-row">
@@ -298,8 +308,8 @@
           </p>
           <div class="code-block">
             /mtc R CH 1 NODES # Ejecuta NODES y envía la respuesta al canal
-            secundario (índice 1) /mtc R DM !3f2a89c1 SYS # Ejecuta SYS y
-            envía el informe como mensaje privado al operador
+            secundario (índice 1) /mtc R DM !3f2a89c1 SYS # Ejecuta SYS y envía
+            el informe como mensaje privado al operador
           </div>
         </section>
 
