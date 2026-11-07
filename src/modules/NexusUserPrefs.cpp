@@ -52,7 +52,8 @@ void NexusModule::applyFactoryUserPrefs()
     ping_freqerr = USERPREFS_NEXUS_PPING_FREQERR;
 #endif
 #ifdef USERPREFS_NEXUS_PPING_FLAGS
-    ping_bitmask = USERPREFS_NEXUS_PPING_FLAGS;
+    if (USERPREFS_NEXUS_PPING_FLAGS == 0 || USERPREFS_NEXUS_PPING_FLAGS == 1)
+        ping_bitmask = USERPREFS_NEXUS_PPING_FLAGS;
 #endif
 #ifdef USERPREFS_NEXUS_PPING_IGNORE_DIRECT
     ping_ignore_direct = USERPREFS_NEXUS_PPING_IGNORE_DIRECT;
@@ -68,7 +69,8 @@ void NexusModule::applyFactoryUserPrefs()
         ping_emoji_mode = USERPREFS_NEXUS_PPING_EMOJI_MODE;
 #endif
 #ifdef USERPREFS_NEXUS_PPING_HEADER
-    copyUserPrefString(pping_header, sizeof(pping_header), USERPREFS_NEXUS_PPING_HEADER);
+    if (((const char *)USERPREFS_NEXUS_PPING_HEADER)[0] != '\0')
+        copyUserPrefString(pping_header, sizeof(pping_header), USERPREFS_NEXUS_PPING_HEADER);
 #endif
 #ifdef USERPREFS_NEXUS_PPING_MT_HEADER_MODE
     if (validPingHeaderMode(USERPREFS_NEXUS_PPING_MT_HEADER_MODE))
@@ -92,32 +94,46 @@ void NexusModule::applyFactoryUserPrefs()
     setNexusInvalidHex((uint32_t)(USERPREFS_NEXUS_INVALID_MASK));
 #endif
 #ifdef USERPREFS_NEXUS_RL_TEXT_LIMIT
-    rl_text_limit = USERPREFS_NEXUS_RL_TEXT_LIMIT;
-    rl_tokens[0] = (float)rl_text_limit; // like /mtc RL: the bucket starts full
+    if (USERPREFS_NEXUS_RL_TEXT_LIMIT >= 0 && USERPREFS_NEXUS_RL_TEXT_LIMIT <= 65535) {
+        rl_text_limit = USERPREFS_NEXUS_RL_TEXT_LIMIT;
+        rl_tokens[0] = (float)rl_text_limit; // like /mtc RL: the bucket starts full
+    }
 #endif
 #ifdef USERPREFS_NEXUS_RL_TRACE_LIMIT
-    rl_trace_limit = USERPREFS_NEXUS_RL_TRACE_LIMIT;
-    rl_tokens[1] = (float)rl_trace_limit; // like /mtc RL: the bucket starts full
+    if (USERPREFS_NEXUS_RL_TRACE_LIMIT >= 0 && USERPREFS_NEXUS_RL_TRACE_LIMIT <= 65535) {
+        rl_trace_limit = USERPREFS_NEXUS_RL_TRACE_LIMIT;
+        rl_tokens[1] = (float)rl_trace_limit; // like /mtc RL: the bucket starts full
+    }
 #endif
 #ifdef USERPREFS_NEXUS_RL_OTHER_LIMIT
-    rl_other_limit = USERPREFS_NEXUS_RL_OTHER_LIMIT;
-    rl_tokens[2] = (float)rl_other_limit; // like /mtc RL: the bucket starts full
+    if (USERPREFS_NEXUS_RL_OTHER_LIMIT >= 0 && USERPREFS_NEXUS_RL_OTHER_LIMIT <= 65535) {
+        rl_other_limit = USERPREFS_NEXUS_RL_OTHER_LIMIT;
+        rl_tokens[2] = (float)rl_other_limit; // like /mtc RL: the bucket starts full
+    }
 #endif
 #ifdef USERPREFS_NEXUS_RL_NODEINFO_LIMIT
-    rl_nodeinfo_limit = USERPREFS_NEXUS_RL_NODEINFO_LIMIT;
-    rl_tokens[3] = (float)rl_nodeinfo_limit; // like /mtc RL: the bucket starts full
+    if (USERPREFS_NEXUS_RL_NODEINFO_LIMIT >= 0 && USERPREFS_NEXUS_RL_NODEINFO_LIMIT <= 65535) {
+        rl_nodeinfo_limit = USERPREFS_NEXUS_RL_NODEINFO_LIMIT;
+        rl_tokens[3] = (float)rl_nodeinfo_limit; // like /mtc RL: the bucket starts full
+    }
 #endif
 #ifdef USERPREFS_NEXUS_RL_POSITION_LIMIT
-    rl_position_limit = USERPREFS_NEXUS_RL_POSITION_LIMIT;
-    rl_tokens[4] = (float)rl_position_limit; // like /mtc RL: the bucket starts full
+    if (USERPREFS_NEXUS_RL_POSITION_LIMIT >= 0 && USERPREFS_NEXUS_RL_POSITION_LIMIT <= 65535) {
+        rl_position_limit = USERPREFS_NEXUS_RL_POSITION_LIMIT;
+        rl_tokens[4] = (float)rl_position_limit; // like /mtc RL: the bucket starts full
+    }
 #endif
 #ifdef USERPREFS_NEXUS_RL_TELEMETRY_LIMIT
-    rl_telemetry_limit = USERPREFS_NEXUS_RL_TELEMETRY_LIMIT;
-    rl_tokens[5] = (float)rl_telemetry_limit; // like /mtc RL: the bucket starts full
+    if (USERPREFS_NEXUS_RL_TELEMETRY_LIMIT >= 0 && USERPREFS_NEXUS_RL_TELEMETRY_LIMIT <= 65535) {
+        rl_telemetry_limit = USERPREFS_NEXUS_RL_TELEMETRY_LIMIT;
+        rl_tokens[5] = (float)rl_telemetry_limit; // like /mtc RL: the bucket starts full
+    }
 #endif
 #ifdef USERPREFS_NEXUS_RL_PRIVATE_LIMIT
-    rl_private_limit = USERPREFS_NEXUS_RL_PRIVATE_LIMIT;
-    rl_tokens[6] = (float)rl_private_limit; // like /mtc RL: the bucket starts full
+    if (USERPREFS_NEXUS_RL_PRIVATE_LIMIT >= 0 && USERPREFS_NEXUS_RL_PRIVATE_LIMIT <= 65535) {
+        rl_private_limit = USERPREFS_NEXUS_RL_PRIVATE_LIMIT;
+        rl_tokens[6] = (float)rl_private_limit; // like /mtc RL: the bucket starts full
+    }
 #endif
 #ifdef USERPREFS_NEXUS_BROADCAST_DELAY_MAX_S
     if (USERPREFS_NEXUS_BROADCAST_DELAY_MAX_S >= 1 && USERPREFS_NEXUS_BROADCAST_DELAY_MAX_S <= 300)
@@ -126,7 +142,9 @@ void NexusModule::applyFactoryUserPrefs()
 
     // ---- Zero-Hop, features, security (/mtc ZH, FEATURES, SECURITY) ----
 #ifdef USERPREFS_NEXUS_ZERO_HOP_CONFIG
-    zero_hop_config = (uint8_t)(USERPREFS_NEXUS_ZERO_HOP_CONFIG);
+    // Bits 0..4 are defined (EN, TELE, POS, AUTO_ROUTER, AUTO_CLIENT); anything wider than a byte is a typo.
+    if ((USERPREFS_NEXUS_ZERO_HOP_CONFIG) >= 0 && (USERPREFS_NEXUS_ZERO_HOP_CONFIG) <= 0xFF)
+        zero_hop_config = (uint8_t)(USERPREFS_NEXUS_ZERO_HOP_CONFIG);
 #endif
 #ifdef USERPREFS_NEXUS_FEATURES_MASK
     setNexusFeaturesHex((uint64_t)(USERPREFS_NEXUS_FEATURES_MASK));

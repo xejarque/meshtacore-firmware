@@ -60,15 +60,19 @@ inline bool matchLocalShortcut(const char *cmd, const char **tail, CmdScope *sco
     return false;
 }
 
-// Adapts a command body to the root it came in on. /mc runs MeshCore commands, so it prepends MCORE (into buf). /mt refuses
-// the MESHCORE/MCORE family and returns nullptr so the caller can point the operator at /mc. /mtc runs the body as typed.
+// Adapts a command body to the root it came in on. /mc runs MeshCore commands, so it prepends MCORE (into buf), unless the
+// body already starts with MCORE or MESHCORE. /mt refuses the MESHCORE/MCORE family and returns nullptr so the caller can
+// point the operator at /mc. /mtc runs the body as typed. A /mc body too long for buf also returns nullptr: running a
+// truncated command would do something else than what was sent. Callers tell the two apart by scope.
 inline const char *applyCommandScope(CmdScope scope, const char *body, char *buf, size_t bufLen)
 {
     if (scope == SCOPE_MC) {
         if (body[0] == '\0')
             return "MCORE";
-        snprintf(buf, bufLen, "MCORE %s", body);
-        return buf;
+        if (isCommandWord(body, "MCORE") || isCommandWord(body, "MESHCORE"))
+            return body;
+        const int written = snprintf(buf, bufLen, "MCORE %s", body);
+        return (written >= 0 && (size_t)written < bufLen) ? buf : nullptr;
     }
     if (scope == SCOPE_MT && (isCommandWord(body, "MESHCORE") || isCommandWord(body, "MCORE")))
         return nullptr;

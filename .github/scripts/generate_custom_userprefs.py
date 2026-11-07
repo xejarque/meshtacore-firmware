@@ -62,7 +62,8 @@ def option_value_error(opt: dict, value: str):
     """
     kind = opt["type"]
     if kind == "bool":
-        return None if value in ("true", "false") else "expected true or false"
+        # A JSON true/false reaches here as "True"/"False" once str() has run on it.
+        return None if value.lower() in ("true", "false") else "expected true or false"
     if kind == "int":
         if not re.fullmatch(r"-?\d+", value):
             return "expected a whole number"
@@ -104,6 +105,9 @@ def drop_invalid_manifest_options(prefs: dict, manifest_path: Path) -> list:
         if error:
             dropped.append(f"{key}={prefs[key]!r} dropped: {error}")
             del prefs[key]
+        elif opt["type"] == "bool":
+            # The firmware build needs the C++ literal: a JSON true arrives as "True".
+            prefs[key] = str(prefs[key]).lower()
     return dropped
 
 

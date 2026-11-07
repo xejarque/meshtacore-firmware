@@ -273,6 +273,11 @@ static void test_command_scope()
 
     TEST_ASSERT_EQUAL_STRING("MCORE INFO", applyCommandScope(SCOPE_MC, "INFO", buf, sizeof(buf)));
     TEST_ASSERT_EQUAL_STRING("MCORE", applyCommandScope(SCOPE_MC, "", buf, sizeof(buf)));
+    // A body that already names the family is not prefixed twice; one too long for the buffer is refused, not truncated.
+    TEST_ASSERT_EQUAL_STRING("MCORE ADV", applyCommandScope(SCOPE_MC, "MCORE ADV", buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL_STRING("meshcore info", applyCommandScope(SCOPE_MC, "meshcore info", buf, sizeof(buf)));
+    char tiny[8];
+    TEST_ASSERT_NULL(applyCommandScope(SCOPE_MC, "ADVERT NOW", tiny, sizeof(tiny)));
 
     TEST_ASSERT_NULL(applyCommandScope(SCOPE_MT, "MESHCORE INFO", buf, sizeof(buf)));
     TEST_ASSERT_NULL(applyCommandScope(SCOPE_MT, "mcore", buf, sizeof(buf)));

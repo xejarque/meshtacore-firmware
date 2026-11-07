@@ -2018,6 +2018,13 @@ void NexusModule::applyBS(meshtastic_Telemetry *m) {
 // local-only /mtl, /mcl and /mtcl. Shared by handleReceived() (mesh dispatch), handleLocal() and matchTargetedCmd().
 // Replies when a root refuses a command (/mt with the MESHCORE family).
 static const char *const SCOPE_REFUSED_MT = "MESHTACORE: /mt does not accept MESHCORE, use /mc";
+static const char *const SCOPE_TOO_LONG = "MESHTACORE: command too long";
+
+// Why applyCommandScope refused: /mt does not take MeshCore commands, and a /mc body can be too long for the scope buffer.
+static const char *scopeRefusalText(CmdScope scope)
+{
+    return scope == SCOPE_MT ? SCOPE_REFUSED_MT : SCOPE_TOO_LONG;
+}
 
 // Nexus: auto Zero-Hop masks - traffic-driven (2026-10-07 code review):
 // called per DIRECTLY-HEARD packet (zero hops away, 2nd review) with the
@@ -2573,7 +2580,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                             if (!finalCmd) {
                                 // Only a DM gets the refusal; a group command would make every member answer.
                                 if (!isGroup && isDM)
-                                    queueMeshReply(mp.from, mp.channel, mp.id, SCOPE_REFUSED_MT, strlen(SCOPE_REFUSED_MT), false, true);
+                                    queueMeshReply(mp.from, mp.channel, mp.id, scopeRefusalText(scope), strlen(scopeRefusalText(scope)), false, true);
                                 return ProcessMessage::CONTINUE;
                             }
                             LOG_INFO("MTC: Targeted command for us (kind=%u): %s", (unsigned)kind, finalCmd);
@@ -2705,7 +2712,7 @@ ProcessMessage NexusModule::handleLocal(const meshtastic_MeshPacket &mp) {
     static char scopeLocal[160];
     const char *finalTail = applyCommandScope(scope, shortTail, scopeLocal, sizeof(scopeLocal));
     if (!finalTail) {
-        sendToPhone(local.from, mp.channel, mp.id, SCOPE_REFUSED_MT, strlen(SCOPE_REFUSED_MT));
+        sendToPhone(local.from, mp.channel, mp.id, scopeRefusalText(scope), strlen(scopeRefusalText(scope)));
         return ProcessMessage::STOP;
     }
     handleNexusCommand(local, finalTail, false, mp.id, true);

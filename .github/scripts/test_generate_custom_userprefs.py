@@ -39,6 +39,19 @@ class ManifestValidation(unittest.TestCase):
         self.assertEqual(len(dropped), 6)
         self.assertEqual(prefs, {"USERPREFS_CONFIG_LORA_REGION": "whatever"})
 
+    def test_json_booleans_become_c_literals(self):
+        prefs = {"USERPREFS_NEXUS_PPING_ENABLED": True, "USERPREFS_NEXUS_PPING_FLAGS": "False"}
+        self.assertEqual(gen.drop_invalid_manifest_options(prefs, gen.DEFAULT_MANIFEST), [])
+        self.assertEqual(prefs, {"USERPREFS_NEXUS_PPING_ENABLED": "true", "USERPREFS_NEXUS_PPING_FLAGS": "false"})
+
+    def test_every_nexus_manifest_key_is_read_by_the_firmware(self):
+        # The key list lives in the manifest, the JS emitter and NexusUserPrefs.cpp: a key the firmware never reads would be
+        # accepted by the builder and silently do nothing.
+        modules = Path(__file__).resolve().parents[2] / "src" / "modules"
+        source = "".join((modules / name).read_text(encoding="utf-8") for name in ("NexusUserPrefs.cpp", "NexusModule.h"))
+        missing = [o["key"] for o in MANIFEST["options"] if o["key"].startswith("USERPREFS_NEXUS_") and o["key"] not in source]
+        self.assertEqual(missing, [])
+
     def test_missing_manifest_is_not_an_error(self):
         prefs = {"USERPREFS_MESHCORE_FLOOD_MAX": "999"}
         self.assertEqual(gen.drop_invalid_manifest_options(prefs, Path("/nonexistent.json")), [])

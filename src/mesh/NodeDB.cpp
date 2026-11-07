@@ -1175,10 +1175,12 @@ bool NodeDB::applyRequestedCleanInstall()
 #ifdef USERPREFS_FORCE_FS_FORMAT
     // A rm of /prefs cannot repair LittleFS metadata ("lfs error:493: Corrupted dir pair"), which also
     // breaks the BLE bond store. Reformat the whole internal filesystem; it is remounted afterwards.
-    if (fsFormat())
-        LOG_WARN("Internal filesystem reformatted");
-    else
-        LOG_ERROR("Internal filesystem format failed");
+    // If the format fails nothing was wiped and no stamp is written, so the next boot tries again.
+    if (!fsFormat()) {
+        LOG_ERROR("Internal filesystem format failed, clean install postponed to the next boot");
+        return false;
+    }
+    LOG_WARN("Internal filesystem reformatted");
 #endif
 #if HAS_NEXUS
     // factoryReset() re-applies the rescue copy, so drop it first or the previous settings come back.

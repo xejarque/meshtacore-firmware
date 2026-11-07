@@ -433,6 +433,8 @@ void RadioLibInterface::reloadMeshCoreConfig()
 #if defined(USERPREFS_MESHCORE_PATH_HASH_SIZE) || defined(USERPREFS_MESHCORE_FLOOD_MAX) ||                                      \
     defined(USERPREFS_MESHCORE_FLOOD_MAX_UNSCOPED) || defined(USERPREFS_MESHCORE_FLOOD_MAX_ADVERT)
         applyMeshCoreConfig();
+        LOG_INFO("MeshCore config: no valid %s, factory USERPREFS limits applied", meshCoreConfigPath);
+        return;
 #endif
         LOG_INFO("MeshCore config: no valid %s, settings unchanged", meshCoreConfigPath);
         return;
