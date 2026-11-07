@@ -258,6 +258,9 @@ class MeshCoreRepeater
     typedef bool (*IgnorePredicate)(uint32_t nodeNum);
     static void setIgnorePredicate(IgnorePredicate predicate) { ignorePredicate = predicate; }
 
+    /** True when raw comes from an ignored node. For callers that must keep a frame from other consumers (the companion). */
+    bool isIgnoredFrame(const uint8_t *raw, size_t len);
+
     /// One direct neighbour as the relay heard it: a node whose own ADVERT arrived without crossing any repeater.
     struct NeighborView {
         uint8_t pub[32];
@@ -301,8 +304,10 @@ class MeshCoreRepeater
     IgnoredPrefix ignoredCache[IGNORED_CACHE_SIZE];
     uint8_t ignoredNext = 0;
 
-    /** True when the frame comes from an ignored node: its own ADVERT, or a flood whose last hop is one. */
+    /** True when the frame comes from an ignored node: its ADVERT or anonymous request, a message whose one-byte source hash
+     * is one's, or a flood whose last hop is one. */
     bool isIgnoredSource(const uint8_t *raw, const FrameInfo &info);
+    void rememberIgnored(const uint8_t *pub, uint32_t num);
     static bool nodeIgnored(uint32_t nodeNum) { return ignorePredicate && ignorePredicate(nodeNum); }
 
 #if MESHTASTIC_ENABLE_MESHCORE_NEIGHBORS

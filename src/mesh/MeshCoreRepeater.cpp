@@ -1234,26 +1234,58 @@ void MeshCoreRepeater::handleDiscoverResponse(const uint8_t *raw, const FrameInf
     slot->atMs = Time::getMillis();
 }
 
+void MeshCoreRepeater::rememberIgnored(const uint8_t *pub, uint32_t num)
+{
+    for (const IgnoredPrefix &known : ignoredCache) {
+        if (known.nodeNum == num)
+            return;
+    }
+    IgnoredPrefix &slot = ignoredCache[ignoredNext];
+    ignoredNext = (uint8_t)((ignoredNext + 1) % IGNORED_CACHE_SIZE);
+    memcpy(slot.prefix, pub, IGNORED_PREFIX_LEN);
+    slot.nodeNum = num;
+}
+
+bool MeshCoreRepeater::isIgnoredFrame(const uint8_t *raw, size_t len)
+{
+    FrameInfo info;
+    return ignorePredicate && parse(raw, len, &info) && isIgnoredSource(raw, info);
+}
+
 bool MeshCoreRepeater::isIgnoredSource(const uint8_t *raw, const FrameInfo &info)
 {
     if (!ignorePredicate)
         return false;
+    const uint8_t *payload = &raw[info.header_len];
 
+    // Frames that carry the sender's whole key: the match is exact.
     if (info.payload_type == MC_PAYLOAD_TYPE_ADVERT && info.payload_len >= MC_PUB_KEY_SIZE) {
-        const uint8_t *pub = &raw[info.header_len];
-        const uint32_t num = MeshCoreNodeStore<1>::nodeNumForKey(pub);
+        const uint32_t num = MeshCoreNodeStore<1>::nodeNumForKey(payload);
         if (!nodeIgnored(num))
             return false;
-        // Remember its prefix (once) so the rest of its traffic is recognised by the path hash.
-        for (const IgnoredPrefix &known : ignoredCache) {
-            if (known.nodeNum == num)
-                return true;
-        }
-        IgnoredPrefix &slot = ignoredCache[ignoredNext];
-        ignoredNext = (uint8_t)((ignoredNext + 1) % IGNORED_CACHE_SIZE);
-        memcpy(slot.prefix, pub, IGNORED_PREFIX_LEN);
-        slot.nodeNum = num;
+        rememberIgnored(payload, num); // so the rest of its traffic is recognised by hash
         return true;
+    }
+    if (info.payload_type == MC_PAYLOAD_TYPE_ANON_REQ && info.payload_len >= 1 + MC_PUB_KEY_SIZE) {
+        const uint32_t num = MeshCoreNodeStore<1>::nodeNumForKey(&payload[1]); // dest hash, then the sender key
+        if (!nodeIgnored(num))
+            return false;
+        rememberIgnored(&payload[1], num);
+        return true;
+    }
+
+    // Direct messages, requests, responses and paths carry a one-byte source hash: 1 in 256 senders shares it. Cutting on
+    // it also cuts those few; with a short ignore list that is the price of silencing the node's direct traffic.
+    if ((info.payload_type == MC_PAYLOAD_TYPE_TXT_MSG || info.payload_type == MC_PAYLOAD_TYPE_REQ ||
+         info.payload_type == MC_PAYLOAD_TYPE_RESPONSE || info.payload_type == MC_PAYLOAD_TYPE_PATH) &&
+        info.payload_len >= 2) {
+        for (IgnoredPrefix &known : ignoredCache) {
+            if (known.nodeNum == 0 || known.prefix[0] != payload[1])
+                continue;
+            if (nodeIgnored(known.nodeNum))
+                return true;
+            known.nodeNum = 0; // taken off the list since: forget it
+        }
     }
 
     // A flood's last path hash is the node we heard it from. One byte is too short to name anybody.

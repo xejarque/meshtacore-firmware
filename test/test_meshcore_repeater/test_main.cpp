@@ -1965,6 +1965,48 @@ void test_traffic_forwarded_by_an_ignored_node_is_dropped_by_its_path_hash()
     TEST_ASSERT_TRUE(repeater.hasPendingFrame());
 }
 
+// A direct message carries the sender's one-byte hash in the clear; after the advert it is enough to cut the node's messages.
+void test_direct_message_from_an_ignored_node_is_cut_by_its_source_hash()
+{
+    MeshCoreRepeater repeater, sender;
+    uint8_t advert[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t advertLen = makeNeighborAdvert(sender, 0x39, "Spammer", advert);
+    gIgnoredNum = MeshCoreNodeStore<1>::nodeNumForKey(sender.getIdentityPub());
+    MeshCoreRepeater::setIgnorePredicate(ignoresOnlyOneNode);
+    repeater.handleReceivedFrame(advert, advertLen, -6.0f, kAirtimeMs);
+
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    size_t len = makeFloodFrame(frame, kTxtMsg, 0, 2, 0, 0x10, kTxtMsgPayloadLen);
+    frame[2 + 1] = sender.getIdentityPub()[0]; // payload: destination hash, then source hash
+    repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs);
+    TEST_ASSERT_EQUAL_UINT32(2, repeater.rxIgnored);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+
+    len = makeFloodFrame(frame, kTxtMsg, 0, 2, 0, 0x20, kTxtMsgPayloadLen);
+    frame[2 + 1] = (uint8_t)(sender.getIdentityPub()[0] ^ 0x01);
+    repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs);
+    TEST_ASSERT_EQUAL_UINT32(2, repeater.rxIgnored);
+    TEST_ASSERT_TRUE(repeater.hasPendingFrame());
+}
+
+// An anonymous request carries the whole sender key, so it is matched exactly, with no advert needed first.
+void test_anonymous_request_from_an_ignored_node_is_dropped_on_its_key()
+{
+    MeshCoreRepeater repeater, sender;
+    uint8_t advert[MeshCoreRepeater::MAX_FRAME_LEN];
+    makeNeighborAdvert(sender, 0x3A, "Spammer", advert);
+    gIgnoredNum = MeshCoreNodeStore<1>::nodeNumForKey(sender.getIdentityPub());
+    MeshCoreRepeater::setIgnorePredicate(ignoresOnlyOneNode);
+
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = makeFloodFrame(frame, 0x07, 0, 2, 0, 0x10, 1 + 32 + 2 + 16);
+    memcpy(&frame[2 + 1], sender.getIdentityPub(), 32);
+    repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs);
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.rxIgnored);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+    TEST_ASSERT_TRUE(repeater.isIgnoredFrame(frame, len)); // what the companion gate asks
+}
+
 void test_one_byte_path_hashes_are_never_matched_against_the_ignore_list()
 {
     MeshCoreRepeater repeater, sender;
@@ -2088,6 +2130,8 @@ void setup()
     RUN_TEST(test_ignored_node_advert_is_dropped_and_never_listed);
     RUN_TEST(test_neighbor_disappears_from_the_list_once_ignored);
     RUN_TEST(test_traffic_forwarded_by_an_ignored_node_is_dropped_by_its_path_hash);
+    RUN_TEST(test_direct_message_from_an_ignored_node_is_cut_by_its_source_hash);
+    RUN_TEST(test_anonymous_request_from_an_ignored_node_is_dropped_on_its_key);
     RUN_TEST(test_one_byte_path_hashes_are_never_matched_against_the_ignore_list);
     RUN_TEST(test_taking_a_node_off_the_ignore_list_lets_its_traffic_through_again);
     exit(UNITY_END());
