@@ -328,8 +328,11 @@ class MeshCoreRepeater
     QueuedFrame queue[QUEUE_SIZE];
     int selected = -1;         // index picked by takePendingFrame(), -1 when none
     uint32_t selectedHash = 0; // identity of that pick: a radio event in between may evict it and reuse its slot
-    uint32_t holdoffUntilMs = 0;
-    bool holdoffSet = false;
+    // Start + length rather than an absolute deadline: a deadline is only meaningful for 2^31 ms, so after ~24 days
+    // without a transmission it would look like it lies ahead again and block the relay for another ~24 days.
+    uint32_t holdoffStartMs = 0;
+    uint32_t holdoffLenMs = 0; // 0 = no holdoff armed
+    bool holdoffActive() const;
     uint8_t busyAttempts = 0;
 
     // This node's MeshCore identity (Ed25519). The seed is the secret; the public key is derived from it.
