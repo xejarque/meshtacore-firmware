@@ -12,6 +12,7 @@
 #endif
 
 #include "FSCommon.h" // defines FSCom; must precede the feature guard below
+#include <string>
 
 // The identity-freeze contract only exists where there is a filesystem and boot keygen.
 #if defined(FSCom) && !(MESHTASTIC_EXCLUDE_PKI_KEYGEN || MESHTASTIC_EXCLUDE_PKI)
@@ -177,9 +178,29 @@ static void test_healthyReboot_preservesIdentity(void)
 
 // --- Degraded boot: present-but-undecodable config ---
 
+static void test_corruptConfig_withBackup_restoresIdentityAndRadio(void)
+{
+    TEST_MESSAGE("=== Corrupt config.proto with a last-known-good .bak: restored, identity and radio intact ===");
+    const std::string backup = std::string(configFileName) + ".bak";
+    TEST_ASSERT_TRUE(FSCom.exists(backup.c_str())); // refreshed by the healthy boots above
+    writeFileBytes(configFileName, kGarbage, sizeof(kGarbage));
+    const uint64_t fpGarbage = fileFingerprint(configFileName);
+
+    rebootNodeDB();
+
+    TEST_ASSERT_FALSE(NodeDBTestShim::decodeFailed(nodeDB));
+    assertIdentityMatchesBaseline();
+    TEST_ASSERT_EQUAL(meshtastic_Config_LoRaConfig_RegionCode_US, config.lora.region);
+    // The damaged file was rewritten from the restored copy.
+    TEST_ASSERT_NOT_EQUAL(fpGarbage, fileFingerprint(configFileName));
+}
+
 static void test_corruptConfig_freezesIdentity_leavesFileUntouched(void)
 {
     TEST_MESSAGE("=== Corrupt config.proto: frozen identity, radio silent, file untouched ===");
+    // Without a last-known-good copy there is nothing to restore: the degraded path.
+    const std::string backup = std::string(configFileName) + ".bak";
+    FSCom.remove(backup.c_str());
     writeFileBytes(configFileName, kGarbage, sizeof(kGarbage));
     const uint64_t fpGarbage = fileFingerprint(configFileName);
     TEST_ASSERT_NOT_EQUAL(0, fpGarbage);
@@ -389,6 +410,7 @@ NBR_TEST_ENTRY void setup()
     RUN_TEST(test_healthyReboot_preservesIdentity);
 
     printf("\n=== Degraded boot (corrupt config) ===\n");
+    RUN_TEST(test_corruptConfig_withBackup_restoresIdentityAndRadio);
     RUN_TEST(test_corruptConfig_freezesIdentity_leavesFileUntouched);
     RUN_TEST(test_degradedBoot_runtimeConfigSaveStillPersists);
     RUN_TEST(test_restoredConfig_recoversOriginalIdentity);
