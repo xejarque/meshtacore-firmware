@@ -23,30 +23,63 @@ def b64_to_c_array(b64_str: str) -> str:
     return "{ " + ", ".join(f"0x{b:02x}" for b in raw) + " }"
 
 
+VALID_PSK_LENGTHS = (1, 16, 32)  # bytes: short default-key index, AES-128, AES-256
+HEX_ONLY = re.compile(r"[0-9a-fA-F]+")
+
+
 def format_psk(psk_val: str) -> str:
+    """C byte array for a channel key. Raises ValueError for anything that is not a usable key.
+
+    An unusable key used to fall back to {0x01}, the publicly known default key, so a typo silently put the channel on
+    a key everybody has. Failing the build is the safe answer.
+    """
     psk_str = str(psk_val).strip()
     if not psk_str:
         return "{ 0x01 }"
     if psk_str.startswith("{") and psk_str.endswith("}"):
-        return psk_str
-    if psk_str.isdigit():
+        return check_byte_array(psk_str)
+    if HEX_ONLY.fullmatch(psk_str) and len(psk_str) in (32, 64):
+        # 32/64 hex digits are also valid base64 text (and may be all digits): hex wins over both readings.
+        raw = bytes.fromhex(psk_str)
+    elif psk_str.isdigit():
         val = int(psk_str)
+        if val > 0xFF:
+            raise ValueError(f"PSK index {val} does not fit in a byte")
         return f"{{ 0x{val:02x} }}"
-    if psk_str.startswith("0x") or psk_str.startswith("0X"):
-        try:
-            raw = bytes.fromhex(psk_str[2:])
-            return "{ " + ", ".join(f"0x{b:02x}" for b in raw) + " }"
-        except ValueError:
-            pass
-    try:
-        raw = base64.b64decode(psk_str)
-        return "{ " + ", ".join(f"0x{b:02x}" for b in raw) + " }"
-    except Exception:
-        try:
-            raw = bytes.fromhex(psk_str)
-            return "{ " + ", ".join(f"0x{b:02x}" for b in raw) + " }"
-        except Exception:
-            return "{ 0x01 }"
+    elif psk_str[:2].lower() == "0x":
+        raw = bytes.fromhex(psk_str[2:])  # ValueError on bad hex
+    else:
+        raw = base64.b64decode(psk_str, validate=True)  # binascii.Error is a ValueError
+    if len(raw) not in VALID_PSK_LENGTHS:
+        raise ValueError(f"PSK is {len(raw)} bytes, expected one of {VALID_PSK_LENGTHS}")
+    return "{ " + ", ".join(f"0x{b:02x}" for b in raw) + " }"
+
+
+BYTE_ARRAY = re.compile(r"\{\s*0[xX][0-9a-fA-F]{1,2}(\s*,\s*0[xX][0-9a-fA-F]{1,2}){0,63}\s*\}")
+# Keys the builder (or a hand-written request) may set. Anything else would end up as a -D flag in the CI compiler.
+ALLOWED_KEY = re.compile(
+    r"USERPREFS_[A-Z0-9_]+|NEXUS_MASTER_KEY_[0-9]+|MESHTASTIC_EXCLUDE_(SCREEN|BLUETOOTH)|HAS_(SCREEN|BLUETOOTH)"
+)
+
+
+def check_byte_array(text: str) -> str:
+    if not BYTE_ARRAY.fullmatch(text):
+        raise ValueError("expected a C byte array like { 0x01, 0x02 }")
+    return text
+
+
+def sanitize_custom_prefs(extra: dict) -> list:
+    """Drops the requested keys that are not safe to turn into compiler flags; returns one message per drop."""
+    dropped = []
+    for key in list(extra):
+        value = extra[key]
+        if not ALLOWED_KEY.fullmatch(str(key)):
+            dropped.append(f"{key} dropped: not an allowed userPrefs key")
+            del extra[key]
+        elif value is not None and str(value).startswith("{") and not BYTE_ARRAY.fullmatch(str(value)):
+            dropped.append(f"{key} dropped: only byte arrays may start with a brace")
+            del extra[key]
+    return dropped
 
 
 DEFAULT_MANIFEST = (
@@ -317,7 +350,7 @@ def main():
         if k in NEXUS_PREDEFINED_KEYS:
             prefs["NEXUS_MASTER_KEY_1"] = NEXUS_PREDEFINED_KEYS[k]
         elif k.startswith("{") and k.endswith("}"):
-            prefs["NEXUS_MASTER_KEY_1"] = args.nexus_master_key.strip()
+            prefs["NEXUS_MASTER_KEY_1"] = check_byte_array(args.nexus_master_key.strip())
         else:
             try:
                 prefs["NEXUS_MASTER_KEY_1"] = b64_to_c_array(args.nexus_master_key)
@@ -429,7 +462,10 @@ def main():
         prefs["USERPREFS_CHANNELS_TO_WRITE"] = str(count)
         for i, ch in enumerate(active[:8]):
             prefs[f"USERPREFS_CHANNEL_{i}_NAME"] = str(ch.get("name", ""))[:11]
-            prefs[f"USERPREFS_CHANNEL_{i}_PSK"] = format_psk(str(ch.get("psk", "AQ==")))
+            try:
+                prefs[f"USERPREFS_CHANNEL_{i}_PSK"] = format_psk(str(ch.get("psk", "AQ==")))
+            except ValueError as e:
+                sys.exit(f"::error::Channel {i} ({ch.get('name', '')!r}): invalid PSK ({e})")
             prefs[f"USERPREFS_CHANNEL_{i}_PRECISION"] = str(ch.get("precision", 0))
             prefs[f"USERPREFS_CHANNEL_{i}_IS_MUTED"] = (
                 "true" if ch.get("muted", False) else "false"
@@ -555,6 +591,8 @@ def main():
         try:
             extra_prefs = json.loads(args.custom_userprefs_json)
             if isinstance(extra_prefs, dict):
+                for message in sanitize_custom_prefs(extra_prefs):
+                    print(f"::warning::{message}", file=sys.stderr)
                 for k, v in extra_prefs.items():
                     if v is None:
                         prefs.pop(k, None)

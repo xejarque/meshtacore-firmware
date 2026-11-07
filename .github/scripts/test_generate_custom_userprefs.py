@@ -70,5 +70,38 @@ class ManifestValidation(unittest.TestCase):
                 value = str(default)
             self.assertIsNone(gen.option_value_error(opt, value), opt["id"])
 
+
+class ChannelKeys(unittest.TestCase):
+    def test_accepted_forms(self):
+        self.assertEqual(gen.format_psk("AQ=="), "{ 0x01 }")
+        self.assertEqual(gen.format_psk("2"), "{ 0x02 }")
+        self.assertEqual(gen.format_psk(""), "{ 0x01 }")
+        self.assertEqual(gen.format_psk("0x" + "ab" * 16), "{ " + ", ".join(["0xab"] * 16) + " }")
+
+    def test_hex_without_prefix_is_hex_not_base64(self):
+        # 32 hex digits are also valid base64 and would decode to 24 junk bytes.
+        self.assertEqual(gen.format_psk("00" * 16), "{ " + ", ".join(["0x00"] * 16) + " }")
+        self.assertEqual(len(gen.format_psk("ab" * 32).split(",")), 32)
+
+    def test_unusable_keys_fail_instead_of_falling_back_to_the_public_key(self):
+        for bad in ("not base64!", "AAAA", "300", "0xzz", "{ 0x01; rm }"):
+            with self.assertRaises(ValueError, msg=bad):
+                gen.format_psk(bad)
+
+
+class CustomPrefsSanitizing(unittest.TestCase):
+    def test_unknown_keys_and_non_array_braces_are_dropped(self):
+        extra = {
+            "USERPREFS_CONFIG_DEVICE_ROLE": "meshtastic_Config_DeviceConfig_Role_ROUTER",
+            "NEXUS_MASTER_KEY_1": "{ 0x01, 0x02 }",
+            "USERPREFS_CHANNEL_0_PSK": "{ 0x01 } -include /etc/passwd",
+            "FOO -fplugin=x": "1",
+            "CFLAGS": "-O0",
+        }
+        dropped = gen.sanitize_custom_prefs(extra)
+        self.assertEqual(sorted(extra), ["NEXUS_MASTER_KEY_1", "USERPREFS_CONFIG_DEVICE_ROLE"])
+        self.assertEqual(len(dropped), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

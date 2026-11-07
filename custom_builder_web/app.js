@@ -25,33 +25,74 @@ function getRandomHex(len = 4) {
   return res;
 }
 
-// Convert any PSK format (1, 2, AQ==, Base64, Hex) to C byte array format
+const VALID_PSK_LENGTHS = [1, 16, 32]; // bytes: default-key index, AES-128, AES-256
+
+function bytesToCArray(bytes) {
+  return (
+    "{ " +
+    bytes.map((b) => "0x" + b.toString(16).padStart(2, "0")).join(", ") +
+    " }"
+  );
+}
+
+// Convert any PSK format (1, 2, AQ==, Base64, Hex) to C byte array format.
+// Throws for anything that is not a usable key: it used to fall back to { 0x01 }, the publicly known default key,
+// so a typo silently put the channel on a key everybody has.
 function formatPskToCArray(pskVal) {
   const val = String(pskVal || "").trim();
   if (!val) return "{ 0x01 }";
-  if (val.startsWith("{") && val.endsWith("}")) return val;
-  if (/^\d+$/.test(val)) {
+  if (val.startsWith("{") && val.endsWith("}")) {
+    if (
+      !/^\{\s*0[xX][0-9a-fA-F]{1,2}(\s*,\s*0[xX][0-9a-fA-F]{1,2}){0,63}\s*\}$/.test(
+        val,
+      )
+    ) {
+      throw new Error("la clave { ... } debe ser una lista de bytes 0x..");
+    }
+    return val;
+  }
+  let bytes;
+  if (/^[0-9a-fA-F]+$/.test(val) && (val.length === 32 || val.length === 64)) {
+    // 32/64 hex digits are also valid base64 text (and may be all digits): hex wins over both readings.
+    bytes = val.match(/../g).map((h) => parseInt(h, 16));
+  } else if (/^\d+$/.test(val)) {
     const num = parseInt(val, 10);
+    if (num > 0xff) throw new Error(`el índice ${num} no cabe en un byte`);
     return `{ 0x${num.toString(16).padStart(2, "0")} }`;
-  }
-  if (val.startsWith("0x") || val.startsWith("0X")) {
-    const hex = val.slice(2).replace(/[^0-9a-fA-F]/g, "");
-    const bytes = [];
-    for (let i = 0; i < hex.length; i += 2) {
-      bytes.push("0x" + hex.substring(i, i + 2));
+  } else if (/^0[xX][0-9a-fA-F]+$/.test(val) && val.length % 2 === 0) {
+    bytes = val
+      .slice(2)
+      .match(/../g)
+      .map((h) => parseInt(h, 16));
+  } else {
+    let bin;
+    try {
+      bin = atob(val);
+    } catch (e) {
+      throw new Error("no es Base64 ni hexadecimal válido");
     }
-    return "{ " + bytes.join(", ") + " }";
+    bytes = Array.from(bin, (c) => c.charCodeAt(0));
   }
-  try {
-    const binStr = atob(val);
-    const bytes = [];
-    for (let i = 0; i < binStr.length; i++) {
-      bytes.push("0x" + binStr.charCodeAt(i).toString(16).padStart(2, "0"));
-    }
-    return "{ " + bytes.join(", ") + " }";
-  } catch (e) {
-    return "{ 0x01 }";
+  if (!VALID_PSK_LENGTHS.includes(bytes.length)) {
+    throw new Error(
+      `la clave tiene ${bytes.length} bytes y debe tener 1, 16 o 32`,
+    );
   }
+  return bytesToCArray(bytes);
+}
+
+function escapeAttr(text) {
+  return String(text).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[c],
+  );
 }
 
 // Default Spanish community channel matrix
@@ -644,10 +685,10 @@ document.addEventListener("DOMContentLoaded", () => {
           <span class="tag ${ch.tagClass}">${ch.tag}</span>
         </td>
         <td>
-          <input type="text" class="ch-input ch-field-name" data-idx="${idx}" value="${ch.name}" maxlength="11" placeholder="Nombre" />
+          <input type="text" class="ch-input ch-field-name" data-idx="${idx}" value="${escapeAttr(ch.name)}" maxlength="11" placeholder="Nombre" />
         </td>
         <td>
-          <input type="text" class="ch-input font-mono ch-field-psk" data-idx="${idx}" value="${ch.psk}" placeholder="AQ== / Ag== / Clave" title="Clave en Base64 o Hexadecimal" />
+          <input type="text" class="ch-input font-mono ch-field-psk" data-idx="${idx}" value="${escapeAttr(ch.psk)}" placeholder="AQ== / Ag== / Clave" title="Clave en Base64 o Hexadecimal" />
         </td>
         <td style="text-align: center;">
           <input type="checkbox" class="ch-checkbox ch-field-uplink" data-idx="${idx}" ${ch.uplink ? "checked" : ""} />
@@ -1061,7 +1102,17 @@ document.addEventListener("DOMContentLoaded", () => {
   if (btnBuildViaIssue) {
     btnBuildViaIssue.addEventListener("click", async () => {
       const data = getFormData();
-      const prefs = buildUserPrefs(data);
+      let prefs;
+      try {
+        prefs = buildUserPrefs(data);
+      } catch (err) {
+        if (issueStatus) {
+          issueStatus.className = "status-msg status-error";
+          issueStatus.classList.remove("hidden");
+          issueStatus.textContent = `Revisa la configuración: ${err.message}`;
+        }
+        return;
+      }
 
       const issueTitle = `[Build Request] ${data.target} - ${data.owner_short_name || "Node"}`;
 
@@ -1151,7 +1202,14 @@ ${encryptedConfig}
     }
 
     const data = getFormData();
-    const prefs = buildUserPrefs(data);
+    let prefs;
+    try {
+      prefs = buildUserPrefs(data);
+    } catch (err) {
+      dispatchStatus.className = "status-msg status-error";
+      dispatchStatus.textContent = `Revisa la configuración: ${err.message}`;
+      return;
+    }
 
     let encryptedConfig;
     try {
@@ -1319,7 +1377,11 @@ ${encryptedConfig}
       );
       activeChannels.slice(0, 8).forEach((ch, idx) => {
         prefs[`USERPREFS_CHANNEL_${idx}_NAME`] = ch.name;
-        prefs[`USERPREFS_CHANNEL_${idx}_PSK`] = formatPskToCArray(ch.psk);
+        try {
+          prefs[`USERPREFS_CHANNEL_${idx}_PSK`] = formatPskToCArray(ch.psk);
+        } catch (err) {
+          throw new Error(`Canal "${ch.name}": ${err.message}`);
+        }
         prefs[`USERPREFS_CHANNEL_${idx}_PRECISION`] = String(ch.precision);
         prefs[`USERPREFS_CHANNEL_${idx}_IS_MUTED`] = "false";
         prefs[`USERPREFS_CHANNEL_${idx}_UPLINK_ENABLED`] = ch.uplink
@@ -1411,7 +1473,13 @@ ${encryptedConfig}
   // Generate & Download userPrefs.jsonc
   btnDownloadJson.addEventListener("click", () => {
     const data = getFormData();
-    const prefs = buildUserPrefs(data);
+    let prefs;
+    try {
+      prefs = buildUserPrefs(data);
+    } catch (err) {
+      alert(`Revisa la configuración: ${err.message}`);
+      return;
+    }
 
     const blob = new Blob([JSON.stringify(prefs, null, 2)], {
       type: "application/json",
