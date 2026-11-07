@@ -58,3 +58,31 @@ body.connected .admin .capture-bar { display: flex; margin-top: 0.5rem; }
 .admin .bar button, .admin .capture-bar button { padding: .5rem 1rem; border-radius: 8px; border: 1px solid rgba(127,127,127,.4); background: transparent; color: inherit; cursor: pointer; font: inherit; }
 .admin .bar button.run { background: var(--ok); border-color: var(--ok); color: #fff; font-weight: 600; }
 .admin .bar button:disabled { opacity: .5; cursor: wait; }
+
+/* ---- preset wizard ---- */
+.admin .pgrid2 { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr); gap: 1.5rem; align-items: start; }
+@media (max-width: 860px) { .admin .pgrid2 { grid-template-columns: 1fr; } }
+.admin .pchart { width: 100%; background: rgba(127,127,127,.05); border: 1px solid rgba(127,127,127,.3); border-radius: 10px; }
+.admin .pgrid { stroke: rgba(127,127,127,.2); stroke-dasharray: 2 4; }
+.admin .ptick, .admin .plabel { font-size: 10px; fill: currentColor; opacity: .6; }
+.admin .ppoint { cursor: pointer; outline: none; }
+.admin .ppoint circle { stroke: rgba(0,0,0,.3); opacity: .85; }
+.admin .ppoint:hover circle, .admin .ppoint:focus circle { opacity: 1; stroke-width: 2; }
+.admin .ppoint circle.cur { stroke: currentColor; stroke-width: 3; }
+.admin .ppoint circle.sel { stroke: var(--bad); stroke-width: 3; }
+.admin .legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: .8rem; margin: .5rem 0 1rem; }
+.admin .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: .3rem; }
+.admin .plist h4 { margin: .75rem 0 .25rem; font-size: .8rem; opacity: .7; }
+.admin .chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+.admin .chip { padding: .2rem .6rem; border-radius: 999px; border: 1px solid rgba(127,127,127,.4); background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: .8rem; }
+.admin .chip.on { background: var(--bad); border-color: var(--bad); color: #fff; }
+.admin .chip.now { border-color: var(--ok); box-shadow: 0 0 0 2px var(--ok) inset; }
+.admin .pdetail { border: 1px solid rgba(127,127,127,.3); border-radius: 10px; padding: 1rem; position: sticky; top: 1rem; }
+.admin .pdetail h3 { margin: 0; font-size: 1.4rem; }
+.admin .compare { font-weight: 600; }
+.admin .warn { background: rgba(217,162,27,.15); border-left: 3px solid var(--warn); padding: .5rem .75rem; font-size: .85rem; }
+.admin .ack { display: block; margin: .75rem 0; font-size: .85rem; }
+.admin .pdetail button.run { display: inline-block; background: var(--ok); border: 0; color: #fff; padding: .5rem 1rem; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
+.admin .pdetail button.run:disabled { opacity: .4; cursor: not-allowed; }
+.admin .out.ok { color: var(--ok); }
+.admin .out.err { color: var(--bad); }

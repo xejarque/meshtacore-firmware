@@ -153,6 +153,11 @@ export class Panel {
     this.timers = [];
   }
 
+  refresh(key) {
+    const p = POLLS.find((x) => x.key === key);
+    return p ? this.poll(p) : Promise.resolve();
+  }
+
   async poll(p) {
     if (!this.running || !this.link.connected || this.paused) return;
     try {

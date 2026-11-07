@@ -79,6 +79,43 @@ def attach_details(lines, commands):
             )
 
 
+PRESETS_OUT = ROOT / "custom_builder_web" / "admin.presets.json"
+
+
+def parse_presets(lines):
+    """Rows of the 'PRESET settings reference' table: group | codes | long name | SF | BW | CR | freq | region.
+
+    The command sent to the node is the LAST code of the row: `LF` / `LF868` -> LF868, because the bare
+    `LF` is ambiguous between the Sub-GHz and the 2.4 GHz preset.
+    """
+    start = next(i for i, l in enumerate(lines) if l.startswith("**PRESET settings reference**"))
+    presets, group = [], ""
+    for line in lines[start:]:
+        if line.startswith("_`PRESET` writes"):
+            break
+        if not is_table_row(line):
+            continue
+        c = cells(line)
+        if len(c) != 8 or not c[3].isdigit():
+            continue
+        group = c[0].replace("*", "").strip() or group
+        codes = names_in(c[1])
+        presets.append(
+            {
+                "group": group,
+                "command": codes[-1],
+                "codes": codes,
+                "longName": c[2].replace("`", "").strip(),
+                "sf": int(c[3]),
+                "bw": float(c[4]),
+                "cr": int(c[5].split("/")[1]),
+                "freq": float(c[6]),
+                "region": c[7].replace("`", "").strip(),
+            }
+        )
+    return presets
+
+
 def main():
     lines = DOC.read_text(encoding="utf-8").splitlines()
     commands = parse_index(lines)
@@ -87,6 +124,9 @@ def main():
     payload = {"source": "docs/mtc-commands.md", "commands": ordered}
     OUT.write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     print(f"{len(ordered)} commands -> {OUT.relative_to(ROOT)}", file=sys.stderr)
+    presets = parse_presets(lines)
+    PRESETS_OUT.write_text(json.dumps({"source": "docs/mtc-commands.md", "presets": presets}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    print(f"{len(presets)} presets -> {PRESETS_OUT.relative_to(ROOT)}", file=sys.stderr)
 
 
 if __name__ == "__main__":

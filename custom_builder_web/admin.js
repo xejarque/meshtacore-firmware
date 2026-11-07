@@ -1,6 +1,8 @@
 // Meshtacore node admin - console UI. Transport lives in ble.js.
 import { NodeLink } from "./ble.js";
 import { Panel } from "./panel.js";
+import { PresetWizard } from "./wizards.js";
+import { parseLora } from "./parsers.js";
 
 // Read-only commands only: no setters, and nothing that transmits or hops frequency.
 // RSSI is left out on purpose: it measures the command packet itself and stays silent for a local one.
@@ -11,9 +13,10 @@ const ui = {};
 const recording = []; // {command, response, at}
 let catalogue = [];
 let panel;
+let presetWizard;
 
 function showTab(name) {
-  for (const t of ["panel", "console"]) {
+  for (const t of ["panel", "wizards", "console"]) {
     document.getElementById("tab-" + t).setAttribute("aria-selected", String(t === name));
     document.getElementById("view-" + t).hidden = t !== name;
   }
@@ -77,9 +80,11 @@ link
     document.body.classList.add("connected");
     log("Conectado. Nodo " + id, "ok");
     panel.start();
+    presetWizard.refreshCurrent();
   })
   .on("disconnected", () => {
     panel.stop();
+    presetWizard.render();
     document.body.classList.remove("connected");
     ui.status.textContent = "Desconectado";
     log("Conexión Bluetooth cerrada.", "err");
@@ -152,14 +157,27 @@ async function init() {
   capture.onclick = () => captureAll(capture);
   document.getElementById("download").onclick = downloadRecording;
   ui.search.oninput = () => renderList(ui.search.value);
+  try {
+    const { presets } = await (await fetch("admin.presets.json")).json();
+    presetWizard = new PresetWizard(link, document.getElementById("preset-wizard"), presets);
+    presetWizard.onApplied = () => panel.refresh("radio");
+    presetWizard.render();
+  } catch (e) {
+    log("No se pudo cargar el catálogo de presets: " + e.message, "err");
+  }
   if (new URLSearchParams(location.search).has("demo")) {
     ui.status.textContent = "Modo demo (captura de ejemplo, sin nodo)";
     try {
-      panel.loadRecording(await (await fetch("tests/fixtures/gat562-capture.json")).json());
+      const recording = await (await fetch("tests/fixtures/gat562-capture.json")).json();
+      panel.loadRecording(recording);
+      presetWizard.setCurrent(parseLora(recording.outputs.find((o) => o.command === "LORA").response));
+      presetWizard.selectByCommand(new URLSearchParams(location.search).get("preset"));
     } catch (e) {
       log("No se pudo cargar la demo: " + e.message, "err");
     }
   }
+  const startTab = new URLSearchParams(location.search).get("tab");
+  if (["panel", "wizards", "console"].includes(startTab)) showTab(startTab);
   try {
     catalogue =(await (await fetch("admin.commands.json")).json()).commands;
     renderList("");
