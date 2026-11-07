@@ -640,6 +640,15 @@ bool AdminModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshta
     }
     case meshtastic_AdminMessage_enter_dfu_mode_request_tag: {
         LOG_INFO("Client requests DFU mode");
+#if defined(ARCH_NRF52) || defined(ARCH_RP2040)
+        // The bootloader waits for a USB flash with no timeout, so a request that came over the mesh would strand an
+        // unattended node for good while achieving nothing: this bootloader cannot be updated over the air.
+        if (fromOthers) {
+            LOG_WARN("Ignoring DFU request received over the mesh");
+            myReply = allocErrorResponse(meshtastic_Routing_Error_NOT_AUTHORIZED, &mp);
+            break;
+        }
+#endif
 #if HAS_SCREEN
         IF_SCREEN(screen->showSimpleBanner("Device is rebooting\ninto DFU mode.", 0));
 #endif
