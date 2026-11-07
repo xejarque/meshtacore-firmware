@@ -51,7 +51,8 @@
       "label": "Canales donde responde el bot",
       "cmd": "/mt PPING CHAN",
       "labelsFromChannels": true,
-      "default": 1,
+      "always": true,
+      "default": 132,
       "width": 8,
       "format": "dec",
       "bits": [

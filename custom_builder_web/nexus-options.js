@@ -76,7 +76,7 @@
         // value: lista de números de bit marcados.
         let mask = 0n;
         for (const bit of value || []) mask |= 1n << BigInt(bit);
-        if (mask === toBigInt(opt.default || 0)) return null;
+        if (!opt.always && mask === toBigInt(opt.default || 0)) return null;
         return opt.format === "dec"
           ? mask.toString(10)
           : "0x" + mask.toString(16).toUpperCase();
