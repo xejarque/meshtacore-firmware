@@ -92,12 +92,15 @@
 namespace
 {
 // A bare FILE_O_WRITE appends on nRF52 LittleFS, so small values are replaced through SafeFile.
-void writeUint32File(const char *path, uint32_t value)
+bool writeUint32File(const char *path, uint32_t value)
 {
     SafeFile f(path);
     f.write(reinterpret_cast<const uint8_t *>(&value), sizeof(value));
-    if (!f.close())
+    if (!f.close()) {
         LOG_WARN("Can't write %s", path);
+        return false;
+    }
+    return true;
 }
 } // namespace
 #endif
@@ -1173,24 +1176,32 @@ bool NodeDB::applyRequestedCleanInstall()
     if (stamp == epoch)
         return false;
 
+    // Stamp first: if the stamp cannot be stored, wiping would repeat on every reboot (a brown-out loop would erase the
+    // node each time). An interrupted wipe is harmless, the next boot finds a missing config and installs defaults.
+    if (!writeUint32File(stampFile, epoch)) {
+        LOG_ERROR("Clean install skipped: cannot store %s", stampFile);
+        return false;
+    }
+
     LOG_WARN("Clean install build: discarding the saved config");
 #ifdef USERPREFS_FORCE_FS_FORMAT
     // A rm of /prefs cannot repair LittleFS metadata ("lfs error:493: Corrupted dir pair"), which also
     // breaks the BLE bond store. Reformat the whole internal filesystem; it is remounted afterwards.
-    // If the format fails nothing was wiped and no stamp is written, so the next boot tries again.
+    // The format also erases the stamp written above, so it is written again once the filesystem is back. If the format
+    // fails the old stamp stays and the wipe is not retried (a retry loop would be worse than an unwiped node).
     if (!fsFormat()) {
-        LOG_ERROR("Internal filesystem format failed, clean install postponed to the next boot");
+        LOG_ERROR("Internal filesystem format failed, clean install abandoned for this build");
         return false;
     }
     LOG_WARN("Internal filesystem reformatted");
+    if (!writeUint32File(stampFile, epoch))
+        LOG_ERROR("Cannot store %s after the format, the wipe may repeat on the next boot", stampFile);
 #endif
 #if HAS_NEXUS
     // factoryReset() re-applies the rescue copy, so drop it first or the previous settings come back.
     NexusRescue::clear();
 #endif
     factoryReset(false); // keeps the PKI private key the loaded config still holds in RAM
-
-    writeUint32File(stampFile, epoch);
     return true;
 #endif
 }

@@ -4,6 +4,8 @@ const REPO_OWNER = "xejarque";
 const REPO_NAME = "meshtacore-firmware";
 const DEFAULT_BRANCH = "main";
 const WORKFLOW_FILE = "custom_builder.yml";
+// GitHub answers 414 to the new-issue URL beyond roughly 8 KB.
+const MAX_ISSUE_URL_LENGTH = 8000;
 
 const NEXUS_PREDEFINED_KEYS = {
   eevee:
@@ -531,11 +533,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Check Radio Driver for ProMicro
       const rDriver = solarRadioDriver ? solarRadioDriver.value : "sx1262";
+      // Only the plain sx1262 env is upgraded to its headless twin. A board the user chose explicitly (e.g. the
+      // TCXO one) is never replaced behind their back.
       if (rDriver === "sx1262") {
-        if (
-          boardTarget.value === "nrf52_promicro_diy_tcxo" ||
-          boardTarget.value === "nrf52_promicro_diy_sx1262"
-        ) {
+        if (boardTarget.value === "nrf52_promicro_diy_sx1262") {
           boardTarget.value = "nrf52_promicro_diy_sx1262-noscreen";
         }
       }
@@ -627,10 +628,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (solarRadioDriver) {
     solarRadioDriver.addEventListener("change", () => {
       if (solarRadioDriver.value === "sx1262") {
-        if (
-          boardTarget.value === "nrf52_promicro_diy_tcxo" ||
-          boardTarget.value === "nrf52_promicro_diy_sx1262"
-        ) {
+        if (boardTarget.value === "nrf52_promicro_diy_sx1262") {
           boardTarget.value = "nrf52_promicro_diy_sx1262-noscreen";
         }
       } else if (solarRadioDriver.value === "all") {
@@ -1168,6 +1166,15 @@ ${encryptedConfig}
 
       const url = `https://github.com/${REPO_OWNER}/${REPO_NAME}/issues/new?title=${encodeURIComponent(issueTitle)}&body=${encodeURIComponent(issueBody)}`;
 
+      if (url.length > MAX_ISSUE_URL_LENGTH) {
+        if (issueStatus) {
+          issueStatus.className = "status-msg status-error";
+          issueStatus.classList.remove("hidden");
+          issueStatus.textContent = `La solicitud es demasiado larga para GitHub (${url.length} caracteres, máximo ${MAX_ISSUE_URL_LENGTH}). Desactiva canales o campos opcionales, o usa el botón de compilación con token.`;
+        }
+        return;
+      }
+
       if (issueStatus) {
         issueStatus.className = "status-msg status-success";
         issueStatus.classList.remove("hidden");
@@ -1432,12 +1439,17 @@ ${encryptedConfig}
 
     // Opciones avanzadas de Nexus (manifest). Un formulario sin tocar no añade nada.
     if (nexusManifest && window.NexusOptions) {
+      const nexusValues = window.NexusOptions.readValues(nexusManifest, data);
+      const problems = window.NexusOptions.invalidValues(
+        nexusManifest,
+        nexusValues,
+      );
+      if (problems.length > 0) {
+        throw new Error(problems.join("; "));
+      }
       Object.assign(
         prefs,
-        window.NexusOptions.emitNexusPrefs(
-          nexusManifest,
-          window.NexusOptions.readValues(nexusManifest, data),
-        ),
+        window.NexusOptions.emitNexusPrefs(nexusManifest, nexusValues),
       );
     }
 

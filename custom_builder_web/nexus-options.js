@@ -219,7 +219,33 @@
     return values;
   }
 
-  const api = { emitOption, emitNexusPrefs, render, readValues };
+  // Lo que emitOption() descartaría en silencio por estar fuera de rango o mal escrito: el usuario debe enterarse.
+  function invalidValues(manifest, values) {
+    const problems = [];
+    for (const opt of manifest.options) {
+      if (!(opt.id in values) || isEmpty(values[opt.id])) continue;
+      const v = values[opt.id];
+      if (opt.type === "int") {
+        const n = Number(String(v).trim());
+        if (!Number.isInteger(n) || n < opt.min || n > opt.max)
+          problems.push(`${opt.label}: debe ser un entero entre ${opt.min} y ${opt.max}`);
+      } else if (opt.type === "string" && String(v).trim().length > opt.maxLen) {
+        problems.push(`${opt.label}: máximo ${opt.maxLen} caracteres`);
+      } else if (opt.type === "key") {
+        const s = String(v).trim();
+        if (!(s.startsWith("{") && s.endsWith("}"))) {
+          try {
+            base64ToCArray(s);
+          } catch (e) {
+            problems.push(`${opt.label}: clave no válida (Base64 o {0x..})`);
+          }
+        }
+      }
+    }
+    return problems;
+  }
+
+  const api = { emitOption, emitNexusPrefs, render, readValues, invalidValues };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.NexusOptions = api;
 })(typeof window !== "undefined" ? window : globalThis);
