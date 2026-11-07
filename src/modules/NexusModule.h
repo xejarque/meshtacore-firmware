@@ -15,6 +15,7 @@
 #include "mesh/MeshModule.h"
 #include "mesh/generated/meshtastic/mesh.pb.h"
 #include "modules/NexusRuntime.h"
+#include "modules/NexusSurvivalWatch.h"
 #include <vector>
 
 namespace meshtastic {
@@ -137,11 +138,7 @@ public:
     void serviceStormSleep();
     // Self-healing: reboot on a starved heap or a radio that has heard nothing for hours.
     void serviceSurvivalWatch();
-    bool survivalCheckArmed = false;
-    uint8_t survivalHeapLowChecks = 0;
-    uint32_t survivalLastCheckMs = 0;
-    uint32_t survivalRxChangeMs = 0;
-    uint32_t survivalRxTotal = 0;
+    SurvivalWatch survivalWatch;
     bool stormPending = false;
     uint32_t stormStartDeadlineMs = 0;
     uint32_t stormSleepMinutes = 0;
