@@ -54,6 +54,8 @@ size_t SafeFile::write(uint8_t ch)
     size_t written = f.write(ch);
     if (written == 1)
         hash = crc32Update(hash, &ch, 1);
+    else
+        shortWrite = true;
     return written;
 }
 
@@ -66,6 +68,8 @@ size_t SafeFile::write(const uint8_t *buffer, size_t size)
     // typing)
     size_t written = f.write((uint8_t const *)buffer, size);
     hash = crc32Update(hash, buffer, written);
+    if (written != size)
+        shortWrite = true;
     return written;
 }
 
@@ -78,6 +82,12 @@ bool SafeFile::close()
 {
     if (!f)
         return false;
+
+    if (shortWrite) {
+        LOG_ERROR("Short write on %s (filesystem full?)", filename.c_str());
+        abort();
+        return false;
+    }
 
     spiLock->lock();
     f.close();

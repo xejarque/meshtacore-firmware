@@ -1287,16 +1287,18 @@ static uint8_t dropBitFor(uint8_t payloadType)
 bool MeshCoreRepeater::frameFiltered(const uint8_t *raw, const FrameInfo &info)
 {
     // Cheap, stateless checks first; the rate limits keep state, so they only see what the others let through.
+    // Ignored sources go first: their adverts must reach rememberIgnored() even while DROP MCAD discards every advert,
+    // or the hash-based matching of their other traffic never learns them.
+    if (isIgnoredSource(raw, info)) {
+        rxIgnored++;
+        return true;
+    }
     const uint8_t bit = dropBitFor(info.payload_type) & fwDropMask;
     if (bit) {
         for (size_t i = 0; i < MeshCoreConfig::DROP_RULE_COUNT; i++) {
             if (MeshCoreConfig::DROP_RULES[i].bit == bit)
                 fwRuleDrops[i]++;
         }
-        return true;
-    }
-    if (isIgnoredSource(raw, info)) {
-        rxIgnored++;
         return true;
     }
     if (rateLimited(raw, info)) {
@@ -1323,6 +1325,9 @@ bool MeshCoreRepeater::rateLimited(const uint8_t *raw, const FrameInfo &info)
         const uint32_t gapMs = (uint32_t)fwAdvertGapMin * 60000UL;
         if (slot && Throttle::isWithinTimespanMs(slot->atMs, gapMs))
             return true;
+        // Only a genuine advert opens the gap; a forged one carrying someone else's key would otherwise silence them.
+        if (!verifyAdvert(&raw[info.header_len], info.payload_len))
+            return false;
         if (!slot) {
             slot = &advertSeen[advertSeenNext];
             advertSeenNext = (uint8_t)((advertSeenNext + 1) % ADVERT_SEEN_SIZE);
@@ -1479,12 +1484,14 @@ void MeshCoreRepeater::storeNeighbor(const PendingAdvert &adv)
         }
     }
     if (!slot) {
+        // One clock read: the ages compare wrap-safely only when measured from the same instant.
+        const uint32_t now = Time::getMillis();
         for (Neighbor &n : neighbors) {
             if (!n.used) {
                 slot = &n;
                 break;
             }
-            if (!slot || (uint32_t)(Time::getMillis() - n.heardMs) > (uint32_t)(Time::getMillis() - slot->heardMs))
+            if (!slot || now - n.heardMs > now - slot->heardMs)
                 slot = &n; // table full: the one not heard for longest gives way
         }
     }

@@ -18,11 +18,11 @@
 #include "Router.h"
 #include "SPILock.h"
 #include "SafeFile.h"
-#include <memory>
-#include <new>
 #include "TransmitHistory.h"
 #include "TypeConversions.h"
 #include "UptimeClock.h"
+#include <memory>
+#include <new>
 #if HAS_SCREEN && !MESHTASTIC_EXCLUDE_WAYPOINT
 #include "WaypointStore.h"
 #endif
@@ -94,7 +94,7 @@ namespace
 // A bare FILE_O_WRITE appends on nRF52 LittleFS, so small values are replaced through SafeFile.
 bool writeUint32File(const char *path, uint32_t value)
 {
-    SafeFile f(path);
+    SafeFile f(path, true); // fullAtomic: the old value survives a power loss until the new one is verified
     f.write(reinterpret_cast<const uint8_t *>(&value), sizeof(value));
     if (!f.close()) {
         LOG_WARN("Can't write %s", path);

@@ -122,6 +122,28 @@ void NexusModule::cleanNeighborName(const char *src, char *out, size_t cap, size
 
 NexusModule::DirectNeighborEntry NexusModule::neighborEntries[40];
 
+static void formatHexPrefix(const uint8_t *pub, char *out, size_t outLen)
+{
+    snprintf(out, outLen, "%02X%02X%02X%02X", pub[0], pub[1], pub[2], pub[3]);
+}
+
+// Keeps the list sorted newest first and, once full, lets a newer neighbour push out the oldest one.
+static void insertNewestNeighbor(NexusModule::DirectNeighborEntry *entries, size_t *count, size_t cap,
+                                 const NexusModule::DirectNeighborEntry &entry)
+{
+    size_t at = *count < cap ? (*count)++ : cap;
+    if (at == cap) {
+        if (entries[cap - 1].lastHeard >= entry.lastHeard)
+            return; // older than everything kept
+        at = cap - 1;
+    }
+    while (at > 0 && entries[at - 1].lastHeard < entry.lastHeard) {
+        entries[at] = entries[at - 1];
+        at--;
+    }
+    entries[at] = entry;
+}
+
 size_t NexusModule::formatNeighborLine(const DirectNeighborEntry &entry, uint32_t now, char *out, size_t outLen)
 {
     char ago[8];
@@ -363,15 +385,16 @@ void NexusModule::formatMeshCoreNeighbors(char *reply, size_t replyLen)
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
     const uint32_t myNum = myNodeInfo.my_node_num != 0 ? myNodeInfo.my_node_num : (nodeDB ? nodeDB->getNodeNum() : 0);
     DirectNeighborEntry *entries = neighborEntries;
+    constexpr size_t NEIGHBOR_LIST_MAX = 32; // newest first, like the relay's own table
     size_t count = 0;
     meshCoreCompanion.nodes.forEach([&](const MeshCoreNode &n) {
-        if (isDirectNeighbor(n) && count < 32) {
-            strncpy(entries[count].name, n.name[0] ? n.name : "???", sizeof(entries[count].name) - 1);
-            entries[count].name[sizeof(entries[count].name) - 1] = '\0';
-            entries[count].snr = n.snr;
-            entries[count].lastHeard = n.lastHeard ? n.lastHeard : n.lastAdvert;
-            entries[count].nodeNum = n.nodeNum;
-            count++;
+        if (isDirectNeighbor(n)) {
+            DirectNeighborEntry entry = {};
+            strncpy(entry.name, n.name[0] ? n.name : "???", sizeof(entry.name) - 1);
+            entry.snr = n.snr;
+            entry.lastHeard = n.lastHeard ? n.lastHeard : n.lastAdvert;
+            entry.nodeNum = n.nodeNum;
+            insertNewestNeighbor(entries, &count, NEIGHBOR_LIST_MAX, entry);
         }
     });
 
@@ -388,28 +411,17 @@ void NexusModule::formatMeshCoreNeighbors(char *reply, size_t replyLen)
                         break;
                     }
                 }
-                if (!duplicate && count < 32) {
+                if (!duplicate) {
                     const char *srcName = n->long_name[0] ? n->long_name : (n->short_name[0] ? n->short_name : "???");
-                    strncpy(entries[count].name, srcName, sizeof(entries[count].name) - 1);
-                    entries[count].name[sizeof(entries[count].name) - 1] = '\0';
-                    entries[count].snr = n->snr;
-                    entries[count].lastHeard = n->last_heard;
-                    entries[count].nodeNum = n->num;
-                    count++;
+                    DirectNeighborEntry entry = {};
+                    strncpy(entry.name, srcName, sizeof(entry.name) - 1);
+                    entry.snr = n->snr;
+                    entry.lastHeard = n->last_heard;
+                    entry.nodeNum = n->num;
+                    insertNewestNeighbor(entries, &count, NEIGHBOR_LIST_MAX, entry);
                 }
             }
         }
-    }
-
-    // Newest first, like the relay's own table: insertion sort, the list never holds more than 32.
-    for (size_t i = 1; i < count; i++) {
-        const DirectNeighborEntry moving = entries[i];
-        size_t at = i;
-        while (at > 0 && entries[at - 1].lastHeard < moving.lastHeard) {
-            entries[at] = entries[at - 1];
-            at--;
-        }
-        entries[at] = moving;
     }
 
     if (count == 0) {
@@ -435,8 +447,7 @@ void NexusModule::formatMeshCoreNeighbors(char *reply, size_t replyLen)
         if (heard[i].name[0])
             strncpy(entries[i].name, heard[i].name, sizeof(entries[i].name) - 1);
         else
-            snprintf(entries[i].name, sizeof(entries[i].name), "%02X%02X%02X%02X", heard[i].pub[0], heard[i].pub[1],
-                     heard[i].pub[2], heard[i].pub[3]);
+            formatHexPrefix(heard[i].pub, entries[i].name, sizeof(entries[i].name));
         entries[i].name[sizeof(entries[i].name) - 1] = '\0';
         entries[i].snr = heard[i].snr;
         entries[i].lastHeard = now > heard[i].ageSecs ? now - heard[i].ageSecs : 0;
@@ -491,7 +502,7 @@ void NexusModule::handleMeshCoreFavCommand(const char *args, char *reply, size_t
             if (!n.isFavorite() || len >= sizeof(list) - 20)
                 return;
             char hex[10];
-            snprintf(hex, sizeof(hex), "%02X%02X%02X%02X", n.pub[0], n.pub[1], n.pub[2], n.pub[3]);
+            formatHexPrefix(n.pub, hex, sizeof(hex));
             len += snprintf(list + len, sizeof(list) - len, "%s%s", len ? ", " : "", hex);
         });
         snprintf(reply, replyLen, "MESHTACORE: FAV takes <hex_prefix> [ON|OFF]. %s%s", len ? "Kept: " : "No favourites yet",
@@ -517,9 +528,11 @@ void NexusModule::handleMeshCoreFavCommand(const char *args, char *reply, size_t
         char list[128];
         size_t len = 0;
         list[0] = '\0';
-        for (size_t i = 0; i < found && len < sizeof(list) - 20; i++)
-            len += snprintf(list + len, sizeof(list) - len, "%s%02X%02X%02X%02X", len ? ", " : "", matches[i]->pub[0],
-                            matches[i]->pub[1], matches[i]->pub[2], matches[i]->pub[3]);
+        for (size_t i = 0; i < found && len < sizeof(list) - 20; i++) {
+            char hex[10];
+            formatHexPrefix(matches[i]->pub, hex, sizeof(hex));
+            len += snprintf(list + len, sizeof(list) - len, "%s%s", len ? ", " : "", hex);
+        }
         snprintf(reply, replyLen, "MESHTACORE: '%s' matches %u contacts: %s", word, (unsigned)found, list);
         return;
     }
@@ -537,8 +550,9 @@ void NexusModule::handleMeshCoreFavCommand(const char *args, char *reply, size_t
     MeshCoreNode *n = matches[0];
     meshCoreCompanion.nodes.setFavorite(n, on);
     meshCoreCompanion.nodes.touch(n); // a saved favourite ranks first, so keep it recent too
-    snprintf(reply, replyLen, "MESHTACORE: %s %s (%02X%02X%02X%02X)%s", on ? "kept" : "released",
-             n->name[0] ? n->name : "sin nombre", n->pub[0], n->pub[1], n->pub[2], n->pub[3],
+    char hex[10];
+    formatHexPrefix(n->pub, hex, sizeof(hex));
+    snprintf(reply, replyLen, "MESHTACORE: %s %s (%s)%s", on ? "kept" : "released", n->name[0] ? n->name : "sin nombre", hex,
              on ? ", saved on the next contacts write" : "");
 #else
     (void)args;
@@ -555,11 +569,6 @@ static bool parseWholeNumber(const char *word, uint32_t *value)
         return false;
     *value = (uint32_t)parsed;
     return true;
-}
-
-static void formatHexPrefix(const uint8_t *pub, char *out, size_t outLen)
-{
-    snprintf(out, outLen, "%02X%02X%02X%02X", pub[0], pub[1], pub[2], pub[3]);
 }
 
 void NexusModule::handleMeshCoreDiscoverCommand(const char *args, const ReplyContext &requester, char *reply, size_t replyLen)

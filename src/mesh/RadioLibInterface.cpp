@@ -987,6 +987,7 @@ void RadioLibInterface::handleReceiveInterrupt(const CapturedRxInfo *captured)
             // The saved settings (path hash size, flood limits, relay mode) normally load on the first service tick, a few
             // seconds after boot. A frame heard before that must already be handled with them.
             ensureMeshCoreConfigLoaded();
+            rxMeshCore++;
             // The firewall (/mtc DROP rules, NIGN, rate limits) runs first: a dropped frame reaches neither the companion nor
             // the relay.
             if (meshCoreRepeater.handleReceivedFrame((const uint8_t *)&radioBuffer, length, iface->getSNR(),

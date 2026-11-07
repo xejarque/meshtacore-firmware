@@ -52,6 +52,7 @@ class SafeFile : public Print
     File f;
     bool fullAtomic;
     uint32_t hash = 0xFFFFFFFFu; // running CRC32, see crc32Update() in SafeFile.cpp
+    bool shortWrite = false;     // the filesystem took fewer bytes than offered: close() must not replace the old file
 };
 
 #endif

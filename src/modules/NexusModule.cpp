@@ -436,11 +436,11 @@ void NexusModule::initOnce() {
     if (isUnexpectedReset() && counter < UNEXP_REBOOT_COUNT_CAP) {
         counter++;
         FSCom.mkdir("/prefs");
-        auto f = FSCom.open("/prefs/unexpRebootCount", FILE_O_WRITE);
-        if (f) {
-            f.write(reinterpret_cast<const uint8_t *>(&counter), sizeof(counter));
-            f.close();
-        }
+        // A bare FILE_O_WRITE appends on nRF52 LittleFS, so the counter read back would stay at its first value.
+        SafeFile f("/prefs/unexpRebootCount", true);
+        f.write(reinterpret_cast<const uint8_t *>(&counter), sizeof(counter));
+        if (!f.close())
+            LOG_WARN("Can't write /prefs/unexpRebootCount");
     }
     unexp_reboot_count = counter;
 #endif

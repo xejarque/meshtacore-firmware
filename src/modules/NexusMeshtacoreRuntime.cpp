@@ -12,10 +12,10 @@
 #include "Router.h"
 #include "Throttle.h"
 #include "UptimeClock.h"
-#include "memGet.h"
-#include "mesh/RadioLibInterface.h"
 #include "configuration.h"
 #include "main.h"
+#include "memGet.h"
+#include "mesh/RadioLibInterface.h"
 #include "modules/NexusModule.h"
 #include "sleep.h"
 #ifdef ARCH_ESP32
@@ -107,7 +107,7 @@ void NexusModule::serviceSurvivalWatch()
         return;
     RadioLibInterface *radio = RadioLibInterface::instance;
     const uint32_t freeHeap = memGet.getFreeHeap();
-    switch (survivalWatch.check(freeHeap, radio != nullptr, radio ? radio->rxGood + radio->rxBad : 0)) {
+    switch (survivalWatch.check(freeHeap, radio != nullptr, radio ? radio->rxGood + radio->rxBad + radio->rxMeshCore : 0)) {
     case SurvivalWatch::Verdict::HeapExhausted:
         LOG_ERROR("MTC: heap exhausted (%lu bytes free), rebooting", (unsigned long)freeHeap);
         rebootAtMsec = Time::timerEndsAtMillis(2000);
