@@ -658,6 +658,20 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // Tópico raíz: muestra como valor real el que se usará (msh/<región>) mientras el usuario no escriba uno propio.
+  const mqttRootInput = document.getElementById("mqttRoot");
+  const loraRegionSelect = document.getElementById("loraRegion");
+  function syncMqttRootDefault() {
+    if (mqttRootInput.dataset.userEdited === "1") return;
+    mqttRootInput.value = `msh/${loraRegionSelect.value}`;
+  }
+  mqttRootInput.addEventListener("input", () => {
+    mqttRootInput.dataset.userEdited = mqttRootInput.value.trim() ? "1" : "0";
+    if (!mqttRootInput.value.trim()) syncMqttRootDefault();
+  });
+  loraRegionSelect.addEventListener("change", syncMqttRootDefault);
+  syncMqttRootDefault();
+
   // Toggle WiFi fields
   wifiEnabled.addEventListener("change", () => {
     if (wifiEnabled.checked) {
