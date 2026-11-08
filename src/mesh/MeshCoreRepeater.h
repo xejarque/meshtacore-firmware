@@ -266,7 +266,11 @@ class MeshCoreRepeater
      * The firewall (MeshCoreConfig::DROP_*, the advert gap and the hop rate): which frames are dropped before anything else
      * looks at them. Ignored nodes are dropped whatever these say.
      */
+#if NEXUS_EXCLUDE_FIREWALL
+    void setFirewall(uint8_t, uint8_t, uint8_t) {} // -DNEXUS_EXCLUDE_FIREWALL=1: no firewall in this build
+#else
     void setFirewall(uint8_t dropMask, uint8_t advertGapMin, uint8_t hopRatePerMin);
+#endif
     uint8_t getDropMask() const { return fwDropMask; }
     uint32_t getRuleDrops(size_t rule) const { return rule < MeshCoreConfig::DROP_RULE_COUNT ? fwRuleDrops[rule] : 0; }
 
@@ -336,17 +340,24 @@ class MeshCoreRepeater
     HopRate hopRates[HOP_RATE_SIZE];
     uint8_t hopRatesNext = 0;
 
+    /** The receive path past the firewall. */
+    void processFrame(const uint8_t *raw, size_t len, float snr, uint32_t airtimeMs);
+
+    // The firewall lives in MeshCoreFirewall.cpp. Without it (-DNEXUS_EXCLUDE_FIREWALL=1) nothing is filtered.
+#if NEXUS_EXCLUDE_FIREWALL
+    bool frameFiltered(const uint8_t *, const FrameInfo &) { return false; }
+    static bool nodeIgnored(uint32_t) { return false; }
+#else
     /** True when the firewall drops this frame; counts it against the rule that did. */
     bool frameFiltered(const uint8_t *raw, const FrameInfo &info);
     bool rateLimited(const uint8_t *raw, const FrameInfo &info);
-    /** The receive path past the firewall. */
-    void processFrame(const uint8_t *raw, size_t len, float snr, uint32_t airtimeMs);
 
     /** True when the frame comes from an ignored node: its ADVERT or anonymous request, a message whose one-byte source hash
      * is one's, or a flood whose last hop is one. */
     bool isIgnoredSource(const uint8_t *raw, const FrameInfo &info);
     void rememberIgnored(const uint8_t *pub, uint32_t num);
     static bool nodeIgnored(uint32_t nodeNum) { return ignorePredicate && ignorePredicate(nodeNum); }
+#endif
 
 #if MESHTASTIC_ENABLE_MESHCORE_NEIGHBORS
     // ADVERT payload up to the end of the longest app data, enough to check the signature and read the name.
