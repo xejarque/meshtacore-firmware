@@ -1198,8 +1198,9 @@ void test_heard_routes_keep_echoes_of_the_last_sent_text_only(void)
     s.c.noteHeardRoute(0x300, 0x00C00001, from, 0, nullptr, 1, 0, 1, -5.0f, -80);
 
     s.c.noteSentText(0x400, 0x00C00002, me, 0);
-    for (uint8_t hopCount = 1; hopCount <= 8; hopCount++) {
-        uint8_t path[8] = {hopCount, hopCount, hopCount, hopCount, hopCount, hopCount, hopCount, hopCount};
+    for (uint8_t hopCount = 1; hopCount <= MeshCoreCompanion::PATH_ROUTES_OWN + 2; hopCount++) {
+        uint8_t path[32];
+        memset(path, hopCount, sizeof(path));
         s.c.noteHeardRoute(0, 0x00C00002, 0, 0, path, 1, hopCount, 1, -5.0f, -80);
     }
     TEST_ASSERT_EQUAL_UINT32(MeshCoreCompanion::PATH_ROUTES_OWN, (uint32_t)s.c.heardRouteCount(0x00C00002));
@@ -1358,7 +1359,7 @@ void test_path_report_splits_without_cutting(void)
 {
     GroupSetup s;
     MeshCoreCompanion::HeardPath entry;
-    entry.hopCount = 32; // the full 64-byte MeshCore path, two bytes per hop
+    entry.hopCount = sizeof(entry.path) / 2; // a full stored path, two bytes per hop
     entry.hashSize = 2;
     entry.routeType = 1;
     entry.snr = -5.0f;
@@ -1371,7 +1372,10 @@ void test_path_report_splits_without_cutting(void)
     TEST_ASSERT_TRUE(s.c.formatPathReport(routes, 1, nullptr, captureChunk, &capture) >= 2);
 
     TEST_ASSERT_NOT_NULL(strstr(capture.text, "`4041`")); // the first hop
-    TEST_ASSERT_NOT_NULL(strstr(capture.text, "`7E7F`")); // and the last one: nothing was dropped
+    char lastHop[16];
+    snprintf(lastHop, sizeof(lastHop), "`%02X%02X`", 0x40 + (unsigned)sizeof(entry.path) - 2,
+             0x40 + (unsigned)sizeof(entry.path) - 1);
+    TEST_ASSERT_NOT_NULL(strstr(capture.text, lastHop)); // and the last one: nothing was dropped
     TEST_ASSERT_NOT_NULL(strstr(capture.text, "SNR -5.0 dB"));
     TEST_ASSERT_NULL(strstr(capture.text, "…"));
 }

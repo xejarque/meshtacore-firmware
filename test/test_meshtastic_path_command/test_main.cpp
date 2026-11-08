@@ -330,7 +330,7 @@ void test_own_reports_are_not_heard(void)
     TEST_ASSERT_EQUAL_UINT32(0x00ABC700, capture->received.back().decoded.reply_id);
 }
 
-// The text we sent has a slot of its own: a full ring of received texts does not lose it, nor does it push one out.
+// The texts we sent have slots of their own: a full ring of received texts does not lose it, nor does it push one out.
 void test_sent_text_does_not_take_a_received_slot(void)
 {
     addNode(0x00001111, "Ana");
