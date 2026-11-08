@@ -422,7 +422,8 @@ bool AdminModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshta
         static esp_app_desc_t app_desc;
         if (!MeshtasticOTA::getAppDesc(part, &app_desc)) {
             suppressRebootBanner = true;
-            sendWarningAndLog("Cannot start OTA: Device does have a valid OTA Loader.");
+            sendWarningAndLog(
+                "Cannot start OTA: Device does not have a valid OTA Loader. Flash mt-<mcu>-ota.bin at the ota_1 partition.");
             break;
         }
 
