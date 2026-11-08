@@ -189,6 +189,12 @@ jobs:
           restore-keys: |
             ccache-${{ steps.arch-step.outputs.arch }}-${{ steps.parse-step.outputs.target }}-
 
+      - name: Reset ccache counters
+        if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
+        # The restored cache carries the counters of every earlier run; zero them so "ccache stats" below
+        # counts only this build and the save threshold means what it says.
+        run: ccache -z
+
       - name: Compile Custom Firmware
         if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
         env:

@@ -394,6 +394,11 @@ jobs:
           restore-keys: |
             ccache-${{ steps.arch-step.outputs.arch }}-${{ steps.target-step.outputs.target }}-
 
+      - name: Reset ccache counters
+        # The restored cache carries the counters of every earlier run; zero them so "ccache stats" below
+        # counts only this build and the save threshold means what it says.
+        run: ccache -z
+
       - name: Compile Custom Firmware
         env:
           PLATFORMIO_BUILD_FLAGS: "-DHAS_NEXUS=1 -DAPP_REPO=\\\"meshtacore-firmware\\\" ${{ inputs.extra_build_flags }}"
