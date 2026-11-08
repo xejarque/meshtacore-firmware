@@ -8,6 +8,7 @@
 #define MESHTASTIC_ENABLE_MESHCORE_COMPANION 1
 #define MESHTASTIC_MESHCORE_PATH_COMMAND 1
 #include "mesh/MeshCoreCompanion.cpp"
+#include "mesh/MeshCoreFirewall.cpp"
 #include "mesh/MeshCoreRepeater.cpp"
 
 #include "Arduino.h"

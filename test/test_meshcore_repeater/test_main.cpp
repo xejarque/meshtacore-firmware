@@ -13,6 +13,7 @@
 #define MESHTASTIC_ENABLE_MESHCORE_RELAY 1
 #define MESHTASTIC_ENABLE_MESHCORE_NEIGHBORS 1
 #include "mesh/ContentionStats.h"
+#include "mesh/MeshCoreFirewall.cpp"
 #include "mesh/MeshCoreRepeater.cpp"
 
 #include "Arduino.h"
