@@ -10,6 +10,7 @@ import {
 } from "./flasher-esp.js";
 import { decrypt } from "./flasher-env.js";
 import {
+  buildIdFromImage,
   listBoards,
   parseFirmwareName,
   releaseVersion,
@@ -179,7 +180,7 @@ function describeBoard() {
   if (!board) return;
   ui.releaseInfo.textContent =
     board.kind === "esp32"
-      ? `${board.name} · ${formatBytes(board.size)}`
+      ? `${board.name} · ${formatBytes(board.size)}${board.buildId ? ` · build ${board.buildId}` : ""}`
       : "Las placas nRF52 aún no se pueden actualizar desde aquí.";
   refreshButtons();
 }
@@ -254,7 +255,8 @@ async function loadOwnFile(file) {
         );
     }
     ownImage = image;
-    ui.ownInfo.textContent = `${image.name} · ${formatBytes(image.data.length)}`;
+    const id = buildIdFromImage(image.data);
+    ui.ownInfo.textContent = `${image.name} · ${formatBytes(image.data.length)}${id ? ` · build ${id}` : ""}`;
   } catch (error) {
     ui.ownInfo.textContent = errorText(error);
   }

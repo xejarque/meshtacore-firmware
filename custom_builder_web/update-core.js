@@ -25,10 +25,40 @@ export function listBoards(index) {
   return files
     .map((file) => {
       const parsed = parseFirmwareName(file.name);
-      return parsed ? { ...parsed, size: file.size } : null;
+      return parsed
+        ? { ...parsed, size: file.size, buildId: file.buildId ?? null }
+        : null;
     })
     .filter(Boolean)
     .sort((a, b) => a.board.localeCompare(b.board));
+}
+
+const MARKER = new TextEncoder().encode("MTCBUILD:");
+const HEX = /^[0-9a-f]{8}$/;
+
+/**
+ * The build fingerprint stored in a firmware image as the text `MTCBUILD:<8 hex digits>` (see the BUILD command
+ * of the firmware), or null for builds that predate it. The first well-formed marker wins.
+ */
+export function buildIdFromImage(bytes) {
+  outer: for (let at = 0; at + MARKER.length + 8 <= bytes.length; at++) {
+    for (let i = 0; i < MARKER.length; i++)
+      if (bytes[at + i] !== MARKER[i]) continue outer;
+    const id = String.fromCharCode(
+      ...bytes.subarray(at + MARKER.length, at + MARKER.length + 8),
+    );
+    if (HEX.test(id)) return id;
+  }
+  return null;
+}
+
+/**
+ * How a node's build compares with the standard release it would be updated to.
+ * `same`: identical options; `different`: customised (or another target); `unknown`: one side has no id.
+ */
+export function compareBuilds(nodeId, releaseId) {
+  if (!nodeId || !releaseId) return "unknown";
+  return nodeId === releaseId ? "same" : "different";
 }
 
 /** The version shared by the files of a release, or null when there are none. */

@@ -24,12 +24,16 @@ mkdir -p "$OUT"
 gh release download "$TAG" --dir "$OUT" --pattern 'firmware-*.bin' --pattern 'firmware-*.zip'
 rm -f "$OUT"/*.factory.bin
 
-# One entry per file; the page derives board and version from the name.
+# One entry per file; the page derives board and version from the name. buildId is the fingerprint the
+# firmware embeds as "MTCBUILD:<id>" (see the BUILD command); empty for builds that predate it and for the
+# nRF52 zips, whose image is compressed.
 FILES="$(
 	cd "$OUT"
 	for f in firmware-*; do
-		printf '%s\t%s\n' "$f" "$(wc -c <"$f" | tr -d ' ')"
-	done | jq -R -s 'split("\n") | map(select(length > 0) | split("\t") | {name: .[0], size: (.[1] | tonumber)})'
+		id=""
+		case "$f" in *.bin) id="$(LC_ALL=C grep -a -o 'MTCBUILD:[0-9a-f]\{8\}' "$f" | head -n 1 | cut -d: -f2 || true)" ;; esac
+		printf '%s\t%s\t%s\n' "$f" "$(wc -c <"$f" | tr -d ' ')" "$id"
+	done | jq -R -s 'split("\n") | map(select(length > 0) | split("\t") | {name: .[0], size: (.[1] | tonumber), buildId: (if (.[2] // "") == "" then null else .[2] end)})'
 )"
 
 jq -n --arg tag "$TAG" --argjson files "$FILES" '{tag: $tag, files: $files}' >"$OUT/index.json"

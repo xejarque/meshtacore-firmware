@@ -441,6 +441,75 @@ static void sendNexusStatusMessage(const char *text, uint8_t channel = 0)
     service->sendToMesh(p);
 }
 
+// Build fingerprint. The "MTCBUILD:" marker sits in the image as plain text, so the web updater can read the id out of
+// a .bin without running it. Builds that do not go through bin/platformio-custom.py (native tests) report "unknown".
+#ifdef MTC_BUILD_ID
+static const char mtcBuildMarker[] __attribute__((used)) = "MTCBUILD:" MTC_BUILD_ID;
+#define MTC_BUILD_ID_TEXT (mtcBuildMarker + 9)
+#else
+#define MTC_BUILD_ID_TEXT "unknown"
+#endif
+
+// Names of the modules compiled out (DeviceMetadata.excluded_modules), comma separated, "nothing" when none.
+static void describeExcludedModules(uint32_t mask, char *out, size_t outLen)
+{
+    static const struct {
+        uint32_t bit;
+        const char *name;
+    } kModules[] = {
+        {meshtastic_ExcludedModules_MQTT_CONFIG, "MQTT"},
+        {meshtastic_ExcludedModules_SERIAL_CONFIG, "Serial"},
+        {meshtastic_ExcludedModules_EXTNOTIF_CONFIG, "ExtNotif"},
+        {meshtastic_ExcludedModules_STOREFORWARD_CONFIG, "S&F"},
+        {meshtastic_ExcludedModules_RANGETEST_CONFIG, "RangeTest"},
+        {meshtastic_ExcludedModules_TELEMETRY_CONFIG, "Telemetry"},
+        {meshtastic_ExcludedModules_CANNEDMSG_CONFIG, "CannedMsg"},
+        {meshtastic_ExcludedModules_AUDIO_CONFIG, "Audio"},
+        {meshtastic_ExcludedModules_REMOTEHARDWARE_CONFIG, "RemoteHW"},
+        {meshtastic_ExcludedModules_NEIGHBORINFO_CONFIG, "Neighbor"},
+        {meshtastic_ExcludedModules_AMBIENTLIGHTING_CONFIG, "AmbientLight"},
+        {meshtastic_ExcludedModules_DETECTIONSENSOR_CONFIG, "Detection"},
+        {meshtastic_ExcludedModules_PAXCOUNTER_CONFIG, "Pax"},
+        {meshtastic_ExcludedModules_BLUETOOTH_CONFIG, "Bluetooth"},
+        {meshtastic_ExcludedModules_NETWORK_CONFIG, "Network"},
+        {meshtastic_ExcludedModules_STATUSMESSAGE_CONFIG, "StatusMsg"},
+        {meshtastic_ExcludedModules_TRAFFICMANAGEMENT_CONFIG, "TrafficMgmt"},
+        {meshtastic_ExcludedModules_TAK_CONFIG, "TAK"},
+        {meshtastic_ExcludedModules_MESHBEACON_CONFIG, "MeshBeacon"},
+    };
+    size_t used = 0;
+    out[0] = '\0';
+    for (const auto &module : kModules) {
+        if (!(mask & module.bit))
+            continue;
+        const int written = snprintf(out + used, outLen - used, "%s%s", used ? "," : "", module.name);
+        if (written < 0 || (size_t)written >= outLen - used)
+            break; // full: a truncated list beats overflowing the reply
+        used += (size_t)written;
+    }
+    if (used == 0)
+        snprintf(out, outLen, "nothing");
+}
+
+static const char *mtcNexusFeatures()
+{
+#if defined(NEXUS_ENABLE_AIRTAG) && defined(NEXUS_ENABLE_ADV)
+    return "AIRTAG+ADV";
+#elif defined(NEXUS_ENABLE_AIRTAG)
+    return "AIRTAG";
+#elif defined(NEXUS_ENABLE_ADV)
+    return "ADV";
+#else
+    return "none";
+#endif
+}
+
+#if MESHTASTIC_ENABLE_MESHCORE_RELAY
+#define MTC_MESHCORE_RELAY_TEXT "yes"
+#else
+#define MTC_MESHCORE_RELAY_TEXT "no"
+#endif
+
 static const char *const s_nexusPortNames[32] = {
     "TEXT", "POS", "INFO", "TELE", "NEIG", "ADM", "TRCE", "S&F",
     "RPLY", "REHW", "ATAK", "WAYP", "TUNN", "DETC", "PAX", "UNK",
@@ -5729,6 +5798,24 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                          inv_id_mismatch ? "ON" : "OFF", (unsigned int)inv_drop_id);
             }
         }
+    }
+    else if (strcasecmp(cmd, "BUILD") == 0) {
+        // Fingerprint of the compiled-in options (bin/platformio-custom.py). The web updater compares it with the one
+        // of the release it is about to install to warn about customised builds. Same id = same options and modules.
+        // Readable summary for support: names only, never values (userPrefs may hold channel keys).
+        char excluded[120];
+        describeExcludedModules(getDeviceMetadata().excluded_modules, excluded, sizeof(excluded));
+        static char buildLine[140];
+        startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Build");
+        snprintf(buildLine, sizeof(buildLine), "Id: %s\nTgt: %s\nVer: %s\n", MTC_BUILD_ID_TEXT, optstr(APP_ENV),
+                 optstr(APP_VERSION));
+        appendPaging(buildLine);
+        snprintf(buildLine, sizeof(buildLine), "Without: %s\n", excluded);
+        appendPaging(buildLine);
+        snprintf(buildLine, sizeof(buildLine), "Nexus: %s\nMeshCore relay: %s", mtcNexusFeatures(), MTC_MESHCORE_RELAY_TEXT);
+        appendPaging(buildLine);
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging BUILD...");
+        memset(buildLine, 0, sizeof(buildLine));
     }
     else if (strcasecmp(cmd, "VERSION") == 0 || strcasecmp(cmd, "V") == 0) {
         auto metadata = getDeviceMetadata();
