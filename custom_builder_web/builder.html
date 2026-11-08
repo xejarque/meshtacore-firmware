@@ -1515,10 +1515,50 @@
                       id="dispatchStatus"
                       class="status-msg hidden mt-2"
                     ></div>
-                    <div id="flasherPanel" class="hidden"></div>
                   </details>
                 </div>
               </div>
+            </div>
+          </section>
+
+          <section class="card" id="flasherCard">
+            <div class="card-header">
+              <span class="step-num">⚡</span>
+              <h2>Flashear por USB</h2>
+            </div>
+            <div class="card-body">
+              <p>
+                Instala el firmware en tu placa directamente desde el navegador,
+                sin programas ni cables especiales. Necesita
+                <strong>Chrome o Edge de escritorio</strong>. Todo ocurre en tu
+                equipo: el firmware no se sube a ningún sitio.
+              </p>
+              <ul class="flasher-intro">
+                <li>
+                  <strong>Con token</strong> (disparo directo): el flasher sigue
+                  tu compilación y te avisa cuando está lista.
+                </li>
+                <li>
+                  <strong>Ya tienes el archivo</strong>: elige aquí el
+                  <code>.zip.enc</code>, el <code>.zip</code> o un
+                  <code>.factory.bin</code>.
+                </li>
+              </ul>
+              <div class="flasher-pick">
+                <label class="btn btn-primary" for="flasherFile"
+                  >📂 Elegir archivo de firmware</label
+                >
+                <input
+                  type="file"
+                  id="flasherFile"
+                  accept=".enc,.zip,.bin"
+                  class="hidden"
+                />
+                <a class="btn btn-outline" href="flasher.html"
+                  >Abrir el flasher completo ↗</a
+                >
+              </div>
+              <div id="flasherPanel" class="hidden"></div>
             </div>
           </section>
         </form>

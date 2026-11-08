@@ -12,6 +12,14 @@ const flasher = mountFlasher(container, {
   decrypt,
 });
 
+document.getElementById("flasherFile").addEventListener("change", (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  container.classList.remove("hidden");
+  flasher.loadFile(file);
+  event.target.value = ""; // so picking the same file again triggers a new load
+});
+
 document.addEventListener("meshtacore:build-dispatched", (event) => {
   container.classList.remove("hidden");
   container.scrollIntoView({ behavior: "smooth", block: "nearest" });

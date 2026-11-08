@@ -7,6 +7,23 @@
   margin-top: 1rem;
 }
 
+.flasher-intro {
+  margin: 0 0 1rem;
+  padding-left: 1.2rem;
+  color: var(--text-muted);
+}
+
+.flasher-intro li + li {
+  margin-top: 0.35rem;
+}
+
+.flasher-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
 .flasher-field {
   display: block;
   width: 100%;
