@@ -240,7 +240,9 @@ runtimes:
 actions:
   disabled:
     - trunk-announce
-  enabled:
+    # Reformats whole files at commit time and buries real diffs (it rewrote a table in docs/mtc-commands.md).
+    # Run `trunk fmt <file>` by hand on files you want formatted.
     - trunk-fmt-pre-commit
+  enabled:
     - trunk-check-pre-push
     - trunk-upgrade-available
