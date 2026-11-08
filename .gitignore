@@ -87,3 +87,6 @@ build/wasm-*.log
 /logs/
 /untracked/
 /txts/
+
+# Firmware copied from the latest release at Pages deploy time (bin/pages-firmware.sh)
+custom_builder_web/firmware/

@@ -441,12 +441,99 @@ static void sendNexusStatusMessage(const char *text, uint8_t channel = 0)
     service->sendToMesh(p);
 }
 
+// Build fingerprint: the plain-text "MTCBUILD:" marker lets the web updater read the id from a .bin.
+// Native tests, which skip bin/platformio-custom.py, report "unknown".
+#ifdef MTC_BUILD_ID
+static const char mtcBuildMarker[] __attribute__((used)) = "MTCBUILD:" MTC_BUILD_ID;
+#define MTC_BUILD_ID_TEXT (mtcBuildMarker + 9)
+#else
+#define MTC_BUILD_ID_TEXT "unknown"
+#endif
+
+// Names of the modules compiled out (DeviceMetadata.excluded_modules), comma separated, "nothing" when none.
+static void describeExcludedModules(uint32_t mask, char *out, size_t outLen)
+{
+    static const struct {
+        uint32_t bit;
+        const char *name;
+    } kModules[] = {
+        {meshtastic_ExcludedModules_MQTT_CONFIG, "MQTT"},
+        {meshtastic_ExcludedModules_SERIAL_CONFIG, "Serial"},
+        {meshtastic_ExcludedModules_EXTNOTIF_CONFIG, "ExtNotif"},
+        {meshtastic_ExcludedModules_STOREFORWARD_CONFIG, "S&F"},
+        {meshtastic_ExcludedModules_RANGETEST_CONFIG, "RangeTest"},
+        {meshtastic_ExcludedModules_TELEMETRY_CONFIG, "Telemetry"},
+        {meshtastic_ExcludedModules_CANNEDMSG_CONFIG, "CannedMsg"},
+        {meshtastic_ExcludedModules_AUDIO_CONFIG, "Audio"},
+        {meshtastic_ExcludedModules_REMOTEHARDWARE_CONFIG, "RemoteHW"},
+        {meshtastic_ExcludedModules_NEIGHBORINFO_CONFIG, "Neighbor"},
+        {meshtastic_ExcludedModules_AMBIENTLIGHTING_CONFIG, "AmbientLight"},
+        {meshtastic_ExcludedModules_DETECTIONSENSOR_CONFIG, "Detection"},
+        {meshtastic_ExcludedModules_PAXCOUNTER_CONFIG, "Pax"},
+        {meshtastic_ExcludedModules_BLUETOOTH_CONFIG, "Bluetooth"},
+        {meshtastic_ExcludedModules_NETWORK_CONFIG, "Network"},
+        {meshtastic_ExcludedModules_STATUSMESSAGE_CONFIG, "StatusMsg"},
+        {meshtastic_ExcludedModules_TRAFFICMANAGEMENT_CONFIG, "TrafficMgmt"},
+        {meshtastic_ExcludedModules_TAK_CONFIG, "TAK"},
+        {meshtastic_ExcludedModules_MESHBEACON_CONFIG, "MeshBeacon"},
+    };
+    size_t used = 0;
+    out[0] = '\0';
+    for (const auto &module : kModules) {
+        if (!(mask & module.bit))
+            continue;
+        const int written = snprintf(out + used, outLen - used, "%s%s", used ? "," : "", module.name);
+        if (written < 0 || (size_t)written >= outLen - used)
+            break; // full: a truncated list beats overflowing the reply
+        used += (size_t)written;
+    }
+    if (used == 0)
+        snprintf(out, outLen, "nothing");
+}
+
+static const char *mtcNexusFeatures()
+{
+#if defined(NEXUS_ENABLE_AIRTAG) && defined(NEXUS_ENABLE_ADV)
+    return "AIRTAG+ADV";
+#elif defined(NEXUS_ENABLE_AIRTAG)
+    return "AIRTAG";
+#elif defined(NEXUS_ENABLE_ADV)
+    return "ADV";
+#else
+    return "none";
+#endif
+}
+
+#if MESHTASTIC_ENABLE_MESHCORE_RELAY
+#define MTC_MESHCORE_RELAY_TEXT "yes"
+#else
+#define MTC_MESHCORE_RELAY_TEXT "no"
+#endif
+
 static const char *const s_nexusPortNames[32] = {
     "TEXT", "POS", "INFO", "TELE", "NEIG", "ADM", "TRCE", "S&F",
     "RPLY", "REHW", "ATAK", "WAYP", "TUNN", "DETC", "PAX", "UNK",
     "AUDI", "RNGE", "RNST", "SERL", "ALRT", "KEYV", "SF++", "NSTA",
     "TAK2", "MAPR", "PSTR", "LWAB", "CAYN", "U29",  "U30",  "U31"
 };
+
+// The firewall commands. Every firewall branch of the dispatch chain below is `else if (kFirewallCommands && (...))`: with
+// -DNEXUS_EXCLUDE_FIREWALL=1 the constant is false, the compiler drops the branch body, and the one branch that follows
+// isFirewallCommandWord() tells the operator the firewall is not in this build instead of "unknown command".
+static constexpr bool kFirewallCommands = !NEXUS_EXCLUDE_FIREWALL;
+
+[[maybe_unused]] static bool isFirewallCommandWord(const char *cmd)
+{
+    static const char *const words[] = {"DROP",      "UNDROP",   "OUTDROP", "UNOUTDROP",     "DROPS",   "FW",     "FIREWALL",
+                                        "FWS",       "FIREWALLSTATS", "PRALLOW", "PRBLOCK",  "PRWHITELIST", "PRBLACKLIST",
+                                        "RDROP",     "RUNDROP",  "RL",      "RATELIMIT",     "RLS",     "RATELIMITSTAT",
+                                        "INV",       "INVALID",  "INVALIDS", "UNINV",        "UNINVALID", "NIGN",   "FSIG"};
+    for (const char *word : words) {
+        if (isCommandWord(cmd, word))
+            return true;
+    }
+    return false;
+}
 
 struct DropRuleDef {
     const char *tag;
@@ -969,10 +1056,10 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
     }
-    else if (strncasecmp(cmd, "PRWHITELIST ", 12) == 0 || strncasecmp(cmd, "PRBLACKLIST ", 12) == 0 ||
+    else if (kFirewallCommands && (strncasecmp(cmd, "PRWHITELIST ", 12) == 0 || strncasecmp(cmd, "PRBLACKLIST ", 12) == 0 ||
              strncasecmp(cmd, "PRALLOW ", 8) == 0 || strncasecmp(cmd, "PRBLOCK ", 8) == 0 ||
              strcasecmp(cmd, "PRWHITELIST") == 0 || strcasecmp(cmd, "PRBLACKLIST") == 0 ||
-             strcasecmp(cmd, "PRALLOW") == 0 || strcasecmp(cmd, "PRBLOCK") == 0) {
+             strcasecmp(cmd, "PRALLOW") == 0 || strcasecmp(cmd, "PRBLOCK") == 0)) {
         // Bare forms accepted so FW PRALLOW / FW PRBLOCK delegation works
         // (they dispatch the bare word - A10 in nexus-commands-audit).
         bool isWhite = (strncasecmp(cmd, "PRWHITELIST", 11) == 0 || strncasecmp(cmd, "PRALLOW", 7) == 0);
@@ -1034,7 +1121,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             memset(cmdBuf.lBuf, 0, sizeof(cmdBuf.lBuf));
         }
     }
-    else if (strncasecmp(cmd, "DROP ", 5) == 0 || strncasecmp(cmd, "UNDROP ", 7) == 0) {
+    else if (kFirewallCommands && (strncasecmp(cmd, "DROP ", 5) == 0 || strncasecmp(cmd, "UNDROP ", 7) == 0)) {
         bool setDrop = strncasecmp(cmd, "DROP ", 5) == 0;
         const char *portStr = skipToken(cmd);
         bool handled = false;
@@ -1055,7 +1142,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         } else {
             snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Invalid filter target");
         }
-    } else if (strncasecmp(cmd, "OUTDROP ", 8) == 0 || strncasecmp(cmd, "UNOUTDROP ", 10) == 0) {
+    } else if (kFirewallCommands && (strncasecmp(cmd, "OUTDROP ", 8) == 0 || strncasecmp(cmd, "UNOUTDROP ", 10) == 0)) {
         bool setDrop = (strncasecmp(cmd, "OUTDROP ", 8) == 0);
         const char *portStr = skipToken(cmd);
         bool handled = false;
@@ -1753,7 +1840,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging macros to mesh...");
         } else snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: MACRO [SET|RUN|DEL|LIST]");
     }
-    else if (strncasecmp(cmd, "FSIG", 4) == 0) {
+    else if (kFirewallCommands && strncasecmp(cmd, "FSIG", 4) == 0) {
         const char *p = cmd + 4;
         while (*p == ' ') p++;
 
@@ -2079,8 +2166,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                  "MESHTACORE: DBFLUSH %s (freeze flags unchanged: nodedb=%d warm=%d device=%d config=%d).",
                  ok ? "OK" : "FAILED", (int)freeze_nodedb, (int)freeze_warm, (int)freeze_device, (int)freeze_config);
     }
-    else if (strcasecmp(cmd, "FIREWALL") == 0 || strcasecmp(cmd, "FW") == 0 ||
-             strncasecmp(cmd, "FIREWALL ", 10) == 0 || strncasecmp(cmd, "FW ", 3) == 0) {
+    else if (kFirewallCommands && (strcasecmp(cmd, "FIREWALL") == 0 || strcasecmp(cmd, "FW") == 0 ||
+             strncasecmp(cmd, "FIREWALL ", 10) == 0 || strncasecmp(cmd, "FW ", 3) == 0)) {
         // FIREWALL / FW: aggregated firewall status (single paging buffer)
         // FIREWALL <sub> / FW <sub>: delegate to existing handler (recursive dispatch).
         const char *sub = nullptr;
@@ -2451,7 +2538,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     else if (meshCoreFirewallCommand(cmd, replyMsg, sizeof(replyMsg))) {
         // MCGAP / MCRATE: the MeshCore firewall's rate limits; the reply is already in replyMsg
     }
-    else if (strcasecmp(cmd, "DROPS") == 0) {
+    else if (kFirewallCommands && strcasecmp(cmd, "DROPS") == 0) {
         int l = snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE ACTIVE DROPS:\n");
 
         for (const auto &r : s_dropRules) {
@@ -2900,7 +2987,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: %s Base64 Decode Failed.", addNode ? "ADDURL" : "DU");
         }
     }
-    else if (strncasecmp(cmd, "RDROP ", 6) == 0 || strncasecmp(cmd, "RUNDROP ", 8) == 0 || strcasecmp(cmd, "RDROP") == 0) {
+    else if (kFirewallCommands && (strncasecmp(cmd, "RDROP ", 6) == 0 || strncasecmp(cmd, "RUNDROP ", 8) == 0 || strcasecmp(cmd, "RDROP") == 0)) {
         bool setDrop = (strncasecmp(cmd, "RDROP ", 6) == 0);
         const char *p = (setDrop) ? cmd + 6 : cmd + 8;
         if (strcasecmp(cmd, "RDROP") == 0) p = "LIST"; // Handle bare command
@@ -3677,7 +3764,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         bool btConnected = false;
         int btRSSI = 0;
 
-#ifdef ARCH_ESP32
+#if !HAS_BLUETOOTH
+        // Bluetooth excluded from the build: nimbleBluetooth / nrf52Bluetooth do not exist.
+#elif defined(ARCH_ESP32)
         if (config.bluetooth.enabled && nimbleBluetooth) {
             btConnected = nimbleBluetooth->isConnected();
             btRSSI = nimbleBluetooth->getRssi();
@@ -5576,9 +5665,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             }
         }
     }
-    else if (strcasecmp(cmd, "RATELIMITSTAT") == 0 ||
+    else if (kFirewallCommands && (strcasecmp(cmd, "RATELIMITSTAT") == 0 ||
              strncasecmp(cmd, "RATELIMITSTAT ", 13) == 0 ||
-             strcasecmp(cmd, "RLS") == 0 || strncasecmp(cmd, "RLS ", 4) == 0) {
+             strcasecmp(cmd, "RLS") == 0 || strncasecmp(cmd, "RLS ", 4) == 0)) {
         // /mtc RATELIMITSTAT (alias RLS) - show live state of all 7 RL buckets.
         // Reports current tokens, configured limit, % full, and the lifetime
         // seen/pass/drop counters (the same numbers exposed in FWS but joined
@@ -5622,8 +5711,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         appendFCDSection_NEIGHBORINFO();
         snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging full config dump...");
     }
-    else if (strncasecmp(cmd, "RATELIMIT ", 10) == 0 || strcasecmp(cmd, "RATELIMIT") == 0 ||
-             strncasecmp(cmd, "RL ", 3) == 0 || strcasecmp(cmd, "RL") == 0) {
+    else if (kFirewallCommands && (strncasecmp(cmd, "RATELIMIT ", 10) == 0 || strcasecmp(cmd, "RATELIMIT") == 0 ||
+             strncasecmp(cmd, "RL ", 3) == 0 || strcasecmp(cmd, "RL") == 0)) {
         // Compute offset past the matched prefix. RL is 2 chars, RATELIMIT is 9 chars.
         // If the form had a trailing space, skip it too.
         size_t offset = (strncasecmp(cmd, "RL", 2) == 0) ? 2 : 9;
@@ -5690,9 +5779,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                 (unsigned)rl_telemetry_limit, (unsigned)rl_private_limit);
         }
     }
-    else if (strcasecmp(cmd, "INVALIDS") == 0 || strcasecmp(cmd, "INV") == 0 || strcasecmp(cmd, "INVALID") == 0 ||
+    else if (kFirewallCommands && (strcasecmp(cmd, "INVALIDS") == 0 || strcasecmp(cmd, "INV") == 0 || strcasecmp(cmd, "INVALID") == 0 ||
              strncasecmp(cmd, "INVALID ", 8) == 0 || strncasecmp(cmd, "INV ", 4) == 0 ||
-             strncasecmp(cmd, "UNINVALID ", 10) == 0 || strncasecmp(cmd, "UNINV ", 6) == 0) {
+             strncasecmp(cmd, "UNINVALID ", 10) == 0 || strncasecmp(cmd, "UNINV ", 6) == 0)) {
 
         bool isCheck = (strcasecmp(cmd, "INVALIDS") == 0 || strcasecmp(cmd, "INV") == 0 || strcasecmp(cmd, "INVALID") == 0);
         bool setInv = (strncasecmp(cmd, "UN", 2) != 0);
@@ -5727,6 +5816,23 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                          inv_id_mismatch ? "ON" : "OFF", (unsigned int)inv_drop_id);
             }
         }
+    }
+    else if (strcasecmp(cmd, "BUILD") == 0) {
+        // Fingerprint of the compiled-in options; the web updater compares it with the release's to flag custom builds.
+        // Summary names only, never values (userPrefs may hold channel keys).
+        char excluded[120];
+        describeExcludedModules(getDeviceMetadata().excluded_modules, excluded, sizeof(excluded));
+        static char buildLine[140];
+        startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Build");
+        snprintf(buildLine, sizeof(buildLine), "Id: %s\nTgt: %s\nVer: %s\n", MTC_BUILD_ID_TEXT, optstr(APP_ENV),
+                 optstr(APP_VERSION));
+        appendPaging(buildLine);
+        snprintf(buildLine, sizeof(buildLine), "Without: %s\n", excluded);
+        appendPaging(buildLine);
+        snprintf(buildLine, sizeof(buildLine), "Nexus: %s\nMeshCore relay: %s", mtcNexusFeatures(), MTC_MESHCORE_RELAY_TEXT);
+        appendPaging(buildLine);
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging BUILD...");
+        memset(buildLine, 0, sizeof(buildLine));
     }
     else if (strcasecmp(cmd, "VERSION") == 0 || strcasecmp(cmd, "V") == 0) {
         auto metadata = getDeviceMetadata();
@@ -6516,7 +6622,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
         snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging transport stats...");
     }
-    else if (strcasecmp(cmd, "FIREWALLSTATS") == 0 || strcasecmp(cmd, "FWS") == 0) {
+    else if (kFirewallCommands && (strcasecmp(cmd, "FIREWALLSTATS") == 0 || strcasecmp(cmd, "FWS") == 0)) {
         startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Firewall Stats");
         static char line[96];
 
@@ -7423,7 +7529,11 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging CRON list...");
         }
     }
-    else if (strncasecmp(cmd, "NIGN ", 5) == 0 || strcasecmp(cmd, "NIGN") == 0) {
+    // Without the firewall in the build, its commands get one honest answer instead of "unknown command".
+    else if (!kFirewallCommands && isFirewallCommandWord(cmd)) {
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: firewall not included in this build");
+    }
+    else if (kFirewallCommands && (strncasecmp(cmd, "NIGN ", 5) == 0 || strcasecmp(cmd, "NIGN") == 0)) {
         const char *p = (strlen(cmd) > 5) ? cmd + 5 : "";
         while (*p == ' ') p++;
 
@@ -7491,7 +7601,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging("STORAGE: LS, RM, CAT, FS\n");
             appendPaging("Try: HELP <topic> (e.g. HELP DROP)");
             snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging help categories...");
-        } else if (strcasecmp(sub, "DROPS") == 0) {
+        } else if (kFirewallCommands && strcasecmp(sub, "DROPS") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help DROPS");
             appendPaging("Usage: DROP <tag> | UNDROP <tag>\nTags:\n");
             appendPaging("NI:NodeInfo PO:Pos TL:Tele\nNB:Neighbr TR:Trace (All)\nTRR:TR Rem TRL:TR Loc PV:Priv\nH6:H6 H7:H7 AK:ACKs FB:Fav\nPK:PKI PKR:Rem PKL:Loc PH:PHop\nSF:S&F AD:Admin TX:Text\nKV:KeyV AL:Alert WP:Waypoint\nTRD:TR Dir TDR:Rem TDL:Loc\nSS:SS-Handle TA:TraceAlt\nMA:MetaAlt REQ:Requests\nPos sub: PM:Manual PG:GPS POO:Other\nTele sub: TD:Dev TP:Pwr TE:Env TO:Oth\nRL: RLTX RLTR RLOT RLNI RLPO RLTL RLPR\nBcast REQ: BRNI BRTL BRPO (broadcast-only)");
@@ -7501,7 +7611,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging("TEXTC <ch> <msg>: Standard on ch.\n");
             appendPaging("DM [!id|name] [msg]: Direct message.");
             snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging TEXT/SEND help...");
-        } else if (strcasecmp(sub, "FW") == 0) {
+        } else if (kFirewallCommands && strcasecmp(sub, "FW") == 0) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help FIREWALL");
             appendPaging("Usage: FIREWALL | FW   -> Aggregated status (DROPS, OUTDROPS, HEX, INVALID, PRALLOW, PRBLOCK)\n");
             appendPaging("Usage: FIREWALL <sec> | FW <sec>   -> Delegate to single section\n");
@@ -7509,7 +7619,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging("Output: paged (P1:, P2:, ...). Sub-sections run via internal handler dispatch.\n");
             appendPaging("Note: HEXDROPS / HEXOUTDROPS / FIREWALLSTATS are still standalone.");
             snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging FW help...");
-        } else if (strcasecmp(sub, "DROP") == 0 || strcasecmp(sub, "FIREWALL") == 0 || strcasecmp(sub, "OUTDROP") == 0) {
+        } else if (kFirewallCommands && (strcasecmp(sub, "DROP") == 0 || strcasecmp(sub, "FIREWALL") == 0 || strcasecmp(sub, "OUTDROP") == 0)) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help FIREWALL");
             appendPaging("Usage: [UN]DROP <target> | [UN]OUTDROP <target>\n");
             appendPaging("Targets: NI, PO, TL, NB, TR, PV, AD, TX, KV, AL, WP, SF, ACKS, FB, SS, PK, RNI, RPO, RTL, BRNI, BRTL, BRPO, H6, H7, TO, RL_*\n");
@@ -7589,7 +7699,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             appendPaging("STATUS/STAT/BUCKETS: estado live de los buckets (igual que RATELIMITSTAT).");
             appendPaging("IMPORTANTE: Activar también DROP RL_<TYPE> (bits 29-31, 42-45) para que el filtro aplique.");
             snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging RATELIMIT help...");
-        } else if (strcasecmp(sub, "RLS") == 0 || strcasecmp(sub, "RATELIMITSTAT") == 0) {
+        } else if (kFirewallCommands && (strcasecmp(sub, "RLS") == 0 || strcasecmp(sub, "RATELIMITSTAT") == 0)) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help RATELIMITSTAT");
             appendPaging("Usage: RATELIMITSTAT (alias RLS)");
             appendPaging("Alias equivalente: RATELIMIT STATUS / RATELIMIT STAT / RATELIMIT BUCKETS");
@@ -7619,7 +7729,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help CRON");
             appendPaging("PER <secs> <cmd>: Periodic interval.\nSCH <HH:MM> <cmd>: Daily wall-clock.\nAT <unix_ts> <cmd>: One-shot schedule.\nLIST: Show jobs.\nREM <id>: Delete job.");
             snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging CRON help...");
-        } else if (strcasecmp(sub, "NIGN") == 0 || strcasecmp(sub, "IGNORE") == 0) {
+        } else if (kFirewallCommands && (strcasecmp(sub, "NIGN") == 0 || strcasecmp(sub, "IGNORE") == 0)) {
             startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "Help NIGN/IGNORE");
             appendPaging("IGNORE <!id|name>: RAM-only ignore.\nNIGN ADD <!id>: Persistent ignore (Vault).\nNIGN REM <!id>: Remove from vault.\nNIGN LIST: Show all persistent ignores.");
             snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging NIGN help...");

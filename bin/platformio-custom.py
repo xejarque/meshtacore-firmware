@@ -5,8 +5,11 @@ import sys
 from os.path import basename, isabs, isfile, join, realpath
 import shutil
 import subprocess
+import hashlib
 import json
+import os
 import re
+import shlex
 from datetime import datetime
 from typing import Dict
 
@@ -409,6 +412,54 @@ for pref in userPrefs:
     else:
         pref_flags.append("-D" + pref + "=" + env.StringifyMacro(userPrefs[pref]) + "")
 
+def build_fingerprint(pioenv, defines, prefs):
+    """Short id of what was compiled in: the env, the project's -D flags and the userPrefs, without what changes
+    per commit or day.
+
+    Two builds share the id exactly when they have the same options and excluded modules, whatever their version,
+    so the web updater can tell a standard build from a customised one (see /mtc BUILD)."""
+    volatile = {"APP_VERSION", "APP_VERSION_SHORT", "APP_REPO", "BUILD_EPOCH", "MTC_BUILD_ID"}
+    items = set()
+    for define in list(defines) + list(prefs):
+        text = define[2:] if define.startswith("-D") else define
+        if text and text.split("=", 1)[0] not in volatile:
+            items.add(text)
+    material = "\n".join([str(pioenv)] + sorted(items))
+    return hashlib.sha256(material.encode()).hexdigest()[:8]
+
+
+def project_defines():
+    """The -D flags the project and the caller chose: build_flags of platformio.ini and PLATFORMIO_BUILD_FLAGS.
+
+    Not env["CPPDEFINES"]: this script can run twice on ESP32 and the second pass also sees what the framework and
+    the libraries add, so a hash of those would differ between passes (and between toolchain updates)."""
+    raw = env.GetProjectOption("build_flags", "")
+    if isinstance(raw, (list, tuple)):
+        raw = " ".join(raw)
+    raw = f"{raw} {os.environ.get('PLATFORMIO_BUILD_FLAGS', '')}"
+    try:
+        tokens = shlex.split(raw)
+    except ValueError:  # unbalanced quote in an unrelated flag
+        tokens = raw.split()
+    defines = []
+    for i, token in enumerate(tokens):
+        if token == "-D" and i + 1 < len(tokens):  # "-D NAME" with a space
+            defines.append("-D" + tokens[i + 1])
+        elif token.startswith("-D") and token != "-D":
+            defines.append(token)
+    unflags = env.GetProjectOption("build_unflags", "")
+    if isinstance(unflags, (list, tuple)):
+        unflags = " ".join(unflags)
+    try:
+        unflag_tokens = shlex.split(unflags)
+    except ValueError:
+        unflag_tokens = unflags.split()
+    defines += ["-U" + t[2:] for t in unflag_tokens if t.startswith("-U") and len(t) > 2]
+    return defines
+
+
+build_id = build_fingerprint(env.get("PIOENV"), project_defines(), pref_flags)
+
 # General options that are passed to the C and C++ compilers
 # Calculate unix epoch for current day (midnight)
 current_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -420,6 +471,7 @@ flags = [
         "-DAPP_ENV=" + env.get("PIOENV"),
         "-DAPP_REPO=" + repo_owner,
         "-DBUILD_EPOCH=" + str(build_epoch),
+        "-DMTC_BUILD_ID=" + env.StringifyMacro(build_id),
     ] + pref_flags
 
 print("Using flags:")

@@ -1,0 +1,304 @@
+/* Web flasher panel. Colours come from the theme variables of styles.css (light and dark). */
+.flasher {
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-top: 1rem;
+}
+
+.flasher-intro {
+  margin: 0 0 1rem;
+  padding-left: 1.2rem;
+  color: var(--text-muted);
+}
+
+.flasher-intro li + li {
+  margin-top: 0.35rem;
+}
+
+.flasher-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.flasher-field {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.flasher-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+}
+
+.flasher-bar {
+  height: 0.9rem;
+  border-radius: 999px;
+  background: var(--card-border-subtle);
+  overflow: hidden;
+}
+
+.flasher-bar-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.flasher.is-error .flasher-bar-fill {
+  background: #cf222e;
+}
+
+.flasher-bar-text {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.4rem 0 0.9rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.flasher-phases {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.flasher-phases li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-muted);
+}
+
+.flasher-phases li::before {
+  content: "○";
+  width: 1.2rem;
+  text-align: center;
+}
+
+.flasher-phases li.is-active {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.flasher-phases li.is-active::before {
+  content: "◉";
+  color: var(--accent-blue);
+}
+
+.flasher-phases li.is-done::before {
+  content: "✓";
+  color: var(--accent);
+}
+
+.flasher.is-error .flasher-phases li.is-active::before {
+  content: "✕";
+  color: #cf222e;
+}
+
+.flasher-image {
+  margin: 0 0 0.75rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--card-border-subtle);
+  border-radius: 6px;
+  background: var(--code-bg);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+.flasher-message {
+  margin: 0 0 0.75rem;
+}
+
+.flasher-message.is-error {
+  color: #cf222e;
+  font-weight: 600;
+}
+
+.flasher-message.is-success {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.flasher-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* ---------- "what to do next" dialog ---------- */
+.flasher-modal {
+  /* styles.css resets margins, which breaks the UA's auto-centering of <dialog>: centre it explicitly */
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  height: fit-content;
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  width: min(30rem, calc(100vw - 2rem));
+  padding: 1.75rem 1.5rem 1.25rem;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  background: var(--card-bg);
+  color: var(--text-main);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+  text-align: center;
+}
+
+.flasher-modal::backdrop {
+  background: rgba(13, 17, 23, 0.6);
+  backdrop-filter: blur(3px);
+}
+
+.flasher-modal[open] {
+  animation: flasher-pop 0.18s ease-out;
+}
+
+@keyframes flasher-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flasher-modal[open] {
+    animation: none;
+  }
+  .flasher-bar-fill {
+    transition: none;
+  }
+}
+
+.flasher-modal-icon {
+  width: 3.5rem;
+  height: 3.5rem;
+  margin: 0 auto 0.75rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-light);
+  font-size: 1.75rem;
+}
+
+.flasher-modal h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1.2rem;
+}
+
+.flasher-modal-steps {
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  text-align: left;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.flasher-modal-steps li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 1.7rem 1fr;
+  gap: 0.6rem;
+  align-items: start;
+}
+
+.flasher-modal-steps li::before {
+  content: counter(step);
+  width: 1.7rem;
+  height: 1.7rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.flasher-modal-note {
+  margin: 0 0 1rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.flasher-modal-option {
+  display: block;
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--card-border-subtle);
+  border-radius: 6px;
+  text-align: left;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.flasher-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.flasher-log {
+  margin-top: 0.75rem;
+  max-height: 10rem;
+  overflow: auto;
+  padding: 0.6rem;
+  border-radius: 6px;
+  background: #0d1117;
+  color: #c9d1d9;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+}
+
+/* ---------- "Actualizar" page ---------- */
+.update-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin: 1rem 0;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.update-tab {
+  padding: 0.5rem 1rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.update-tab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.update-warning {
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #d4a72c;
+  border-radius: 6px;
+  background: rgba(212, 167, 44, 0.12);
+  font-size: 0.9rem;
+}
+
+.update-confirm {
+  display: block;
+  margin-top: 0.6rem;
+  font-weight: 600;
+  cursor: pointer;
+}

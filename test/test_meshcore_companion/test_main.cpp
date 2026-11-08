@@ -8,6 +8,7 @@
 #define MESHTASTIC_ENABLE_MESHCORE_COMPANION 1
 #define MESHTASTIC_MESHCORE_PATH_COMMAND 1
 #include "mesh/MeshCoreCompanion.cpp"
+#include "mesh/MeshCoreFirewall.cpp"
 #include "mesh/MeshCoreRepeater.cpp"
 
 #include "Arduino.h"
@@ -1157,6 +1158,61 @@ static void collectReports(const CaptureRouter &capture, size_t from, char *buf,
     buf[o] = 0;
 }
 
+// A received text keeps at most PATH_ROUTES_PER_TEXT routes, and the shortest are the ones that stay.
+void test_heard_routes_keep_the_shortest_per_text(void)
+{
+    GroupSetup s;
+    const uint32_t hash = 0x00A00001;
+    const uint32_t from = MeshCoreCompanion::senderNodeNum("Alice");
+    // Four routes of 4, 3, 2 and 1 hops: each differs, so none only refreshes another.
+    for (uint8_t hopCount = 4; hopCount >= 1; hopCount--) {
+        uint8_t path[8] = {hopCount, hopCount, hopCount, hopCount, 9, 9, 9, 9};
+        s.c.noteHeardRoute(hopCount == 4 ? 0x100 : 0, hash, from, 0, path, 1, hopCount, 1, -5.0f, -80);
+    }
+    TEST_ASSERT_EQUAL_UINT32(MeshCoreCompanion::PATH_ROUTES_PER_TEXT, (uint32_t)s.c.heardRouteCount(hash));
+    // The 4-hop route was the longest: it is the one that gave way.
+    const MeshCoreCompanion::HeardPath *best = s.c.heardFindByFrom(from);
+    TEST_ASSERT_NOT_NULL(best);
+    TEST_ASSERT_EQUAL_UINT32(0x100, best->packetId);
+}
+
+// Only PATH_INCOMING_TEXTS received texts are kept: a newer one pushes the oldest out whole.
+void test_heard_routes_forget_the_oldest_text(void)
+{
+    GroupSetup s;
+    const uint32_t from = MeshCoreCompanion::senderNodeNum("Alice");
+    const size_t texts = MeshCoreCompanion::PATH_INCOMING_TEXTS;
+    for (uint32_t i = 0; i <= texts; i++)
+        s.c.noteHeardRoute(0x100 + i, 0x00B00000 + i, from, 0, nullptr, 1, 0, 1, -5.0f, -80);
+    TEST_ASSERT_EQUAL_UINT32(0, (uint32_t)s.c.heardRouteCount(0x00B00000));
+    TEST_ASSERT_NULL(s.c.heardFind(0x100));
+    for (uint32_t i = 1; i <= texts; i++)
+        TEST_ASSERT_EQUAL_UINT32(1, (uint32_t)s.c.heardRouteCount(0x00B00000 + i));
+}
+
+// Only the last text we sent keeps its echoes; sending another drops the previous one, and received texts are untouched.
+void test_heard_routes_keep_echoes_of_the_last_sent_text_only(void)
+{
+    GroupSetup s;
+    const uint32_t me = nodeDB->getNodeNum();
+    const uint32_t from = MeshCoreCompanion::senderNodeNum("Alice");
+    s.c.noteHeardRoute(0x300, 0x00C00001, from, 0, nullptr, 1, 0, 1, -5.0f, -80);
+
+    s.c.noteSentText(0x400, 0x00C00002, me, 0);
+    for (uint8_t hopCount = 1; hopCount <= MeshCoreCompanion::PATH_ROUTES_OWN + 2; hopCount++) {
+        uint8_t path[32];
+        memset(path, hopCount, sizeof(path));
+        s.c.noteHeardRoute(0, 0x00C00002, 0, 0, path, 1, hopCount, 1, -5.0f, -80);
+    }
+    TEST_ASSERT_EQUAL_UINT32(MeshCoreCompanion::PATH_ROUTES_OWN, (uint32_t)s.c.heardRouteCount(0x00C00002));
+
+    s.c.noteSentText(0x401, 0x00C00003, me, 0);
+    TEST_ASSERT_EQUAL_UINT32(0, (uint32_t)s.c.heardRouteCount(0x00C00002));
+    TEST_ASSERT_NULL(s.c.heardFind(0x400));
+    TEST_ASSERT_NOT_NULL(s.c.heardFind(0x401));
+    TEST_ASSERT_EQUAL_UINT32(1, (uint32_t)s.c.heardRouteCount(0x00C00001));
+}
+
 // A channel text with two resolvable hops: the reply names them and carries the measured signal.
 void test_path_command_answers_locally(void)
 {
@@ -1304,7 +1360,7 @@ void test_path_report_splits_without_cutting(void)
 {
     GroupSetup s;
     MeshCoreCompanion::HeardPath entry;
-    entry.hopCount = 32; // the full 64-byte MeshCore path, two bytes per hop
+    entry.hopCount = sizeof(entry.path) / 2; // a full stored path, two bytes per hop
     entry.hashSize = 2;
     entry.routeType = 1;
     entry.snr = -5.0f;
@@ -1317,7 +1373,10 @@ void test_path_report_splits_without_cutting(void)
     TEST_ASSERT_TRUE(s.c.formatPathReport(routes, 1, nullptr, captureChunk, &capture) >= 2);
 
     TEST_ASSERT_NOT_NULL(strstr(capture.text, "`4041`")); // the first hop
-    TEST_ASSERT_NOT_NULL(strstr(capture.text, "`7E7F`")); // and the last one: nothing was dropped
+    char lastHop[16];
+    snprintf(lastHop, sizeof(lastHop), "`%02X%02X`", 0x40 + (unsigned)sizeof(entry.path) - 2,
+             0x40 + (unsigned)sizeof(entry.path) - 1);
+    TEST_ASSERT_NOT_NULL(strstr(capture.text, lastHop)); // and the last one: nothing was dropped
     TEST_ASSERT_NOT_NULL(strstr(capture.text, "SNR -5.0 dB"));
     TEST_ASSERT_NULL(strstr(capture.text, "…"));
 }
@@ -2332,6 +2391,9 @@ void setup()
     RUN_TEST(test_unrelayed_direct_message_times_out_as_failed);
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
     RUN_TEST(test_path_command_answers_locally);
+    RUN_TEST(test_heard_routes_keep_the_shortest_per_text);
+    RUN_TEST(test_heard_routes_forget_the_oldest_text);
+    RUN_TEST(test_heard_routes_keep_echoes_of_the_last_sent_text_only);
     RUN_TEST(test_path_command_plain_path_is_not_intercepted);
     RUN_TEST(test_path_command_without_data_is_a_hint);
     RUN_TEST(test_path_command_ignores_other_text);

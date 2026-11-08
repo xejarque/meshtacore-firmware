@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="es" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Meshtacore - Actualizar</title>
+    <link rel="icon" type="image/svg+xml" href="logo.svg" />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="flasher.css" />
+    <script src="theme.js"></script>
+  </head>
+  <body>
+    <header class="site-nav">
+      <div class="nav-content">
+        <a href="index.html" class="brand-logo">
+          <img
+            src="logo.svg"
+            alt="Meshtacore Logo"
+            class="brand-logo-img"
+            width="28"
+            height="28"
+          />
+          <span>Meshtacore</span>
+        </a>
+        <nav>
+          <ul class="nav-links">
+            <li><a href="flasher.html">⚡ Flasher</a></li>
+            <li>
+              <a href="builder.html" class="nav-cta-btn">🚀 Web Builder</a>
+            </li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main style="max-width: 720px; margin: 2rem auto; padding: 0 1rem">
+      <div class="card">
+        <div class="card-header"><h2>🔄 Actualizar una placa</h2></div>
+        <div class="card-body">
+          <p>
+            Instala un firmware nuevo en una placa que ya funciona con
+            Meshtastic
+            <strong>sin perder su configuración</strong> (canales, LoRa,
+            nombre). Solo se reescribe la aplicación. Necesita
+            <strong>Chrome o Edge de escritorio</strong> y la placa por USB.
+          </p>
+
+          <div class="update-tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              class="update-tab"
+              data-tab="release"
+            >
+              Release estándar
+            </button>
+            <button type="button" role="tab" class="update-tab" data-tab="own">
+              Mi build
+            </button>
+          </div>
+
+          <div data-panel="release">
+            <p class="helper-text">
+              Última versión publicada:
+              <strong id="releaseVersion">—</strong>
+            </p>
+            <select
+              id="boardSelect"
+              class="form-control flasher-field"
+            ></select>
+            <p id="releaseInfo" class="helper-text mt-2"></p>
+            <div class="update-warning" role="note">
+              <strong>Ojo con las builds personalizadas.</strong> Esto instala
+              la build estándar de la comunidad. Si tu nodo se compiló con el
+              builder, se pierden los módulos que excluiste y las opciones que
+              compilaste. Tu configuración guardada sí se conserva. Para
+              actualizar una build propia usa la pestaña «Mi build».
+              <label class="update-confirm">
+                <input type="checkbox" id="confirmStandard" />
+                Entiendo que se instala la build estándar
+              </label>
+            </div>
+            <button
+              id="btnUpdateRelease"
+              type="button"
+              class="btn btn-primary btn-sm mt-2"
+              disabled
+            >
+              🔌 Actualizar por USB
+            </button>
+          </div>
+
+          <div data-panel="own" class="hidden">
+            <p class="helper-text">
+              El <code>.zip.enc</code> o <code>.zip</code> que generó el
+              builder, o un <code>firmware-….bin</code> suelto. Se usa su
+              <code>.bin</code> de aplicación, no el <code>.factory.bin</code>,
+              para conservar tu configuración.
+            </p>
+            <input type="file" id="ownFile" accept=".enc,.zip,.bin" />
+            <p id="ownInfo" class="helper-text mt-2"></p>
+            <button
+              id="btnUpdateOwn"
+              type="button"
+              class="btn btn-primary btn-sm mt-2"
+              disabled
+            >
+              🔌 Actualizar por USB
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <section class="flasher">
+        <div
+          id="updateBar"
+          class="flasher-bar"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0"
+        >
+          <div id="updateFill" class="flasher-bar-fill"></div>
+        </div>
+        <div class="flasher-bar-text">
+          <span id="updateStatus">En espera</span>
+        </div>
+        <p id="updateMessage" class="flasher-message hidden"></p>
+        <pre id="updateLog" class="flasher-log hidden"></pre>
+      </section>
+      <dialog id="updateModal" class="flasher-modal"></dialog>
+    </main>
+
+    <script src="crypto.js"></script>
+    <script type="module" src="update-page.js"></script>
+  </body>
+</html>

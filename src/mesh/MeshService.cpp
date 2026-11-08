@@ -58,8 +58,14 @@ the new node can build its node db)
 
 MeshService *service;
 
+#ifdef MESHTASTIC_MQTT_PROXY_DYNAMIC_POOL
+// Heap-backed: costs no static RAM when the MQTT proxy is unused. Live entries are bounded by toPhoneMqttProxyQueue
+// (MAX_RX_MQTTPROXY_TOPHONE) plus the one PhoneAPI is holding, so this cannot grow past that.
+static MemoryDynamic<meshtastic_MqttClientProxyMessage> staticMqttClientProxyMessagePool;
+#else
 #define MAX_MQTT_PROXY_MESSAGES 16
 static MemoryPool<meshtastic_MqttClientProxyMessage, MAX_MQTT_PROXY_MESSAGES> staticMqttClientProxyMessagePool;
+#endif
 
 #define MAX_QUEUE_STATUS 4
 static MemoryPool<meshtastic_QueueStatus, MAX_QUEUE_STATUS> staticQueueStatusPool;

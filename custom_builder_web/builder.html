@@ -6,6 +6,7 @@
     <title>Meshtacore - Firmware Builder</title>
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="flasher.css" />
     <script src="theme.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -385,7 +386,6 @@
                     <option value="m5stack-unitc6l">
                       M5Stack UnitC6L (ESP32-C6)
                     </option>
-                    <option value="tlora-c6">LilyGO T-LoRa C6</option>
                   </optgroup>
                   <optgroup label="Raspberry Pi Pico & Custom">
                     <option value="picow">Raspberry Pi Pico W (RP2040)</option>
@@ -403,7 +403,7 @@
                   type="text"
                   id="customTarget"
                   class="form-control"
-                  placeholder="ej. heltec-v2, tlora-c6..."
+                  placeholder="ej. heltec-v2, tbeam..."
                 />
               </div>
 
@@ -1040,7 +1040,7 @@
                   >
                     <label class="checkbox-label">
                       <input type="checkbox" id="loraOkToMqtt" checked />
-                      <span>Permitir OK to MQTT en perfil custom</span>
+                      <span>Permitir OK to MQTT (otras pasarelas suben tus paquetes a MQTT)</span>
                     </label>
                     <label class="checkbox-label">
                       <input type="checkbox" id="loraIgnoreMqtt" />
@@ -1519,6 +1519,47 @@
               </div>
             </div>
           </section>
+
+          <section class="card" id="flasherCard">
+            <div class="card-header">
+              <span class="step-num">⚡</span>
+              <h2>Flashear por USB</h2>
+            </div>
+            <div class="card-body">
+              <p>
+                Instala el firmware en tu placa directamente desde el navegador,
+                sin programas ni cables especiales. Necesita
+                <strong>Chrome o Edge de escritorio</strong>. Todo ocurre en tu
+                equipo: el firmware no se sube a ningún sitio.
+              </p>
+              <ul class="flasher-intro">
+                <li>
+                  <strong>Con token</strong> (disparo directo): el flasher sigue
+                  tu compilación y te avisa cuando está lista.
+                </li>
+                <li>
+                  <strong>Ya tienes el archivo</strong>: elige aquí el
+                  <code>.zip.enc</code>, el <code>.zip</code> o un
+                  <code>.factory.bin</code>.
+                </li>
+              </ul>
+              <div class="flasher-pick">
+                <label class="btn btn-primary" for="flasherFile"
+                  >📂 Elegir archivo de firmware</label
+                >
+                <input
+                  type="file"
+                  id="flasherFile"
+                  accept=".enc,.zip,.bin"
+                  class="hidden"
+                />
+                <a class="btn btn-outline" href="flasher.html"
+                  >Abrir el flasher completo ↗</a
+                >
+              </div>
+              <div id="flasherPanel" class="hidden"></div>
+            </div>
+          </section>
         </form>
       </main>
 
@@ -1537,5 +1578,6 @@
     <script src="nexus-options.js"></script>
     <script src="build-prefs.js"></script>
     <script src="app.js"></script>
+    <script type="module" src="flasher-builder.js"></script>
   </body>
 </html>

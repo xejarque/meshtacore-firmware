@@ -151,9 +151,6 @@
       if (data.lora_channel_num !== "") {
         prefs["USERPREFS_LORACONFIG_CHANNEL_NUM"] = data.lora_channel_num;
       }
-      if (data.lora_ok_to_mqtt) {
-        prefs["USERPREFS_CONFIG_LORA_CONFIG_OK_TO_MQTT"] = "true";
-      }
       if (data.lora_ignore_mqtt) {
         prefs["USERPREFS_CONFIG_LORA_IGNORE_MQTT"] = "true";
       }
@@ -165,6 +162,11 @@
       prefs["USERPREFS_LORACONFIG_MODEM_PRESET"] =
         `meshtastic_Config_LoRaConfig_ModemPreset_${p}`;
     }
+
+    // OK to MQTT applies to every preset, not only the custom one: without the bit other gateways do not uplink our packets.
+    prefs["USERPREFS_CONFIG_LORA_CONFIG_OK_TO_MQTT"] = data.lora_ok_to_mqtt
+      ? "true"
+      : "false";
 
     // Timezone, rebroadcast mode, BLE PIN, intervals and smart position also come from options.manifest.json.
 

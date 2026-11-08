@@ -4,6 +4,26 @@ const REPO_OWNER = "xejarque";
 const REPO_NAME = "meshtacore-firmware";
 const DEFAULT_BRANCH = "main";
 const WORKFLOW_FILE = "custom_builder.yml";
+
+/** Ids of the dispatch runs that already exist, so the flasher never mistakes one of them for the new build. */
+async function existingRunIds(token) {
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/actions/workflows/${WORKFLOW_FILE}/runs?event=workflow_dispatch&per_page=10`,
+      {
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${token}`,
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      },
+    );
+    if (!res.ok) return [];
+    return (await res.json()).workflow_runs.map((run) => run.id);
+  } catch {
+    return [];
+  }
+}
 // GitHub answers 414 to the new-issue URL beyond roughly 8 KB.
 const MAX_ISSUE_URL_LENGTH = 8000;
 
@@ -987,6 +1007,8 @@ document.addEventListener("DOMContentLoaded", () => {
       extraBuildFlags.push("-DMESHTASTIC_EXCLUDE_RANGETEST=1");
       // A relay has no phone to serve: no MeshCore companion (Ed25519 checks on every frame, contact store in flash).
       extraBuildFlags.push("-DMESHTASTIC_ENABLE_MESHCORE_COMPANION=0");
+      // No screen means flash to spare: the repeater always carries the firewall (nRF52 builds leave it out by default).
+      extraBuildFlags.push("-DNEXUS_INCLUDE_FIREWALL=1");
 
       if (includeGps === "no") {
         extraBuildFlags.push("-DMESHTASTIC_EXCLUDE_GPS=1");
@@ -1220,6 +1242,8 @@ ${encryptedConfig}
 
     try {
       const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/actions/workflows/${WORKFLOW_FILE}/dispatches`;
+      const knownRunIds = await existingRunIds(token);
+      const dispatchedAtMs = Date.now();
       const res = await fetch(url, {
         method: "POST",
         headers: {
@@ -1241,6 +1265,12 @@ ${encryptedConfig}
             Ver progreso de compilación en GitHub Actions ↗
           </a>
         `;
+        // The USB flasher panel (flasher-builder.js) follows this build and offers to flash it.
+        document.dispatchEvent(
+          new CustomEvent("meshtacore:build-dispatched", {
+            detail: { dispatchedAtMs, knownRunIds },
+          }),
+        );
       } else {
         const errorData = await res.json().catch(() => ({}));
         dispatchStatus.className = "status-msg status-error";

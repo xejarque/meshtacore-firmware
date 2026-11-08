@@ -1,4 +1,4 @@
-# Nexus fork of build_one_target.yml — same manual single-target dispatch, but
+# Nexus fork of build_one_target.yml - same manual single-target dispatch, but
 # the build job calls nexus_build_firmware.yml (direct pip-installed PlatformIO)
 # instead of build_firmware.yml, whose meshtastic/gh-action-firmware container
 # is broken since 2026-10-12 (SCons.Tool.FortranCommon link failure on ESP32s).
@@ -142,6 +142,8 @@ jobs:
             ./device-*.sh
             ./device-*.bat
             ./littlefs-*.bin
+            ./firmware-*.mt.json
+            ./mt-*-ota.bin
             ./bleota*bin
             ./Meshtastic_nRF52_factory_erase*.uf2
           retention-days: 30

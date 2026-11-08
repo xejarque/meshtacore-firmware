@@ -324,7 +324,7 @@ firmware/
 
 ### Formatting & the trunk toolchain
 
-`trunk fmt` is the project formatter (`trunk_check` CI rejects unformatted code). For Claude Code users, `.claude/settings.json` ships a PostToolUse hook that runs `trunk fmt --force` on every file the agent writes or edits. The hook is pure sh/grep/sed - no python or jq required - but trunk itself must be able to run:
+`trunk fmt` is the project formatter (`trunk_check` CI rejects unformatted code). **In this fork nothing formats automatically**: the Claude Code PostToolUse hook and the `trunk-fmt-pre-commit` action were removed because they rewrote whole files (almost 5000 lines of `NexusCommands.cpp`) and buried the real diff. Run `trunk fmt <file>` by hand, and only on files you want formatted. Trunk itself must be able to run:
 
 - Trunk's launcher (`~/.cache/trunk/launcher/trunk`, or `trunk` on PATH) downloads the CLI version pinned in `.trunk/trunk.yaml` on first use and again whenever that pin is bumped. **The launcher needs `curl` or `wget`**; without one it fails with "Cannot download… please install curl or wget", and the hook surfaces that as a warning on every write.
 - No curl/wget available (e.g. a minimal WSL image)? Bootstrap by hand with any Python (PlatformIO bundles one at `~/.platformio/penv/bin/python`): download `https://trunk.io/releases/<ver>/trunk-<ver>-linux-x86_64.tar.gz` and place the `trunk` binary at `~/.cache/trunk/cli/<ver>-linux-x86_64/trunk` (chmod +x), where `<ver>` is the `cli.version` from `.trunk/trunk.yaml`.

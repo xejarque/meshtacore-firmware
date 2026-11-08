@@ -252,12 +252,24 @@ public:
     virtual int32_t runOnce() override;
     virtual ~NexusModule() override;
 
-    // Firewall/Drop Logic
+    // Firewall/Drop Logic. shouldDrop* are what the routers call: they keep the packet statistics, the TRACE / META alerts and the
+    // silenced public replies, then ask the rules, which live in NexusFirewall.cpp. With -DNEXUS_EXCLUDE_FIREWALL=1 that file is
+    // not built and the rules are the inline stubs below, which drop nothing.
     bool shouldDropPacket(const meshtastic_MeshPacket &mp);
-    bool shouldInvalidatePacket(const meshtastic_MeshPacket &mp);
     bool shouldDropPrivate(const meshtastic_MeshPacket &mp);
     bool shouldDropOutput(const meshtastic_MeshPacket &mp);
+#if NEXUS_EXCLUDE_FIREWALL
+    bool firewallDropsPacket(const meshtastic_MeshPacket &) { return false; }
+    bool firewallDropsPrivate(const meshtastic_MeshPacket &) { return false; }
+    bool firewallDropsOutput(const meshtastic_MeshPacket &) { return false; }
+    bool isNexusIgnored(uint32_t) { return false; }
+#else
+    bool firewallDropsPacket(const meshtastic_MeshPacket &mp);
+    bool firewallDropsPrivate(const meshtastic_MeshPacket &mp);
+    bool firewallDropsOutput(const meshtastic_MeshPacket &mp);
+    bool shouldInvalidatePacket(const meshtastic_MeshPacket &mp);
     bool isNexusIgnored(uint32_t nodeID);
+#endif
     // Wire-shape heuristic for foreign PKI packets we couldn't decode (no destination key).
     // The mp.pki_encrypted flag is only set on successful PKI decrypt (Router.cpp:1052), so for
     // un-decodable foreign PKI DMs the firewall must look at the wire shape (channel 0 on the
@@ -373,6 +385,12 @@ public:
     // Null pubkey returns false (defensive — upstream callers should
     // never pass null, but the inline chain would have segfaulted).
     bool isAuthorizedAdmin(const uint8_t *senderPubKey);
+
+    // True for a packet that was PKI-decrypted with an admin key (config admin_key, host key, master or
+    // secondary key). The firewall never drops these: an operator must always be able to reach the node,
+    // whatever drop rules are active. mp.public_key is only filled after a successful PKI decrypt, so a
+    // packet we cannot decode (opaque) is never recognised here.
+    bool isAdminKeyPacket(const meshtastic_MeshPacket &mp);
 
     // Nexus-28002 (2026-08-20): verify a packet's XEdDSA
     // signature against the Nexus trust list (admin_key[0..2],
