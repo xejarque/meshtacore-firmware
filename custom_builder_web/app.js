@@ -1007,6 +1007,8 @@ document.addEventListener("DOMContentLoaded", () => {
       extraBuildFlags.push("-DMESHTASTIC_EXCLUDE_RANGETEST=1");
       // A relay has no phone to serve: no MeshCore companion (Ed25519 checks on every frame, contact store in flash).
       extraBuildFlags.push("-DMESHTASTIC_ENABLE_MESHCORE_COMPANION=0");
+      // No screen means flash to spare: the repeater always carries the firewall (nRF52 builds leave it out by default).
+      extraBuildFlags.push("-DNEXUS_INCLUDE_FIREWALL=1");
 
       if (includeGps === "no") {
         extraBuildFlags.push("-DMESHTASTIC_EXCLUDE_GPS=1");
