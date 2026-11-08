@@ -330,6 +330,27 @@ void test_own_reports_are_not_heard(void)
     TEST_ASSERT_EQUAL_UINT32(0x00ABC700, capture->received.back().decoded.reply_id);
 }
 
+// The texts we sent have slots of their own: a full ring of received texts does not lose it, nor does it push one out.
+void test_sent_text_does_not_take_a_received_slot(void)
+{
+    addNode(0x00001111, "Ana");
+    meshtastic_MeshPacket sent = heardText(0x00001111, 0, 0x00AEE000, 1, 0, -5.0f, -80);
+    meshtasticPathCommand.noteSent(sent);
+    for (uint32_t i = 0; i < MeshtasticPathCommand::MEMORY; i++)
+        meshtasticPathCommand.noteHeard(heardText(0x00001111, 0, 0x00AEF000 + i, 1, 0, -5.0f, -80));
+
+    meshtastic_MeshPacket oldest = command_(0, NODENUM_BROADCAST, 0x00AEF000, ".path");
+    TEST_ASSERT_TRUE(meshtasticPathCommand.handleCommand(&oldest));
+    TEST_ASSERT_EQUAL_UINT32(0x00AEF000, capture->received.back().decoded.reply_id);
+    char body[256];
+    bodyOf(capture->received.back(), body, sizeof(body));
+    TEST_ASSERT_NULL(strstr(body, "Sin datos"));
+
+    meshtastic_MeshPacket own = command_(0, NODENUM_BROADCAST, 0x00AEE000, ".path");
+    TEST_ASSERT_TRUE(meshtasticPathCommand.handleCommand(&own));
+    TEST_ASSERT_EQUAL_UINT32(0x00AEE000, capture->received.back().decoded.reply_id);
+}
+
 // The ring keeps the newest texts only: a reply to an evicted text finds nothing, a reply to the newest one is answered.
 void test_ring_keeps_only_the_newest_texts(void)
 {
@@ -511,6 +532,7 @@ void setup()
     RUN_TEST(test_records_only_remote_meshtastic_texts);
     RUN_TEST(test_own_reports_are_not_heard);
     RUN_TEST(test_ring_keeps_only_the_newest_texts);
+    RUN_TEST(test_sent_text_does_not_take_a_received_slot);
     RUN_TEST(test_without_a_router_injects_nothing);
     RUN_TEST(test_report_keeps_whole_names);
     RUN_TEST(test_report_sanitizes_names);

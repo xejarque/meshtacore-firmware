@@ -669,8 +669,21 @@ void MeshCoreCompanion::noteHeardRoute(uint32_t packetId, uint32_t frameHash, ui
         channel = owner->channel;
     }
 
-    HeardPath &h = heard[heardNext];
-    heardNext = (heardNext + 1) % PATH_MEMORY;
+    HeardPath *slot = nullptr;
+    if (owner) {
+        // A text already kept: one more route, if there is room or it is shorter than the longest kept.
+        slot = heardRouteSlot(frameHash, hopCount, frameHash == heardOwn ? PATH_ROUTES_OWN : PATH_ROUTES_PER_TEXT);
+    } else {
+        // A new text takes the place of the oldest received one, routes and all.
+        heardForget(heardIncoming[heardIncomingNext]);
+        heardIncoming[heardIncomingNext] = frameHash;
+        heardIncomingNext = (heardIncomingNext + 1) % PATH_INCOMING_TEXTS;
+        slot = heardRouteSlot(frameHash, hopCount, PATH_ROUTES_PER_TEXT);
+    }
+    if (!slot)
+        return;
+
+    HeardPath &h = *slot;
     h = HeardPath();
     h.packetId = packetId;
     h.frameHash = frameHash;
@@ -686,10 +699,44 @@ void MeshCoreCompanion::noteHeardRoute(uint32_t packetId, uint32_t frameHash, ui
         memcpy(h.path, path, keep);
 }
 
+void MeshCoreCompanion::heardForget(uint32_t frameHash)
+{
+    if (!frameHash)
+        return;
+    for (HeardPath &h : heard)
+        if (h.packetId && h.frameHash == frameHash)
+            h = HeardPath();
+}
+
+MeshCoreCompanion::HeardPath *MeshCoreCompanion::heardRouteSlot(uint32_t frameHash, uint8_t hopCount, size_t maxRoutes)
+{
+    HeardPath *free = nullptr;
+    HeardPath *longest = nullptr;
+    size_t routes = 0;
+    for (HeardPath &h : heard) {
+        if (!h.packetId) {
+            if (!free)
+                free = &h;
+        } else if (h.frameHash == frameHash && !h.own) {
+            routes++;
+            if (!longest || h.hopCount > longest->hopCount)
+                longest = &h;
+        }
+    }
+    if (routes < maxRoutes && free)
+        return free;
+    return (longest && hopCount < longest->hopCount) ? longest : nullptr;
+}
+
 void MeshCoreCompanion::noteSentText(uint32_t packetId, uint32_t frameHash, uint32_t fromNum, uint8_t channel)
 {
-    HeardPath &h = heard[heardNext];
-    heardNext = (heardNext + 1) % PATH_MEMORY;
+    // Only the last text we sent is kept: the previous one, echoes included, makes room for it.
+    heardForget(heardOwn);
+    heardOwn = frameHash;
+    HeardPath *slot = heardRouteSlot(frameHash, 0, 1);
+    if (!slot)
+        return;
+    HeardPath &h = *slot;
     h = HeardPath();
     h.packetId = packetId;
     h.frameHash = frameHash;
@@ -697,6 +744,15 @@ void MeshCoreCompanion::noteSentText(uint32_t packetId, uint32_t frameHash, uint
     h.channel = channel;
     h.heardMs = millis();
     h.own = true;
+}
+
+size_t MeshCoreCompanion::heardRouteCount(uint32_t frameHash) const
+{
+    size_t n = 0;
+    for (const HeardPath &h : heard)
+        if (h.packetId && !h.own && h.frameHash == frameHash)
+            n++;
+    return n;
 }
 
 const MeshCoreCompanion::HeardPath *MeshCoreCompanion::heardFind(uint32_t packetId) const
@@ -1086,11 +1142,12 @@ bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool d
     const HeardPath *entry = heardFind(p->decoded.reply_id);
 
     // Every copy of that text is a separate route: the report lists them all, the shortest first.
-    const HeardPath *routes[PATH_MEMORY];
+    const HeardPath *routes[PATH_ROUTES_OWN > PATH_ROUTES_PER_TEXT ? PATH_ROUTES_OWN : PATH_ROUTES_PER_TEXT];
+    constexpr size_t routeCap = sizeof(routes) / sizeof(routes[0]);
     size_t routeCount = 0;
     if (entry) {
         for (const HeardPath &h : heard)
-            if (h.packetId && !h.own && h.frameHash == entry->frameHash && routeCount < PATH_MEMORY)
+            if (h.packetId && !h.own && h.frameHash == entry->frameHash && routeCount < routeCap)
                 routes[routeCount++] = &h;
         for (size_t i = 1; i < routeCount; i++) { // insertion sort: tiny, and stable on equal hop counts
             const HeardPath *key = routes[i];

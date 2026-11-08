@@ -11,6 +11,7 @@
 #include "MeshCoreRepeater.h"
 #include "MeshCoreSecretCache.h"
 #include "MeshTypes.h"
+#include "memory/MemClass.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -132,6 +133,7 @@ class MeshCoreCompanion
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
     /// How a bridged text was heard, kept so ".path" can report it. RAM only: the ring evicts it, a reboot loses it.
     struct HeardPath {
+        static constexpr size_t PATH_BYTES = 32; // 32 one-byte hops or 16 two-byte ones: a longer route loses its last names
         static constexpr uint8_t DIRECT_CHANNEL = 0xFF; // channel of a direct message: no MeshCore channel has this index
 
         uint32_t packetId = 0;  // the id the client sees; a reply points at it
@@ -144,11 +146,28 @@ class MeshCoreCompanion
         uint8_t routeType = 0;
         uint8_t hashSize = 0;
         uint8_t hopCount = 0;
-        bool own = false;      // our own transmission: the echoes of it borrow its id, but it is no route itself
-        uint8_t path[64] = {}; // MeshCore MAX_PATH_SIZE, so every hop of the route is kept and reported
+        bool own = false;              // our own transmission: the echoes of it borrow its id, but it is no route itself
+        uint8_t path[PATH_BYTES] = {}; // first PATH_BYTES of the route; hopCount stays the real length
     };
-    /// One route per copy of a text: a flood reaches us over several, and ".path" lists them all.
-    static constexpr size_t PATH_MEMORY = 32;
+    /// One route per copy of a text: a flood reaches us over several, and ".path" lists them. Only the newest texts are
+    /// kept: the store is a fixed array, sized by RAM class: only a nRF52 / classic ESP32 is short of it, so SMALL keeps the
+    /// least and the rest remember far more.
+#if MESHTASTIC_MEM_CLASS >= MEM_CLASS_LARGE
+    static constexpr size_t PATH_INCOMING_TEXTS = 24;
+    static constexpr size_t PATH_ROUTES_PER_TEXT = 4; // routes kept per received text; the shortest win
+    static constexpr size_t PATH_ROUTES_OWN = 16;     // echoes kept of the last text we sent
+#elif MESHTASTIC_MEM_CLASS == MEM_CLASS_MEDIUM
+    static constexpr size_t PATH_INCOMING_TEXTS = 12;
+    static constexpr size_t PATH_ROUTES_PER_TEXT = 4;
+    static constexpr size_t PATH_ROUTES_OWN = 8;
+#else
+    static constexpr size_t PATH_INCOMING_TEXTS = 6;
+    static constexpr size_t PATH_ROUTES_PER_TEXT = 3;
+    static constexpr size_t PATH_ROUTES_OWN = 4;
+#endif
+    /// The echoes of the last text we sent are the proof it left, so they get more room than a received text.
+    /// Entries in the store: the entry of our last text, its echoes, and the routes of every received text kept.
+    static constexpr size_t PATH_MEMORY = 1 + PATH_ROUTES_OWN + PATH_INCOMING_TEXTS * PATH_ROUTES_PER_TEXT;
 
     /**
      * Record one route by which a bridged text was heard, so ".path" can report it. The same route heard again only
@@ -197,6 +216,8 @@ class MeshCoreCompanion
     /// and the contact table; several candidates for one hash are listed. Public for tests.
     size_t formatPathReport(const HeardPath *const *routes, size_t count, const char *sender, ReportSink sink, void *ctx) const;
 
+    /// How many routes are kept for the text with this frame hash (our own entry is no route).
+    size_t heardRouteCount(uint32_t frameHash) const;
     /// Look up a heard route entry by packet id.
     const HeardPath *heardFind(uint32_t packetId) const;
 
@@ -437,7 +458,14 @@ class MeshCoreCompanion
                               int32_t rssi, float freqErr);
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
     HeardPath heard[PATH_MEMORY];
-    size_t heardNext = 0;
+    uint32_t heardIncoming[PATH_INCOMING_TEXTS] = {}; // frame hashes of the received texts kept, 0 = free; replaced in turn
+    size_t heardIncomingNext = 0;
+    uint32_t heardOwn = 0; // frame hash of the last text we sent, 0 = none
+
+    /// Free every entry of the text with this frame hash.
+    void heardForget(uint32_t frameHash);
+    /// The slot for one more route of a text that already has routes, or null when it is full of routes at least as short.
+    HeardPath *heardRouteSlot(uint32_t frameHash, uint8_t hopCount, size_t maxRoutes);
     /// Names behind a path hash: the node DB first (repeaters live there), then the MeshCore node store, whose keys outlive
     /// a node DB eviction. Duplicates (the same node listed twice) collapse, so an ambiguous hash still shows names.
     /// Returns the total found; up to max names are written to out.
