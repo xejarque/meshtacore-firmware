@@ -94,6 +94,52 @@ test("bundle: a zip without firmware is refused, and a failed decryption surface
   );
 });
 
+// What bin/build-nrf52.sh ships: a DFU zip (manifest + application .bin + init packet .dat), the UF2s and helpers.
+const dfuZip = (
+  manifest = { application: { bin_file: "app.bin", dat_file: "app.dat" } },
+) =>
+  zipSync({
+    "manifest.json": text(JSON.stringify({ manifest })),
+    "app.bin": Uint8Array.from([1, 2, 3, 4]),
+    "app.dat": Uint8Array.from([9, 9]),
+  });
+const nrfBundleZip = (dfu = dfuZip()) =>
+  zipSync({
+    "Meshtastic_nRF52_factory_erase_v3_S140_7.3.0.uf2": Uint8Array.from([0]),
+    "firmware-thinknode_m1-2.8.201-ota.zip": dfu,
+    "firmware-thinknode_m1-2.8.201.uf2": Uint8Array.from([5]),
+  });
+
+test("bundle: an encrypted nRF52 artifact opens down to the application image and its init packet", async () => {
+  const artifact = zipSync({
+    "meshtacore-thinknode_m1.zip.enc": encrypt(nrfBundleZip()),
+  });
+  const result = await resolveBundle("artifact.zip", artifact, { decrypt });
+  assert.equal(result.kind, "nrf52");
+  assert.deepEqual([...result.dfu.bin], [1, 2, 3, 4]);
+  assert.deepEqual([...result.dfu.dat], [9, 9]);
+  assert.equal(
+    result.uf2.name,
+    "firmware-thinknode_m1-2.8.201.uf2",
+    "kept as the manual fallback",
+  );
+});
+
+test("bundle: a corrupt or bootloader-carrying DFU zip is refused with a clear message", async () => {
+  const corrupt = nrfBundleZip(text("this is not a zip"));
+  await assert.rejects(resolveBundle("b.zip", corrupt, { decrypt }), /dañado/);
+  const withBootloader = nrfBundleZip(
+    dfuZip({
+      application: { bin_file: "app.bin", dat_file: "app.dat" },
+      bootloader: { bin_file: "app.bin", dat_file: "app.dat" },
+    }),
+  );
+  await assert.rejects(
+    resolveBundle("b.zip", withBootloader, { decrypt }),
+    /SoftDevice o bootloader/,
+  );
+});
+
 test("bundle: endless nesting is cut off", async () => {
   let bytes = bundleZip();
   for (let i = 0; i < 8; i++) bytes = zipSync({ "inner.zip": bytes });

@@ -179,6 +179,69 @@ test("bundle: nRF52 bundles are recognised by their UF2 and anything else is ref
   );
 });
 
+// What bin/build-nrf52.sh puts in release/: the DFU zip, the build's UF2 and the helper UF2s of bin/.
+const nrfBundle = (extra = []) => [
+  {
+    name: "release/Meshtastic_nRF52_factory_erase_v3_S140_7.3.0.uf2",
+    data: bytes(0),
+  },
+  {
+    name: "release/update-lilygo_techo_bootloader-0.6.1_nosd.uf2",
+    data: bytes(0),
+  },
+  { name: "release/firmware-thinknode_m1-2.8.201-ota.zip", data: bytes(7) },
+  { name: "release/firmware-thinknode_m1-2.8.201.uf2", data: bytes(8) },
+  { name: "release/firmware-thinknode_m1-2.8.201.elf", data: bytes(9) },
+  ...extra,
+];
+
+test("bundle: an nRF52 bundle flashes the DFU zip and offers the build's own UF2, never the erase or bootloader ones", () => {
+  const result = F.classifyBundle(nrfBundle());
+  assert.equal(result.kind, "nrf52");
+  assert.equal(result.image.name, "firmware-thinknode_m1-2.8.201-ota.zip");
+  assert.deepEqual([...result.image.data], [7]);
+  assert.equal(result.uf2.name, "firmware-thinknode_m1-2.8.201.uf2");
+  assert.deepEqual([...result.uf2.data], [8]);
+});
+
+test("bundle: with only helper UF2s there is nothing to flash, and a UF2-only bundle still works", () => {
+  const helpersOnly = nrfBundle().filter((e) => !e.name.includes("firmware-"));
+  assert.throws(() => F.classifyBundle(helpersOnly), /ningún firmware/);
+  const uf2Only = nrfBundle().filter((e) => !e.name.endsWith("-ota.zip"));
+  const result = F.classifyBundle(uf2Only);
+  assert.equal(result.kind, "uf2");
+  assert.equal(result.image.name, "firmware-thinknode_m1-2.8.201.uf2");
+});
+
+test("combined progress: several files weigh by size and the bar never goes back", () => {
+  const sizes = [900, 100]; // firmware + OTA Loader
+  assert.equal(F.combinedProgress(sizes, 0, 0), 0);
+  assert.equal(F.combinedProgress(sizes, 0, 1), 0.9);
+  assert.equal(
+    F.combinedProgress(sizes, 1, 0),
+    0.9,
+    "the next file starts where the previous ended",
+  );
+  assert.equal(F.combinedProgress(sizes, 1, 1), 1);
+  assert.equal(F.combinedProgress(sizes, 1, 5), 1, "fractions are clamped");
+  assert.equal(F.combinedProgress([0], 0, 0.5), 0, "nothing to write");
+  assert.equal(F.combinedProgress([500], 0, 0.5), 0.5);
+});
+
+test("dfu progress: erase, write and activate fill the flash phase in order without gaps", () => {
+  assert.equal(F.nrfFlashProgress("erase", 0), 0);
+  assert.equal(F.nrfFlashProgress("erase", 1), F.nrfFlashProgress("write", 0));
+  assert.equal(
+    F.nrfFlashProgress("write", 1),
+    F.nrfFlashProgress("activate", 0),
+  );
+  assert.equal(F.nrfFlashProgress("activate", 1), 1);
+  assert.ok(
+    F.nrfFlashProgress("write", 0.5) > F.nrfFlashProgress("write", 0.4),
+  );
+  assert.throws(() => F.nrfFlashProgress("nope", 0), /desconocida/);
+});
+
 test("chip: reads the target from the header, also for the classic ESP32 bootloader at 0x1000", () => {
   assert.equal(F.imageChip(espImage(9)), "ESP32-S3");
   assert.equal(F.imageChip(espImage(5)), "ESP32-C3");

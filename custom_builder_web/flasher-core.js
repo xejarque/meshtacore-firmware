@@ -125,13 +125,56 @@ export function classifyBundle(entries) {
       extraImages: otaLoaderImages(files),
     };
   }
-  const uf2 = files.find((e) => /\.uf2$/i.test(baseName(e.name)));
-  if (uf2) {
-    return { kind: "uf2", image: { name: baseName(uf2.name), data: uf2.data } };
-  }
-  throw new Error(
-    "El paquete no trae ningún firmware flasheable (*.factory.bin o *.uf2).",
+  // nRF52 bundles also carry bin/*.uf2 helpers (factory erase, bootloader updates): only the build's own
+  // firmware-*.uf2 is the firmware, and flashing any of the others would wipe the node or its bootloader.
+  const uf2Entry = files.find((e) =>
+    /^firmware-.*\.uf2$/i.test(baseName(e.name)),
   );
+  const uf2 = uf2Entry && {
+    name: baseName(uf2Entry.name),
+    data: uf2Entry.data,
+  };
+  const dfu = files.find((e) =>
+    /^firmware-.*-ota\.zip$/i.test(baseName(e.name)),
+  );
+  if (dfu) {
+    return {
+      kind: "nrf52",
+      image: { name: baseName(dfu.name), data: dfu.data },
+      uf2,
+    };
+  }
+  if (uf2) return { kind: "uf2", image: uf2 };
+  throw new Error(
+    "El paquete no trae ningún firmware flasheable (*.factory.bin, *-ota.zip o *.uf2).",
+  );
+}
+
+/**
+ * Progress (0-1) across several files that esptool reports one at a time: each file counts for its
+ * size, so the bar keeps growing instead of going back to 0 when the next file starts.
+ */
+export function combinedProgress(sizes, fileIndex, fraction) {
+  const total = sizes.reduce((sum, size) => sum + size, 0);
+  if (!total) return 0;
+  const before = sizes.slice(0, fileIndex).reduce((sum, size) => sum + size, 0);
+  return (before + sizes[fileIndex] * clamp01(fraction)) / total;
+}
+
+// ---------- nRF52 DFU progress ----------
+// The flash phase of an nRF52 has three parts of very different length (roughly 18 s erasing, 90 s
+// writing and 38 s activating for an 800 KB image); this keeps the bar moving at a steady pace.
+const NRF_STAGES = {
+  erase: [0, 0.12],
+  write: [0.12, 0.74],
+  activate: [0.74, 1],
+};
+
+/** Progress (0-1) of the whole flash phase when `stage` is `fraction` (0-1) done. */
+export function nrfFlashProgress(stage, fraction) {
+  const range = NRF_STAGES[stage];
+  if (!range) throw new Error(`Etapa DFU desconocida: ${stage}`);
+  return range[0] + (range[1] - range[0]) * clamp01(fraction);
 }
 
 // ---------- image vs chip safety check ----------

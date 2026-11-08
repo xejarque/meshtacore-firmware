@@ -1,5 +1,6 @@
 // ESP32 flashing over Web Serial with esptool-js (vendored, Apache-2.0). Chrome/Edge on desktop only.
 import { ESPLoader, Transport } from "./vendor/esptool-js.bundle.js";
+import { combinedProgress } from "./flasher-core.js";
 
 const FLASH_BAUDRATE = 921600;
 
@@ -35,20 +36,34 @@ export async function connectEsp({ onLog = () => {} } = {}) {
 export async function flashEsp(
   session,
   image,
-  { extraImages = [], eraseAll = false, onProgress = () => {} } = {},
+  {
+    extraImages = [],
+    eraseAll = false,
+    onErase = () => {},
+    onProgress = () => {},
+  } = {},
 ) {
+  // Erased here instead of through writeFlash({eraseAll}) so the person can be told: a full chip erase
+  // takes tens of seconds, during which esptool reports nothing and the bar would look frozen.
+  if (eraseAll) {
+    onErase();
+    await session.loader.eraseFlash();
+  }
+
+  const images = [image, ...extraImages];
+  const sizes = images.map(({ data }) => data.length);
   await session.loader.writeFlash({
-    fileArray: [image, ...extraImages].map(({ data, address }) => ({
-      data,
-      address,
-    })),
+    fileArray: images.map(({ data, address }) => ({ data, address })),
     flashSize: "keep",
     flashMode: "keep",
     flashFreq: "keep",
-    eraseAll,
+    eraseAll: false,
     compress: true,
-    reportProgress: (_fileIndex, written, total) =>
-      onProgress(total ? written / total : 0),
+    // esptool reports progress per file: weigh each by its size so the bar never goes back to 0
+    reportProgress: (fileIndex, written, total) =>
+      onProgress(
+        combinedProgress(sizes, fileIndex, total ? written / total : 0),
+      ),
   });
   await session.loader.after("hard_reset");
 }

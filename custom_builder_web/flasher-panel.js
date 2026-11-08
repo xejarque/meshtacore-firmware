@@ -4,8 +4,10 @@ import {
   PHASES,
   chipMatchesImage,
   formatBytes,
+  nrfFlashProgress,
   overallProgress,
 } from "./flasher-core.js";
+import { flashNrf, touchBootloader } from "./flasher-nrf.js";
 import { resolveBundle } from "./flasher-bundle.js";
 import {
   fetchRunArtifact,
@@ -50,6 +52,7 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
     actions: h("div", { class: "flasher-actions" }),
     log: h("pre", { class: "flasher-log hidden" }),
   };
+  const modal = h("dialog", { class: "flasher-modal" });
   const section = h(
     "section",
     { class: "flasher" },
@@ -70,6 +73,7 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
     ui.message,
     ui.actions,
     ui.log,
+    modal,
   );
   root.replaceChildren(section);
 
@@ -88,6 +92,44 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
     ui.message.className = `flasher-message ${kind ? `is-${kind}` : ""}`;
     show(ui.message, Boolean(text));
   };
+
+  /**
+   * A dialog that says what to do next. Whenever the flow stops waiting for the person (the firmware is
+   * ready, the board must change mode, the flash is done) it pops up instead of hiding in the panel.
+   * An action's `run` fires inside the click, so the browser still lets it open the port picker.
+   */
+  function showStep({ icon, title, steps = [], note = "", actions }) {
+    const buttons = actions.map(({ label, primary = false, run }) =>
+      h(
+        "button",
+        {
+          type: "button",
+          class: `btn btn-sm ${primary ? "btn-primary" : "btn-outline"}`,
+          onclick: () => {
+            modal.close();
+            run?.();
+          },
+        },
+        label,
+      ),
+    );
+    modal.replaceChildren(
+      h("div", { class: "flasher-modal-icon", "aria-hidden": "true" }, icon),
+      h("h3", {}, title),
+      ...(steps.length
+        ? [
+            h(
+              "ol",
+              { class: "flasher-modal-steps" },
+              ...steps.map((s) => h("li", {}, s)),
+            ),
+          ]
+        : []),
+      ...(note ? [h("p", { class: "flasher-modal-note" }, note)] : []),
+      h("div", { class: "flasher-modal-actions" }, ...buttons),
+    );
+    if (!modal.open) modal.showModal();
+  }
 
   function setPhase(id, fraction = 0, detail = "") {
     const percent = overallProgress(id, fraction);
@@ -108,6 +150,7 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
     abort?.abort();
     abort = new AbortController();
     bundle = null;
+    if (modal.open) modal.close();
     section.classList.remove("is-error");
     ui.actions.replaceChildren();
     ui.log.textContent = "";
@@ -128,12 +171,14 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
     bundle = resolved;
     setPhase("connect", 0, "Listo para conectar la placa");
     const { image } = resolved;
-    ui.image.textContent = `${image.name} · ${formatBytes(image.data.length)}`;
+    // For nRF52 the zip is compressed: show the size of the firmware inside, which is what gets written.
+    const size = resolved.dfu ? resolved.dfu.bin.length : image.data.length;
+    ui.image.textContent = `${image.name} · ${formatBytes(size)}`;
     show(ui.image, true);
 
-    if (resolved.kind !== "esp32") {
+    if (resolved.kind === "uf2") {
       say(
-        "Este paquete es para una placa nRF52 (UF2). El flasheo por USB de estas placas aún no está disponible: descarga el archivo y cópialo a la unidad que aparece al pulsar dos veces RESET.",
+        "Este paquete solo trae un UF2 (sin el paquete DFU), así que no se puede flashear desde aquí: descarga el archivo y cópialo a la unidad que aparece al pulsar dos veces RESET.",
       );
       ui.actions.replaceChildren(
         h(
@@ -155,6 +200,7 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
       );
       return;
     }
+    if (resolved.kind === "nrf52") return offerNrfFlash(resolved);
     const erase = h("input", { type: "checkbox", id: "flasherErase" });
     const button = h(
       "button",
@@ -177,6 +223,24 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
     say(
       "Firmware listo. Conecta la placa por USB y pulsa el botón; se abrirá el selector de puerto del navegador.",
     );
+    showStep({
+      icon: "🔌",
+      title: "Firmware listo para flashear",
+      steps: [
+        "Conecta la placa al ordenador con un cable USB que transmita datos.",
+        "Pulsa «Conectar y flashear» y elige el puerto de la placa en el selector del navegador.",
+        "Espera a que termine la barra de progreso sin desconectarla (unos 20 segundos).",
+      ],
+      note: "¿Quieres borrar toda la flash antes (se pierde la configuración guardada)? Cierra este aviso con «Más tarde» y marca la casilla.",
+      actions: [
+        { label: "Más tarde" },
+        {
+          label: "🔌 Conectar y flashear",
+          primary: true,
+          run: () => flashBoard(button, erase.checked),
+        },
+      ],
+    });
   }
 
   function download(image) {
@@ -207,6 +271,12 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
       await flashEsp(session, bundle.image, {
         extraImages: bundle.extraImages,
         eraseAll,
+        onErase: () =>
+          setPhase(
+            "flash",
+            0,
+            "Borrando toda la flash… puede tardar medio minuto",
+          ),
         onProgress: (f) =>
           setPhase(
             "flash",
@@ -222,10 +292,175 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
         "Listo: el firmware está escrito y la placa se ha reiniciado.",
         "success",
       );
+      showStep({
+        icon: "✅",
+        title: "¡Firmware instalado!",
+        steps: [
+          "La placa se ha reiniciado sola con el firmware nuevo.",
+          "Espera unos segundos a que arranque. Si no lo hace, pulsa el botón RESET.",
+          "Ya puedes desconectarla del USB.",
+        ],
+        actions: [{ label: "Entendido", primary: true }],
+      });
     } catch (error) {
       fail(error);
     } finally {
       await closeEsp(session);
+      busy = false;
+      button.disabled = false;
+    }
+  }
+
+  // ---------- nRF52: serial DFU through the bootloader ----------
+  function offerNrfFlash(resolved) {
+    const reboot = h(
+      "button",
+      {
+        type: "button",
+        class: "btn btn-secondary btn-sm",
+        onclick: () => rebootToBootloader(reboot, showPortStep),
+      },
+      "1 · Reiniciar en modo bootloader",
+    );
+    const flash = h(
+      "button",
+      {
+        type: "button",
+        class: "btn btn-primary btn-sm",
+        onclick: () => flashNrfBoard(flash),
+      },
+      "2 · Flashear",
+    );
+    const fallback = resolved.uf2
+      ? h(
+          "button",
+          {
+            type: "button",
+            class: "btn btn-outline btn-sm",
+            onclick: () => download(resolved.uf2),
+          },
+          "Descargar .uf2",
+        )
+      : null;
+    ui.actions.replaceChildren(...[reboot, flash, fallback].filter(Boolean));
+    say(
+      "Firmware listo. Pon la placa en modo bootloader (botón 1, o pulsa dos veces RESET), después pulsa el 2 y elige su puerto. Tarda un par de minutos: no la desconectes.",
+    );
+
+    function showPortStep() {
+      showStep({
+        icon: "🔌",
+        title: "Ahora elige el puerto del bootloader",
+        steps: [
+          "Pulsa «Flashear». Se abrirá el selector de puertos del navegador.",
+          "Elige el dispositivo de la placa. En modo bootloader aparece con otro nombre que antes.",
+          "Espera 2-3 minutos sin desconectarla: borra, escribe y activa el firmware.",
+        ],
+        actions: [
+          { label: "Más tarde" },
+          {
+            label: "⚡ Flashear",
+            primary: true,
+            run: () => flashNrfBoard(flash),
+          },
+        ],
+      });
+    }
+
+    showStep({
+      icon: "🔄",
+      title: "Pon la placa en modo bootloader",
+      steps: [
+        "Con la placa conectada por USB, pulsa «Reiniciar en modo bootloader» y elige su puerto actual.",
+        "Si no responde, pulsa dos veces seguidas el botón RESET de la placa: el LED empieza a latir.",
+        "Después te pediré que elijas el puerto del bootloader para flashear.",
+      ],
+      actions: [
+        { label: "Ya está en bootloader", run: showPortStep },
+        {
+          label: "🔄 Reiniciar en modo bootloader",
+          primary: true,
+          run: () => rebootToBootloader(reboot, showPortStep),
+        },
+      ],
+    });
+  }
+
+  async function rebootToBootloader(button, onDone) {
+    if (busy) return;
+    busy = true;
+    button.disabled = true;
+    try {
+      say("");
+      await touchBootloader();
+      say(
+        "Placa reiniciada en modo bootloader. Pulsa «2 · Flashear» y elige el puerto de la placa.",
+        "success",
+      );
+      onDone?.();
+    } catch (error) {
+      fail(error);
+    } finally {
+      busy = false;
+      button.disabled = false;
+    }
+  }
+
+  const NRF_STAGE_TEXT = {
+    start: "Iniciando la actualización…",
+    erase: "Borrando la memoria de la placa…",
+    init: "Enviando la cabecera del firmware…",
+    activate: "Activando el firmware. No desconectes la placa…",
+  };
+
+  async function flashNrfBoard(button) {
+    if (busy || !bundle?.dfu) return;
+    busy = true;
+    button.disabled = true;
+    section.classList.remove("is-error");
+    say("");
+    let flashFraction = 0; // a new stage changes the text, never moves the bar back
+    try {
+      setPhase("connect", 0, "Elige el puerto del bootloader…");
+      await flashNrf(bundle.dfu, {
+        onConnected: () => setPhase("connect", 1, "Conectado al bootloader"),
+        onStage: (stage) => {
+          if (stage === "start") setPhase("flash", 0, NRF_STAGE_TEXT.start);
+          else if (NRF_STAGE_TEXT[stage])
+            setPhase("flash", flashFraction, NRF_STAGE_TEXT[stage]);
+        },
+        onProgress: (stage, fraction) => {
+          flashFraction = nrfFlashProgress(stage, fraction);
+          setPhase(
+            "flash",
+            flashFraction,
+            stage === "write"
+              ? `Escribiendo el firmware… ${Math.round(fraction * 100)} %`
+              : NRF_STAGE_TEXT[stage],
+          );
+        },
+      });
+      setPhase("flash", 1, "Terminado");
+      ui.phases
+        .querySelectorAll("li")
+        .forEach((li) => li.classList.replace("is-active", "is-done"));
+      say(
+        "Listo: el firmware está instalado y la placa arranca sola en unos segundos.",
+        "success",
+      );
+      showStep({
+        icon: "✅",
+        title: "¡Firmware instalado!",
+        steps: [
+          "La placa sale del bootloader y arranca sola con el firmware nuevo: puede tardar unos segundos.",
+          "Si no arranca, pulsa una vez el botón RESET.",
+          "Ya puedes desconectarla del USB.",
+        ],
+        actions: [{ label: "Entendido", primary: true }],
+      });
+    } catch (error) {
+      fail(error);
+    } finally {
       busy = false;
       button.disabled = false;
     }

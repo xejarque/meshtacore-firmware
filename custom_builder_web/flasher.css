@@ -118,6 +118,110 @@
   align-items: center;
 }
 
+/* ---------- "what to do next" dialog ---------- */
+.flasher-modal {
+  /* styles.css resets margins, which breaks the UA's auto-centering of <dialog>: centre it explicitly */
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  height: fit-content;
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  width: min(30rem, calc(100vw - 2rem));
+  padding: 1.75rem 1.5rem 1.25rem;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  background: var(--card-bg);
+  color: var(--text-main);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+  text-align: center;
+}
+
+.flasher-modal::backdrop {
+  background: rgba(13, 17, 23, 0.6);
+  backdrop-filter: blur(3px);
+}
+
+.flasher-modal[open] {
+  animation: flasher-pop 0.18s ease-out;
+}
+
+@keyframes flasher-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flasher-modal[open] {
+    animation: none;
+  }
+  .flasher-bar-fill {
+    transition: none;
+  }
+}
+
+.flasher-modal-icon {
+  width: 3.5rem;
+  height: 3.5rem;
+  margin: 0 auto 0.75rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-light);
+  font-size: 1.75rem;
+}
+
+.flasher-modal h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1.2rem;
+}
+
+.flasher-modal-steps {
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  text-align: left;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.flasher-modal-steps li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 1.7rem 1fr;
+  gap: 0.6rem;
+  align-items: start;
+}
+
+.flasher-modal-steps li::before {
+  content: counter(step);
+  width: 1.7rem;
+  height: 1.7rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.flasher-modal-note {
+  margin: 0 0 1rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.flasher-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
 .flasher-log {
   margin-top: 0.75rem;
   max-height: 10rem;
