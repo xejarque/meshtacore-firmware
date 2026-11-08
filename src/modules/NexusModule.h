@@ -374,6 +374,12 @@ public:
     // never pass null, but the inline chain would have segfaulted).
     bool isAuthorizedAdmin(const uint8_t *senderPubKey);
 
+    // True for a packet that was PKI-decrypted with an admin key (config admin_key, host key, master or
+    // secondary key). The firewall never drops these: an operator must always be able to reach the node,
+    // whatever drop rules are active. mp.public_key is only filled after a successful PKI decrypt, so a
+    // packet we cannot decode (opaque) is never recognised here.
+    bool isAdminKeyPacket(const meshtastic_MeshPacket &mp);
+
     // Nexus-28002 (2026-08-20): verify a packet's XEdDSA
     // signature against the Nexus trust list (admin_key[0..2],
     // nexus_secondary_keys[0..3], NEXUS_MASTER_KEY_1..4) and report

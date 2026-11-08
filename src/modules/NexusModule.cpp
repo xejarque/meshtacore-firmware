@@ -49,6 +49,7 @@
 #endif
 #include "CryptoEngine.h" // for crypto->xeddsa_verify (Nexus-28002, verifyTrustedSignature)
 #include "Router.h"
+#include "mesh/AdminKeys.h"
 #include "UptimeClock.h" // Time::getMillisMonotonic() — wrap-safe 64-bit uptime
 #include "airtime.h"
 #include "configuration.h"
@@ -1286,6 +1287,13 @@ bool NexusModule::isAuthorizedAdmin(const uint8_t *senderPubKey)
     return checkMasterKeys(senderPubKey);
 }
 
+bool NexusModule::isAdminKeyPacket(const meshtastic_MeshPacket &mp)
+{
+    if (!mp.pki_encrypted || mp.public_key.size != 32)
+        return false;
+    return isAuthorizedAdmin(mp.public_key.bytes) || AdminKeys::isAuthorized(mp.public_key.bytes);
+}
+
 bool NexusModule::verifyTrustedSignature(const meshtastic_MeshPacket *p, char *outMatch, size_t outSize)
 {
     // Sentinel default. Callers must pass a non-null outMatch buffer;
@@ -1622,6 +1630,13 @@ bool NexusModule::shouldDropPacket(const meshtastic_MeshPacket &mp) {
     }
 
     bool isNexusChannel = this->isNexusChannel(mp.channel);
+
+    // Packets authenticated with an admin key are never dropped, whatever the rules say (ignore list,
+    // relay drop, PKI/admin/port drops, rate limits, signatures...).
+    if (isAdminKeyPacket(mp)) {
+        fw_nexus_bypass++;
+        return false;
+    }
 
     // Nexus Trusted Channels bypass ALL firewall drops
     if (isNexusChannel) {
@@ -5426,6 +5441,12 @@ bool NexusModule::isNexusIgnored(uint32_t nodeID) {
 
 bool NexusModule::shouldDropPrivate(const meshtastic_MeshPacket &mp) {
     updateStats(mp);
+
+    // Admin-key packets are never dropped (see isAdminKeyPacket).
+    if (isAdminKeyPacket(mp)) {
+        fw_nexus_bypass++;
+        return false;
+    }
 
     // Nexus: Relay Node Drop Filter (256-bit mask)
     uint8_t relayId = (uint8_t)(mp.relay_node & 0xFF);
