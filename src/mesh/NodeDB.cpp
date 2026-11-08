@@ -1255,7 +1255,9 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
     config.lora.tx_enabled =
         true; // FIXME: maybe false in the future, and setting region to enable it. (unset region forces it off)
     config.lora.override_duty_cycle = false;
-    config.lora.config_ok_to_mqtt = false;
+    // Meshtacore: on by default. Without the bit, other gateways refuse to uplink our packets (MQTT::onSend), so "Seen By"
+    // on the map stays empty. A build can still override it with USERPREFS_CONFIG_LORA_CONFIG_OK_TO_MQTT.
+    config.lora.config_ok_to_mqtt = true;
 #if HAS_LORA_FEM
     config.lora.fem_lna_mode = meshtastic_Config_LoRaConfig_FEM_LNA_Mode_ENABLED;
 #else
