@@ -232,6 +232,17 @@
   font-size: 0.9rem;
 }
 
+.flasher-modal-option {
+  display: block;
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--card-border-subtle);
+  border-radius: 6px;
+  text-align: left;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
 .flasher-modal-actions {
   display: flex;
   flex-wrap: wrap;

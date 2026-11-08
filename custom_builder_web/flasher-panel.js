@@ -98,7 +98,7 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
    * ready, the board must change mode, the flash is done) it pops up instead of hiding in the panel.
    * An action's `run` fires inside the click, so the browser still lets it open the port picker.
    */
-  function showStep({ icon, title, steps = [], note = "", actions }) {
+  function showStep({ icon, title, steps = [], note = "", extra, actions }) {
     const buttons = actions.map(({ label, primary = false, run }) =>
       h(
         "button",
@@ -126,6 +126,7 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
           ]
         : []),
       ...(note ? [h("p", { class: "flasher-modal-note" }, note)] : []),
+      ...(extra ? [extra] : []),
       h("div", { class: "flasher-modal-actions" }, ...buttons),
     );
     if (!modal.open) modal.showModal();
@@ -202,6 +203,16 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
     }
     if (resolved.kind === "nrf52") return offerNrfFlash(resolved);
     const erase = h("input", { type: "checkbox", id: "flasherErase" });
+    // the dialog has its own checkbox; both stay in step so the choice made in either one is the one used
+    const modalErase = h("input", { type: "checkbox" });
+    modalErase.addEventListener(
+      "change",
+      () => (erase.checked = modalErase.checked),
+    );
+    erase.addEventListener(
+      "change",
+      () => (modalErase.checked = erase.checked),
+    );
     const button = h(
       "button",
       {
@@ -231,7 +242,12 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
         "Pulsa «Conectar y flashear» y elige el puerto de la placa en el selector del navegador.",
         "Espera a que termine la barra de progreso sin desconectarla (unos 20 segundos).",
       ],
-      note: "¿Quieres borrar toda la flash antes (se pierde la configuración guardada)? Cierra este aviso con «Más tarde» y marca la casilla.",
+      extra: h(
+        "label",
+        { class: "flasher-modal-option" },
+        modalErase,
+        " Borrar toda la flash antes (pierde la configuración guardada)",
+      ),
       actions: [
         { label: "Más tarde" },
         {
