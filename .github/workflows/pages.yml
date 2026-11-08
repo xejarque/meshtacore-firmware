@@ -7,6 +7,10 @@ on:
     paths:
       - "custom_builder_web/**"
       - ".github/workflows/pages.yml"
+      - "bin/pages-firmware.sh"
+  # a new published release refreshes the firmware the "Actualizar" section offers
+  release:
+    types: [published, edited]
   workflow_dispatch:
 
 permissions:
@@ -30,6 +34,11 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
+
+      - name: Add the latest release firmware
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bin/pages-firmware.sh custom_builder_web/firmware
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
