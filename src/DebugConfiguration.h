@@ -97,6 +97,16 @@ extern MemGet memGet;
 #define LOG_DEBUG(...)
 #endif
 
+// Opt-in: also drop LOG_INFO / LOG_WARN format strings on very tight builds (ERROR and CRIT always stay).
+#if defined(MESHTASTIC_EXCLUDE_INFO_LOG)
+#undef LOG_INFO
+#define LOG_INFO(...)
+#endif
+#if defined(MESHTASTIC_EXCLUDE_WARN_LOG)
+#undef LOG_WARN
+#define LOG_WARN(...)
+#endif
+
 // RADIO_DEBUG=1 enables verbose LoRa radio diagnostics: chip bring-up detail (TCXO/RF-switch probing,
 // pin and current-limit lines) and per-event driver chatter (standby, sleep, AGC reset, per-RX
 // frequency-offset reads, Tx delay). Costs no flash when off, which keeps console I/O off the radio
