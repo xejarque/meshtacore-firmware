@@ -1,4 +1,9 @@
 {
+  "env": {
+    "CCACHE_DIR": "/Users/xavier.ejarque/.cache/meshtastic-ccache",
+    "CCACHE_BASEDIR": "/Users/xavier.ejarque/git/meshtacore-firmware",
+    "CCACHE_MAXSIZE": "10G"
+  },
   "hooks": {
     "PostToolUse": [
       {
