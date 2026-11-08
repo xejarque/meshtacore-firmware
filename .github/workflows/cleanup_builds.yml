@@ -1,0 +1,39 @@
+name: Cleanup old builder output
+
+# Privacidad: elimina issues de build, artifacts y bundles cifrados con más de 7 días.
+# Las releases no se tocan. Requiere el secret CLEANUP_TOKEN (PAT con permisos de admin del repo,
+# necesario para ELIMINAR issues; el GITHUB_TOKEN solo puede cerrarlos).
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Borrar de verdad (si no, solo lista)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cleanup-builds
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: github.repository == 'xejarque/meshtacore-firmware'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - name: Cleanup
+        env:
+          GH_TOKEN: ${{ secrets.CLEANUP_TOKEN }}
+          REPO: ${{ github.repository }}
+          APPLY: ${{ github.event_name == 'schedule' || inputs.apply }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then echo "::error::Falta el secret CLEANUP_TOKEN"; exit 1; fi
+          if [ "$APPLY" = "true" ]; then FLAG="--apply"; else FLAG=""; fi
+          bash .github/scripts/cleanup_builds.sh $FLAG
