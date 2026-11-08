@@ -11,6 +11,7 @@
 #include "MeshCoreRepeater.h"
 #include "MeshCoreSecretCache.h"
 #include "MeshTypes.h"
+#include "concurrency/Lock.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -93,6 +94,8 @@ class MeshCoreCompanion
 
     /// TXT_MSG flood flags byte: text type in bits 2-7 (0 = plain), send attempt in bits 0-1.
     static constexpr uint8_t TXT_FLAGS_PLAIN = 0;
+    static constexpr uint8_t TXT_FLAGS_CLI = 1 << 2; // TXT_TYPE_CLI_DATA
+    static constexpr uint8_t MAX_PASSWORD_LEN = 15;
 
     /**
      * Encode a TXT_MSG flood frame for a peer: dest_hash | src_hash | MAC | AES(timestamp, flags, text). hashes are the
@@ -109,6 +112,20 @@ class MeshCoreCompanion
     static bool decodeDirectText(const uint8_t secret[32], const uint8_t *frame, size_t len,
                                  const MeshCoreRepeater::FrameInfo &info, char *textOut, size_t textOutCap,
                                  uint32_t *timestampOut, uint8_t *flagsOut);
+
+    /// Same as decodeDirectText, but accepts a specific text type (1 = CLI_DATA) instead of only plain text.
+    static bool decodeDirectTextType(const uint8_t secret[32], uint8_t expectedType, const uint8_t *frame, size_t len,
+                                     const MeshCoreRepeater::FrameInfo &info, char *textOut, size_t textOutCap,
+                                     uint32_t *timestampOut, uint8_t *flagsOut);
+
+    /// Encode an ANON_REQ login flood. Repeated room logins carry syncSince; repeaters ignore it.
+    static size_t encodeAnonLogin(const uint8_t seed[32], const uint8_t ourPub[32], const uint8_t targetPub[32],
+                                  uint32_t timestamp, uint32_t syncSince, bool room, const char *password, uint8_t *out,
+                                  size_t outCap);
+
+    /// Decode the RESPONSE carried inside a PATH frame. extra receives the response body, not its type byte.
+    static bool decodePathResponse(const uint8_t secret[32], const uint8_t *frame, size_t len,
+                                   const MeshCoreRepeater::FrameInfo &info, uint8_t *extra, size_t extraCap, size_t *extraLen);
 
     /// The 4-byte ACK a peer answers a TXT_MSG with: SHA-256(timestamp | flags | text | senderPub)[:4], where
     /// senderPub belongs to whoever wrote the text (BaseChatMesh::onPeerDataRecv).
@@ -314,6 +331,8 @@ class MeshCoreCompanion
     /// The relay alias belongs to this node too: its ADVERT is ours coming back, not a repeater to learn.
     void setRelayAliasPub(const uint8_t pub[32]);
     bool hasIdentity() const { return identityReady; }
+    const uint8_t *getIdentitySeed() const { return identityReady ? identitySeed : nullptr; }
+    const uint8_t *getIdentityPub() const { return identityReady ? identityPub : nullptr; }
 
     /// True when node is a direct-message contact we hold a public key for.
     bool hasContact(uint32_t nodeNum) { return contactByNodeNum(nodeNum) != nullptr; }
@@ -332,6 +351,8 @@ class MeshCoreCompanion
 
     /// Learn or refresh a repeater, numbered from its public key.
     MeshCoreNode *learnRepeater(const uint8_t pub[32], const char *name);
+    /// Learn or refresh a room server, numbered from its public key.
+    MeshCoreNode *learnRoom(const uint8_t pub[32], const char *name);
 
     /// Queue a TXT_MSG for the contact behind nodeNum and wait for a repeater to re-flood it, then for its ACK, answering
     /// packetId to the client. text is cut to MAX_TEXT_LEN on a UTF-8 boundary. False if not queued.
@@ -374,6 +395,7 @@ class MeshCoreCompanion
 
     MeshCoreDedup<DEDUP_ENTRIES> dedup; // hashFrame() never returns 0, the empty-slot marker
     HashCacheEntry hashCache[MAX_NUM_CHANNELS];
+    concurrency::Lock txTimestampLock;
     uint32_t lastTxTimestamp = 0;
 
     uint8_t identitySeed[32] = {};

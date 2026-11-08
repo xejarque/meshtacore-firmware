@@ -586,6 +586,9 @@ public:
     bool meshCoreDiscoverPending = false;
     uint32_t meshCoreDiscoverUntil = 0;
     uint32_t meshCoreDiscoverWindowMs = 0;
+    // /mtc MESHCORE PASS|CMD: where the final answer of a remote repeater or room goes once it replies.
+    ReplyContext meshCoreAdminReply;
+    bool meshCoreAdminReplyPending = false;
     bool sendReply(const ReplyContext &context, const char *message, size_t length, bool reliable = true);
 
     // Trace context

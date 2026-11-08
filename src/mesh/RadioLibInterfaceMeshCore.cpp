@@ -22,6 +22,9 @@
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 #include "MeshCoreCompanion.h"
 #endif
+#if MESHTASTIC_ENABLE_MESHCORE_ADMIN
+#include "MeshCoreAdmin.h"
+#endif
 #include "NodeDB.h"
 #include "Router.h"
 #include "SafeFile.h"
@@ -325,6 +328,47 @@ static bool saveMeshCoreContacts()
 }
 #endif
 
+#if MESHTASTIC_ENABLE_MESHCORE_ADMIN
+static const char *meshCoreAdminPath = "/prefs/meshcore_admin.bin";
+
+static void loadMeshCoreAdmin()
+{
+#ifdef FSCom
+    uint8_t image[MeshCoreAdminFile::IMAGE_MAX];
+    size_t n = 0;
+    {
+        concurrency::LockGuard g(spiLock);
+        auto f = FSCom.open(meshCoreAdminPath, FILE_O_READ);
+        if (!f)
+            return;
+        n = f.size() <= sizeof(image) ? f.read(image, f.size()) : 0;
+        f.close();
+    }
+    const size_t loaded = meshCoreAdmin.importFile(image, n);
+    LOG_INFO("MeshCore admin: %u credential(s) restored from flash", (unsigned)loaded);
+#endif
+}
+
+static bool saveMeshCoreAdmin()
+{
+#ifdef FSCom
+    uint8_t image[MeshCoreAdminFile::IMAGE_MAX];
+    const size_t n = meshCoreAdmin.exportFile(image, sizeof(image));
+    if (n == 0)
+        return false;
+    SafeFile out(meshCoreAdminPath, true); // atomic replace
+    out.write(image, n);
+    if (!out.close()) {
+        LOG_WARN("MeshCore admin: could not save %s", meshCoreAdminPath);
+        return false;
+    }
+    return true;
+#else
+    return true;
+#endif
+}
+#endif
+
 size_t RadioLibInterface::formatContentionStats(char *buf, size_t len)
 {
     ContentionStats s;
@@ -409,6 +453,9 @@ void RadioLibInterface::ensureMeshCoreConfigLoaded()
 void RadioLibInterface::reloadMeshCoreConfig()
 {
     reloadMeshCoreRegions();
+#if MESHTASTIC_ENABLE_MESHCORE_ADMIN
+    loadMeshCoreAdmin();
+#endif
     MeshCoreConfig loaded;
     if (!loadMeshCoreConfigImage(&loaded)) {
 #ifdef USERPREFS_MESHCORE_RELAY_MODE
@@ -464,10 +511,14 @@ void RadioLibInterface::applyMeshCoreConfig()
 bool RadioLibInterface::saveMeshCoreConfig()
 {
     saveMeshCoreRegions();
-    if (saveMeshCoreConfigImage(meshCoreConfig))
-        return true;
-    LOG_ERROR("MeshCore config: could not save %s", meshCoreConfigPath);
-    return false;
+    bool ok = saveMeshCoreConfigImage(meshCoreConfig);
+    if (!ok)
+        LOG_ERROR("MeshCore config: could not save %s", meshCoreConfigPath);
+#if MESHTASTIC_ENABLE_MESHCORE_ADMIN
+    if (!saveMeshCoreAdmin())
+        ok = false;
+#endif
+    return ok;
 }
 
 bool RadioLibInterface::saveMeshCoreRegions()

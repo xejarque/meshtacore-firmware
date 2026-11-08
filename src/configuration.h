@@ -787,6 +787,20 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define HAS_SCREEN 0
 #endif
 
+// Experimental: MeshCore remote administration (saved passwords and the repeater/room CLI). Off where flash is
+// tight: nRF52 boards that still carry a screen keep the companion but not this. -D...=1 forces it on, =0 off.
+#ifndef MESHTASTIC_ENABLE_MESHCORE_ADMIN
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION && (defined(ARCH_ESP32) || (defined(ARCH_NRF52) && !HAS_SCREEN))
+#define MESHTASTIC_ENABLE_MESHCORE_ADMIN 1
+#else
+#define MESHTASTIC_ENABLE_MESHCORE_ADMIN 0
+#endif
+#endif
+
+#if MESHTASTIC_ENABLE_MESHCORE_ADMIN && !MESHTASTIC_ENABLE_MESHCORE_COMPANION
+#error "MESHTASTIC_ENABLE_MESHCORE_ADMIN requires MESHTASTIC_ENABLE_MESHCORE_COMPANION"
+#endif
+
 // -----------------------------------------------------------------------------
 // Motion sensor wake
 // -----------------------------------------------------------------------------

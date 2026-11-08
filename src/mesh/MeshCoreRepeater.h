@@ -149,6 +149,7 @@ class MeshCoreRepeater
     /// repeater is infrastructure that MeshCore apps will not start a conversation with.
     static constexpr uint8_t ADV_TYPE_CHAT = 0x01;
     static constexpr uint8_t ADV_TYPE_REPEATER = 0x02;
+    static constexpr uint8_t ADV_TYPE_ROOM = 0x03;
 
     /// What a Meshtastic device role announces itself as: ROUTER, ROUTER_LATE and REPEATER are repeaters, every other role
     /// is a chat node. role is a meshtastic_Config_DeviceConfig_Role value.

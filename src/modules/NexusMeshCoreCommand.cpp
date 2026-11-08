@@ -26,6 +26,9 @@
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 #include "mesh/MeshCoreCompanion.h"
 #endif
+#if MESHTASTIC_ENABLE_MESHCORE_ADMIN
+#include "mesh/MeshCoreAdmin.h"
+#endif
 
 // Nexus's base64 encoder (NexusCommands.cpp), shared so a key reads the same as every other /mtc export.
 void nexus_base64_encode(char *out, const uint8_t *in, size_t in_len, bool url_safe);
@@ -1346,13 +1349,26 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
         snprintf(reply, replyLen, "MESHTACORE: no radio");
         return;
     }
+#if MESHTASTIC_ENABLE_MESHCORE_ADMIN
+    bool waitForEvent = false;
+    if (meshCoreAdmin.handleCommand(args, reply, replyLen, waitForEvent)) {
+        if (waitForEvent && mp) {
+            // The final answer arrives after the remote replies, so the context has to survive until then.
+            const bool isDM = mp->to == myNodeInfo.my_node_num;
+            meshCoreAdminReply = {isDM ? mp->from : 0xFFFFFFFF, mp->channel, replyId, toPhoneOnly, toPhoneOnly || !isDM};
+            meshCoreAdminReplyPending = true;
+            setIntervalFromNow(100);
+        }
+        return;
+    }
+#endif
     char word[16];
     const char *rest = takeWord(args, word, sizeof(word));
     const bool signatureRequired = securityRequiresSignature();
 
     if (word[0] == '\0' || strcasecmp(word, "HELP") == 0) {
         snprintf(reply, replyLen,
-                 "MESHTACORE: INFO, STATS [FULL], NODES, CONTACTS, REPEATERS, NODE <id>, PATH <target>, TRACE <target>, SEND "
+                 "MESHTACORE: INFO, STATS [FULL], NODES, CONTACTS, REPEATERS, ROOMS, PASS <target> <pw>, CMD <target> <text>, NODE <id>, PATH <target>, TRACE <target>, SEND "
                  "<target> <msg>, DROP [hex|CLEAR], UNDROP <hex>, DROPS, RELAY [ON|OFF|AUTO], ADVERT [1-168|NOW], REGION [...], "
                  "VECINOS, DESCUBRIR [5-60], FAV <hex> [ON|OFF], IDENTITY, KEY <hex>, PATHSIZE [1-3], FLOODMAX [g u a], "
                  "HYBRID [ON|OFF], PPING [...], PING <target>, RESET. SAVE keeps them.");
@@ -1366,6 +1382,8 @@ void NexusModule::handleMeshCoreCommand(const char *args, char *reply, size_t re
         handleMeshCoreNodesCommand(MeshCoreNode::CHAT, rest, reply, replyLen);
     } else if (strcasecmp(word, "REPEATERS") == 0) {
         handleMeshCoreNodesCommand(MeshCoreNode::REPEATER, rest, reply, replyLen);
+    } else if (strcasecmp(word, "ROOMS") == 0 || strcasecmp(word, "ROOM") == 0) {
+        handleMeshCoreNodesCommand(MeshCoreNode::ROOM, rest, reply, replyLen);
     } else if (strcasecmp(word, "NODE") == 0) {
         handleMeshCoreNodeDetailCommand(rest, reply, replyLen);
     } else if (strcasecmp(word, "PATH") == 0 || strcasecmp(word, "RUTA") == 0) {

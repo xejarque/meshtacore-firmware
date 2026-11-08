@@ -355,9 +355,11 @@ Text with a non-plain type is ignored.
 | `FLOODMAX [<any> <unscoped> <advert>\|DEFAULT]` | Hops a flood may have crossed before it is not relayed, each 1-64. Default `64 64 8`.                                             |
 | `IDENTITY` (alias `ID`)                         | Node id, type, name and public key; with a relay alias, its first four bytes.                                                     |
 | `HYBRID [ON\|OFF]`                              | Hybrid receive sync word on SX126x and LR11x0. RAM only; `OFF` does not hear MeshCore until reboot.                               |
+| `PASS <target> <password>`                      | Save a repeater or room password in RAM. `/mtc SAVE` persists it.                                                                 |
+| `CMD <target> <text>`                           | Log in to a repeater or room and run one CLI command, for example `tx 22`.                                                        |
 | `RESET`                                         | Relay `AUTO`, default ADVERT period, 2-byte path hash, default flood limits and the firewall off (drop rules, `MCGAP`, `MCRATE`). |
 
-`HELP` lists the rest: `STATS`, `NODES`, `CONTACTS`, `REPEATERS`, `NODE`, `PATH`, `TRACE`, `SEND`, `DROP`, `UNDROP`, `DROPS`, `REGION`, `VECINOS`, `DESCUBRIR`, `FAV`, `KEY`, `PPING` and `PING`.
+`HELP` lists the rest: `STATS`, `NODES`, `CONTACTS`, `REPEATERS`, `ROOMS`, `NODE`, `PATH`, `TRACE`, `SEND`, `DROP`, `UNDROP`, `DROPS`, `REGION`, `VECINOS`, `DESCUBRIR`, `FAV`, `KEY`, `PPING` and `PING`.
 
 `VECINOS` lists the nodes already known to be one hop away. `DESCUBRIR [5-60]` asks the network instead: it sends a zero-hop `NODE_DISCOVER_REQ` with a fresh random tag, collects the `NODE_DISCOVER_RESP` answers for the window (10 s by default), and then posts the listing as a second message using the same renderer as `VECINOS`. Each answer is also written into the MeshCore contact store, so `CONTACTS` and `VECINOS` see it afterwards; the write uses `upsertIfRoom()`, which never evicts - a full table turns the write away rather than dropping a contact the operator saved or messaged. Asking needs no identity key and works with the relay off (a `CLIENT_MUTE` node can scan); only answering needs an identity. A second scan is refused while one runs.
 
@@ -373,6 +375,18 @@ SNR: -3.2 dB · RSSI: -88 dBm · Δf -12Hz
 ```
 
 `HEADER <text>` puts that text in front of the hop count on the first line (`Relay Under Test · 📡 2 hops`), and `HEADER DEFAULT` restores the `🤖MESHTACORE Ping🤖` banner. The `CMD` / `TRIGGER` value is the same trigger `/mtc PPING CMD` sets: any leading character is accepted (`.ping` works, there is no `/` requirement), the incoming text must match it exactly, it is at most 15 characters, and `MESHCORE PING <target>` sends it as the ping body.
+
+### Repeater and room administration
+
+`PASS` and `CMD` accept the target first: `/mtc MCORE PASS <target> <password>` and `/mtc MCORE CMD <target> <command>`. The verb-first forms (`PASS <target> ...`, `CMD <target> ...`) are also accepted. A target is a contact name (case-insensitive), an even-length 2-8 hex prefix of its public key, or an 8 hex node number; a leading `!` is optional. The target must resolve to exactly one REPEATER or ROOM contact. If the name or prefix matches more than one, the command is refused.
+
+`PASS` stores at most 8 passwords, each up to 15 bytes, in RAM. The password is written to flash only by `/mtc SAVE`, as plaintext, in `/prefs/meshcore_admin.bin`; there is no read-back command. `CMD` requires a stored password and a valid wall-clock time. It reuses a successful admin session for 10 minutes; otherwise it logs in first. The command text is limited to 160 bytes and the reply to one line.
+
+The exchange is asynchronous. The immediate reply is `login sent` or `command sent`; the result arrives later as `<target>: <output>`. A login that the repeater does not answer is reported after 45 seconds. A command that produces no reply is retried once with a fresh login after 30 seconds, then reported as `no command reply`. A repeater that accepts the login but grants no admin rights is reported as `not admin`, and no command is sent. Only one admin operation runs at a time.
+
+Admin support is compiled with `MESHTASTIC_ENABLE_MESHCORE_ADMIN`, on by default: the companion build on ESP32 or on a screenless nRF52. The CLI output buffer is shared with Nexus, so a long answer is truncated.
+
+`MESHCORE PPING` (alias `MCORE PPING`) and `/mtc PPING` are independent: `PPING ON|OFF` under MESHCORE only switches the MeshCore ping channels (`MC:#bot`), and `/mtc PPING ON|OFF` only switches the Meshtastic public ping (`public_ping`). A MeshCore ping is answered whenever its channel is on, whatever `public_ping` says. The reporting settings (`RSSI`, `SNR`, `FREQERR`, `HEADER`, `EMOJI`, `CMD`, `FLAGS`, `ALLOWDM`, `CHAN`, `SETHEX`, `GETHEX`) are one shared set, and the route line of a MeshCore reply prints only the metrics that are on.
 
 ## Threads, timers and coexistence
 
@@ -394,6 +408,7 @@ All time comparisons use `Throttle`, so deadlines survive the 32-bit `millis()` 
 | `/prefs/meshcore_identity.bin` | 32-byte Ed25519 seed, written atomically with `SafeFile`.                                                                                   |
 | `/prefs/meshcore_contacts.bin` | Magic `MCC`, version 1, count, then 16 records of key plus name.                                                                            |
 | `/prefs/meshcore_config.bin`   | Magic `MCF`, version 2 (version 1 is still read): relay mode, ADVERT hours, path hash size and the three flood limits; zero is the default. |
+| `/prefs/meshcore_admin.bin`    | Magic `MCA`, version 1: up to 8 records of public key, node type, name and plaintext password; CRC32 at the end.                            |
 
 Contacts are saved at most every 10 minutes and only when a fingerprint over keys and names changes. LRU order is not part of the fingerprint, so an ordinary ADVERT does not cause a flash write. On restore, records are loaded oldest first so the newest ends up most recently used.
 
@@ -403,9 +418,9 @@ Contacts are saved at most every 10 minutes and only when a fingerprint over key
 - **Hybrid sync loss**: the register value is measured, not characterised. Sensitivity and packet loss versus a normal build are unknown.
 - **SX126x only**: the hybrid receive is a register feature of that family. Other radios can run the code, but will not hear MeshCore with a Meshtastic sync word.
 - **No region scoping**: MeshCore repeaters can enforce region scoping through transport codes. This relay has no region map and forwards scoped floods like any other.
-- **No runtime configuration**: identity, advert intervals and relay on/off are build flags. The MeshCore side has no admin or config surface in the client yet.
+- **Admin scope**: remote administration is limited to a saved login password and one CLI command per request on REPEATER and ROOM contacts. Channel, region and advert settings are not exposed through it.
 - **Wall-clock time required**: group text, direct messages and ADVERTs are postponed until a valid time is available.
-- **Filesystem required for continuity**: without `FSCom`, the identity is regenerated at boot and contacts are not persisted.
+- **Filesystem required for continuity**: without `FSCom`, the identity is regenerated at boot, and contacts and admin credentials are not persisted.
 - **XEdDSA required for DMs**: excluding it disables key exchange, so direct messages cannot be sent or received.
 - **Flash wear**: the identity is written once; contacts are rate-limited to one write per 10 minutes.
 
@@ -415,6 +430,7 @@ Native tests:
 
 - `test/test_meshcore_repeater` covers parsing and the Meshtastic veto, deduplication and path independence, flood bounds, queue ordering and eviction, adaptive delay bounds and contention factor, duplicate postponement, wrap safety, stale drops, direct/TRACE/MULTIPART/CONTROL handling, path rewriting, ADVERT signing and verification, and role mapping.
 - `test/test_meshcore_companion` covers channel hashes and interoperability vectors, group text round trips, MAC and tamper rejection, UTF-8 truncation, key normalisation, ECDH symmetry, direct text and ACK hashes, PATH ACK decoding, contact LRU and persistence, and node numbering.
+- `test/test_meshcore_admin` covers the credential file, target resolution, the ANON_REQ login and PATH response exchange, room `sync_since`, CLI text and reply decoding, non-admin refusal, login timeout, and the single command retry.
 
 Run them with the rest of the suite:
 
@@ -439,6 +455,8 @@ Useful log lines: `MeshCore frame:` (classification), `MeshCore relay queued:` (
 | `src/mesh/MeshCoreDedup.h`          | Fixed ring of seen frame hashes.                                                          |
 | `src/mesh/MeshCoreCompanion.h/.cpp` | Group and direct text codecs, contacts, ACKs, injection into the Meshtastic router.       |
 | `src/mesh/MeshCoreContacts.h`       | LRU contact table and node numbering.                                                     |
+| `src/mesh/MeshCoreAdmin.h/.cpp`     | Saved repeater/room passwords, login session and CLI exchange.                            |
+| `src/mesh/MeshCoreAdminFile.h`      | Persistent credential image format.                                                       |
 | `src/mesh/Channels.cpp`             | `MC:` channel detection, key normalisation and default seeding.                           |
 | `src/mesh/MeshService.cpp`          | Intercepts outbound text and routes it to the MeshCore bridge.                            |
 | `src/mesh/Router.cpp`               | `decodesOnOurChannels()`, the Meshtastic-first trial decrypt.                             |

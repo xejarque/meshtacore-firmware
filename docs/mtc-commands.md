@@ -860,6 +860,7 @@ A rule fires after three consecutive readings, taken 15 s apart, and re-arms onc
 | `MCGAP`                                           | §3 Firewall & Filtering          | MeshCore: one advert per key per time window                                   |
 | `MCRATE`                                          | §3 Firewall & Filtering          | MeshCore: frames a minute from one neighbouring repeater                       |
 | `MCUINFO` / `MCU`                                 | §13 Hardware & Sensors           | Detailed MCU core and flash info                                               |
+| `MESHCORE` / `MCORE`                              | §14 Messaging & Routing          | MeshCore settings and repeater/room administration                             |
 | `META_ALERT` / `MA`                               | §13 Hardware & Sensors           | Alert on metadata request receipt                                              |
 | `METRICS`                                         | §13 Hardware & Sensors           | Another node's battery / channel-utilization metrics                           |
 | `MODULES` / `MOD`                                 | §12 Channels & Config            | List active firmware modules                                                   |

@@ -1322,9 +1322,11 @@ meshtastic_MeshPacket makeReplayMeshCorePacket(const MeshCoreNode &n, meshtastic
     pkt.decoded.portnum = port;
     if (port == meshtastic_PortNum_NODEINFO_APP) {
         const bool chat = n.type == MeshCoreNode::CHAT;
+        const bool room = n.type == MeshCoreNode::ROOM;
         const meshtastic_User user = MeshCoreCompanion::senderUser(n.name, chat, n.pub,
-                                                                   chat ? meshtastic_Config_DeviceConfig_Role_CLIENT
-                                                                        : meshtastic_Config_DeviceConfig_Role_REPEATER);
+                                                                   chat   ? meshtastic_Config_DeviceConfig_Role_CLIENT
+                                                                   : room ? meshtastic_Config_DeviceConfig_Role_ROUTER
+                                                                          : meshtastic_Config_DeviceConfig_Role_REPEATER);
         pkt.decoded.payload.size = (pb_size_t)pb_encode_to_bytes(pkt.decoded.payload.bytes, sizeof(pkt.decoded.payload.bytes),
                                                                  &meshtastic_User_msg, &user);
     } else {

@@ -63,6 +63,9 @@
 #endif
 
 #include "Default.h"
+#if MESHTASTIC_ENABLE_MESHCORE_ADMIN
+#include "mesh/MeshCoreAdmin.h"
+#endif
 #include "MeshRadio.h"
 #include "TypeConversions.h"
 #include "freertosinc.h"  // For uxTaskGetStackHighWaterMark / uxTaskGetSystemState (RAM command)
@@ -2890,6 +2893,16 @@ int32_t NexusModule::runOnce() {
         pendingReply.active = false;
     }
 
+#if MESHTASTIC_ENABLE_MESHCORE_ADMIN
+    if (meshCoreAdminReplyPending) {
+        char event[MeshCoreAdmin::EVENT_MAX];
+        if (meshCoreAdmin.pollEvent(event, sizeof(event))) {
+            meshCoreAdminReplyPending = false;
+            sendReply(meshCoreAdminReply, event, strlen(event));
+        }
+    }
+#endif
+
     // 1.5 Nexus LORACHIPSTATS: 1 Hz chip-state sampling (self-throttled inside,
     // so the early setIntervalFromNow() wakeups don't skew the sample rate).
     if (RadioLibInterface::instance) {
@@ -3273,7 +3286,7 @@ int32_t NexusModule::runOnce() {
     if (noise_sampling_active || freqscan_active)
         return 50;
     if (netscan_active || clientscan_active || pendingReply.active || pendingLoRaConfig || macro_running_cmd[0] || paging_ptr ||
-        pagingWindow.hasMore() || meshCoreDiscoverPending)
+        pagingWindow.hasMore() || meshCoreDiscoverPending || meshCoreAdminReplyPending)
         return 100;
     return 1000; // Default idle sleep
 }
