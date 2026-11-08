@@ -132,6 +132,22 @@ test("bundle: ESP32 bundles flash the factory image at 0x0, ignoring folders and
   assert.equal(result.image.data, factory.data);
 });
 
+test("bundle: the plain app image is offered for updates, never the factory image or the OTA Loader", () => {
+  const entries = [
+    { name: "firmware-heltec-v3-2.8.201.factory.bin", data: bytes(1) },
+    { name: "firmware-heltec-v3-2.8.201.bin", data: bytes(2) },
+    { name: "mt-esp32s3-ota.bin", data: bytes(3) },
+  ];
+  const { updateImage } = F.classifyBundle(entries);
+  assert.equal(updateImage.name, "firmware-heltec-v3-2.8.201.bin");
+  assert.deepEqual([...updateImage.data], [2]);
+  assert.equal(
+    F.classifyBundle([entries[0]]).updateImage,
+    undefined,
+    "no plain image, no update",
+  );
+});
+
 test("bundle: the OTA Loader goes to the ota_1 offset taken from the build manifest", () => {
   const manifest = {
     part: [

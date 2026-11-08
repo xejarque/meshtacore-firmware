@@ -262,3 +262,43 @@
   font-size: 0.75rem;
   white-space: pre-wrap;
 }
+
+/* ---------- "Actualizar" page ---------- */
+.update-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin: 1rem 0;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.update-tab {
+  padding: 0.5rem 1rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.update-tab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.update-warning {
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #d4a72c;
+  border-radius: 6px;
+  background: rgba(212, 167, 44, 0.12);
+  font-size: 0.9rem;
+}
+
+.update-confirm {
+  display: block;
+  margin-top: 0.6rem;
+  font-weight: 600;
+  cursor: pointer;
+}

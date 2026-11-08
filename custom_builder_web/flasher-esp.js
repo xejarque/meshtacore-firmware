@@ -1,6 +1,11 @@
 // ESP32 flashing over Web Serial with esptool-js (vendored, Apache-2.0). Chrome/Edge on desktop only.
 import { ESPLoader, Transport } from "./vendor/esptool-js.bundle.js";
 import { combinedProgress } from "./flasher-core.js";
+import {
+  PARTITION_TABLE_ADDRESS,
+  PARTITION_TABLE_SIZE,
+  planAppUpdate,
+} from "./esp-partitions.js";
 
 const FLASH_BAUDRATE = 921600;
 
@@ -66,6 +71,39 @@ export async function flashEsp(
       ),
   });
   await session.loader.after("hard_reset");
+}
+
+/**
+ * Updates the application only: reads the board's own partition table, writes `data` into its app slot and
+ * blanks the boot selector. The configuration (NVS), the OTA Loader slot and the filesystem are not touched,
+ * unlike a .factory.bin, whose padding overwrites them.
+ * @returns {{app: {offset:number, size:number, label:string}}} where it wrote
+ */
+export async function updateEspApp(
+  session,
+  { name, data },
+  { onProgress } = {},
+) {
+  const table = await session.loader.readFlash(
+    PARTITION_TABLE_ADDRESS,
+    PARTITION_TABLE_SIZE,
+  );
+  const plan = planAppUpdate(table, data.length);
+  const extraImages = plan.otadata
+    ? [
+        {
+          name: "otadata",
+          address: plan.otadata.offset,
+          data: new Uint8Array(plan.otadata.size).fill(0xff),
+        },
+      ]
+    : [];
+  await flashEsp(
+    session,
+    { name, data, address: plan.app.offset },
+    { extraImages, onProgress },
+  );
+  return plan;
 }
 
 export async function closeEsp(session) {

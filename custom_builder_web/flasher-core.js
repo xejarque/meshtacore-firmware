@@ -119,10 +119,15 @@ export function classifyBundle(entries) {
   const files = entries.filter((e) => !e.name.endsWith("/"));
   const factory = files.find((e) => /\.factory\.bin$/i.test(baseName(e.name)));
   if (factory) {
+    // the plain app image is what an update writes (the factory image would overwrite the configuration)
+    const app = files.find((e) =>
+      /^firmware-.*(?<!\.factory)\.bin$/i.test(baseName(e.name)),
+    );
     return {
       kind: "esp32",
       image: { name: baseName(factory.name), data: factory.data, address: 0 },
       extraImages: otaLoaderImages(files),
+      updateImage: app && { name: baseName(app.name), data: app.data },
     };
   }
   // nRF52 bundles also carry bin/*.uf2 helpers (factory erase, bootloader updates): only the build's own
