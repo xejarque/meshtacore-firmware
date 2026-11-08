@@ -15,7 +15,12 @@ import shutil
 Import("env", "projenv")
 
 ccache = shutil.which("ccache")
-if ccache:
+if env.get("PIOPLATFORM") == "espressif32":
+    # Prefixing CC/CXX with ccache breaks ESP-IDF: its CMake step runs the compiler as one executable path, and the
+    # link step hands ccache a response file ("ccache: error: execute_noreturn of @...tmp failed"). ESP32 builds
+    # have to run without it.
+    print("ccache skipped: not compatible with the ESP-IDF build")
+elif ccache:
     # projenv (src/, with the userPrefs defines) is a clone made before this script runs.
     for target in (env, projenv):
         for var in ("CC", "CXX"):
