@@ -3677,7 +3677,9 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         bool btConnected = false;
         int btRSSI = 0;
 
-#ifdef ARCH_ESP32
+#if !HAS_BLUETOOTH
+        // Bluetooth excluded from the build: nimbleBluetooth / nrf52Bluetooth do not exist.
+#elif defined(ARCH_ESP32)
         if (config.bluetooth.enabled && nimbleBluetooth) {
             btConnected = nimbleBluetooth->isConnected();
             btRSSI = nimbleBluetooth->getRssi();
