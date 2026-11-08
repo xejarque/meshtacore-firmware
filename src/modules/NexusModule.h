@@ -252,12 +252,24 @@ public:
     virtual int32_t runOnce() override;
     virtual ~NexusModule() override;
 
-    // Firewall/Drop Logic
+    // Firewall/Drop Logic. shouldDrop* are what the routers call: they keep the packet statistics, the TRACE / META alerts and the
+    // silenced public replies, then ask the rules, which live in NexusFirewall.cpp. With -DNEXUS_EXCLUDE_FIREWALL=1 that file is
+    // not built and the rules are the inline stubs below, which drop nothing.
     bool shouldDropPacket(const meshtastic_MeshPacket &mp);
-    bool shouldInvalidatePacket(const meshtastic_MeshPacket &mp);
     bool shouldDropPrivate(const meshtastic_MeshPacket &mp);
     bool shouldDropOutput(const meshtastic_MeshPacket &mp);
+#if NEXUS_EXCLUDE_FIREWALL
+    bool firewallDropsPacket(const meshtastic_MeshPacket &) { return false; }
+    bool firewallDropsPrivate(const meshtastic_MeshPacket &) { return false; }
+    bool firewallDropsOutput(const meshtastic_MeshPacket &) { return false; }
+    bool isNexusIgnored(uint32_t) { return false; }
+#else
+    bool firewallDropsPacket(const meshtastic_MeshPacket &mp);
+    bool firewallDropsPrivate(const meshtastic_MeshPacket &mp);
+    bool firewallDropsOutput(const meshtastic_MeshPacket &mp);
+    bool shouldInvalidatePacket(const meshtastic_MeshPacket &mp);
     bool isNexusIgnored(uint32_t nodeID);
+#endif
     // Wire-shape heuristic for foreign PKI packets we couldn't decode (no destination key).
     // The mp.pki_encrypted flag is only set on successful PKI decrypt (Router.cpp:1052), so for
     // un-decodable foreign PKI DMs the firewall must look at the wire shape (channel 0 on the

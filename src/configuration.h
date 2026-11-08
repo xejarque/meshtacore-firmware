@@ -200,6 +200,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define NEXUS_EXCLUDE_UI_FAVORITES 0 // per-favorite node frames and their menu
 #endif
 
+// ===== Nexus firewall (DEFAULT IN) =====
+// -DNEXUS_EXCLUDE_FIREWALL=1 leaves the whole input/output firewall out of the build, Meshtastic and MeshCore: the drop rules,
+// the rate limits, the invalid-packet filters, the signature scan, the NIGN list and their /mtc commands (which answer that the
+// firewall is not included). The vault and prefs keep their layout, so a node can move between builds with and without it.
+// Alerts (TRACE, META) and the packet statistics are not firewall and stay. nrf52.ini turns it on; a board with room undoes it
+// with -UNEXUS_EXCLUDE_FIREWALL.
+#ifndef NEXUS_EXCLUDE_FIREWALL
+#define NEXUS_EXCLUDE_FIREWALL 0
+#endif
+
 // Reticulum RNode master gate (from JenTastic 2.8.105). NEXUS_ENABLE_RNODE compiles the RNode subsystem
 // (engine, KISS framing, TCP server, BLE NUS persona) in (=1) or out (=0). DEFAULT OFF: enable per variant
 // (-DNEXUS_ENABLE_RNODE=1 in build_flags) or at build time.
