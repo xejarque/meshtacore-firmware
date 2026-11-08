@@ -1142,11 +1142,12 @@ bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool d
     const HeardPath *entry = heardFind(p->decoded.reply_id);
 
     // Every copy of that text is a separate route: the report lists them all, the shortest first.
-    const HeardPath *routes[PATH_MEMORY];
+    const HeardPath *routes[PATH_ROUTES_OWN > PATH_ROUTES_PER_TEXT ? PATH_ROUTES_OWN : PATH_ROUTES_PER_TEXT];
+    constexpr size_t routeCap = sizeof(routes) / sizeof(routes[0]);
     size_t routeCount = 0;
     if (entry) {
         for (const HeardPath &h : heard)
-            if (h.packetId && !h.own && h.frameHash == entry->frameHash && routeCount < PATH_MEMORY)
+            if (h.packetId && !h.own && h.frameHash == entry->frameHash && routeCount < routeCap)
                 routes[routeCount++] = &h;
         for (size_t i = 1; i < routeCount; i++) { // insertion sort: tiny, and stable on equal hop counts
             const HeardPath *key = routes[i];

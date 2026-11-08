@@ -133,6 +133,11 @@ class MeshCoreCompanion
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
     /// How a bridged text was heard, kept so ".path" can report it. RAM only: the ring evicts it, a reboot loses it.
     struct HeardPath {
+#if MESHTASTIC_MEM_CLASS <= MEM_CLASS_SMALL
+        static constexpr size_t PATH_BYTES = 32; // 32 one-byte hops or 16 two-byte ones: a longer route loses its last names
+#else
+        static constexpr size_t PATH_BYTES = 64; // MeshCore MAX_PATH_SIZE: every hop is kept
+#endif
         static constexpr uint8_t DIRECT_CHANNEL = 0xFF; // channel of a direct message: no MeshCore channel has this index
 
         uint32_t packetId = 0;  // the id the client sees; a reply points at it
@@ -145,23 +150,26 @@ class MeshCoreCompanion
         uint8_t routeType = 0;
         uint8_t hashSize = 0;
         uint8_t hopCount = 0;
-        bool own = false;      // our own transmission: the echoes of it borrow its id, but it is no route itself
-        uint8_t path[64] = {}; // MeshCore MAX_PATH_SIZE, so every hop of the route is kept and reported
+        bool own = false;              // our own transmission: the echoes of it borrow its id, but it is no route itself
+        uint8_t path[PATH_BYTES] = {}; // first PATH_BYTES of the route; hopCount stays the real length
     };
     /// One route per copy of a text: a flood reaches us over several, and ".path" lists them. Only the newest texts are
-    /// kept, as many as the RAM class affords: the store is a fixed array, so a nRF52 pays for 2 texts, not for 6.
+    /// kept: the store is a fixed array, sized by RAM class: only a nRF52 / classic ESP32 is short of it, so SMALL keeps the
+    /// least and the rest remember far more.
 #if MESHTASTIC_MEM_CLASS >= MEM_CLASS_LARGE
-    static constexpr size_t PATH_INCOMING_TEXTS = 6;
+    static constexpr size_t PATH_INCOMING_TEXTS = 32;
+    static constexpr size_t PATH_ROUTES_PER_TEXT = 4; // routes kept per received text; the shortest win
+    static constexpr size_t PATH_ROUTES_OWN = 8;      // echoes kept of the last text we sent
 #elif MESHTASTIC_MEM_CLASS == MEM_CLASS_MEDIUM
-    static constexpr size_t PATH_INCOMING_TEXTS = 4;
+    static constexpr size_t PATH_INCOMING_TEXTS = 12;
+    static constexpr size_t PATH_ROUTES_PER_TEXT = 4;
+    static constexpr size_t PATH_ROUTES_OWN = 8;
 #else
-    static constexpr size_t PATH_INCOMING_TEXTS = 2;
-#endif
-    /// Routes kept per received text; when more copies arrive, the shortest win.
+    static constexpr size_t PATH_INCOMING_TEXTS = 3;
     static constexpr size_t PATH_ROUTES_PER_TEXT = 3;
-    /// Routes kept for the last text we sent: its echoes are repeaters re-flooding it, the proof it left, so they get twice
-    /// the room of a received text. Only the latest text we sent is remembered.
-    static constexpr size_t PATH_ROUTES_OWN = 2 * PATH_ROUTES_PER_TEXT;
+    static constexpr size_t PATH_ROUTES_OWN = 6;
+#endif
+    /// The echoes of the last text we sent are the proof it left, so they get more room than a received text.
     /// Entries in the store: the entry of our last text, its echoes, and the routes of every received text kept.
     static constexpr size_t PATH_MEMORY = 1 + PATH_ROUTES_OWN + PATH_INCOMING_TEXTS * PATH_ROUTES_PER_TEXT;
 

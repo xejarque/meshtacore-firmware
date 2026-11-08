@@ -71,7 +71,7 @@ void MeshtasticPathCommand::reset()
 {
     for (Heard &h : heard)
         h = Heard();
-    heardNext = 0;
+    heardNext = 1;
     for (uint32_t &id : injectedIds)
         id = 0;
     injectedNext = 0;
@@ -127,15 +127,14 @@ void MeshtasticPathCommand::noteHeard(const meshtastic_MeshPacket &p)
     }
 
     Heard &h = heard[heardNext];
-    heardNext = (heardNext + 1) % MEMORY;
+    heardNext = heardNext % MEMORY + 1; // 1..MEMORY: slot 0 belongs to the text we sent
     h = Heard();
     fillHeard(h, p);
 }
 
 void MeshtasticPathCommand::noteSent(const meshtastic_MeshPacket &p)
 {
-    Heard &h = heard[heardNext];
-    heardNext = (heardNext + 1) % MEMORY;
+    Heard &h = heard[0]; // only the last text we sent is followed
     h = Heard();
     h.packetId = p.id;
     h.from = nodeDB ? nodeDB->getNodeNum() : p.from;

@@ -5,6 +5,7 @@
 #if MESHTASTIC_PATH_COMMAND
 
 #include "MeshTypes.h"
+#include "memory/MemClass.h"
 #include "mesh/generated/meshtastic/mesh.pb.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -18,8 +19,15 @@
 class MeshtasticPathCommand
 {
   public:
-    /// Texts remembered: one entry per text, the first copy heard.
-    static constexpr size_t MEMORY = 16;
+    /// Received texts remembered: one entry per text, the first copy heard. Sized by RAM class: an entry is small, but a
+    /// nRF52 is short of heap. The last text we sent has an entry of its own, so it never pushes a received one out.
+#if MESHTASTIC_MEM_CLASS >= MEM_CLASS_LARGE
+    static constexpr size_t MEMORY = 64;
+#elif MESHTASTIC_MEM_CLASS == MEM_CLASS_MEDIUM
+    static constexpr size_t MEMORY = 32;
+#else
+    static constexpr size_t MEMORY = 6;
+#endif
 
     /// A text as heard, kept so ".path" can describe the route it came by.
     struct Heard {
@@ -65,8 +73,8 @@ class MeshtasticPathCommand
     /// Reports injected recently: the router hands each one back, and none is a heard text.
     static constexpr size_t REPORT_MEMORY = 4;
 
-    Heard heard[MEMORY];
-    size_t heardNext = 0;
+    Heard heard[MEMORY + 1]; // [0] is the last text we sent, [1..MEMORY] the received ones
+    size_t heardNext = 1;
     uint32_t injectedIds[REPORT_MEMORY] = {};
     size_t injectedNext = 0;
 
