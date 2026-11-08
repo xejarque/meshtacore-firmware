@@ -1,0 +1,88 @@
+name: ccache benchmark
+
+# Mide, en el mismo runner y una tras otra, una build limpia sin ccache y con el wrapper de toolchain
+# (.github/scripts/pio_ccache_wrap.sh): caché vacía, caché llena (modo preprocesador) y caché llena (modo directo).
+# Es una medición puntual: se retira cuando se decida qué se adopta.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [worktree-feat-ccache-toolchain-wrapper]
+    paths: [.github/workflows/ccache_bench.yml, .github/scripts/pio_ccache_wrap.sh]
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [heltec-v3, nrf52_promicro_diy_tcxo]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO 6.1.19 (pinned, as the release workflows)
+        run: |
+          pip install -U "platformio==6.1.19"
+          mkdir -p "$HOME/.platformio/packages"
+          echo '{"last_version": "6.1.19", "last_check": {"platformio_upgrade": 2147483647, "prune_system": 2147483647}}' > "$HOME/.platformio/appstate.json"
+          rm -rf "$HOME/.platformio/penv"
+          python -m venv "$HOME/.platformio/penv"
+          "$HOME/.platformio/penv/bin/pip" install --upgrade "uv>=0.1.0"
+          "$HOME/.platformio/penv/bin/pip" install "pioarduino==6.1.19" "platformio==6.1.19"
+
+      - name: Install ccache and download the toolchains and libraries
+        run: |
+          sudo apt-get install -y -qq ccache
+          pio pkg install -e ${{ matrix.target }}
+          nproc
+
+      - name: Benchmark
+        run: |
+          set -u
+          T=${{ matrix.target }}
+          export CCACHE_DIR="$HOME/.ccache-bench"
+          export CCACHE_BASEDIR="$GITHUB_WORKSPACE"
+          mkdir -p "$CCACHE_DIR"
+          RESULTS=bench-results.md
+          {
+            echo "### $T on $(nproc) vCPU"
+            echo ""
+            echo "| Pass | Wall s | CPU s (user+sys) | ccache hits | ccache misses |"
+            echo "| --- | ---: | ---: | ---: | ---: |"
+          } > "$RESULTS"
+
+          run_pass() { # name, extra env pairs ...
+            local name="$1"; shift
+            ccache -z >/dev/null 2>&1 || true
+            rm -rf ".pio/build/$T"
+            local start end
+            start=$(date +%s)
+            env "$@" /usr/bin/time -f "%U %S" -o /tmp/cpu.txt pio run -e "$T" > "/tmp/$name.log" 2>&1 || { tail -40 "/tmp/$name.log"; echo "| $name | FAILED | | | |" >> "$RESULTS"; return 1; }
+            end=$(date +%s)
+            local cpu hits misses
+            cpu=$(awk '{printf "%d", $1+$2}' /tmp/cpu.txt)
+            hits=$(ccache --print-stats 2>/dev/null | awk -F'\t' '$1=="direct_cache_hit"{d=$2} $1=="preprocessed_cache_hit"{p=$2} END{print d+p}')
+            misses=$(ccache --print-stats 2>/dev/null | awk -F'\t' '$1=="cache_miss"{print $2}')
+            echo "| $name | $((end-start)) | $cpu | ${hits:-0} | ${misses:-0} |" >> "$RESULTS"
+            echo "::notice title=$T $name::$((end-start)) s wall, $cpu s CPU, hits ${hits:-0}, misses ${misses:-0}"
+          }
+
+          run_pass baseline-no-ccache BENCH=1
+          bash .github/scripts/pio_ccache_wrap.sh
+          run_pass cold-nodirect CCACHE_NODIRECT=1
+          run_pass warm-nodirect CCACHE_NODIRECT=1
+          run_pass warm-direct-fill -u CCACHE_NODIRECT
+          run_pass warm-direct -u CCACHE_NODIRECT
+          ccache -s || true
+          cat "$RESULTS" >> "$GITHUB_STEP_SUMMARY"
