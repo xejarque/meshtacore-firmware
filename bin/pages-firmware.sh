@@ -11,18 +11,28 @@ set -euo pipefail
 
 OUT="${1:-custom_builder_web/firmware}"
 
-TAG="$(gh release list --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName')"
+# The newest release that actually carries firmware: a fresh rc/beta may not have its assets attached yet.
+TAG=""
+for candidate in $(gh release list --exclude-drafts --limit 10 --json tagName --jq '.[].tagName'); do
+	rm -rf "$OUT"
+	mkdir -p "$OUT"
+	if gh release download "$candidate" --dir "$OUT" --pattern 'firmware-*.bin' --pattern 'firmware-*.zip' 2>/dev/null; then
+		rm -f "$OUT"/*.factory.bin
+		if compgen -G "$OUT/firmware-*" >/dev/null; then
+			TAG="$candidate"
+			break
+		fi
+	fi
+	echo "Release $candidate has no firmware assets, trying the previous one" >&2
+done
+
 if [ -z "$TAG" ]; then
-	echo "No published release found: leaving the firmware folder empty" >&2
+	echo "No release with firmware found: leaving the firmware folder empty" >&2
+	rm -rf "$OUT"
 	mkdir -p "$OUT"
 	printf '{"tag":null,"files":[]}\n' >"$OUT/index.json"
 	exit 0
 fi
-
-rm -rf "$OUT"
-mkdir -p "$OUT"
-gh release download "$TAG" --dir "$OUT" --pattern 'firmware-*.bin' --pattern 'firmware-*.zip'
-rm -f "$OUT"/*.factory.bin
 
 # One entry per file; the page derives board and version from the name. buildId is the fingerprint the
 # firmware embeds as "MTCBUILD:<id>" (see the BUILD command); empty for builds that predate it and for the

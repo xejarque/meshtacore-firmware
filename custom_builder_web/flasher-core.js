@@ -30,12 +30,17 @@ const CLOCK_SKEW_MS = 15_000;
 
 /**
  * The newest workflow_dispatch run created at or after the moment we dispatched.
- * `actor` narrows it to the person's own runs when several people build at once.
+ * `actor` narrows it to the person's own runs when several people build at once; `ignoreRunIds` are the runs
+ * that already existed before the dispatch, which the clock-skew margin would otherwise let through.
  */
-export function pickRun(runs, { dispatchedAtMs, actor } = {}) {
+export function pickRun(
+  runs,
+  { dispatchedAtMs, actor, ignoreRunIds = [] } = {},
+) {
   const candidates = (runs ?? []).filter(
     (run) =>
       run.event === "workflow_dispatch" &&
+      !ignoreRunIds.includes(run.id) &&
       Date.parse(run.created_at) >= dispatchedAtMs - CLOCK_SKEW_MS &&
       (!actor || run.actor?.login === actor),
   );
@@ -207,6 +212,20 @@ export function imageChip(data) {
   return null;
 }
 
+/**
+ * Family of the chip esptool describes: "ESP32-D0WD-V3 (revision v3.1)" → "ESP32", "ESP32-S2FNR2" → "ESP32-S2".
+ * Classic parts carry a package suffix (D0WD, PICO, U4WDH...) and some others a flash/PSRAM one (S2FNR2).
+ */
+export function chipFamily(chipDescription) {
+  const name = String(chipDescription).trim().split(/[\s(]/)[0].toUpperCase();
+  const derived = Object.values(CHIP_IDS)
+    .filter((family) => family !== "ESP32")
+    .sort((a, b) => b.length - a.length)
+    .find((family) => name.startsWith(family));
+  if (derived) return derived;
+  return name.startsWith("ESP32") ? "ESP32" : name;
+}
+
 /** Does the chip esptool reports ("ESP32-S3 (QFN56) (revision v0.2)") match the image's target? */
 export function chipMatchesImage(chipDescription, data) {
   const target = imageChip(data);
@@ -216,8 +235,7 @@ export function chipMatchesImage(chipDescription, data) {
       target: null,
       reason: "La imagen no tiene cabecera de ESP32.",
     };
-  // "ESP32" must not match "ESP32-S3": compare the whole name before the first space.
-  const connected = String(chipDescription).split(" ")[0];
+  const connected = chipFamily(chipDescription);
   return connected === target
     ? { ok: true, target }
     : {

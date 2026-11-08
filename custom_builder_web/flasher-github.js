@@ -8,11 +8,17 @@ const POLL_MS = 5000;
 
 const sleep = (ms, signal) =>
   new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener("abort", () => {
+    const cancelled = () => new DOMException("Cancelado", "AbortError");
+    if (signal?.aborted) return reject(cancelled());
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
       clearTimeout(timer);
-      reject(new DOMException("Cancelado", "AbortError"));
-    });
+      reject(cancelled());
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
 
 export function githubClient({
@@ -104,14 +110,20 @@ export async function waitForRun({
   runId,
   dispatchedAtMs,
   actor,
+  ignoreRunIds,
   onUpdate,
   signal,
   pollMs = POLL_MS,
 }) {
   for (;;) {
+    signal?.throwIfAborted();
     const run = runId
       ? await gh.getRun(runId)
-      : pickRun(await gh.listRuns(workflowFile), { dispatchedAtMs, actor });
+      : pickRun(await gh.listRuns(workflowFile), {
+          dispatchedAtMs,
+          actor,
+          ignoreRunIds,
+        });
     const jobs =
       run && run.status !== "completed" ? await gh.getJobs(run.id) : [];
     const status = describeRun(run, jobs);

@@ -19,8 +19,8 @@
 class MeshtasticPathCommand
 {
   public:
-    /// Received texts remembered: one entry per text, the first copy heard. Sized by RAM class: an entry is small (28 B),
-    /// but a nRF52 is short of heap. The texts we sent have entries of their own, so they never push a received one out.
+    /// Received texts remembered, one entry per text, sized by RAM class (a nRF52 is short of heap). The texts we
+    /// sent have entries of their own.
 #if MESHTASTIC_MEM_CLASS >= MEM_CLASS_LARGE
     static constexpr size_t MEMORY = 128;
     static constexpr size_t SENT_MEMORY = 8;

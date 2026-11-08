@@ -91,7 +91,6 @@ on:
           - heltec-rc32
           - heltec-rcc6
           - m5stack-unitc6l
-          - tlora-c6
           - picow
           - custom
         default: heltec-v3

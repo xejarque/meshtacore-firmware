@@ -639,12 +639,22 @@ void MeshCoreCompanion::hopFields(uint8_t pathHashCount, uint8_t *hopStart, uint
 }
 
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
+// FNV-1a over the whole route: the stored path is cut at PATH_BYTES, so this tells long routes apart.
+static uint32_t routeHash(const uint8_t *path, size_t bytes)
+{
+    uint32_t hash = 2166136261u;
+    for (size_t i = 0; path && i < bytes; i++)
+        hash = (hash ^ path[i]) * 16777619u;
+    return hash;
+}
+
 void MeshCoreCompanion::noteHeardRoute(uint32_t packetId, uint32_t frameHash, uint32_t fromNum, uint8_t channel,
                                        const uint8_t *path, uint8_t hashSize, uint8_t hopCount, uint8_t routeType, float snr,
                                        int32_t rssi)
 {
     const size_t bytes = (size_t)hopCount * hashSize;
     const size_t keep = bytes < sizeof(heard[0].path) ? bytes : sizeof(heard[0].path);
+    const uint32_t pathHash = routeHash(path, bytes);
 
     HeardPath *owner = nullptr;
     for (HeardPath &h : heard) {
@@ -653,8 +663,7 @@ void MeshCoreCompanion::noteHeardRoute(uint32_t packetId, uint32_t frameHash, ui
         if (!owner)
             owner = &h;
         // The same route heard twice only refreshes its signal: a flood arrives once per route, not once per copy.
-        if (!h.own && h.hashSize == hashSize && h.hopCount == hopCount &&
-            (keep == 0 || (path && memcmp(h.path, path, keep) == 0))) {
+        if (!h.own && h.hashSize == hashSize && h.hopCount == hopCount && h.pathHash == pathHash) {
             h.snr = snr;
             h.rssi = rssi;
             return;
@@ -692,6 +701,7 @@ void MeshCoreCompanion::noteHeardRoute(uint32_t packetId, uint32_t frameHash, ui
     h.routeType = routeType;
     h.hashSize = hashSize;
     h.hopCount = hopCount;
+    h.pathHash = pathHash;
     h.snr = snr;
     h.rssi = rssi;
     h.heardMs = millis();

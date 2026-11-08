@@ -8,9 +8,6 @@ on:
       - "custom_builder_web/**"
       - ".github/workflows/pages.yml"
       - "bin/pages-firmware.sh"
-  # a new published release refreshes the firmware the "Actualizar" section offers
-  release:
-    types: [published, edited]
   workflow_dispatch:
 
 permissions:

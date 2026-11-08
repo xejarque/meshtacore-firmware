@@ -131,7 +131,7 @@ class MeshCoreCompanion
     static void hopFields(uint8_t pathHashCount, uint8_t *hopStart, uint8_t *hopLimit);
 
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
-    /// How a bridged text was heard, kept so ".path" can report it. RAM only: the ring evicts it, a reboot loses it.
+    /// How a bridged text was heard, kept so ".path" can report it. RAM only; a reboot loses it.
     struct HeardPath {
         static constexpr size_t PATH_BYTES = 32; // 32 one-byte hops or 16 two-byte ones: a longer route loses its last names
         static constexpr uint8_t DIRECT_CHANNEL = 0xFF; // channel of a direct message: no MeshCore channel has this index
@@ -140,6 +140,7 @@ class MeshCoreCompanion
         uint32_t frameHash = 0; // hashFrame(): the same text over another route carries the same hash
         uint32_t fromNum = 0;   // sender node, to find the newest text from a contact
         uint32_t heardMs = 0;
+        uint32_t pathHash = 0; // hash of the whole route, to tell routes apart past PATH_BYTES
         float snr = 0;
         int32_t rssi = 0;
         uint8_t channel = 0;
@@ -149,9 +150,8 @@ class MeshCoreCompanion
         bool own = false;              // our own transmission: the echoes of it borrow its id, but it is no route itself
         uint8_t path[PATH_BYTES] = {}; // first PATH_BYTES of the route; hopCount stays the real length
     };
-    /// One route per copy of a text: a flood reaches us over several, and ".path" lists them. Only the newest texts are
-    /// kept: the store is a fixed array, sized by RAM class: only a nRF52 / classic ESP32 is short of it, so SMALL keeps the
-    /// least and the rest remember far more.
+    /// One route per copy of a text; ".path" lists them. Fixed array sized by RAM class: SMALL (nRF52 / classic ESP32)
+    /// keeps the least.
 #if MESHTASTIC_MEM_CLASS >= MEM_CLASS_LARGE
     static constexpr size_t PATH_INCOMING_TEXTS = 24;
     static constexpr size_t PATH_ROUTES_PER_TEXT = 4; // routes kept per received text; the shortest win

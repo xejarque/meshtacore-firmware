@@ -5,12 +5,14 @@ import { resolveBundle } from "./flasher-bundle.js";
 import {
   closeEsp,
   connectEsp,
+  readNodeBuildId,
   updateEspApp,
   webSerialSupported,
 } from "./flasher-esp.js";
 import { decrypt } from "./flasher-env.js";
 import {
   buildIdFromImage,
+  compareBuilds,
   listBoards,
   parseFirmwareName,
   releaseVersion,
@@ -88,6 +90,69 @@ function showDialog({ icon, title, steps, actions }) {
   ui.modal.showModal();
 }
 
+/** A yes/no question in the modal; resolves true only for the confirming button. */
+function askToContinue({ icon, title, steps, confirmLabel }) {
+  return new Promise((resolve) => {
+    showDialog({
+      icon,
+      title,
+      steps,
+      actions: [{ label: "Cancelar" }],
+    });
+    const go = document.createElement("button");
+    go.type = "button";
+    go.className = "btn btn-sm btn-primary";
+    go.textContent = confirmLabel;
+    go.addEventListener("click", () => {
+      go.dataset.confirmed = "1";
+      ui.modal.close();
+    });
+    ui.modal.querySelector(".flasher-modal-actions").append(go);
+    ui.modal.addEventListener(
+      "close",
+      () => resolve(go.dataset.confirmed === "1"),
+      { once: true },
+    );
+  });
+}
+
+/**
+ * Standard releases are picked by hand and only the chip family is checked against the image, so compare the
+ * fingerprint of what the board runs with the release's: a different one means another board or a customised build.
+ */
+async function confirmReleaseMatchesNode(session, image) {
+  setProgress(0.06, "Comprobando la build instalada");
+  const releaseId = buildIdFromImage(image.data);
+  let nodeId = null;
+  try {
+    nodeId = await readNodeBuildId(session, image.data.length);
+  } catch (error) {
+    log(`No se pudo leer la build instalada: ${errorText(error)}`);
+  }
+  const verdict = compareBuilds(nodeId, releaseId);
+  log(`Build de la placa: ${nodeId ?? "?"} · de la release: ${releaseId ?? "?"}`);
+  if (verdict === "same") return true;
+  return askToContinue({
+    icon: "⚠️",
+    title:
+      verdict === "different"
+        ? "La placa no tiene la build estándar de esta release"
+        : "No se puede comprobar qué placa es",
+    steps:
+      verdict === "different"
+        ? [
+            "El firmware instalado se compiló con otras opciones o es de otra placa.",
+            `Vas a instalar ${image.name}: sustituirá esas opciones por las estándar.`,
+            "Si no estás seguro de que sea la placa correcta, cancela.",
+          ]
+        : [
+            "La placa o la release no traen huella de build (firmware anterior a este control).",
+            `Comprueba tú que ${image.name} es el firmware de esta placa.`,
+          ],
+    confirmLabel: "Actualizar igualmente",
+  });
+}
+
 // ---------- the update itself ----------
 async function updateBoard(image, buttons) {
   if (busy) return;
@@ -103,6 +168,9 @@ async function updateBoard(image, buttons) {
 
     const match = chipMatchesImage(session.chip, image.data);
     if (!match.ok) throw new Error(`${match.reason} No se ha escrito nada.`);
+
+    if (image.checkBuild && !(await confirmReleaseMatchesNode(session, image)))
+      throw new Error("Actualización cancelada. No se ha escrito nada.");
 
     const plan = await updateEspApp(session, image, {
       onProgress: (f) =>
@@ -223,7 +291,7 @@ async function updateFromRelease() {
       );
     const data = new Uint8Array(await response.arrayBuffer());
     setProgress(0, "Firmware descargado");
-    confirmThenUpdate({ name: board.name, data }, [
+    confirmThenUpdate({ name: board.name, data, checkBuild: true }, [
       ui.releaseButton,
       ui.ownButton,
     ]);

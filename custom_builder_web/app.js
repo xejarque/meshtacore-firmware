@@ -4,6 +4,26 @@ const REPO_OWNER = "xejarque";
 const REPO_NAME = "meshtacore-firmware";
 const DEFAULT_BRANCH = "main";
 const WORKFLOW_FILE = "custom_builder.yml";
+
+/** Ids of the dispatch runs that already exist, so the flasher never mistakes one of them for the new build. */
+async function existingRunIds(token) {
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/actions/workflows/${WORKFLOW_FILE}/runs?event=workflow_dispatch&per_page=10`,
+      {
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${token}`,
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      },
+    );
+    if (!res.ok) return [];
+    return (await res.json()).workflow_runs.map((run) => run.id);
+  } catch {
+    return [];
+  }
+}
 // GitHub answers 414 to the new-issue URL beyond roughly 8 KB.
 const MAX_ISSUE_URL_LENGTH = 8000;
 
@@ -1220,6 +1240,7 @@ ${encryptedConfig}
 
     try {
       const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/actions/workflows/${WORKFLOW_FILE}/dispatches`;
+      const knownRunIds = await existingRunIds(token);
       const dispatchedAtMs = Date.now();
       const res = await fetch(url, {
         method: "POST",
@@ -1245,7 +1266,7 @@ ${encryptedConfig}
         // The USB flasher panel (flasher-builder.js) follows this build and offers to flash it.
         document.dispatchEvent(
           new CustomEvent("meshtacore:build-dispatched", {
-            detail: { dispatchedAtMs },
+            detail: { dispatchedAtMs, knownRunIds },
           }),
         );
       } else {

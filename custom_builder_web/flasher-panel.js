@@ -509,7 +509,7 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
 
   return {
     /** Follow the build the builder has just dispatched, then offer to flash it. */
-    async trackBuild({ dispatchedAtMs }) {
+    async trackBuild({ dispatchedAtMs, knownRunIds }) {
       reset();
       try {
         const gh = client();
@@ -520,6 +520,7 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
           workflowFile: WORKFLOW_FILE,
           dispatchedAtMs,
           actor,
+          ignoreRunIds: knownRunIds,
           signal: abort.signal,
           onUpdate: (status) => {
             const label =

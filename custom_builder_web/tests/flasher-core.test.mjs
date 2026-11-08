@@ -288,3 +288,21 @@ test("format: sizes read as KB or MB", () => {
   assert.equal(F.formatBytes(2_283_696), "2.2 MB");
   assert.equal(F.formatBytes(2048), "2 KB");
 });
+
+test("chip: classic and suffixed descriptions map to their family", () => {
+  assert.equal(F.chipFamily("ESP32-D0WD-V3 (revision v3.1)"), "ESP32");
+  assert.equal(F.chipFamily("ESP32-PICO-D4 (revision v1.1)"), "ESP32");
+  assert.equal(F.chipFamily("ESP32-S2FNR2 (revision v1.0)"), "ESP32-S2");
+  assert.equal(F.chipFamily("ESP32-S3 (QFN56) (revision v0.2)"), "ESP32-S3");
+  assert.equal(F.chipFamily("ESP32-C6 (QFN40)"), "ESP32-C6");
+  assert.equal(F.chipMatchesImage("ESP32-D0WD-V3 (revision v3.1)", espImage(0, 0x1000)).ok, true);
+  assert.equal(F.chipMatchesImage("ESP32-D0WDQ6", espImage(9, 0)).ok, false);
+});
+
+test("run: runs that existed before the dispatch are ignored", () => {
+  const runs = [
+    { id: 1, event: "workflow_dispatch", created_at: new Date(NOW - 5_000).toISOString() },
+  ];
+  assert.equal(F.pickRun(runs, { dispatchedAtMs: NOW }).id, 1);
+  assert.equal(F.pickRun(runs, { dispatchedAtMs: NOW, ignoreRunIds: [1] }), null);
+});

@@ -441,8 +441,8 @@ static void sendNexusStatusMessage(const char *text, uint8_t channel = 0)
     service->sendToMesh(p);
 }
 
-// Build fingerprint. The "MTCBUILD:" marker sits in the image as plain text, so the web updater can read the id out of
-// a .bin without running it. Builds that do not go through bin/platformio-custom.py (native tests) report "unknown".
+// Build fingerprint: the plain-text "MTCBUILD:" marker lets the web updater read the id from a .bin.
+// Native tests, which skip bin/platformio-custom.py, report "unknown".
 #ifdef MTC_BUILD_ID
 static const char mtcBuildMarker[] __attribute__((used)) = "MTCBUILD:" MTC_BUILD_ID;
 #define MTC_BUILD_ID_TEXT (mtcBuildMarker + 9)
@@ -5800,9 +5800,8 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         }
     }
     else if (strcasecmp(cmd, "BUILD") == 0) {
-        // Fingerprint of the compiled-in options (bin/platformio-custom.py). The web updater compares it with the one
-        // of the release it is about to install to warn about customised builds. Same id = same options and modules.
-        // Readable summary for support: names only, never values (userPrefs may hold channel keys).
+        // Fingerprint of the compiled-in options; the web updater compares it with the release's to flag custom builds.
+        // Summary names only, never values (userPrefs may hold channel keys).
         char excluded[120];
         describeExcludedModules(getDeviceMetadata().excluded_modules, excluded, sizeof(excluded));
         static char buildLine[140];

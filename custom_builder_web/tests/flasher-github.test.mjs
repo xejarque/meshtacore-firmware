@@ -166,3 +166,13 @@ test("client: the artifact download reports progress and returns every byte", as
   assert.deepEqual([...bytes], [1, 2, 3, 4, 5]);
   assert.deepEqual(fractions, [0.4, 0.6, 1, 1]);
 });
+
+test("waitForRun: an already aborted signal stops the loop at once", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const gh = { listRuns: async () => [], getJobs: async () => [] };
+  await assert.rejects(
+    waitForRun({ gh, workflowFile: "x.yml", dispatchedAtMs: 0, signal: controller.signal, pollMs: 1 }),
+    { name: "AbortError" },
+  );
+});

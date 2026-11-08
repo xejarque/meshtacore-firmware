@@ -441,7 +441,21 @@ def project_defines():
         tokens = shlex.split(raw)
     except ValueError:  # unbalanced quote in an unrelated flag
         tokens = raw.split()
-    return [t for t in tokens if t.startswith("-D")]
+    defines = []
+    for i, token in enumerate(tokens):
+        if token == "-D" and i + 1 < len(tokens):  # "-D NAME" with a space
+            defines.append("-D" + tokens[i + 1])
+        elif token.startswith("-D") and token != "-D":
+            defines.append(token)
+    unflags = env.GetProjectOption("build_unflags", "")
+    if isinstance(unflags, (list, tuple)):
+        unflags = " ".join(unflags)
+    try:
+        unflag_tokens = shlex.split(unflags)
+    except ValueError:
+        unflag_tokens = unflags.split()
+    defines += ["-U" + t[2:] for t in unflag_tokens if t.startswith("-U") and len(t) > 2]
+    return defines
 
 
 build_id = build_fingerprint(env.get("PIOENV"), project_defines(), pref_flags)

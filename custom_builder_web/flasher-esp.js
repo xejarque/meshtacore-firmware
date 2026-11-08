@@ -1,6 +1,7 @@
 // ESP32 flashing over Web Serial with esptool-js (vendored, Apache-2.0). Chrome/Edge on desktop only.
 import { ESPLoader, Transport } from "./vendor/esptool-js.bundle.js";
 import { combinedProgress } from "./flasher-core.js";
+import { buildIdFromImage } from "./update-core.js";
 import {
   PARTITION_TABLE_ADDRESS,
   PARTITION_TABLE_SIZE,
@@ -104,6 +105,23 @@ export async function updateEspApp(
     { extraImages, onProgress },
   );
   return plan;
+}
+
+/**
+ * The build fingerprint ("MTCBUILD:<id>") of the firmware the board runs now, read from its app slot, or null when
+ * the slot has none (older firmware, or the board boots another slot). Reads at most `maxBytes` of the slot.
+ */
+export async function readNodeBuildId(session, maxBytes) {
+  const table = await session.loader.readFlash(
+    PARTITION_TABLE_ADDRESS,
+    PARTITION_TABLE_SIZE,
+  );
+  const { app } = planAppUpdate(table, 0);
+  const bytes = await session.loader.readFlash(
+    app.offset,
+    Math.min(app.size, maxBytes),
+  );
+  return buildIdFromImage(bytes);
 }
 
 export async function closeEsp(session) {
