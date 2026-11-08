@@ -1,0 +1,132 @@
+/* Web flasher panel. Colours come from the theme variables of styles.css (light and dark). */
+.flasher {
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-top: 1rem;
+}
+
+.flasher-field {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.flasher-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+}
+
+.flasher-bar {
+  height: 0.9rem;
+  border-radius: 999px;
+  background: var(--card-border-subtle);
+  overflow: hidden;
+}
+
+.flasher-bar-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.flasher.is-error .flasher-bar-fill {
+  background: #cf222e;
+}
+
+.flasher-bar-text {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.4rem 0 0.9rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.flasher-phases {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.flasher-phases li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-muted);
+}
+
+.flasher-phases li::before {
+  content: "○";
+  width: 1.2rem;
+  text-align: center;
+}
+
+.flasher-phases li.is-active {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.flasher-phases li.is-active::before {
+  content: "◉";
+  color: var(--accent-blue);
+}
+
+.flasher-phases li.is-done::before {
+  content: "✓";
+  color: var(--accent);
+}
+
+.flasher.is-error .flasher-phases li.is-active::before {
+  content: "✕";
+  color: #cf222e;
+}
+
+.flasher-image {
+  margin: 0 0 0.75rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--card-border-subtle);
+  border-radius: 6px;
+  background: var(--code-bg);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+.flasher-message {
+  margin: 0 0 0.75rem;
+}
+
+.flasher-message.is-error {
+  color: #cf222e;
+  font-weight: 600;
+}
+
+.flasher-message.is-success {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.flasher-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.flasher-log {
+  margin-top: 0.75rem;
+  max-height: 10rem;
+  overflow: auto;
+  padding: 0.6rem;
+  border-radius: 6px;
+  background: #0d1117;
+  color: #c9d1d9;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+}

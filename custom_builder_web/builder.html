@@ -6,6 +6,7 @@
     <title>Meshtacore - Firmware Builder</title>
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="flasher.css" />
     <script src="theme.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -1514,6 +1515,7 @@
                       id="dispatchStatus"
                       class="status-msg hidden mt-2"
                     ></div>
+                    <div id="flasherPanel" class="hidden"></div>
                   </details>
                 </div>
               </div>
@@ -1537,5 +1539,6 @@
     <script src="nexus-options.js"></script>
     <script src="build-prefs.js"></script>
     <script src="app.js"></script>
+    <script type="module" src="flasher-builder.js"></script>
   </body>
 </html>

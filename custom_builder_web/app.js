@@ -1220,6 +1220,7 @@ ${encryptedConfig}
 
     try {
       const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/actions/workflows/${WORKFLOW_FILE}/dispatches`;
+      const dispatchedAtMs = Date.now();
       const res = await fetch(url, {
         method: "POST",
         headers: {
@@ -1241,6 +1242,12 @@ ${encryptedConfig}
             Ver progreso de compilación en GitHub Actions ↗
           </a>
         `;
+        // The USB flasher panel (flasher-builder.js) follows this build and offers to flash it.
+        document.dispatchEvent(
+          new CustomEvent("meshtacore:build-dispatched", {
+            detail: { dispatchedAtMs },
+          }),
+        );
       } else {
         const errorData = await res.json().catch(() => ({}));
         dispatchStatus.className = "status-msg status-error";

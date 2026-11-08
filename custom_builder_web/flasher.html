@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="es" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Meshtacore - Flasher web</title>
+    <link rel="icon" type="image/svg+xml" href="logo.svg" />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="flasher.css" />
+    <script src="theme.js"></script>
+  </head>
+  <body>
+    <header class="site-nav">
+      <div class="nav-content">
+        <a href="index.html" class="brand-logo">
+          <img
+            src="logo.svg"
+            alt="Meshtacore Logo"
+            class="brand-logo-img"
+            width="28"
+            height="28"
+          />
+          <span>Meshtacore</span>
+        </a>
+        <nav>
+          <ul class="nav-links">
+            <li>
+              <a href="builder.html" class="nav-cta-btn">🚀 Web Builder</a>
+            </li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main style="max-width: 720px; margin: 2rem auto; padding: 0 1rem">
+      <div class="card">
+        <div class="card-header"><h2>⚡ Flasher web</h2></div>
+        <div class="card-body">
+          <p>
+            Flashea una placa ESP32 desde el navegador, sin instalar nada. Todo
+            ocurre en tu equipo: el firmware no se sube a ningún sitio. Necesita
+            <strong>Chrome o Edge de escritorio</strong>.
+          </p>
+
+          <h3>Opción A · Un archivo que ya tienes</h3>
+          <p class="helper-text">
+            El <code>.zip.enc</code> o <code>.zip</code> que descargaste de
+            GitHub Actions, o un <code>*.factory.bin</code> suelto.
+          </p>
+          <input
+            type="file"
+            id="bundleFile"
+            accept=".enc,.zip,.bin"
+            class="mt-2"
+          />
+
+          <h3 class="mt-3">Opción B · Una compilación de GitHub Actions</h3>
+          <p class="helper-text">
+            Descarga el firmware directamente. Necesita un token con permiso de
+            lectura de Actions (el mismo del builder).
+          </p>
+          <input
+            type="password"
+            id="token"
+            class="form-control flasher-field"
+            placeholder="GitHub Personal Access Token"
+            autocomplete="off"
+          />
+          <input
+            type="text"
+            id="runId"
+            class="form-control flasher-field mt-2"
+            placeholder="ID del run (el número al final de la URL de la ejecución)"
+            inputmode="numeric"
+          />
+          <button id="btnRun" type="button" class="btn btn-primary btn-sm mt-2">
+            Descargar y preparar
+          </button>
+        </div>
+      </div>
+
+      <div id="flasherPanel"></div>
+    </main>
+
+    <script src="crypto.js"></script>
+    <script type="module">
+      import { mountFlasher } from "./flasher-panel.js";
+      import {
+        REPO,
+        decrypt,
+        getStoredToken,
+        storeToken,
+      } from "./flasher-env.js";
+
+      const tokenInput = document.getElementById("token");
+      tokenInput.value = getStoredToken();
+
+      const flasher = mountFlasher(document.getElementById("flasherPanel"), {
+        repo: REPO,
+        getToken: () => tokenInput.value.trim(),
+        decrypt,
+      });
+
+      document
+        .getElementById("bundleFile")
+        .addEventListener("change", (event) => {
+          const file = event.target.files[0];
+          if (file) flasher.loadFile(file);
+        });
+
+      document.getElementById("btnRun").addEventListener("click", () => {
+        storeToken(tokenInput.value);
+        flasher.loadRun(document.getElementById("runId").value.trim());
+      });
+    </script>
+  </body>
+</html>
