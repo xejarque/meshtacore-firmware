@@ -1446,7 +1446,7 @@ size_t MeshCoreCompanion::formatNodeList(uint8_t typeFilter, char *out, size_t c
                             route, (double)n.snr, (int)n.rssi));
         });
     }
-    // Newest first. A repeater is kept as a key prefix and a short name, so it has no node number or RSSI to show.
+    // Newest first. A repeater is kept as a key prefix and a short name, so it has no RSSI to show.
     for (size_t rank = 0; wantRepeaters && len < cap - 1; rank++) {
         const MeshCoreRepeaterName *r = repeaters.nthNewest(rank);
         if (!r)
@@ -2240,8 +2240,8 @@ bool MeshCoreCompanion::nextReplayNode(size_t &cursor, MeshCoreNode &out) const
 {
     for (; cursor < nodes.capacity(); cursor++) {
         const MeshCoreNode *n = nodes.at(cursor);
-        if (!n || n->nodeNum == 0 || (n->type != MeshCoreNode::CHAT && n->type != MeshCoreNode::REPEATER))
-            continue;
+        if (!n || n->nodeNum == 0 || n->type != MeshCoreNode::CHAT)
+            continue; // repeaters live in their own table, which keeps no key to announce them with
         if (nodeDB && nodeDB->getMeshNode(n->nodeNum))
             continue; // the sync already sent it
         // Two equal copies: a key torn by an advert landing mid-copy would leave the client warning of a changed key.
@@ -2262,7 +2262,11 @@ bool MeshCoreCompanion::nextReplayNode(size_t &cursor, MeshCoreNode &out) const
 
 const MeshCoreRepeaterName *MeshCoreCompanion::learnRepeater(const uint8_t pub[32], const char *name, float snr, uint8_t hops)
 {
-    return repeaters.learn(pub, name, snr, hops);
+    MeshCoreHeard how;
+    how.snr = snr;
+    how.hops = hops;
+    how.uptimeSecs = Time::getUptimeSecs();
+    return repeaters.learn(pub, name, how);
 }
 
 void MeshCoreCompanion::noteAdvert(MeshCoreNode *n, uint32_t advertTime, int32_t latMicro, int32_t lonMicro, float snr,
@@ -2731,13 +2735,30 @@ void MeshCoreCompanion::syncWithNodeDB()
 {
     nodes.forEach([](MeshCoreNode &n) {
         meshtastic_NodeInfoLite *lite = nodeDB ? nodeDB->getMeshNode(n.nodeNum) : nullptr;
-        if (!lite || lite->hw_model != meshtastic_HardwareModel_UNSET)
-            return; // evicted (the store keeps what it had), or a Meshtastic node sharing the number
+        if (!lite || lite->hw_model != meshtastic_HardwareModel_UNSET) {
+            n.flags &= ~MeshCoreNode::IN_NODE_DB; // evicted (the store keeps what it had), or a Meshtastic node on the number
+            return;
+        }
         nodeInfoLiteSetBit(lite, NODEINFO_BITFIELD_IS_MESHCORE_MASK, true);
-        // The client stars a node in the node DB; a contact evicted from there keeps the flag it had.
         if (n.type == MeshCoreNode::CHAT)
-            n.flags = nodeInfoLiteIsFavorite(lite) ? (n.flags | MeshCoreNode::FAVORITE) : (n.flags & ~MeshCoreNode::FAVORITE);
+            syncFavorite(n, lite);
+        n.flags |= MeshCoreNode::IN_NODE_DB;
     });
+}
+
+void MeshCoreCompanion::syncFavorite(MeshCoreNode &n, const meshtastic_NodeInfoLite *lite)
+{
+    // A node DB copy seen for the first time (a reboot that did not save it, or an eviction) has no star of its own yet: the
+    // store's is the one the user set. From then on the client stars the node in the node DB, and the store follows.
+    const bool firstSight = !(n.flags & MeshCoreNode::IN_NODE_DB);
+    if (firstSight && n.isFavorite() && !nodeInfoLiteIsFavorite(lite)) {
+        nodeDB->set_favorite(true, n.nodeNum); // may re-sort the node DB: lite is not read again
+        return;
+    }
+    if (nodeInfoLiteIsFavorite(lite))
+        n.flags |= MeshCoreNode::FAVORITE;
+    else
+        n.flags &= ~MeshCoreNode::FAVORITE;
 }
 
 size_t MeshCoreCompanion::exportContacts(uint8_t *buf, size_t cap)

@@ -22,6 +22,7 @@
 #include "modules/NexusMeshCoreFirewall.h"
 #include "modules/NexusMeshCoreKey.h"
 
+#include "mesh/MeshCoreRepeaterNames.h" // the compact entries the neighbour listings read
 #include "mesh/MeshCoreNodeStore.h" // MeshCoreNode, which the NODES/CONTACTS/REPEATERS commands name even without a companion
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 #include "mesh/MeshCoreCompanion.h"
@@ -122,9 +123,33 @@ void NexusModule::cleanNeighborName(const char *src, char *out, size_t cap, size
 
 NexusModule::DirectNeighborEntry NexusModule::neighborEntries[40];
 
-static void formatHexPrefix(const uint8_t *pub, char *out, size_t outLen)
+static void formatHexPrefix(const uint8_t prefix[MeshCoreRepeaterName::PREFIX_LEN], char *out, size_t outLen)
 {
-    snprintf(out, outLen, "%02X%02X%02X%02X", pub[0], pub[1], pub[2], pub[3]);
+    snprintf(out, outLen, "%02X%02X%02X", prefix[0], prefix[1], prefix[2]);
+}
+
+/// A neighbour listed from a compact table entry: its short name, or its key prefix when it announced none.
+[[maybe_unused]] static NexusModule::DirectNeighborEntry neighborFromEntry(const MeshCoreRepeaterName &e, uint32_t ageSecs, uint32_t now)
+{
+    NexusModule::DirectNeighborEntry entry = {};
+    char name[MeshCoreRepeaterName::NAME_LEN + 1];
+    e.copyName(name);
+    if (name[0])
+        strncpy(entry.name, name, sizeof(entry.name) - 1);
+    else
+        formatHexPrefix(e.prefix, entry.name, sizeof(entry.name));
+    entry.snr = e.snr();
+    entry.lastHeard = now > ageSecs ? now - ageSecs : 0;
+    entry.nodeNum = e.nodeNum;
+    return entry;
+}
+
+[[maybe_unused]] static bool listsNeighbor(const NexusModule::DirectNeighborEntry *entries, size_t count, uint32_t nodeNum, const char *name)
+{
+    for (size_t j = 0; j < count; j++)
+        if (entries[j].nodeNum == nodeNum || (name && name[0] && strncmp(entries[j].name, name, sizeof(entries[j].name) - 1) == 0))
+            return true;
+    return false;
 }
 
 // Keeps the list sorted newest first and, once full, lets a newer neighbour push out the oldest one.
@@ -380,85 +405,89 @@ static void setAdvert(RadioLibInterface &radio, const char *arg, bool signatureR
     warnIfUnsigned(signatureRequired, reply, replyLen);
 }
 
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+static constexpr size_t NEIGHBOR_LIST_MAX = 32; // newest first, like the relay's own table
+
+/// Contacts whose last advert reached us without crossing a repeater.
+static void addContactNeighbors(NexusModule::DirectNeighborEntry *entries, size_t *count)
+{
+    meshCoreCompanion.nodes.forEach([&](const MeshCoreNode &n) {
+        if (!isDirectNeighbor(n))
+            return;
+        NexusModule::DirectNeighborEntry entry = {};
+        strncpy(entry.name, n.name[0] ? n.name : "???", sizeof(entry.name) - 1);
+        entry.snr = n.snr;
+        entry.lastHeard = n.lastHeard ? n.lastHeard : n.lastAdvert;
+        entry.nodeNum = n.nodeNum;
+        insertNewestNeighbor(entries, count, NEIGHBOR_LIST_MAX, entry);
+    });
+}
+
+/// MeshCore nodes the node DB holds as heard directly, with their whole names.
+static void addNodeDbNeighbors(NexusModule::DirectNeighborEntry *entries, size_t *count)
+{
+    if (!nodeDB)
+        return;
+    const uint32_t myNum = myNodeInfo.my_node_num != 0 ? myNodeInfo.my_node_num : nodeDB->getNodeNum();
+    for (size_t i = 0; i < nodeDB->getNumMeshNodes(); i++) {
+        const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
+        if (!n || n->num == 0 || n->num == myNum || !(nodeInfoLiteIsMeshCore(n) || (n->num & 0xFF000000) == 0x4D000000) ||
+            !n->has_hops_away || n->hops_away != 0 || n->last_heard == 0 || listsNeighbor(entries, *count, n->num, n->long_name))
+            continue;
+        const char *srcName = n->long_name[0] ? n->long_name : (n->short_name[0] ? n->short_name : "???");
+        NexusModule::DirectNeighborEntry entry = {};
+        strncpy(entry.name, srcName, sizeof(entry.name) - 1);
+        entry.snr = n->snr;
+        entry.lastHeard = n->last_heard;
+        entry.nodeNum = n->num;
+        insertNewestNeighbor(entries, count, NEIGHBOR_LIST_MAX, entry);
+    }
+}
+
+/// Repeaters heard directly this boot that the node DB no longer holds (it evicts MeshCore nodes first): their short name.
+static void addRepeaterTableNeighbors(NexusModule::DirectNeighborEntry *entries, size_t *count)
+{
+    const MeshCoreCompanion::RepeaterTable &table = meshCoreCompanion.repeaterNames();
+    const uint32_t uptime = Time::getUptimeSecs();
+    const uint32_t now = getTime(false);
+    for (size_t i = 0; i < table.capacity(); i++) {
+        const MeshCoreRepeaterName *e = table.at(i);
+        if (!e || e->hops() != 0 || !e->heardThisBoot() || listsNeighbor(entries, *count, e->nodeNum, nullptr))
+            continue;
+        insertNewestNeighbor(entries, count, NEIGHBOR_LIST_MAX, neighborFromEntry(*e, e->ageSecs(uptime), now));
+    }
+}
+#endif
+
 void NexusModule::formatMeshCoreNeighbors(char *reply, size_t replyLen)
 {
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
-    const uint32_t myNum = myNodeInfo.my_node_num != 0 ? myNodeInfo.my_node_num : (nodeDB ? nodeDB->getNodeNum() : 0);
     DirectNeighborEntry *entries = neighborEntries;
-    constexpr size_t NEIGHBOR_LIST_MAX = 32; // newest first, like the relay's own table
     size_t count = 0;
-    meshCoreCompanion.nodes.forEach([&](const MeshCoreNode &n) {
-        if (isDirectNeighbor(n)) {
-            DirectNeighborEntry entry = {};
-            strncpy(entry.name, n.name[0] ? n.name : "???", sizeof(entry.name) - 1);
-            entry.snr = n.snr;
-            entry.lastHeard = n.lastHeard ? n.lastHeard : n.lastAdvert;
-            entry.nodeNum = n.nodeNum;
-            insertNewestNeighbor(entries, &count, NEIGHBOR_LIST_MAX, entry);
-        }
-    });
+    addContactNeighbors(entries, &count);
+    addNodeDbNeighbors(entries, &count); // before the table: the node DB has the whole name
+    addRepeaterTableNeighbors(entries, &count);
+#elif MESHTASTIC_ENABLE_MESHCORE_NEIGHBORS
+    RadioLibInterface *radio = RadioLibInterface::instance;
+    static MeshCoreRepeater::NeighborView heard[MeshCoreRepeater::NEIGHBOR_MAX]; // 8 B each: pointers into the relay table
+    const size_t count = radio ? radio->getMeshCoreRepeater().copyNeighbors(heard, MeshCoreRepeater::NEIGHBOR_MAX) : 0;
+    const uint32_t now = getTime(false);
+    DirectNeighborEntry *entries = neighborEntries;
+    for (size_t i = 0; i < count; i++)
+        entries[i] = neighborFromEntry(*heard[i].node, heard[i].ageSecs, now);
+#else
+    snprintf(reply, replyLen, "📡 **Vecinos MeshCore**: *companion off*");
+    return;
+#endif
 
-    if (nodeDB) {
-        for (size_t i = 0; i < nodeDB->getNumMeshNodes(); i++) {
-            const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
-            if (n && n->num != 0 && n->num != myNum && (nodeInfoLiteIsMeshCore(n) || (n->num & 0xFF000000) == 0x4D000000) &&
-                n->has_hops_away && n->hops_away == 0 && n->last_heard != 0) {
-                bool duplicate = false;
-                for (size_t j = 0; j < count; j++) {
-                    if (entries[j].nodeNum == n->num ||
-                        (n->long_name[0] && strncmp(entries[j].name, n->long_name, sizeof(entries[j].name) - 1) == 0)) {
-                        duplicate = true;
-                        break;
-                    }
-                }
-                if (!duplicate) {
-                    const char *srcName = n->long_name[0] ? n->long_name : (n->short_name[0] ? n->short_name : "???");
-                    DirectNeighborEntry entry = {};
-                    strncpy(entry.name, srcName, sizeof(entry.name) - 1);
-                    entry.snr = n->snr;
-                    entry.lastHeard = n->last_heard;
-                    entry.nodeNum = n->num;
-                    insertNewestNeighbor(entries, &count, NEIGHBOR_LIST_MAX, entry);
-                }
-            }
-        }
-    }
-
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION || MESHTASTIC_ENABLE_MESHCORE_NEIGHBORS
     if (count == 0) {
         snprintf(reply, replyLen, "📡 **Vecinos MeshCore**: *0 directos*");
         return;
     }
-
     char header[48];
     snprintf(header, sizeof(header), "📡 **Vecinos MeshCore** (%u):\n", (unsigned)count);
     renderNeighbors(entries, count, header, "Vecinos MeshCore", reply, replyLen);
-#elif MESHTASTIC_ENABLE_MESHCORE_NEIGHBORS
-    RadioLibInterface *radio = RadioLibInterface::instance;
-    static MeshCoreRepeater::NeighborView heard[MeshCoreRepeater::NEIGHBOR_MAX];
-    const size_t heardCount = radio ? radio->getMeshCoreRepeater().copyNeighbors(heard, MeshCoreRepeater::NEIGHBOR_MAX) : 0;
-    if (heardCount == 0) {
-        snprintf(reply, replyLen, "📡 **Vecinos MeshCore**: *0 directos*");
-        return;
-    }
-
-    const uint32_t now = getTime(false);
-    DirectNeighborEntry *entries = neighborEntries;
-    for (size_t i = 0; i < heardCount; i++) {
-        if (heard[i].name[0])
-            strncpy(entries[i].name, heard[i].name, sizeof(entries[i].name) - 1);
-        else
-            formatHexPrefix(heard[i].pub, entries[i].name, sizeof(entries[i].name));
-        entries[i].name[sizeof(entries[i].name) - 1] = '\0';
-        entries[i].snr = heard[i].snr;
-        entries[i].lastHeard = now > heard[i].ageSecs ? now - heard[i].ageSecs : 0;
-        entries[i].nodeNum = MeshCoreNodeStore<1>::nodeNumForKey(heard[i].pub);
-    }
-
-    char header[48];
-    snprintf(header, sizeof(header), "📡 **Vecinos MeshCore** (%u):\n", (unsigned)heardCount);
-    renderNeighbors(entries, heardCount, header, "Vecinos MeshCore", reply, replyLen);
-#else
-    snprintf(reply, replyLen, "📡 **Vecinos MeshCore**: *companion off*");
 #endif
 }
 

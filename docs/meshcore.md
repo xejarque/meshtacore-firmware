@@ -359,7 +359,7 @@ Text with a non-plain type is ignored.
 
 `HELP` lists the rest: `STATS`, `NODES`, `CONTACTS`, `REPEATERS`, `NODE`, `PATH`, `TRACE`, `SEND`, `DROP`, `UNDROP`, `DROPS`, `REGION`, `VECINOS`, `DESCUBRIR`, `FAV`, `KEY`, `PPING` and `PING`.
 
-`VECINOS` lists the nodes already known to be one hop away. `DESCUBRIR [5-60]` asks the network instead: it sends a zero-hop `NODE_DISCOVER_REQ` with a fresh random tag, collects the `NODE_DISCOVER_RESP` answers for the window (10 s by default), and then posts the listing as a second message using the same renderer as `VECINOS`. Each answer is also written into the MeshCore contact store, so `CONTACTS` and `VECINOS` see it afterwards; the write uses `upsertIfRoom()`, which never evicts - a full table turns the write away rather than dropping a contact the operator saved or messaged. Asking needs no identity key and works with the relay off (a `CLIENT_MUTE` node can scan); only answering needs an identity. A second scan is refused while one runs.
+`VECINOS` lists the nodes already known to be one hop away: contacts, then the node DB (whole names), then direct repeaters heard this boot that only the repeater table still holds (short names). `DESCUBRIR [5-60]` asks the network instead: it sends a zero-hop `NODE_DISCOVER_REQ` with a fresh random tag, collects the `NODE_DISCOVER_RESP` answers for the window (10 s by default), and then posts the listing as a second message using the same renderer as `VECINOS`. Each answer is also written into the MeshCore contact store, so `CONTACTS` and `VECINOS` see it afterwards; the write uses `upsertIfRoom()`, which never evicts - a full table turns the write away rather than dropping a contact the operator saved or messaged. Asking needs no identity key and works with the relay off (a `CLIENT_MUTE` node can scan); only answering needs an identity. A second scan is refused while one runs.
 
 `FAV <hex_prefix> [ON|OFF]` keeps a contact across reboots by setting its `FAVORITE` flag, which is what the flash save order ranks first (see _Persistence_). The prefix is 1-4 bytes of the public key, written the way `DROP` takes it (`4d`, `!a1b2`, `0xA1B2`, `a1:b2`); a prefix matching more than one contact lists them instead of guessing. With no argument it lists the favourites already kept.
 
@@ -392,10 +392,24 @@ All time comparisons use `Throttle`, so deadlines survive the 32-bit `millis()` 
 | Path                           | Contents                                                                                                                                    |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/prefs/meshcore_identity.bin` | 32-byte Ed25519 seed, written atomically with `SafeFile`.                                                                                   |
-| `/prefs/meshcore_contacts.bin` | Magic `MCC`, version 1, count, then 16 records of key plus name.                                                                            |
+| `/prefs/meshcore_contacts.bin` | Magic `MCN`, version 4: the 16 contacts worth keeping (99-byte records), then the repeater table. Versions 3, 2 and the old `MCC` 1 still load. |
 | `/prefs/meshcore_config.bin`   | Magic `MCF`, version 2 (version 1 is still read): relay mode, ADVERT hours, path hash size and the three flood limits; zero is the default. |
 
-Contacts are saved at most every 10 minutes and only when a fingerprint over keys and names changes. LRU order is not part of the fingerprint, so an ordinary ADVERT does not cause a flash write. On restore, records are loaded oldest first so the newest ends up most recently used.
+The repeater tail of version 4 is a count byte, the bytes of name a record holds, then the records oldest first: key prefix (3), type (1), node number (4), name, SNR in quarter dB and hops plus one. Version 3 records were 13 bytes (8 of name, no type or node number) and load as repeaters whose node number is learned again with their next advert. A name wider than the build keeps is cut on a UTF-8 boundary.
+
+Contacts are saved at most once an hour and repeaters at most every 3 hours, only when a fingerprint over keys and names changes. Recency is not part of the fingerprint, so an ordinary ADVERT does not cause a flash write. On restore, records are loaded oldest first so the newest ends up most recently used.
+
+### Where a MeshCore node lives
+
+| Copy | Holds | Used for |
+| --- | --- | --- |
+| Contact store (`MeshCoreNodeStore`) | Chat nodes: whole key, name, route, position, flags. 16 on an nRF52 with a screen and a GPS, 30 to 350 elsewhere; the 16 best are saved. | Sending and receiving DMs (the key gives the ECDH secret), ACKs, trace, ping, `CONTACTS`. |
+| Repeater table (`MeshCoreRepeaterNames`) | Repeaters: key prefix, node number, type, a short name (12 bytes on nRF52, 32 elsewhere), SNR, hops, when heard. 16 B plus the name an entry; 48 on the ThinkNode M1, 64 on other nRF52, more with more RAM. | Naming path hops (`.path`, `ping`, `trace`), `REPEATERS`, and direct repeaters in `VECINOS` once the node DB has evicted them. |
+| Node DB | Every MeshCore node the companion announces, with its whole name, marked `IS_MESHCORE`. | What the client sees. These copies are evicted before any Meshtastic node. |
+
+On nRF52 (`MESHTASTIC_MESHCORE_VIEWS_IN_RAM_ONLY`) the node DB keeps MeshCore nodes in RAM only: `nodes.proto` leaves them and their satellites out unless the user starred or ignored them, a change to one does not trigger a save, and the warm tier never takes them. After a reboot contacts are announced again from their file and repeaters with their next advert; the client keeps every node it was sent meanwhile. A contact's star survives because the store gives it back the first time it sees the new node DB copy; from then on the client's star wins.
+
+A relay built without the companion keeps its direct neighbours in the same compact table (40 entries, RAM only) and filters the ignore list on the stored node number.
 
 ## Limits and known failure modes
 

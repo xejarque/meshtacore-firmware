@@ -4,14 +4,18 @@
 // Why it matters: a MeshCore path carries only 1 to 3 bytes of each repeater's key, so a ping or a ".path" report can
 // name a hop only if the node still remembers that repeater. The contact table is too small for that on a board such as
 // the ThinkNode M1 (a full mountain of repeaters pushed the user's contacts out, and the oldest repeaters out with them),
-// so repeaters now live in their own table of 16-byte entries: the start of the key, 8 bytes of name, how it was heard.
-// What it keeps, what it drops when full and how it finds a hop decide whether the route lines show names or bare hex.
+// so repeaters now live in their own table of compact entries: the start of the key, the node number, a few bytes of name
+// (12 on an nRF52, MeshCore's 32 elsewhere; these tests pin 8 so the label cases stay short), how and when it was heard.
+// A relay without a companion lists its direct neighbours from the same table. What it keeps, what it drops when full and
+// how it finds a hop decide whether the route lines show names or bare hex.
 //
 // Regressions guarded: a name that spends its 8 bytes on a pictogram ("🏔️RoquesBlanques" becoming just a mountain); a
 // name cut in the middle of a UTF-8 character; a hop hash longer than the kept prefix finding nothing; a short hash
 // naming only the first of several repeaters that share it; a typed name that cannot find the short form it was stored
 // under; the 16-bit recency clock wrapping and making the newest repeater look the oldest; a flash write for every
-// advert heard again; the entry growing past 16 bytes or getting a non-zero default that moves the table into flash.
+// advert heard again; the entry growing past 16 bytes plus its name or getting a non-zero default that moves the table into
+// flash; a restored entry passing for one heard this boot (a neighbour listing would date it "just now").
+#define MESHCORE_REPEATER_NAME_LEN 8 // the label cases below are written for 8 bytes
 #include "mesh/MeshCoreRepeaterNames.h"
 
 #include "TestUtil.h"
@@ -25,11 +29,32 @@ static void makeKey(uint8_t pub[32], uint8_t a, uint8_t b = 0, uint8_t c = 0)
     pub[2] = c;
 }
 
+static MeshCoreHeard heardWith(float snr, uint8_t hops, uint32_t uptimeSecs = 0)
+{
+    MeshCoreHeard how;
+    how.snr = snr;
+    how.hops = hops;
+    how.uptimeSecs = uptimeSecs;
+    return how;
+}
+
 static MeshCoreRepeaterName *hear(MeshCoreRepeaterNames<4> &t, uint8_t a, const char *name, uint8_t b = 0, uint8_t c = 0)
 {
     uint8_t pub[32];
     makeKey(pub, a, b, c);
-    return t.learn(pub, name, 5.0f, 1);
+    return t.learn(pub, name, heardWith(5.0f, 1));
+}
+
+static MeshCoreRepeaterName savedEntry(uint8_t first, const char *name, int8_t snrQuarter, uint8_t hopsPlusOne)
+{
+    MeshCoreRepeaterName e;
+    e.prefix[0] = first;
+    e.type = MeshCoreRepeaterName::TYPE_REPEATER;
+    e.nodeNum = 0x4D123456;
+    strncpy(e.name, name, sizeof(e.name));
+    e.snrQuarter = snrQuarter;
+    e.hopsPlusOne = hopsPlusOne;
+    return e;
 }
 
 static bool nameIs(const MeshCoreRepeaterName *e, const char *expected)
@@ -62,19 +87,19 @@ void test_signal_and_hops_follow_the_last_advert()
     MeshCoreRepeaterNames<4> t;
     uint8_t pub[32];
     makeKey(pub, 0xA1);
-    MeshCoreRepeaterName *e = t.learn(pub, "R1", 6.5f, 3);
+    MeshCoreRepeaterName *e = t.learn(pub, "R1", heardWith(6.5f, 3));
     TEST_ASSERT_EQUAL_FLOAT(6.5f, e->snr());
     TEST_ASSERT_EQUAL_UINT8(3, e->hops());
 
-    e = t.learn(pub, "R1", -7.25f, 0);
+    e = t.learn(pub, "R1", heardWith(-7.25f, 0));
     TEST_ASSERT_EQUAL_FLOAT(-7.25f, e->snr());
     TEST_ASSERT_EQUAL_UINT8(0, e->hops());
 
-    e = t.learn(pub, "R1", 500.0f, MeshCoreRepeaterName::HOPS_UNKNOWN);
+    e = t.learn(pub, "R1", heardWith(500.0f, MeshCoreRepeaterName::HOPS_UNKNOWN));
     TEST_ASSERT_EQUAL_FLOAT(31.75f, e->snr());
     TEST_ASSERT_EQUAL_UINT8(MeshCoreRepeaterName::HOPS_UNKNOWN, e->hops());
 
-    e = t.learn(pub, "R1", -500.0f, 1);
+    e = t.learn(pub, "R1", heardWith(-500.0f, 1));
     TEST_ASSERT_EQUAL_FLOAT(-32.0f, e->snr());
 }
 
@@ -108,17 +133,17 @@ void test_recency_clock_wrap_keeps_the_order()
     MeshCoreRepeaterNames<3> t;
     uint8_t pub[32];
     makeKey(pub, 0x01);
-    t.learn(pub, "A", 0, 1);
+    t.learn(pub, "A", heardWith(0, 1));
     makeKey(pub, 0x02);
-    t.learn(pub, "B", 0, 1);
+    t.learn(pub, "B", heardWith(0, 1));
     makeKey(pub, 0x03);
-    t.learn(pub, "C", 0, 1);
+    t.learn(pub, "C", heardWith(0, 1));
     for (int i = 0; i < 70000; i++) { // past the wrap, hearing only C and then B
         makeKey(pub, i < 69990 ? 0x03 : 0x02);
-        t.learn(pub, i < 69990 ? "C" : "B", 0, 1);
+        t.learn(pub, i < 69990 ? "C" : "B", heardWith(0, 1));
     }
     makeKey(pub, 0x04);
-    t.learn(pub, "D", 0, 1); // evicts A, the one nobody has heard since the start
+    t.learn(pub, "D", heardWith(0, 1)); // evicts A, the one nobody has heard since the start
 
     const MeshCoreRepeaterName *out[3];
     uint8_t key[1] = {0x01};
@@ -282,11 +307,9 @@ void test_newest_first_orders_by_recency_and_cuts_at_the_limit()
 void test_restore_keeps_the_order_it_is_given_and_does_not_duplicate()
 {
     MeshCoreRepeaterNames<4> t;
-    const uint8_t a[3] = {0x01, 0, 0};
-    const uint8_t b[3] = {0x02, 0, 0};
-    t.restore(a, "A\0\0\0\0\0\0\0", 8, 2);
-    t.restore(b, "B\0\0\0\0\0\0\0", -4, 0);
-    t.restore(a, "A\0\0\0\0\0\0\0", 8, 2);
+    t.restore(savedEntry(0x01, "A", 8, 2));
+    t.restore(savedEntry(0x02, "B", -4, 0));
+    t.restore(savedEntry(0x01, "A", 8, 2));
     TEST_ASSERT_EQUAL_UINT32(2, t.count());
 
     const MeshCoreRepeaterName *out[4];
@@ -298,6 +321,49 @@ void test_restore_keeps_the_order_it_is_given_and_does_not_duplicate()
     TEST_ASSERT_EQUAL_UINT8(MeshCoreRepeaterName::HOPS_UNKNOWN, out[1]->hops());
 }
 
+// A restored entry keeps its type and node number but was not heard this boot, whatever the saved copy said: a neighbour
+// listing must not show a node from the last boot as heard just now.
+void test_restore_is_not_heard_this_boot()
+{
+    MeshCoreRepeaterNames<4> t;
+    MeshCoreRepeaterName saved = savedEntry(0x01, "A", 8, 1);
+    saved.heardAt = 77;
+    const MeshCoreRepeaterName *e = t.restore(saved);
+    TEST_ASSERT_FALSE(e->heardThisBoot());
+    TEST_ASSERT_EQUAL_UINT8(MeshCoreRepeaterName::TYPE_REPEATER, e->type);
+    TEST_ASSERT_EQUAL_HEX32(0x4D123456, e->nodeNum);
+}
+
+// --- what learn records besides the name ---
+
+// The node number is the one the key is announced under, the type is the one the advert gave, and the age counts from the
+// uptime it was heard at.
+void test_learn_keeps_node_number_type_and_when()
+{
+    MeshCoreRepeaterNames<4> t;
+    uint8_t pub[32];
+    makeKey(pub, 0xA1);
+    MeshCoreHeard how = heardWith(-3.0f, 0, 100);
+    how.type = 1; // a chat node, as a relay without a companion keeps its neighbours
+    const MeshCoreRepeaterName *e = t.learn(pub, "Cima", how);
+    TEST_ASSERT_EQUAL_HEX32(MeshCoreNodeStore<1>::nodeNumForKey(pub), e->nodeNum);
+    TEST_ASSERT_EQUAL_UINT8(1, e->type);
+    TEST_ASSERT_TRUE(e->heardThisBoot());
+    TEST_ASSERT_EQUAL_UINT32(0, e->ageSecs(100));
+    TEST_ASSERT_EQUAL_UINT32(25, e->ageSecs(125));
+}
+
+// Heard in the very first second of uptime is still heard: 0 is kept for "only restored".
+void test_heard_at_uptime_zero_is_still_heard()
+{
+    MeshCoreRepeaterNames<4> t;
+    uint8_t pub[32];
+    makeKey(pub, 0xA2);
+    const MeshCoreRepeaterName *e = t.learn(pub, "Cima", heardWith(0, 0, 0));
+    TEST_ASSERT_TRUE(e->heardThisBoot());
+    TEST_ASSERT_EQUAL_UINT32(4, e->ageSecs(4));
+}
+
 // --- fingerprint: only a change worth a flash write moves it ---
 
 // Hearing a repeater again, with another signal or hop count, does not change the fingerprint: a flash write for that
@@ -307,13 +373,13 @@ void test_fingerprint_ignores_signal_and_recency()
     MeshCoreRepeaterNames<4> t;
     uint8_t pub[32];
     makeKey(pub, 0x01);
-    t.learn(pub, "A", 1.0f, 1);
+    t.learn(pub, "A", heardWith(1.0f, 1));
     makeKey(pub, 0x02);
-    t.learn(pub, "B", 1.0f, 1);
+    t.learn(pub, "B", heardWith(1.0f, 1));
     const uint32_t before = t.fingerprint();
 
     makeKey(pub, 0x01);
-    t.learn(pub, "A", -9.0f, 4);
+    t.learn(pub, "A", heardWith(-9.0f, 4));
     TEST_ASSERT_EQUAL_UINT32(before, t.fingerprint());
 }
 
@@ -338,10 +404,11 @@ void test_fingerprint_follows_the_set_and_the_names()
 
 // --- budget ---
 
-// The entry stays at 16 bytes: the table is sized for it, and a bigger entry costs the heap on a board that has little.
+// The entry stays at 16 bytes plus its name: the table is sized for it, and a bigger entry costs the heap on a board that has
+// little (an nRF52 keeps 12 bytes of name, 28 B an entry).
 void test_entry_fits_the_ram_budget()
 {
-    TEST_ASSERT_EQUAL_UINT32(16, sizeof(MeshCoreRepeaterName));
+    TEST_ASSERT_EQUAL_UINT32(16 + 8, sizeof(MeshCoreRepeaterName));
 }
 
 // All-zero defaults keep the table in .bss; a non-zero default would store the whole table in flash as initialised data.
@@ -372,6 +439,9 @@ void setup()
     RUN_TEST(test_name_lookup_does_not_match_a_shorter_name);
     RUN_TEST(test_newest_first_orders_by_recency_and_cuts_at_the_limit);
     RUN_TEST(test_restore_keeps_the_order_it_is_given_and_does_not_duplicate);
+    RUN_TEST(test_restore_is_not_heard_this_boot);
+    RUN_TEST(test_learn_keeps_node_number_type_and_when);
+    RUN_TEST(test_heard_at_uptime_zero_is_still_heard);
     RUN_TEST(test_fingerprint_ignores_signal_and_recency);
     RUN_TEST(test_fingerprint_follows_the_set_and_the_names);
     RUN_TEST(test_entry_fits_the_ram_budget);

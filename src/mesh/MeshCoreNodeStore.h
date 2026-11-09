@@ -39,7 +39,8 @@ struct MeshCoreNode {
     static constexpr uint8_t PATH_UNKNOWN = 0xFF; // MeshCore's out_path_len for "no route yet", as saved
 
     enum Type : uint8_t { CHAT = 1, REPEATER = 2, ROOM = 3, SENSOR = 4 }; // MeshCore ADV_TYPE_*
-    enum Flag : uint8_t { FAVORITE = 1 << 0, HAD_DM = 1 << 1, HAS_OUT_PATH = 1 << 2 };
+    /// IN_NODE_DB is RAM only: the node DB copy has been seen since this node was loaded or last evicted from it.
+    enum Flag : uint8_t { FAVORITE = 1 << 0, HAD_DM = 1 << 1, HAS_OUT_PATH = 1 << 2, IN_NODE_DB = 1 << 3 };
     /// What a saved record may carry: a bit an earlier build used and this one dropped is cleared on load, not kept for good.
     static constexpr uint8_t KNOWN_FLAGS = FAVORITE | HAD_DM | HAS_OUT_PATH;
 

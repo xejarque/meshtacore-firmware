@@ -352,15 +352,19 @@ class MeshCoreCompanion
     /// past it. False when the walk is done.
     bool nextReplayNode(size_t &cursor, MeshCoreNode &out) const;
 
-    /// Remember a repeater heard now: the start of its key, a short name and how it was heard, which is all a path needs to
-    /// name a hop. Repeaters are not contacts, so they never take a slot of the contact table.
+    /// Remember a repeater heard now: the start of its key, its node number, a short name and how and when it was heard, which
+    /// is all a path needs to name a hop and the neighbour listing to show it. Repeaters are not contacts, so they never take
+    /// a slot of the contact table.
     const MeshCoreRepeaterName *learnRepeater(const uint8_t pub[32], const char *name, float snr = 0.0f,
                                               uint8_t hops = MeshCoreRepeaterName::HOPS_UNKNOWN);
 
     using RepeaterTable = MeshCoreRepeaterNames<MESHCORE_REPEATER_NAMES_MAX>;
     const RepeaterTable &repeaterNames() const { return repeaters; }
-    /// Restore one saved repeater record (MeshCoreNodeFile::REPEATER_RECORD_LEN bytes). False when it names nothing.
-    bool restoreRepeater(const uint8_t *record) { return MeshCoreNodeFile::readRepeaterRecord(repeaters, record); }
+    /// Restore one saved repeater record laid out as `tail` says. False when it names nothing.
+    bool restoreRepeater(const uint8_t *record, const MeshCoreNodeFile::RepeaterTail &tail)
+    {
+        return MeshCoreNodeFile::readRepeaterRecord(repeaters, record, tail);
+    }
     /// Changes when the set of repeaters or a name does, not when one is heard again.
     uint32_t repeatersFingerprint() const { return repeaters.fingerprint(); }
 
@@ -537,6 +541,8 @@ class MeshCoreCompanion
     /// Tell the router, and through it the client, about a node: a NODEINFO packet from it carrying how the frame was heard.
     /// That packet is what puts the node in the node DB with its name, last-heard, signal, hops and the LoRa slot it was
     /// heard on, exactly as for a Meshtastic node.
+    /// Keep a contact's star in step with its node DB copy (see syncWithNodeDB).
+    static void syncFavorite(MeshCoreNode &n, const meshtastic_NodeInfoLite *lite);
     void announceUser(uint32_t nodeNum, const meshtastic_User &user, const MeshCoreRx &rx);
     void announceIfNeeded(uint32_t nodeNum, const meshtastic_User &user, const MeshCoreRx &rx);
 

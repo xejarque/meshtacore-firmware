@@ -1687,7 +1687,10 @@ void test_repeater_advert_is_stored_and_names_its_hop()
     TEST_ASSERT_EQUAL_UINT32(1, s.c.repeaterNames().findByPrefix(other.getAliasPub(), 3, &r, 1));
     char name[MeshCoreRepeaterName::NAME_LEN + 1];
     r->copyName(name);
-    TEST_ASSERT_EQUAL_STRING("Montjuic", name);
+    char expected[MeshCoreRepeaterName::NAME_LEN + 1];
+    MeshCoreRepeaterLabel::make("Montjuic RPT", expected); // as wide as this build keeps names
+    TEST_ASSERT_EQUAL_STRING(expected, name);
+    TEST_ASSERT_EQUAL_UINT32(0, strncmp(name, "Montjuic", 8));
     TEST_ASSERT_EQUAL_FLOAT(5.0f, r->snr());
     TEST_ASSERT_EQUAL_UINT8(0, r->hops()); // a flood from the node itself: no repeater crossed
 
@@ -1757,6 +1760,64 @@ void test_replay_walks_the_nodes_the_node_db_left_out()
     TEST_ASSERT_TRUE(sawContact);
     TEST_ASSERT_FALSE(sawRepeater);
     TEST_ASSERT_FALSE(s.c.nextReplayNode(cursor, n)); // a finished walk stays finished
+}
+
+// On an nRF52 the node DB no longer saves MeshCore nodes, so after a reboot a starred contact comes back into the node DB
+// without its star. The store remembers it: the first time the companion sees the new node DB copy it stars it again,
+// instead of copying the missing star back and forgetting the favourite (which also decides which 16 contacts are saved).
+// Regression guard: a reboot silently unstarring every MeshCore contact.
+void test_a_fresh_node_db_copy_gets_the_star_back()
+{
+    GroupSetup s;
+    const uint8_t pub[32] = {0x81, 0x82};
+    MeshCoreNode *n = s.c.learnContact(pub, "Fav");
+    s.c.nodes.setFavorite(n, true);
+    const uint32_t num = n->nodeNum;
+    nodeDB->getOrCreateMeshNode(num); // the announce after a reboot: no star
+
+    s.c.contactsFingerprint(); // the save sweep
+    TEST_ASSERT_TRUE(nodeInfoLiteIsFavorite(nodeDB->getMeshNode(num)));
+    TEST_ASSERT_TRUE(s.c.nodes.find(pub)->isFavorite());
+}
+
+// Once the node DB copy has been seen, the client is the one that stars: an unstar there is followed by the store, and a
+// node DB that lost the node (a reboot, an eviction) makes the next copy a fresh one again. Regression guard: the store re-starring a node the user just unstarred.
+void test_the_client_star_wins_after_the_first_sight()
+{
+    GroupSetup s;
+    const uint8_t pub[32] = {0x83, 0x84};
+    MeshCoreNode *n = s.c.learnContact(pub, "Fav");
+    s.c.nodes.setFavorite(n, true);
+    const uint32_t num = n->nodeNum;
+    nodeDB->getOrCreateMeshNode(num);
+    s.c.contactsFingerprint();
+
+    nodeInfoLiteSetBit(nodeDB->getMeshNode(num), NODEINFO_BITFIELD_IS_FAVORITE_MASK, false); // unstarred in the client
+    s.c.contactsFingerprint();
+    TEST_ASSERT_FALSE(s.c.nodes.find(pub)->isFavorite());
+    TEST_ASSERT_FALSE(nodeInfoLiteIsFavorite(nodeDB->getMeshNode(num)));
+
+    s.c.nodes.setFavorite(s.c.nodes.find(pub), true);
+    delete nodeDB; // a reboot whose node DB did not keep the node (GroupSetup deletes whichever is current)
+    nodeDB = new NodeDB();
+    s.c.contactsFingerprint();
+    TEST_ASSERT_FALSE(s.c.nodes.find(pub)->flags & MeshCoreNode::IN_NODE_DB);
+    nodeDB->getOrCreateMeshNode(num); // announced again
+    s.c.contactsFingerprint();
+    TEST_ASSERT_TRUE(nodeInfoLiteIsFavorite(nodeDB->getMeshNode(num)));
+}
+
+// A repeater heard now carries its node number, its type and when it was heard, which the neighbour listing reads to date it
+// and to tell it apart from the node DB copy of the same repeater.
+void test_a_learned_repeater_is_dated_and_numbered()
+{
+    GroupSetup s;
+    const uint8_t pub[32] = {0x91, 0x92, 0x93};
+    const MeshCoreRepeaterName *e = s.c.learnRepeater(pub, "Cim", -2.0f, 0);
+    TEST_ASSERT_EQUAL_HEX32(MeshCoreNodeStore<1>::nodeNumForKey(pub), e->nodeNum);
+    TEST_ASSERT_EQUAL_UINT8(MeshCoreRepeaterName::TYPE_REPEATER, e->type);
+    TEST_ASSERT_TRUE(e->heardThisBoot());
+    TEST_ASSERT_EQUAL_UINT8(0, e->hops());
 }
 
 // A Meshtastic node whose key happens to start with a MeshCore hop hash is not that hop: its key is a Curve25519 key of
@@ -2641,6 +2702,9 @@ void setup()
     RUN_TEST(test_path_report_ignores_meshtastic_keys);
     RUN_TEST(test_meshcore_copies_in_the_node_db_are_marked);
     RUN_TEST(test_replay_walks_the_nodes_the_node_db_left_out);
+    RUN_TEST(test_a_fresh_node_db_copy_gets_the_star_back);
+    RUN_TEST(test_the_client_star_wins_after_the_first_sight);
+    RUN_TEST(test_a_learned_repeater_is_dated_and_numbered);
     RUN_TEST(test_trace_command_syntax_help);
     RUN_TEST(test_trace_command_unknown_node_reports_error);
     RUN_TEST(test_trace_command_parses_nodes_and_symmetric_return);

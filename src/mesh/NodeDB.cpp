@@ -301,12 +301,22 @@ const std::map<NodeNum, meshtastic_StatusMessage> *s_encodeStatusSource = nullpt
     return n != 0 && !isBroadcast(n);
 }
 
+// A satellite entry goes to disk only when its node does.
+[[maybe_unused]] bool satelliteIsSavedToDisk(NodeNum num)
+{
+    if (!MESHTASTIC_MESHCORE_VIEWS_IN_RAM_ONLY || !nodeDB)
+        return true;
+    return nodeInfoLiteIsSavedToDisk(nodeDB->getMeshNode(num));
+}
+
 // Encode a satellite map as repeated entries, building one entry at a time on the stack.
 template <typename Entry, typename Value, typename Fill>
 [[maybe_unused]] bool encodeSatelliteMap(pb_ostream_t *ostream, const pb_field_iter_t *iter, const pb_msgdesc_t *fields,
                                          const std::map<NodeNum, Value> &source, Fill fill)
 {
     for (const auto &kv : source) {
+        if (!satelliteIsSavedToDisk(kv.first))
+            continue; // its node is left out of the file too
         Entry entry = {};
         fill(entry, kv.first, kv.second);
         if (!pb_encode_tag_for_field(ostream, iter) || !pb_encode_submessage(ostream, fields, &entry))
@@ -324,6 +334,8 @@ bool meshtastic_NodeDatabase_callback(pb_istream_t *istream, pb_ostream_t *ostre
         if (ostream) {
             const auto *vec = static_cast<const std::vector<meshtastic_NodeInfoLite> *>(iter->pData);
             for (auto item : *vec) {
+                if (!nodeInfoLiteIsSavedToDisk(&item))
+                    continue;
                 // Round rather than truncate: truncation wiped any |SNR| < 0.25 dB to exactly
                 // 0, which collided with the "never stored" sentinel below.
                 item.snr_q4 = (int32_t)lroundf(item.snr * 4.0f);
@@ -2445,7 +2457,7 @@ void NodeDB::cleanupMeshDB()
 #if WARM_NODE_COUNT > 0
                 // Keep any key we learned (e.g. via a DM before the NodeInfo
                 // exchange completed) rather than losing it with the purge.
-                if (n.public_key.size == 32)
+                if (n.public_key.size == 32 && nodeInfoLiteGoesToWarmTier(&n))
                     warmStore.absorb(gone, n.last_heard, n.public_key.bytes, n.role, warmProtectedCategory(n),
                                      nodeInfoLiteHasXeddsaSigned(&n));
 #endif
@@ -2637,8 +2649,9 @@ void NodeDB::demoteOldestHotNodesToWarm()
             continue;
         // Warm entries carry no key length, so a partial key would be indistinguishable
         // from a full one. nullptr keeps the keyless placeholder that restores last_heard.
-        warmStore.absorb(n.num, n.last_heard, n.public_key.size == 32 ? n.public_key.bytes : nullptr, n.role,
-                         warmProtectedCategory(n), nodeInfoLiteHasXeddsaSigned(&n));
+        if (nodeInfoLiteGoesToWarmTier(&n))
+            warmStore.absorb(n.num, n.last_heard, n.public_key.size == 32 ? n.public_key.bytes : nullptr, n.role,
+                             warmProtectedCategory(n), nodeInfoLiteHasXeddsaSigned(&n));
         // Demotion drops the node from the header table, so drop its satellites
         // too (the eviction chokepoint) - they'd otherwise orphan until the next
         // enforceSatelliteCaps pass.
@@ -4319,13 +4332,18 @@ bool NodeDB::updateUser(uint32_t nodeId, meshtastic_User &p, uint8_t channelInde
         notifyObservers(true); // Force an update whether or not our node counts have changed
 
         // We just changed something about a User. Store our DB unless we just did so less than a minute
-        // ago; a deferred save stays pending and saveNodeDatabaseIfDirty() retries it.
-        nodeDatabaseDirty = true;
-        if (!Throttle::isWithinTimespanMs(lastNodeDbSave, NODEDB_SAVE_MIN_INTERVAL_MS)) {
-            saveToDisk(SEGMENT_NODEDATABASE);
-            lastNodeDbSave = millis();
+        // ago; a deferred save stays pending and saveNodeDatabaseIfDirty() retries it. A node the file leaves out
+        // changes nothing on disk.
+        if (!nodeInfoLiteIsSavedToDisk(info)) {
+            LOG_DEBUG("Node 0x%08x is kept in RAM only, no save", nodeId);
         } else {
-            LOG_DEBUG("Defer NodeDB saveToDisk");
+            nodeDatabaseDirty = true;
+            if (!Throttle::isWithinTimespanMs(lastNodeDbSave, NODEDB_SAVE_MIN_INTERVAL_MS)) {
+                saveToDisk(SEGMENT_NODEDATABASE);
+                lastNodeDbSave = millis();
+            } else {
+                LOG_DEBUG("Defer NodeDB saveToDisk");
+            }
         }
     }
 
@@ -4990,8 +5008,10 @@ meshtastic_NodeInfoLite *NodeDB::getOrCreateMeshNode(NodeNum n)
 #if WARM_NODE_COUNT > 0
                 // Demote to the warm tier so the identity (and crucially the
                 // PKI key) outlives the hot-store slot.
-                warmStore.absorb(evicted.num, evicted.last_heard, evicted.public_key.size == 32 ? evicted.public_key.bytes : NULL,
-                                 evicted.role, warmProtectedCategory(evicted), nodeInfoLiteHasXeddsaSigned(&evicted));
+                if (nodeInfoLiteGoesToWarmTier(&evicted))
+                    warmStore.absorb(evicted.num, evicted.last_heard,
+                                     evicted.public_key.size == 32 ? evicted.public_key.bytes : NULL, evicted.role,
+                                     warmProtectedCategory(evicted), nodeInfoLiteHasXeddsaSigned(&evicted));
 #endif
                 eraseNodeSatellites(evicted.num);
                 // Shove the remaining nodes down the chain

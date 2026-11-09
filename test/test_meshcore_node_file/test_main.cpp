@@ -206,28 +206,36 @@ static void learnRepeater(Repeaters &table, uint8_t first, const char *name, flo
 {
     uint8_t pub[32];
     makeKey(pub, first);
-    table.learn(pub, name, snr, hops);
+    MeshCoreHeard how;
+    how.snr = snr;
+    how.hops = hops;
+    table.learn(pub, name, how);
 }
 
-// A repeater record keeps the key prefix, the short name, the signal and the hops through the round trip.
+// A repeater record keeps the key prefix, the type, the node number, the short name, the signal and the hops through the
+// round trip.
 void test_repeater_record_round_trips()
 {
     Repeaters table;
     learnRepeater(table, 0xA1, "Tetuan Repeater", -6.5f, 2);
-    uint8_t record[MeshCoreNodeFile::REPEATER_RECORD_LEN];
-    MeshCoreNodeFile::writeRepeaterRecord(record, *table.nthNewest(0));
+    const MeshCoreRepeaterName *saved = table.nthNewest(0);
+    uint8_t record[MeshCoreNodeFile::REPEATER_RECORD_MAX];
+    MeshCoreNodeFile::writeRepeaterRecord(record, *saved);
 
     Repeaters loaded;
-    TEST_ASSERT_TRUE(MeshCoreNodeFile::readRepeaterRecord(loaded, record));
+    TEST_ASSERT_TRUE(MeshCoreNodeFile::readRepeaterRecord(loaded, record, MeshCoreNodeFile::TAIL_CURRENT));
     const MeshCoreRepeaterName *r = loaded.nthNewest(0);
     TEST_ASSERT_NOT_NULL(r);
     TEST_ASSERT_EQUAL_HEX8(0xA1, r->prefix[0]);
     TEST_ASSERT_EQUAL_HEX8(0x22, r->prefix[1]);
+    TEST_ASSERT_EQUAL_UINT8(MeshCoreRepeaterName::TYPE_REPEATER, r->type);
+    TEST_ASSERT_EQUAL_HEX32(saved->nodeNum, r->nodeNum);
     char name[MeshCoreRepeaterName::NAME_LEN + 1];
     r->copyName(name);
-    TEST_ASSERT_EQUAL_STRING("Tetuan R", name);
+    TEST_ASSERT_EQUAL_STRING("Tetuan Repeater", name);
     TEST_ASSERT_EQUAL_FLOAT(-6.5f, r->snr());
     TEST_ASSERT_EQUAL_UINT8(2, r->hops());
+    TEST_ASSERT_FALSE(r->heardThisBoot()); // a reboot has not heard it yet
 }
 
 // The file lists the repeaters oldest first and reads them in that order, so the one heard last is still the newest after a
@@ -242,9 +250,9 @@ void test_repeaters_written_oldest_first_keep_their_order()
 
     Repeaters loaded;
     for (size_t rank = table.count(); rank-- > 0;) {
-        uint8_t record[MeshCoreNodeFile::REPEATER_RECORD_LEN];
+        uint8_t record[MeshCoreNodeFile::REPEATER_RECORD_MAX];
         MeshCoreNodeFile::writeRepeaterRecord(record, *table.nthNewest(rank));
-        TEST_ASSERT_TRUE(MeshCoreNodeFile::readRepeaterRecord(loaded, record));
+        TEST_ASSERT_TRUE(MeshCoreNodeFile::readRepeaterRecord(loaded, record, MeshCoreNodeFile::TAIL_CURRENT));
     }
     for (size_t rank = 0; rank < 3; rank++)
         TEST_ASSERT_EQUAL_HEX8(table.nthNewest(rank)->prefix[0], loaded.nthNewest(rank)->prefix[0]);
@@ -254,11 +262,75 @@ void test_repeaters_written_oldest_first_keep_their_order()
 void test_a_repeater_record_that_names_nothing_is_dropped()
 {
     Repeaters loaded;
-    uint8_t blank[MeshCoreNodeFile::REPEATER_RECORD_LEN] = {};
-    TEST_ASSERT_FALSE(MeshCoreNodeFile::readRepeaterRecord(loaded, blank));
-    uint8_t noName[MeshCoreNodeFile::REPEATER_RECORD_LEN] = {0xA1, 0x22, 0x22};
-    TEST_ASSERT_FALSE(MeshCoreNodeFile::readRepeaterRecord(loaded, noName));
+    uint8_t blank[MeshCoreNodeFile::REPEATER_RECORD_MAX] = {};
+    TEST_ASSERT_FALSE(MeshCoreNodeFile::readRepeaterRecord(loaded, blank, MeshCoreNodeFile::TAIL_CURRENT));
+    uint8_t noName[MeshCoreNodeFile::REPEATER_RECORD_MAX] = {0xA1, 0x22, 0x22, 2};
+    TEST_ASSERT_FALSE(MeshCoreNodeFile::readRepeaterRecord(loaded, noName, MeshCoreNodeFile::TAIL_CURRENT));
     TEST_ASSERT_EQUAL_UINT32(0, loaded.count());
+}
+
+// A version 3 tail (13-byte records: prefix, 8 bytes of name, SNR, hops) still loads after the update, as repeaters whose
+// node number is not known until their next advert.
+void test_a_version_3_repeater_record_still_loads()
+{
+    const uint8_t v3[13] = {0xA1, 0x22, 0x22, 'T', 'e', 't', 'u', 'a', 'n', ' ', 'R', (uint8_t)-26, 3};
+    TEST_ASSERT_EQUAL_UINT32(sizeof(v3), MeshCoreNodeFile::TAIL_V3.recordLen());
+    Repeaters loaded;
+    TEST_ASSERT_TRUE(MeshCoreNodeFile::readRepeaterRecord(loaded, v3, MeshCoreNodeFile::TAIL_V3));
+    const MeshCoreRepeaterName *r = loaded.nthNewest(0);
+    char name[MeshCoreRepeaterName::NAME_LEN + 1];
+    r->copyName(name);
+    TEST_ASSERT_EQUAL_STRING("Tetuan R", name);
+    TEST_ASSERT_EQUAL_UINT8(MeshCoreRepeaterName::TYPE_REPEATER, r->type);
+    TEST_ASSERT_EQUAL_HEX32(0, r->nodeNum);
+    TEST_ASSERT_EQUAL_FLOAT(-6.5f, r->snr());
+    TEST_ASSERT_EQUAL_UINT8(2, r->hops());
+}
+
+// A tail written by a board that keeps longer names than this build is cut on a UTF-8 boundary, not mid-character.
+void test_a_wider_saved_name_is_cut_on_a_utf8_boundary()
+{
+    const MeshCoreNodeFile::RepeaterTail wide = {MeshCoreRepeaterName::NAME_LEN + 4, true};
+    uint8_t record[MeshCoreNodeFile::REPEATER_RECORD_MAX] = {0xA1, 0x22, 0x22, 2, 0x56, 0x34, 0x12, 0x4D};
+    char *name = (char *)&record[8];
+    memset(name, 'x', MeshCoreRepeaterName::NAME_LEN - 1);
+    memcpy(&name[MeshCoreRepeaterName::NAME_LEN - 1], "\xC3\xB1", 2); // an n with tilde straddling the cut
+    Repeaters loaded;
+    TEST_ASSERT_TRUE(MeshCoreNodeFile::readRepeaterRecord(loaded, record, wide));
+    char kept[MeshCoreRepeaterName::NAME_LEN + 1];
+    loaded.nthNewest(0)->copyName(kept);
+    TEST_ASSERT_EQUAL_UINT32(MeshCoreRepeaterName::NAME_LEN - 1, strlen(kept));
+    TEST_ASSERT_EQUAL_HEX32(0x4D123456, loaded.nthNewest(0)->nodeNum);
+}
+
+// A tail claiming a name width this code never writes is not read: it is not one of ours.
+void test_a_tail_with_an_impossible_name_width_is_refused()
+{
+    uint8_t record[MeshCoreNodeFile::REPEATER_RECORD_MAX] = {0xA1, 0x22, 0x22, 2, 0, 0, 0, 0, 'A'};
+    Repeaters loaded;
+    TEST_ASSERT_FALSE(MeshCoreNodeFile::readRepeaterRecord(loaded, record, {0, true}));
+    TEST_ASSERT_FALSE(
+        MeshCoreNodeFile::readRepeaterRecord(loaded, record, {MeshCoreNodeFile::REPEATER_NAME_LEN_MAX + 1, true}));
+    TEST_ASSERT_EQUAL_UINT32(0, loaded.count());
+}
+
+// RAM-only flags never reach the file: IN_NODE_DB describes this boot's node DB, not the contact.
+void test_ram_only_flags_are_not_saved()
+{
+    Store store;
+    MeshCoreNode *n = addNode(store, 0xA0, "Friend");
+    n->flags |= MeshCoreNode::FAVORITE | MeshCoreNode::IN_NODE_DB;
+    uint8_t image[MeshCoreNodeFile::IMAGE_MAX];
+    const size_t len = MeshCoreNodeFile::save(store, image, sizeof(image));
+    Store loaded;
+    TEST_ASSERT_EQUAL_UINT32(1, MeshCoreNodeFile::load(loaded, image, len));
+    const MeshCoreNode *back = findNode(loaded, 0xA0);
+    TEST_ASSERT_TRUE(back->isFavorite());
+    TEST_ASSERT_FALSE(back->flags & MeshCoreNode::IN_NODE_DB);
+
+    const uint32_t before = MeshCoreNodeFile::fingerprint(store);
+    n->flags &= ~MeshCoreNode::IN_NODE_DB;
+    TEST_ASSERT_EQUAL_UINT32(before, MeshCoreNodeFile::fingerprint(store));
 }
 
 // Earlier builds kept repeaters among the contacts. They are not brought back into the contact table, where they would take
@@ -289,6 +361,8 @@ void test_image_length_stops_before_the_repeater_tail()
     memset(&image[len], 0x7F, 64); // a tail
     TEST_ASSERT_EQUAL_UINT32(len, MeshCoreNodeFile::imageLength(image, len + 64));
 
+    image[3] = MeshCoreNodeFile::TAIL_V3_VERSION; // the version before the keyed repeater records
+    TEST_ASSERT_EQUAL_UINT32(len, MeshCoreNodeFile::imageLength(image, len + 64));
     image[3] = MeshCoreNodeFile::PREVIOUS_VERSION;
     Store loaded;
     TEST_ASSERT_EQUAL_UINT32(1, MeshCoreNodeFile::load(loaded, image, len));
@@ -315,6 +389,10 @@ void setup()
     RUN_TEST(test_repeater_record_round_trips);
     RUN_TEST(test_repeaters_written_oldest_first_keep_their_order);
     RUN_TEST(test_a_repeater_record_that_names_nothing_is_dropped);
+    RUN_TEST(test_a_version_3_repeater_record_still_loads);
+    RUN_TEST(test_a_wider_saved_name_is_cut_on_a_utf8_boundary);
+    RUN_TEST(test_a_tail_with_an_impossible_name_width_is_refused);
+    RUN_TEST(test_ram_only_flags_are_not_saved);
     RUN_TEST(test_repeaters_of_an_earlier_image_are_ignored);
     RUN_TEST(test_image_length_stops_before_the_repeater_tail);
     exit(UNITY_END());

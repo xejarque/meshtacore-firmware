@@ -3,6 +3,7 @@
 #include "MeshCoreConfig.h"
 #include "MeshCoreDedup.h"
 #include "MeshCoreRegionMap.h"
+#include "MeshCoreRepeaterNames.h"
 #include "configuration.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -274,12 +275,10 @@ class MeshCoreRepeater
     uint8_t getDropMask() const { return fwDropMask; }
     uint32_t getRuleDrops(size_t rule) const { return rule < MeshCoreConfig::DROP_RULE_COUNT ? fwRuleDrops[rule] : 0; }
 
-    /// One direct neighbour as the relay heard it: a node whose own ADVERT arrived without crossing any repeater.
+    /// One direct neighbour as the relay heard it: a node whose own ADVERT arrived without crossing any repeater. node points
+    /// into the relay's table: read it before the next service tick.
     struct NeighborView {
-        uint8_t pub[32];
-        char name[32];
-        uint8_t type;
-        float snr;
+        const MeshCoreRepeaterName *node;
         uint32_t ageSecs;
     };
     static constexpr size_t NEIGHBOR_MAX = 40; // MeshCore's own repeater remembers 40 neighbours
@@ -370,16 +369,9 @@ class MeshCoreRepeater
         float snr = 0;
         uint32_t atMs = 0;
     };
-    struct Neighbor {
-        uint8_t pub[32];
-        char name[32];
-        uint8_t type = 0;
-        float snr = 0;
-        uint32_t heardMs = 0;
-        bool used = false;
-    };
     PendingAdvert pendingAdverts[NEIGHBOR_PENDING_MAX];
-    Neighbor neighbors[NEIGHBOR_MAX];
+    // The same compact table the companion names repeaters with: key prefix, node number, a short name, how it was heard.
+    MeshCoreRepeaterNames<NEIGHBOR_MAX> neighbors;
 
     /** A zero-hop ADVERT was heard: keep it until serviceNeighbors() has checked its signature. */
     void noteDirectAdvert(const uint8_t *raw, const FrameInfo &info, float snr);

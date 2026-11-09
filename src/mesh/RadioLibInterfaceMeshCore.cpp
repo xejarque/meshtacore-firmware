@@ -291,6 +291,35 @@ static bool loadOrCreateMeshCoreSeed(uint8_t seed[MESHCORE_SEED_LEN], bool force
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
 static const char *meshCoreContactsPath = "/prefs/meshcore_contacts.bin";
 
+/// Read the repeater names that follow the contacts, one record at a time. Returns how many were restored.
+template <typename File> static size_t readRepeaterTail(File &f, uint8_t version)
+{
+    MeshCoreNodeFile::RepeaterTail tail = MeshCoreNodeFile::TAIL_V3;
+    uint8_t count = 0;
+    if (version == MeshCoreNodeFile::VERSION) {
+        uint8_t head[2];
+        if (f.read(head, sizeof(head)) != sizeof(head))
+            return 0;
+        count = head[0];
+        tail = {head[1], true};
+    } else if (version == MeshCoreNodeFile::TAIL_V3_VERSION) {
+        if (f.read(&count, 1) != 1)
+            return 0;
+        tail = MeshCoreNodeFile::TAIL_V3;
+    } else {
+        return 0;
+    }
+    if (tail.nameLen == 0 || tail.nameLen > MeshCoreNodeFile::REPEATER_NAME_LEN_MAX)
+        return 0;
+    uint8_t record[MeshCoreNodeFile::REPEATER_RECORD_MAX];
+    const size_t recordLen = tail.recordLen();
+    size_t restored = 0;
+    for (uint8_t i = 0; i < count && f.read(record, recordLen) == recordLen; i++)
+        if (meshCoreCompanion.restoreRepeater(record, tail))
+            restored++;
+    return restored;
+}
+
 static void loadMeshCoreContacts()
 {
 #ifdef FSCom
@@ -308,15 +337,8 @@ static void loadMeshCoreContacts()
         const size_t fileSize = f.size();
         n = f.read(image, fileSize < sizeof(image) ? fileSize : sizeof(image));
         used = MeshCoreNodeFile::imageLength(image, n);
-        if (used && used < fileSize && image[3] == MeshCoreNodeFile::VERSION && f.seek(used)) {
-            uint8_t count = 0;
-            if (f.read(&count, 1) == 1) {
-                uint8_t record[MeshCoreNodeFile::REPEATER_RECORD_LEN];
-                for (uint8_t i = 0; i < count && f.read(record, sizeof(record)) == sizeof(record); i++)
-                    if (meshCoreCompanion.restoreRepeater(record))
-                        repeatersLoaded++;
-            }
-        }
+        if (used && used < fileSize && f.seek(used))
+            repeatersLoaded = readRepeaterTail(f, image[3]);
         f.close();
     }
     const size_t loaded = meshCoreCompanion.importContacts(image, used);
@@ -339,18 +361,19 @@ static bool saveMeshCoreContacts()
     // at a time.
     const MeshCoreCompanion::RepeaterTable &names = meshCoreCompanion.repeaterNames();
     const size_t total = names.count() < MeshCoreNodeFile::REPEATERS_SAVED_MAX ? names.count() : MeshCoreNodeFile::REPEATERS_SAVED_MAX;
-    const uint8_t count = (uint8_t)total;
-    out.write(&count, 1);
-    constexpr size_t BATCH = 8;
-    uint8_t batch[BATCH * MeshCoreNodeFile::REPEATER_RECORD_LEN];
+    const uint8_t head[2] = {(uint8_t)total, (uint8_t)MeshCoreNodeFile::TAIL_CURRENT.nameLen};
+    out.write(head, sizeof(head));
+    constexpr size_t RECORD_LEN = MeshCoreNodeFile::TAIL_CURRENT.recordLen();
+    constexpr size_t BATCH = 4;
+    uint8_t batch[BATCH * RECORD_LEN];
     size_t inBatch = 0;
     for (size_t rank = total; rank-- > 0;) {
         const MeshCoreRepeaterName *e = names.nthNewest(rank);
         if (!e)
             continue;
-        MeshCoreNodeFile::writeRepeaterRecord(&batch[inBatch++ * MeshCoreNodeFile::REPEATER_RECORD_LEN], *e);
+        MeshCoreNodeFile::writeRepeaterRecord(&batch[inBatch++ * RECORD_LEN], *e);
         if (inBatch == BATCH || rank == 0) {
-            out.write(batch, inBatch * MeshCoreNodeFile::REPEATER_RECORD_LEN);
+            out.write(batch, inBatch * RECORD_LEN);
             inBatch = 0;
         }
     }

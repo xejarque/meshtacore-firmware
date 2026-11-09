@@ -1252,63 +1252,36 @@ void MeshCoreRepeater::storeNeighbor(const PendingAdvert &adv)
     if (flags & 0x40)
         at += 2;
 
-    Neighbor *slot = nullptr;
-    for (Neighbor &n : neighbors) {
-        if (n.used && memcmp(n.pub, adv.payload, MC_PUB_KEY_SIZE) == 0) {
-            slot = &n;
-            break;
-        }
-    }
-    if (!slot) {
-        // One clock read: the ages compare wrap-safely only when measured from the same instant.
-        const uint32_t now = Time::getMillis();
-        for (Neighbor &n : neighbors) {
-            if (!n.used) {
-                slot = &n;
-                break;
-            }
-            if (!slot || now - n.heardMs > now - slot->heardMs)
-                slot = &n; // table full: the one not heard for longest gives way
-        }
-    }
-    memcpy(slot->pub, adv.payload, MC_PUB_KEY_SIZE);
-    slot->type = flags & 0x0F;
-    slot->snr = adv.snr;
-    slot->heardMs = adv.atMs;
-    slot->used = true;
-    memset(slot->name, 0, sizeof(slot->name));
+    char name[MeshCoreNode::NAME_LEN] = {};
     if ((flags & 0x80) && at < adv.len) {
         size_t nameLen = adv.len - at;
-        if (nameLen > sizeof(slot->name) - 1)
-            nameLen = sizeof(slot->name) - 1;
-        memcpy(slot->name, &adv.payload[at], nameLen);
-        sanitizeUtf8(slot->name, sizeof(slot->name));
+        if (nameLen > sizeof(name) - 1)
+            nameLen = sizeof(name) - 1;
+        memcpy(name, &adv.payload[at], nameLen);
+        sanitizeUtf8(name, sizeof(name));
     }
+
+    // Dated from when the advert arrived, not from when its signature was checked.
+    const uint32_t waitedSecs = (Time::getMillis() - adv.atMs) / 1000;
+    const uint32_t uptime = Time::getUptimeSecs();
+    MeshCoreHeard how;
+    how.snr = adv.snr;
+    how.hops = 0;
+    how.type = flags & 0x0F;
+    how.uptimeSecs = uptime > waitedSecs ? uptime - waitedSecs : 0;
+    neighbors.learn(adv.payload, name, how);
 }
 
 size_t MeshCoreRepeater::copyNeighbors(NeighborView *out, size_t max) const
 {
+    const MeshCoreRepeaterName *newest[NEIGHBOR_MAX];
+    const size_t heard = neighbors.newestFirst(newest, NEIGHBOR_MAX);
+    const uint32_t uptime = Time::getUptimeSecs();
     size_t count = 0;
-    uint32_t ageMs[NEIGHBOR_MAX];
-    const uint32_t now = Time::getMillis();
-    for (const Neighbor &n : neighbors) {
-        if (!n.used || count >= max || nodeIgnored(MeshCoreNodeStore<1>::nodeNumForKey(n.pub)))
+    for (size_t i = 0; i < heard && count < max; i++) {
+        if (nodeIgnored(newest[i]->nodeNum))
             continue;
-        const uint32_t age = now - n.heardMs;
-        // Insertion sort by age: the most recently heard ends up first.
-        size_t at = count++;
-        while (at > 0 && ageMs[at - 1] > age) {
-            out[at] = out[at - 1];
-            ageMs[at] = ageMs[at - 1];
-            at--;
-        }
-        ageMs[at] = age;
-        NeighborView &v = out[at];
-        memcpy(v.pub, n.pub, sizeof(v.pub));
-        memcpy(v.name, n.name, sizeof(v.name));
-        v.type = n.type;
-        v.snr = n.snr;
-        v.ageSecs = age / 1000;
+        out[count++] = {newest[i], newest[i]->ageSecs(uptime)};
     }
     return count;
 }

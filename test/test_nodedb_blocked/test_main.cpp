@@ -257,6 +257,28 @@ static void test_eviction_takesMeshCoreCopiesFirst(void)
     TEST_ASSERT_NOT_NULL(db->getMeshNode(3000 + 1));   // and so did the oldest Meshtastic node
 }
 
+// A MeshCore node is only a view the companion can rebuild unless the user starred or ignored it, which only the node DB
+// remembers. On nRF52 views are left out of nodes.proto and the warm tier; elsewhere every node is saved as before.
+// Regression guard: a starred or ignored MeshCore node lost on reboot, or a Meshtastic node treated as a view.
+static void test_meshcoreView_isOnlyAnUnmarkedMeshCoreNode(void)
+{
+    meshtastic_NodeInfoLite n = meshtastic_NodeInfoLite_init_zero;
+    TEST_ASSERT_FALSE(nodeInfoLiteIsMeshCoreView(&n)); // a Meshtastic node
+    nodeInfoLiteSetBit(&n, NODEINFO_BITFIELD_IS_MESHCORE_MASK, true);
+    TEST_ASSERT_TRUE(nodeInfoLiteIsMeshCoreView(&n));
+    nodeInfoLiteSetBit(&n, NODEINFO_BITFIELD_IS_FAVORITE_MASK, true);
+    TEST_ASSERT_FALSE(nodeInfoLiteIsMeshCoreView(&n));
+    nodeInfoLiteSetBit(&n, NODEINFO_BITFIELD_IS_FAVORITE_MASK, false);
+    nodeInfoLiteSetBit(&n, NODEINFO_BITFIELD_IS_IGNORED_MASK, true);
+    TEST_ASSERT_FALSE(nodeInfoLiteIsMeshCoreView(&n));
+    nodeInfoLiteSetBit(&n, NODEINFO_BITFIELD_IS_IGNORED_MASK, false);
+
+    // The native build is not an nRF52: every node is still saved and still goes to the warm tier.
+    TEST_ASSERT_EQUAL_INT(0, MESHTASTIC_MESHCORE_VIEWS_IN_RAM_ONLY);
+    TEST_ASSERT_TRUE(nodeInfoLiteIsSavedToDisk(&n));
+    TEST_ASSERT_TRUE(nodeInfoLiteGoesToWarmTier(&n));
+}
+
 // A node heard during this boot is newer than every persisted epoch, including valid epochs after
 // 2038. Ranking both domains in one uint32_t incorrectly evicts the current-boot node first.
 static void test_eviction_prefersCurrentBootStampOverPost2038Epoch(void)
@@ -467,6 +489,7 @@ NDB_TEST_ENTRY void setup()
     RUN_TEST(test_eviction_preservesFavorite);
     RUN_TEST(test_eviction_prefersCurrentBootStampOverPost2038Epoch);
     RUN_TEST(test_eviction_takesMeshCoreCopiesFirst);
+    RUN_TEST(test_meshcoreView_isOnlyAnUnmarkedMeshCoreNode);
     RUN_TEST(test_ignored_survivesEvictionAndCleanup);
     RUN_TEST(test_protectedCap_refusesBeyondLimit);
     RUN_TEST(test_removeNodeByNum_absentNodeOnFullDb);

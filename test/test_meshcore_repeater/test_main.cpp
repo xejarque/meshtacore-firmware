@@ -1836,10 +1836,13 @@ void test_direct_advert_becomes_a_neighbor_after_the_service_tick()
     drainQueue(repeater);
     Time::advanceTestMillis(5000);
     TEST_ASSERT_EQUAL(1, listNeighbors(repeater, view));
-    TEST_ASSERT_EQUAL_STRING("Cima Nord", view[0].name);
-    TEST_ASSERT_EQUAL_MEMORY(sender.getIdentityPub(), view[0].pub, 32);
-    TEST_ASSERT_EQUAL_FLOAT(-6.5f, view[0].snr);
-    TEST_ASSERT_EQUAL_UINT32(5, view[0].ageSecs);
+    char name[MeshCoreRepeaterName::NAME_LEN + 1];
+    view[0].node->copyName(name);
+    TEST_ASSERT_EQUAL_STRING("Cima Nord", name);
+    TEST_ASSERT_EQUAL_MEMORY(sender.getIdentityPub(), view[0].node->prefix, MeshCoreRepeaterName::PREFIX_LEN);
+    TEST_ASSERT_EQUAL_HEX32(MeshCoreNodeStore<1>::nodeNumForKey(sender.getIdentityPub()), view[0].node->nodeNum);
+    TEST_ASSERT_EQUAL_FLOAT(-6.5f, view[0].node->snr());
+    TEST_ASSERT_EQUAL_UINT32(5, view[0].ageSecs); // dated from when it was heard, not from the signature check
 }
 
 void test_forged_advert_is_never_a_neighbor()
@@ -1880,7 +1883,7 @@ void test_neighbor_advertising_again_is_one_entry_with_the_newest_snr()
     repeater.handleReceivedFrame(frame, len, 4.0f, kAirtimeMs);
     drainQueue(repeater);
     TEST_ASSERT_EQUAL(1, listNeighbors(repeater, view));
-    TEST_ASSERT_EQUAL_FLOAT(4.0f, view[0].snr);
+    TEST_ASSERT_EQUAL_FLOAT(4.0f, view[0].node->snr());
 }
 
 // 40 neighbours fit; the 41st takes the place of the one heard longest ago, and the list reads newest first.
@@ -1888,24 +1891,24 @@ void test_forty_neighbors_rotate_by_last_heard_and_list_newest_first()
 {
     MeshCoreRepeater repeater;
     MeshCoreRepeater::NeighborView view[MeshCoreRepeater::NEIGHBOR_MAX];
-    uint8_t keys[MeshCoreRepeater::NEIGHBOR_MAX + 1][32];
+    uint32_t nums[MeshCoreRepeater::NEIGHBOR_MAX + 1];
     for (size_t i = 0; i <= MeshCoreRepeater::NEIGHBOR_MAX; i++) {
         MeshCoreRepeater sender;
         uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
         const size_t len = makeNeighborAdvert(sender, (uint8_t)(0x40 + i), "N", frame);
-        memcpy(keys[i], sender.getIdentityPub(), 32);
+        nums[i] = MeshCoreNodeStore<1>::nodeNumForKey(sender.getIdentityPub());
         repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs);
         drainQueue(repeater);
         Time::advanceTestMillis(2000);
         repeater.serviceNeighbors();
     }
     TEST_ASSERT_EQUAL(MeshCoreRepeater::NEIGHBOR_MAX, repeater.copyNeighbors(view, MeshCoreRepeater::NEIGHBOR_MAX));
-    TEST_ASSERT_EQUAL_MEMORY(keys[MeshCoreRepeater::NEIGHBOR_MAX], view[0].pub, 32); // newest first
-    TEST_ASSERT_EQUAL_MEMORY(keys[1], view[MeshCoreRepeater::NEIGHBOR_MAX - 1].pub, 32);
+    TEST_ASSERT_EQUAL_HEX32(nums[MeshCoreRepeater::NEIGHBOR_MAX], view[0].node->nodeNum); // newest first
+    TEST_ASSERT_EQUAL_HEX32(nums[1], view[MeshCoreRepeater::NEIGHBOR_MAX - 1].node->nodeNum);
     for (size_t i = 1; i < MeshCoreRepeater::NEIGHBOR_MAX; i++)
         TEST_ASSERT_TRUE(view[i - 1].ageSecs <= view[i].ageSecs);
     for (size_t i = 0; i < MeshCoreRepeater::NEIGHBOR_MAX; i++)
-        TEST_ASSERT_TRUE(memcmp(view[i].pub, keys[0], 32) != 0); // the oldest gave way
+        TEST_ASSERT_NOT_EQUAL_UINT32(nums[0], view[i].node->nodeNum); // the oldest gave way
 }
 
 void test_ignored_node_advert_is_dropped_and_never_listed()

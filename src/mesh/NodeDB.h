@@ -951,6 +951,36 @@ inline bool nodeInfoLiteIsIgnored(const meshtastic_NodeInfoLite *n)
 {
     return n && (n->bitfield & NODEINFO_BITFIELD_IS_IGNORED_MASK);
 }
+/// A MeshCore node the node DB only shows: the companion keeps its data (contacts in their store, repeaters in their table),
+/// and the user has neither starred nor ignored it, which only the node DB would remember.
+inline bool nodeInfoLiteIsMeshCoreView(const meshtastic_NodeInfoLite *n)
+{
+    return nodeInfoLiteIsMeshCore(n) && !nodeInfoLiteIsFavorite(n) && !nodeInfoLiteIsIgnored(n);
+}
+
+// On nRF52 the node DB holds such views in RAM only: nodes.proto (written twice over on every save, in a 28 KB LittleFS)
+// and the warm tier leave them out. Contacts are announced again from their own file at boot and repeaters with their
+// next advert; the client keeps every node it was ever sent meanwhile.
+#ifndef MESHTASTIC_MESHCORE_VIEWS_IN_RAM_ONLY
+#if defined(ARCH_NRF52) && MESHTASTIC_ENABLE_MESHCORE_COMPANION
+#define MESHTASTIC_MESHCORE_VIEWS_IN_RAM_ONLY 1
+#else
+#define MESHTASTIC_MESHCORE_VIEWS_IN_RAM_ONLY 0
+#endif
+#endif
+
+/// False for a node nodes.proto leaves out (see MESHTASTIC_MESHCORE_VIEWS_IN_RAM_ONLY).
+inline bool nodeInfoLiteIsSavedToDisk(const meshtastic_NodeInfoLite *n)
+{
+    return !(MESHTASTIC_MESHCORE_VIEWS_IN_RAM_ONLY && nodeInfoLiteIsMeshCoreView(n));
+}
+
+/// False for a node the warm tier must not take: its key is the companion's business, never Meshtastic PKI's.
+inline bool nodeInfoLiteGoesToWarmTier(const meshtastic_NodeInfoLite *n)
+{
+    return !(MESHTASTIC_MESHCORE_VIEWS_IN_RAM_ONLY && nodeInfoLiteIsMeshCore(n));
+}
+
 inline bool nodeInfoLiteIsLicensed(const meshtastic_NodeInfoLite *n)
 {
     return n && (n->bitfield & NODEINFO_BITFIELD_IS_LICENSED_MASK);

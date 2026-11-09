@@ -1,6 +1,7 @@
 #pragma once
 
-#include "configuration.h" // the ARCH_* macros the memory classes key off
+#include "MeshCoreNodeStore.h" // nodeNumForKey
+#include "configuration.h"     // the ARCH_* macros the memory classes key off
 #include "memory/MemClass.h"
 #include "meshUtils.h"
 #include <stddef.h>
@@ -8,13 +9,18 @@
 #include <string.h>
 #include <strings.h> // strncasecmp
 
-// 16 B an entry, all in RAM: 0.5 KB at 32 up to 4 KB at 256. A repeater is only named on a path, so far fewer are worth
-// remembering than contacts, and the oldest heard is the first to go.
+// 16 B plus the name an entry, all in RAM. A repeater is only named on a path, so far fewer are worth remembering than
+// contacts, and the oldest heard is the first to go. The ThinkNode M1 (nRF52 with a screen and a GPS) is the tight one,
+// measured with 88 % of its heap used: it keeps 48.
 #ifndef MESHCORE_REPEATER_NAMES_MAX
 #if MESHTASTIC_MEM_CLASS <= MEM_CLASS_TINY
 #define MESHCORE_REPEATER_NAMES_MAX 32
 #elif MESHTASTIC_MEM_CLASS == MEM_CLASS_SMALL
+#if HAS_SCREEN && defined(ARCH_NRF52) && defined(GPS_RX_PIN)
+#define MESHCORE_REPEATER_NAMES_MAX 48
+#else
 #define MESHCORE_REPEATER_NAMES_MAX 64
+#endif
 #elif MESHTASTIC_MEM_CLASS == MEM_CLASS_MEDIUM
 #define MESHCORE_REPEATER_NAMES_MAX 128
 #else
@@ -22,16 +28,32 @@
 #endif
 #endif
 
+// Bytes of name an entry keeps. The whole name lives in the node DB while the node is there; this one only stands in once
+// the node DB has evicted it, so an nRF52 keeps 12 bytes and boards with RAM to spare keep MeshCore's whole 32.
+#ifndef MESHCORE_REPEATER_NAME_LEN
+#if defined(ARCH_NRF52)
+#define MESHCORE_REPEATER_NAME_LEN 12
+#else
+#define MESHCORE_REPEATER_NAME_LEN 32
+#endif
+#endif
+
 /**
- * What a path needs to name a repeater: the start of its public key (the path carries hashes of 1 to 3 bytes of it), a
- * short name and how it was last heard. Every default is zero, so a table of them lands in .bss.
+ * A MeshCore node heard over RF, known by the start of its key: what a path needs to name it (the path carries hashes of 1 to
+ * 3 bytes of the key), the node number it is announced under, a short name and how and when it was last heard. The
+ * companion keeps repeaters in a table of them; a relay without a companion keeps its direct neighbours in one. Every
+ * default is zero, so a table of them lands in .bss.
  */
 struct MeshCoreRepeaterName {
     static constexpr size_t PREFIX_LEN = 3; // the longest hash a MeshCore path carries
-    static constexpr size_t NAME_LEN = 8;   // bytes, zero padded and not terminated when it fills them all
+    static constexpr size_t NAME_LEN = MESHCORE_REPEATER_NAME_LEN; // zero padded, not terminated when it fills them all
     static constexpr uint8_t HOPS_UNKNOWN = 0xFF;
+    static constexpr uint8_t TYPE_REPEATER = 2; // MeshCore ADV_TYPE_REPEATER
 
     uint8_t prefix[PREFIX_LEN] = {};
+    uint8_t type = 0;       // MeshCore ADV_TYPE_*; 0 when restored from a file that did not keep it
+    uint32_t nodeNum = 0;   // MeshCoreNodeStore::nodeNumForKey of the whole key; 0 when restored from such a file
+    uint32_t heardAt = 0;   // Time::getUptimeSecs() + 1 when last heard; 0 when only restored from flash this boot
     char name[NAME_LEN] = {};
     int8_t snrQuarter = 0;   // SNR in quarter dB, clamped: a path label needs no more
     uint8_t hopsPlusOne = 0; // hops the last advert travelled, plus one: 0 is "never heard over RF"
@@ -39,6 +61,9 @@ struct MeshCoreRepeaterName {
 
     uint8_t hops() const { return hopsPlusOne ? hopsPlusOne - 1 : HOPS_UNKNOWN; }
     float snr() const { return snrQuarter / 4.0f; }
+    bool heardThisBoot() const { return heardAt != 0; }
+    /// Seconds since it was last heard, given the uptime now. Meaningless unless heardThisBoot().
+    uint32_t ageSecs(uint32_t uptimeSecs) const { return uptimeSecs + 1 > heardAt ? uptimeSecs + 1 - heardAt : 0; }
 
     /// The name as a terminated string.
     void copyName(char out[NAME_LEN + 1]) const
@@ -47,7 +72,15 @@ struct MeshCoreRepeaterName {
         out[NAME_LEN] = 0;
     }
 };
-static_assert(sizeof(MeshCoreRepeaterName) == 16, "the table is budgeted at 16 B an entry");
+static_assert(sizeof(MeshCoreRepeaterName) == 16 + MeshCoreRepeaterName::NAME_LEN, "an entry is budgeted at 16 B plus its name");
+
+/// How a node was heard: what learn() records besides its key and name.
+struct MeshCoreHeard {
+    float snr = 0;
+    uint8_t hops = MeshCoreRepeaterName::HOPS_UNKNOWN;
+    uint8_t type = MeshCoreRepeaterName::TYPE_REPEATER;
+    uint32_t uptimeSecs = 0; // Time::getUptimeSecs() when heard
+};
 
 namespace MeshCoreRepeaterLabel
 {
@@ -94,8 +127,9 @@ inline size_t make(const char *src, char *out)
 } // namespace MeshCoreRepeaterLabel
 
 /**
- * The repeaters this node has heard, by the start of their key, kept apart from the contacts so a busy mountain full of
- * repeaters never takes a slot from someone the user writes to. A full table gives up the repeater heard longest ago.
+ * The nodes this node has heard, by the start of their key. The companion keeps repeaters in one, apart from the contacts,
+ * so a busy mountain full of repeaters never takes a slot from someone the user writes to; a relay without a companion
+ * keeps its direct neighbours in one. A full table gives up the node heard longest ago.
  */
 template <size_t N> class MeshCoreRepeaterNames
 {
@@ -104,10 +138,10 @@ template <size_t N> class MeshCoreRepeaterNames
 
     static constexpr size_t capacity() { return N; }
 
-    /// Learn or refresh the repeater with this key, heard now. Returns its entry.
-    Entry *learn(const uint8_t pub[32], const char *name, float snr, uint8_t hops)
+    /// Learn or refresh the node with this key, heard as `how` says. Returns its entry.
+    Entry *learn(const uint8_t pub[32], const char *name, const MeshCoreHeard &how)
     {
-        Entry *e = findExact(pub);
+        Entry *e = findByPrefixExact(pub);
         if (!e) {
             e = &entries[victim()];
             *e = Entry();
@@ -119,27 +153,25 @@ template <size_t N> class MeshCoreRepeaterNames
             memset(e->name, 0, sizeof(e->name));
             memcpy(e->name, label, len);
         }
-        const float q = snr * 4.0f;
+        e->type = how.type;
+        e->nodeNum = MeshCoreNodeStore<1>::nodeNumForKey(pub);
+        e->heardAt = how.uptimeSecs + 1;
+        const float q = how.snr * 4.0f;
         e->snrQuarter = q > 127.0f ? 127 : q < -128.0f ? -128 : (int8_t)q;
-        e->hopsPlusOne = hops >= Entry::HOPS_UNKNOWN ? 0 : (uint8_t)(hops + 1);
+        e->hopsPlusOne = how.hops >= Entry::HOPS_UNKNOWN ? 0 : (uint8_t)(how.hops + 1);
         touch(e);
         return e;
     }
 
-    /// Restore a saved entry without changing what it was heard with. Nothing is known of its recency but its place in the
-    /// order the caller restores them in: the oldest first.
-    Entry *restore(const uint8_t prefix[Entry::PREFIX_LEN], const char name[Entry::NAME_LEN], int8_t snrQuarter,
-                   uint8_t hopsPlusOne)
+    /// Restore a saved entry as it was saved, except that it has not been heard this boot. Nothing is known of its recency
+    /// but its place in the order the caller restores them in: the oldest first.
+    Entry *restore(const Entry &saved)
     {
-        Entry *e = findByPrefixExact(prefix);
-        if (!e) {
+        Entry *e = findByPrefixExact(saved.prefix);
+        if (!e)
             e = &entries[victim()];
-            *e = Entry();
-            memcpy(e->prefix, prefix, Entry::PREFIX_LEN);
-        }
-        memcpy(e->name, name, Entry::NAME_LEN);
-        e->snrQuarter = snrQuarter;
-        e->hopsPlusOne = hopsPlusOne;
+        *e = saved;
+        e->heardAt = 0;
         touch(e);
         return e;
     }
@@ -269,8 +301,6 @@ template <size_t N> class MeshCoreRepeaterNames
             l++;
         return l;
     }
-
-    Entry *findExact(const uint8_t pub[32]) { return findByPrefixExact(pub); }
 
     Entry *findByPrefixExact(const uint8_t *prefix)
     {
