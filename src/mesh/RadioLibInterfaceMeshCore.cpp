@@ -139,7 +139,7 @@ static constexpr uint32_t MESHCORE_ADVERT_NOW_MIN_MS = 10UL * 60 * 1000;
 // alias: MeshCore applications only name a path hop from a contact held as a repeater, so without it the hop we append
 // shows as an unknown repeater. It rides the same slot as the main flood, one own frame at a time, so the cost is one
 // extra flood per interval.
-static const char MESHCORE_ALIAS_SUFFIX[] = " (relay)";
+static const char MESHCORE_ALIAS_SUFFIX[] = " (rep)";
 // The alias flood bypasses the 12 h deadline while it is pending, so a queue that keeps refusing it must give up.
 static constexpr uint8_t MESHCORE_ALIAS_ADVERT_MAX_ATTEMPTS = 3;
 static constexpr uint32_t MESHCORE_ADVERT_RETRY_MS = 60 * 1000;           // no identity / no valid time
