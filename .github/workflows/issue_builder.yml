@@ -167,16 +167,17 @@ jobs:
       - name: Setup ccache
         if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
         run: |
-          # Opt-in wrapper (.github/scripts/pio_ccache.py): userPrefs -D flags only reach src/, and
-          # CCACHE_NODIRECT hashes the preprocessed output, so framework, libs and most of src/ are reused.
+          # The toolchain compilers are replaced by a ccache wrapper (.github/scripts/pio_ccache_wrap.sh), which
+          # works on ESP32 too (a CC/CXX prefix breaks ESP-IDF). The toolchain has to be on disk first.
+          # userPrefs -D flags only reach src/: direct mode misses those files and falls back to the preprocessor
+          # mode, so framework, libs and most of src/ still hit.
           command -v ccache >/dev/null || sudo apt-get install -y -qq ccache
+          pio pkg install -e "${{ steps.parse-step.outputs.target }}"
+          bash .github/scripts/pio_ccache_wrap.sh
           {
             echo "CCACHE_DIR=$HOME/.ccache"
-            echo "CCACHE_NODIRECT=1"
-            echo "CCACHE_COMPILERCHECK=content"
             echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
             echo "CCACHE_MAXSIZE=600M"
-            echo "PLATFORMIO_EXTRA_SCRIPTS=post:.github/scripts/pio_ccache.py"
           } >> "$GITHUB_ENV"
 
       - name: Restore ccache
@@ -187,6 +188,12 @@ jobs:
           key: ccache-${{ steps.arch-step.outputs.arch }}-${{ steps.parse-step.outputs.target }}-${{ github.run_id }}
           restore-keys: |
             ccache-${{ steps.arch-step.outputs.arch }}-${{ steps.parse-step.outputs.target }}-
+
+      - name: Reset ccache counters
+        if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
+        # The restored cache carries the counters of every earlier run; zero them so "ccache stats" below
+        # counts only this build and the save threshold means what it says.
+        run: ccache -z
 
       - name: Compile Custom Firmware
         if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
