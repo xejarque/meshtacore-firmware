@@ -69,6 +69,7 @@ static const char *pathSenderName(uint32_t nodeNum)
 
 /// Most names shown for one hop; a wider match is summarised as "+N".
 static constexpr size_t PATH_HOP_NAMES_MAX = 3;
+static_assert(PATH_HOP_NAMES_MAX == 3, "hopNameScratch in MeshCoreCompanion.h holds that many names");
 #endif
 
 static size_t aesEncrypt(const uint8_t secret[32], const uint8_t *src, size_t len, uint8_t *dst)
@@ -795,6 +796,17 @@ static bool isMeshCoreNode(const meshtastic_NodeInfoLite *n)
     return n && (n->num >> 24) == 0x4D && n->public_key.size == 32 && n->hw_model == meshtastic_HardwareModel_UNSET;
 }
 
+/// True when the node DB holds a MeshCore node whose key starts with these bytes.
+static bool nodeDbHoldsKeyPrefix(const uint8_t *prefix, size_t len)
+{
+    for (size_t i = 0; nodeDB && i < nodeDB->getNumMeshNodes(); i++) {
+        const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
+        if (isMeshCoreNode(n) && n->long_name[0] != 0 && memcmp(n->public_key.bytes, prefix, len) == 0)
+            return true;
+    }
+    return false;
+}
+
 size_t MeshCoreCompanion::pathHopNames(const uint8_t *hash, uint8_t size, const char **out, size_t max) const
 {
     size_t total = 0;
@@ -821,6 +833,17 @@ size_t MeshCoreCompanion::pathHopNames(const uint8_t *hash, uint8_t size, const 
             continue;
         if (!nodes.find(n->public_key.bytes))
             addName(n->long_name);
+    }
+    // Repeaters are kept as a key prefix and a short name. One the node DB still holds is already listed by its whole name,
+    // and the short form would only be a second candidate for the same hop.
+    const MeshCoreRepeaterName *heard[PATH_HOP_NAMES_MAX];
+    const size_t heardCount = repeaters.findByPrefix(hash, size, heard, PATH_HOP_NAMES_MAX);
+    size_t scratchUsed = 0;
+    for (size_t i = 0; i < heardCount && i < PATH_HOP_NAMES_MAX; i++) {
+        if (nodeDbHoldsKeyPrefix(heard[i]->prefix, MeshCoreRepeaterName::PREFIX_LEN))
+            continue;
+        heard[i]->copyName(hopNameScratch[scratchUsed]);
+        addName(hopNameScratch[scratchUsed++]);
     }
     return total;
 }
@@ -1274,6 +1297,94 @@ static const MeshCoreNode *findNodeForTrace(const MeshCoreNodeStore<MESHCORE_NOD
     return match;
 }
 
+static bool hexDigitValue(char c, uint8_t *v)
+{
+    if (c >= '0' && c <= '9')
+        *v = (uint8_t)(c - '0');
+    else if (c >= 'a' && c <= 'f')
+        *v = (uint8_t)(c - 'a' + 10);
+    else if (c >= 'A' && c <= 'F')
+        *v = (uint8_t)(c - 'A' + 10);
+    else
+        return false;
+    return true;
+}
+
+MeshCoreCompanion::TargetLookup MeshCoreCompanion::resolveTraceTarget(const char *typed, TraceTarget &out, char *candidates,
+                                                                      size_t candidatesCap) const
+{
+    if (candidates && candidatesCap)
+        candidates[0] = 0;
+    out = TraceTarget();
+    auto take = [&](uint8_t hash, const char *name) {
+        out.hash = hash;
+        strncpy(out.name, name, sizeof(out.name) - 1);
+        return TargetLookup::FOUND;
+    };
+
+    if (const MeshCoreNode *n = findNodeForTrace(nodes, typed))
+        return take(n->pub[0], n->name);
+
+    // A repeater the node DB still holds, by its whole name.
+    for (size_t i = 0; nodeDB && typed && i < nodeDB->getNumMeshNodes(); i++) {
+        const meshtastic_NodeInfoLite *lite = nodeDB->getMeshNodeByIndex(i);
+        if (!isMeshCoreNode(lite) || lite->long_name[0] == 0)
+            continue;
+        char clean[48];
+        cleanPathLabel(lite->long_name, clean, sizeof(clean), sizeof(clean) - 1);
+        stripMeshCoreSuffix(clean);
+        if (strcasecmp(clean, typed) == 0 || strcasecmp(lite->short_name, typed) == 0)
+            return take(lite->public_key.bytes[0], lite->long_name);
+    }
+
+    // The repeaters kept as a short name, then as the start of a key typed in hex.
+    constexpr size_t LISTED = 4;
+    const MeshCoreRepeaterName *found[LISTED];
+    size_t total = repeaters.findByName(typed, found, LISTED);
+    bool byHex = false;
+    if (total == 0 && typed) {
+        const char *digits = typed[0] == '!' ? typed + 1 : typed;
+        const size_t nDigits = strlen(digits);
+        uint8_t prefix[MeshCoreRepeaterName::PREFIX_LEN] = {};
+        bool hex = nDigits == 2 || nDigits == 4 || nDigits == 6;
+        for (size_t i = 0; hex && i < nDigits; i++) {
+            uint8_t hi;
+            hex = hexDigitValue(digits[i], &hi);
+            if (hex)
+                prefix[i / 2] = (uint8_t)((prefix[i / 2] << 4) | hi);
+        }
+        if (hex) {
+            byHex = true;
+            total = repeaters.findByPrefix(prefix, (uint8_t)(nDigits / 2), found, LISTED);
+        }
+    }
+    if (total == 0)
+        return TargetLookup::NOT_FOUND;
+
+    char name[MeshCoreRepeaterName::NAME_LEN + 1];
+    if (total == 1) {
+        found[0]->copyName(name);
+        return take(found[0]->prefix[0], name);
+    }
+    // Several repeaters share the first byte of a hex key: the trace can only name that byte, so they are one target.
+    bool sameFirstByte = byHex;
+    for (size_t i = 1; sameFirstByte && i < total && i < LISTED; i++)
+        sameFirstByte = found[i]->prefix[0] == found[0]->prefix[0];
+    if (sameFirstByte && total <= LISTED)
+        return take(found[0]->prefix[0], typed[0] == '!' ? typed + 1 : typed);
+
+    size_t len = 0;
+    for (size_t i = 0; candidates && i < total && i < LISTED && len + 1 < candidatesCap; i++) {
+        found[i]->copyName(name);
+        const int n = snprintf(candidates + len, candidatesCap - len, "%s%s [%02x%02x%02x]", i ? ", " : "", name,
+                               found[i]->prefix[0], found[i]->prefix[1], found[i]->prefix[2]);
+        if (n <= 0 || (size_t)n >= candidatesCap - len)
+            break;
+        len += (size_t)n;
+    }
+    return TargetLookup::AMBIGUOUS;
+}
+
 const MeshCoreNode *MeshCoreCompanion::findContact(const char *nameOrHex) const
 {
     return findNodeForTrace(nodes, nameOrHex);
@@ -1284,14 +1395,19 @@ size_t MeshCoreCompanion::formatNodeList(uint8_t typeFilter, char *out, size_t c
     if (!out || cap == 0)
         return 0;
     out[0] = 0;
-    size_t count = 0;
-    nodes.forEach([&](const MeshCoreNode &n) {
-        if (!n.lastMod)
-            return;
-        if (typeFilter && n.type != typeFilter)
-            return;
-        count++;
-    });
+    // Contacts live in the node store and repeaters in their own table: a filter names which of the two it wants.
+    const bool wantStore = typeFilter != MeshCoreNode::REPEATER;
+    const bool wantRepeaters = typeFilter == 0 || typeFilter == MeshCoreNode::REPEATER;
+    size_t count = wantRepeaters ? repeaters.count() : 0;
+    if (wantStore) {
+        nodes.forEach([&](const MeshCoreNode &n) {
+            if (!n.lastMod)
+                return;
+            if (typeFilter && n.type != typeFilter)
+                return;
+            count++;
+        });
+    }
 
     const char *title = (typeFilter == MeshCoreNode::CHAT)       ? "Contacts"
                         : (typeFilter == MeshCoreNode::REPEATER) ? "Repeaters"
@@ -1302,26 +1418,46 @@ size_t MeshCoreCompanion::formatNodeList(uint8_t typeFilter, char *out, size_t c
     }
     size_t len = snprintf(out, cap, "MESHTACORE %s (%u):\n", title, (unsigned)count);
 
-    nodes.forEach([&](const MeshCoreNode &n) {
-        if (!n.lastMod || len >= cap - 1)
-            return;
-        if (typeFilter && n.type != typeFilter)
-            return;
-        char hexPub[9];
-        snprintf(hexPub, sizeof(hexPub), "%02x%02x%02x%02x", n.pub[0], n.pub[1], n.pub[2], n.pub[3]);
-        char route[16] = "";
-        if (n.hops() == 0) {
-            snprintf(route, sizeof(route), "⚡");
-        } else if (n.hops() != MeshCoreNode::HOPS_UNKNOWN) {
-            snprintf(route, sizeof(route), "%uh", (unsigned)n.hops());
-        }
-        int nChars = snprintf(out + len, cap - len, "!%08x %s [%s] %s SNR:%.1f RSSI:%d\n", (unsigned)n.nodeNum, n.name, hexPub,
-                              route, (double)n.snr, (int)n.rssi);
+    auto routeGlyph = [](uint8_t hops, char *route, size_t routeCap) {
+        route[0] = 0;
+        if (hops == 0)
+            snprintf(route, routeCap, "⚡");
+        else if (hops != MeshCoreNode::HOPS_UNKNOWN)
+            snprintf(route, routeCap, "%uh", (unsigned)hops);
+    };
+    auto append = [&](int nChars) {
         if (nChars > 0 && (size_t)nChars < cap - len)
             len += nChars;
         else
             len = cap - 1;
-    });
+    };
+
+    if (wantStore) {
+        nodes.forEach([&](const MeshCoreNode &n) {
+            if (!n.lastMod || len >= cap - 1)
+                return;
+            if (typeFilter && n.type != typeFilter)
+                return;
+            char hexPub[9];
+            snprintf(hexPub, sizeof(hexPub), "%02x%02x%02x%02x", n.pub[0], n.pub[1], n.pub[2], n.pub[3]);
+            char route[16];
+            routeGlyph(n.hops(), route, sizeof(route));
+            append(snprintf(out + len, cap - len, "!%08x %s [%s] %s SNR:%.1f RSSI:%d\n", (unsigned)n.nodeNum, n.name, hexPub,
+                            route, (double)n.snr, (int)n.rssi));
+        });
+    }
+    // Newest first. A repeater is kept as a key prefix and a short name, so it has no node number or RSSI to show.
+    for (size_t rank = 0; wantRepeaters && len < cap - 1; rank++) {
+        const MeshCoreRepeaterName *r = repeaters.nthNewest(rank);
+        if (!r)
+            break;
+        char name[MeshCoreRepeaterName::NAME_LEN + 1];
+        r->copyName(name);
+        char route[16];
+        routeGlyph(r->hops(), route, sizeof(route));
+        append(snprintf(out + len, cap - len, "%s [%02x%02x%02x] %s SNR:%.1f\n", name, r->prefix[0], r->prefix[1], r->prefix[2],
+                        route, (double)r->snr()));
+    }
     if (len > 0 && out[len - 1] == '\n')
         out[--len] = 0;
     return len;
@@ -1332,8 +1468,23 @@ bool MeshCoreCompanion::formatNodeDetail(const char *nameOrHex, char *out, size_
     if (!nameOrHex || !out || cap == 0)
         return false;
     const MeshCoreNode *n = findContact(nameOrHex);
-    if (!n)
-        return false;
+    if (!n) {
+        // Not a contact: a repeater, which is kept as a key prefix and a short name. Several can answer to the same letters.
+        const MeshCoreRepeaterName *heard[2];
+        const size_t total = repeaters.findByName(nameOrHex, heard, 2);
+        if (total == 0)
+            return false;
+        if (total > 1) {
+            snprintf(out, cap, "'%s' matches several repeaters: type more of the name", nameOrHex);
+            return true;
+        }
+        char name[MeshCoreRepeaterName::NAME_LEN + 1];
+        heard[0]->copyName(name);
+        snprintf(out, cap, "%s (REPEATER) key:%02x%02x%02x.. hops:%u SNR:%.1f", name, heard[0]->prefix[0], heard[0]->prefix[1],
+                 heard[0]->prefix[2], (unsigned)(heard[0]->hops() == MeshCoreRepeaterName::HOPS_UNKNOWN ? 0 : heard[0]->hops()),
+                 (double)heard[0]->snr());
+        return true;
+    }
 
     char hexPub[17];
     snprintf(hexPub, sizeof(hexPub), "%02x%02x%02x%02x%02x%02x%02x%02x", n->pub[0], n->pub[1], n->pub[2], n->pub[3], n->pub[4],
@@ -1433,7 +1584,7 @@ bool MeshCoreCompanion::startTrace(const char *args, uint32_t fromNum, uint32_t 
     const char *pStr = args ? args : "";
     bool symmetric = false;
     char targetNames[ActiveTrace::MAX_TRACE_HOPS][MeshCoreNode::NAME_LEN] = {};
-    const MeshCoreNode *targets[ActiveTrace::MAX_TRACE_HOPS] = {};
+    TraceTarget targets[ActiveTrace::MAX_TRACE_HOPS];
     size_t targetCount = 0;
 
     while (*pStr) {
@@ -1510,13 +1661,21 @@ bool MeshCoreCompanion::startTrace(const char *args, uint32_t fromNum, uint32_t 
     }
 
     for (size_t i = 0; i < targetCount; i++) {
-        targets[i] = findNodeForTrace(nodes, targetNames[i]);
-        if (!targets[i]) {
+        char candidates[96];
+        const TargetLookup found = resolveTraceTarget(targetNames[i], targets[i], candidates, sizeof(candidates));
+        if (found != TargetLookup::FOUND) {
+            const bool ambiguous = found == TargetLookup::AMBIGUOUS;
             if (statusReply && statusCap) {
-                snprintf(statusReply, statusCap, "MESHTACORE: node not found '%s'", targetNames[i]);
+                if (ambiguous)
+                    snprintf(statusReply, statusCap, "MESHTACORE: '%s' is ambiguous: %s", targetNames[i], candidates);
+                else
+                    snprintf(statusReply, statusCap, "MESHTACORE: node not found '%s'", targetNames[i]);
             } else {
-                char err[128];
-                snprintf(err, sizeof(err), "🛰️ *Nodo no encontrado*: @%s", targetNames[i]);
+                char err[160];
+                if (ambiguous)
+                    snprintf(err, sizeof(err), "🛰️ *Nombre ambiguo*: @%s → %s", targetNames[i], candidates);
+                else
+                    snprintf(err, sizeof(err), "🛰️ *Nodo no encontrado*: @%s", targetNames[i]);
                 injectText(fromNum, to, channel, err, replyId, direct, c, 0, 0, 0);
             }
             return true;
@@ -1528,8 +1687,8 @@ bool MeshCoreCompanion::startTrace(const char *args, uint32_t fromNum, uint32_t 
     size_t totalHops = 0;
 
     for (size_t i = 0; i < targetCount; i++) {
-        hopHashes[totalHops] = targets[i]->pub[0];
-        cleanPathLabel(targets[i]->name, hopLabels[totalHops], sizeof(hopLabels[0]), sizeof(hopLabels[0]) - 1);
+        hopHashes[totalHops] = targets[i].hash;
+        cleanPathLabel(targets[i].name, hopLabels[totalHops], sizeof(hopLabels[0]), sizeof(hopLabels[0]) - 1);
         stripMeshCoreSuffix(hopLabels[totalHops]);
         totalHops++;
     }
@@ -1537,8 +1696,8 @@ bool MeshCoreCompanion::startTrace(const char *args, uint32_t fromNum, uint32_t 
     if (symmetric) {
         if (targetCount > 1) {
             for (size_t i = targetCount - 1; i > 0; i--) {
-                hopHashes[totalHops] = targets[i - 1]->pub[0];
-                cleanPathLabel(targets[i - 1]->name, hopLabels[totalHops], sizeof(hopLabels[0]), sizeof(hopLabels[0]) - 1);
+                hopHashes[totalHops] = targets[i - 1].hash;
+                cleanPathLabel(targets[i - 1].name, hopLabels[totalHops], sizeof(hopLabels[0]), sizeof(hopLabels[0]) - 1);
                 stripMeshCoreSuffix(hopLabels[totalHops]);
                 totalHops++;
             }
@@ -2101,16 +2260,9 @@ bool MeshCoreCompanion::nextReplayNode(size_t &cursor, MeshCoreNode &out) const
     return false;
 }
 
-MeshCoreNode *MeshCoreCompanion::learnRepeater(const uint8_t pub[32], const char *name)
+const MeshCoreRepeaterName *MeshCoreCompanion::learnRepeater(const uint8_t pub[32], const char *name, float snr, uint8_t hops)
 {
-    MeshCoreNode *n = nodes.upsert(pub);
-    if (n->type != MeshCoreNode::REPEATER)
-        n->nodeNum = 0; // a chat identity turned repeater takes the number repeaters get, from its key
-    n->type = MeshCoreNode::REPEATER;
-    n->setName(name);
-    if (n->nodeNum == 0)
-        nodes.assignNodeNum(n, MeshCoreNodeStore<1>::nodeNumForKey(pub), PSEUDO_NODE_NUM);
-    return n;
+    return repeaters.learn(pub, name, snr, hops);
 }
 
 void MeshCoreCompanion::noteAdvert(MeshCoreNode *n, uint32_t advertTime, int32_t latMicro, int32_t lonMicro, float snr,
@@ -2189,18 +2341,25 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
         return heard && advertTime != 0 && heard->lastAdvert == advertTime && info.path_hash_count >= heard->hops();
     };
     if (repeater) {
-        // A repeater is not someone to message: numbered from its key, and announced unmessagable.
-        const MeshCoreNode *known = nodes.find(payload);
-        if (isWorseCopy(known))
+        // A repeater is not someone to message: numbered from its key, announced unmessagable, and remembered only as far as
+        // a path needs. A key prefix and a short name prove nothing about who sent the advert, so every one is verified.
+        const uint32_t frameHash = MeshCoreRepeater::hashFrame(raw, len, info);
+        const MeshCoreRepeaterName *heard = nullptr;
+        const bool known = repeaters.findByPrefix(payload, MeshCoreRepeaterName::PREFIX_LEN, &heard, 1) > 0;
+        // The same advert flood reaches us once per route. A copy no closer than the one taken adds nothing, and would
+        // overwrite the better hops/SNR, re-announce the node and repeat the signature check.
+        if (known && wasRecentlySeen(frameHash) && info.path_hash_count >= heard->hops())
             return;
-        const bool trusted =
-            known && known->type == MeshCoreNode::REPEATER && strncmp(known->name, name, MeshCoreNode::NAME_LEN - 1) == 0;
-        if (!trusted && !MeshCoreRepeater::verifyAdvert(payload, info.payload_len))
+        if (!MeshCoreRepeater::verifyAdvert(payload, info.payload_len))
             return;
-        MeshCoreNode *n = learnRepeater(payload, name);
-        noteAdvert(n, advertTime, latMicro, lonMicro, snr, rssi, info.path_hash_count);
-        ensureSenderNode(n->nodeNum, n->name, false, n->pub, meshtastic_Config_DeviceConfig_Role_REPEATER, rx);
-        updatePosition(n->nodeNum, latMicro, lonMicro, rx);
+        rememberFrame(frameHash);
+        learnRepeater(payload, name, snr, info.path_hash_count);
+        const uint32_t num = MeshCoreNodeStore<1>::nodeNumForKey(payload);
+        const MeshCoreNode *owner = nodes.findByNodeNum(num);
+        if (num == PSEUDO_NODE_NUM || (owner && memcmp(owner->pub, payload, 32) != 0))
+            return; // a contact already has this number: the repeater is remembered, but not announced over it
+        ensureSenderNode(num, name, false, payload, meshtastic_Config_DeviceConfig_Role_REPEATER, rx);
+        updatePosition(num, latMicro, lonMicro, rx);
         return;
     }
 

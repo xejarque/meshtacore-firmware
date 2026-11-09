@@ -49,7 +49,7 @@ void test_round_trip_keeps_every_field()
 {
     Store store;
     MeshCoreNode *n = addNode(store, 0xA0, "Pepe");
-    n->type = MeshCoreNode::REPEATER;
+    n->type = MeshCoreNode::ROOM; // any type but a repeater, which no longer lives in this table (see the test below)
     n->outPathLen = 3;
     n->flags |= MeshCoreNode::HAS_OUT_PATH;
     n->outPath[0] = 0x11;
@@ -69,7 +69,7 @@ void test_round_trip_keeps_every_field()
     const MeshCoreNode *r = findNode(loaded, 0xA0);
     TEST_ASSERT_NOT_NULL(r);
     TEST_ASSERT_EQUAL_STRING("Pepe", r->name);
-    TEST_ASSERT_EQUAL_UINT8(MeshCoreNode::REPEATER, r->type);
+    TEST_ASSERT_EQUAL_UINT8(MeshCoreNode::ROOM, r->type);
     TEST_ASSERT_TRUE(r->isFavorite());
     TEST_ASSERT_EQUAL_UINT8(3, r->outPathLen);
     TEST_ASSERT_EQUAL_UINT8(0x33, r->outPath[2]);
@@ -198,6 +198,108 @@ void test_save_refuses_a_small_buffer()
     TEST_ASSERT_EQUAL_UINT32(0, MeshCoreNodeFile::save(store, image, sizeof(image)));
 }
 
+// --- repeater names: the tail of the file, written and read a record at a time ---
+
+using Repeaters = MeshCoreRepeaterNames<8>;
+
+static void learnRepeater(Repeaters &table, uint8_t first, const char *name, float snr, uint8_t hops)
+{
+    uint8_t pub[32];
+    makeKey(pub, first);
+    table.learn(pub, name, snr, hops);
+}
+
+// A repeater record keeps the key prefix, the short name, the signal and the hops through the round trip.
+void test_repeater_record_round_trips()
+{
+    Repeaters table;
+    learnRepeater(table, 0xA1, "Tetuan Repeater", -6.5f, 2);
+    uint8_t record[MeshCoreNodeFile::REPEATER_RECORD_LEN];
+    MeshCoreNodeFile::writeRepeaterRecord(record, *table.nthNewest(0));
+
+    Repeaters loaded;
+    TEST_ASSERT_TRUE(MeshCoreNodeFile::readRepeaterRecord(loaded, record));
+    const MeshCoreRepeaterName *r = loaded.nthNewest(0);
+    TEST_ASSERT_NOT_NULL(r);
+    TEST_ASSERT_EQUAL_HEX8(0xA1, r->prefix[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x22, r->prefix[1]);
+    char name[MeshCoreRepeaterName::NAME_LEN + 1];
+    r->copyName(name);
+    TEST_ASSERT_EQUAL_STRING("Tetuan R", name);
+    TEST_ASSERT_EQUAL_FLOAT(-6.5f, r->snr());
+    TEST_ASSERT_EQUAL_UINT8(2, r->hops());
+}
+
+// The file lists the repeaters oldest first and reads them in that order, so the one heard last is still the newest after a
+// reboot and the next one to be evicted is still the oldest.
+void test_repeaters_written_oldest_first_keep_their_order()
+{
+    Repeaters table;
+    learnRepeater(table, 0x01, "A", 1.0f, 1);
+    learnRepeater(table, 0x02, "B", 1.0f, 1);
+    learnRepeater(table, 0x03, "C", 1.0f, 1);
+    learnRepeater(table, 0x01, "A", 1.0f, 1); // A is now the newest
+
+    Repeaters loaded;
+    for (size_t rank = table.count(); rank-- > 0;) {
+        uint8_t record[MeshCoreNodeFile::REPEATER_RECORD_LEN];
+        MeshCoreNodeFile::writeRepeaterRecord(record, *table.nthNewest(rank));
+        TEST_ASSERT_TRUE(MeshCoreNodeFile::readRepeaterRecord(loaded, record));
+    }
+    for (size_t rank = 0; rank < 3; rank++)
+        TEST_ASSERT_EQUAL_HEX8(table.nthNewest(rank)->prefix[0], loaded.nthNewest(rank)->prefix[0]);
+}
+
+// A record with no key or no name names nothing, so a corrupt or erased tail adds nothing to the table.
+void test_a_repeater_record_that_names_nothing_is_dropped()
+{
+    Repeaters loaded;
+    uint8_t blank[MeshCoreNodeFile::REPEATER_RECORD_LEN] = {};
+    TEST_ASSERT_FALSE(MeshCoreNodeFile::readRepeaterRecord(loaded, blank));
+    uint8_t noName[MeshCoreNodeFile::REPEATER_RECORD_LEN] = {0xA1, 0x22, 0x22};
+    TEST_ASSERT_FALSE(MeshCoreNodeFile::readRepeaterRecord(loaded, noName));
+    TEST_ASSERT_EQUAL_UINT32(0, loaded.count());
+}
+
+// Earlier builds kept repeaters among the contacts. They are not brought back into the contact table, where they would take
+// the slots of people: they are learned again from the next advert.
+void test_repeaters_of_an_earlier_image_are_ignored()
+{
+    Store store;
+    addNode(store, 0xA0, "Friend");
+    MeshCoreNode *rpt = addNode(store, 0xA1, "Tower");
+    rpt->type = MeshCoreNode::REPEATER;
+
+    uint8_t image[MeshCoreNodeFile::IMAGE_MAX];
+    const size_t len = MeshCoreNodeFile::save(store, image, sizeof(image));
+    Store loaded;
+    TEST_ASSERT_EQUAL_UINT32(1, MeshCoreNodeFile::load(loaded, image, len));
+    TEST_ASSERT_NOT_NULL(findNode(loaded, 0xA0));
+    TEST_ASSERT_NULL(findNode(loaded, 0xA1));
+}
+
+// The contacts image is all the file's head takes: what follows it is the repeater tail, and an image of the previous version
+// (no tail) still loads.
+void test_image_length_stops_before_the_repeater_tail()
+{
+    Store store;
+    addNode(store, 0xA0, "Friend");
+    uint8_t image[MeshCoreNodeFile::IMAGE_MAX + 64];
+    const size_t len = MeshCoreNodeFile::save(store, image, MeshCoreNodeFile::IMAGE_MAX);
+    memset(&image[len], 0x7F, 64); // a tail
+    TEST_ASSERT_EQUAL_UINT32(len, MeshCoreNodeFile::imageLength(image, len + 64));
+
+    image[3] = MeshCoreNodeFile::PREVIOUS_VERSION;
+    Store loaded;
+    TEST_ASSERT_EQUAL_UINT32(1, MeshCoreNodeFile::load(loaded, image, len));
+    TEST_ASSERT_EQUAL_UINT32(len, MeshCoreNodeFile::imageLength(image, len));
+
+    image[3] = 9; // a version nobody wrote
+    TEST_ASSERT_EQUAL_UINT32(0, MeshCoreNodeFile::imageLength(image, len));
+    TEST_ASSERT_EQUAL_UINT32(0, MeshCoreNodeFile::imageLength(image, 3));
+    TEST_ASSERT_EQUAL_UINT32(0, MeshCoreNodeFile::imageLength(nullptr, 100));
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -210,6 +312,11 @@ void setup()
     RUN_TEST(test_route_longer_than_the_record_is_dropped);
     RUN_TEST(test_fingerprint_ignores_order_but_not_content);
     RUN_TEST(test_save_refuses_a_small_buffer);
+    RUN_TEST(test_repeater_record_round_trips);
+    RUN_TEST(test_repeaters_written_oldest_first_keep_their_order);
+    RUN_TEST(test_a_repeater_record_that_names_nothing_is_dropped);
+    RUN_TEST(test_repeaters_of_an_earlier_image_are_ignored);
+    RUN_TEST(test_image_length_stops_before_the_repeater_tail);
     exit(UNITY_END());
 }
 

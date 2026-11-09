@@ -1680,14 +1680,20 @@ void test_repeater_advert_is_stored_and_names_its_hop()
     TEST_ASSERT_GREATER_THAN(0, len);
     s.c.handleFrame(frame, len, 5, -60);
 
-    const MeshCoreNode *n = s.c.nodes.find(other.getAliasPub());
-    TEST_ASSERT_NOT_NULL(n);
-    TEST_ASSERT_EQUAL_UINT8(MeshCoreNode::REPEATER, n->type);
-    TEST_ASSERT_EQUAL_STRING("Montjuic RPT", n->name);
-    TEST_ASSERT_EQUAL_HEX32(MeshCoreNodeStore<1>::nodeNumForKey(other.getAliasPub()), n->nodeNum);
-    TEST_ASSERT_EQUAL_UINT32(1792521507, n->lastAdvert);
-    TEST_ASSERT_FALSE(s.c.hasContact(n->nodeNum));     // a repeater is listed, not messaged
-    TEST_ASSERT_NULL(nodeDB->getMeshNode(n->nodeNum)); // the capturing router never filed the announce
+    // A repeater is remembered as a key prefix and a short name in its own table, never in the contact table.
+    TEST_ASSERT_NULL(s.c.nodes.find(other.getAliasPub()));
+    TEST_ASSERT_EQUAL_UINT32(0, s.c.nodes.count());
+    const MeshCoreRepeaterName *r = nullptr;
+    TEST_ASSERT_EQUAL_UINT32(1, s.c.repeaterNames().findByPrefix(other.getAliasPub(), 3, &r, 1));
+    char name[MeshCoreRepeaterName::NAME_LEN + 1];
+    r->copyName(name);
+    TEST_ASSERT_EQUAL_STRING("Montjuic", name);
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, r->snr());
+    TEST_ASSERT_EQUAL_UINT8(0, r->hops()); // a flood from the node itself: no repeater crossed
+
+    const uint32_t num = MeshCoreNodeStore<1>::nodeNumForKey(other.getAliasPub());
+    TEST_ASSERT_FALSE(s.c.hasContact(num));     // a repeater is listed, not messaged
+    TEST_ASSERT_NULL(nodeDB->getMeshNode(num)); // the capturing router never filed the announce
 
     MeshCoreCompanion::HeardPath entry;
     entry.hopCount = 1;
@@ -1696,7 +1702,7 @@ void test_repeater_advert_is_stored_and_names_its_hop()
     memcpy(entry.path, other.getAliasPub(), 2);
     char body[256];
     TEST_ASSERT_TRUE(formatOneRoute(s.c, entry, nullptr, body, sizeof(body)) > 0);
-    TEST_ASSERT_NOT_NULL(strstr(body, "Montjuic RPT"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Montjuic"));
 }
 
 // The companion marks the node DB copies of its MeshCore peers so a full DB gives them up first (NodeDB eviction is tested in
@@ -1747,9 +1753,9 @@ void test_replay_walks_the_nodes_the_node_db_left_out()
         sawContact |= strcmp(n.name, "Evicted") == 0;
         sawRepeater |= strcmp(n.name, "Tower RPT") == 0;
     }
-    TEST_ASSERT_EQUAL_UINT32(2, found);
+    TEST_ASSERT_EQUAL_UINT32(1, found); // the contact the sync left out; the repeater has its own table and is not replayed
     TEST_ASSERT_TRUE(sawContact);
-    TEST_ASSERT_TRUE(sawRepeater);
+    TEST_ASSERT_FALSE(sawRepeater);
     TEST_ASSERT_FALSE(s.c.nextReplayNode(cursor, n)); // a finished walk stays finished
 }
 
@@ -2003,6 +2009,227 @@ void test_meshcore_drops_filter(void)
     TEST_ASSERT_FALSE(s.c.isDropped(badPrefix, 2));
 
     s.c.clearDrops();
+}
+
+// --- repeaters live in their own table: a key prefix and a short name, enough to name a hop ---
+
+struct RepeaterAdvert {
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    size_t len = 0;
+    uint8_t pub[32] = {};
+};
+
+// The ADVERT a repeater with the identity derived from seedByte floods, and the key it carries.
+static RepeaterAdvert makeRepeaterAdvert(const char *name, uint8_t seedByte, uint32_t timestamp = 1792521507)
+{
+    RepeaterAdvert a;
+    MeshCoreRepeater other;
+    uint8_t seed[32];
+    for (int i = 0; i < 32; i++)
+        seed[i] = (uint8_t)(seedByte ^ i);
+    while (!other.setIdentitySeed(seed))
+        seed[0]++;
+    a.len = other.buildAdvert(a.frame, sizeof(a.frame), name, timestamp, true, true);
+    memcpy(a.pub, other.getAliasPub(), 32);
+    return a;
+}
+
+static void giveIdentity(MeshCoreCompanion &c)
+{
+    uint8_t seed[32];
+    for (int i = 0; i < 32; i++)
+        seed[i] = (uint8_t)(0x5A ^ i);
+    uint8_t pub[32];
+    Ed25519::derivePublicKey(pub, seed);
+    c.setIdentity(seed, pub);
+}
+
+// A mountain full of repeaters must not push the people the user writes to out of the contact table, which is why the
+// repeaters were moved out of it. Regression guard: repeater adverts taking contact slots again.
+void test_repeater_adverts_never_take_a_contact_slot()
+{
+    GroupSetup s;
+    giveIdentity(s.c);
+    const uint8_t friendKey[32] = {0x71};
+    s.c.learnContact(friendKey, "Friend");
+    for (uint8_t i = 0; i < 6; i++) {
+        const RepeaterAdvert a = makeRepeaterAdvert("Rpt", (uint8_t)(0x10 + i * 7));
+        s.c.handleFrame(a.frame, a.len, 5, -60);
+    }
+    TEST_ASSERT_EQUAL_UINT32(1, s.c.nodes.count());
+    TEST_ASSERT_EQUAL_UINT32(6, s.c.repeaterNames().count());
+}
+
+// With only a prefix of the key kept, nothing but the signature proves who sent a repeater advert: a forged one under the
+// name and prefix of a known repeater must neither refresh it nor add one. Regression guard: trusting a known name and prefix.
+void test_repeater_advert_with_a_bad_signature_is_ignored()
+{
+    GroupSetup s;
+    giveIdentity(s.c);
+    RepeaterAdvert good = makeRepeaterAdvert("Tower", 0x30);
+    s.c.handleFrame(good.frame, good.len, 5, -60);
+    TEST_ASSERT_EQUAL_UINT32(1, s.c.repeaterNames().count());
+
+    RepeaterAdvert forged = makeRepeaterAdvert("Tower", 0x30, 1792521999);
+    forged.frame[46] ^= 0xFF; // a byte of the signature (2-byte header, 32-byte key, 4-byte time, then the signature)
+    s.c.handleFrame(forged.frame, forged.len, 9, -40);
+    TEST_ASSERT_EQUAL_UINT32(1, s.c.repeaterNames().count());
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, s.c.repeaterNames().nthNewest(0)->snr()); // not refreshed by the forgery
+
+    RepeaterAdvert other = makeRepeaterAdvert("Tower", 0x61);
+    other.frame[46] ^= 0xFF;
+    s.c.handleFrame(other.frame, other.len, 5, -60);
+    TEST_ASSERT_EQUAL_UINT32(1, s.c.repeaterNames().count()); // and a forged stranger is not added
+}
+
+// The same advert flood reaches the node once per route: a copy that is no closer is dropped before the signature check, and
+// a newer advert from the same repeater refreshes how it was heard.
+void test_repeater_advert_copy_is_dropped_and_a_new_advert_refreshes()
+{
+    GroupSetup s;
+    giveIdentity(s.c);
+    const RepeaterAdvert first = makeRepeaterAdvert("Tower", 0x30);
+    s.c.handleFrame(first.frame, first.len, 5, -60);
+    s.c.handleFrame(first.frame, first.len, 9, -40); // the same flood by another route
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, s.c.repeaterNames().nthNewest(0)->snr());
+
+    const RepeaterAdvert later = makeRepeaterAdvert("Tower", 0x30, 1792521507 + 3600);
+    s.c.handleFrame(later.frame, later.len, 9, -40);
+    TEST_ASSERT_EQUAL_UINT32(1, s.c.repeaterNames().count());
+    TEST_ASSERT_EQUAL_FLOAT(9.0f, s.c.repeaterNames().nthNewest(0)->snr());
+}
+
+// A repeater the node DB still holds is named by its whole name, not also by the short form the table keeps of it: that would
+// list one hop as two candidates ("Tetuan Repeater|Tetuan R").
+void test_path_hop_prefers_the_node_db_whole_name_over_the_short_one()
+{
+    GroupSetup s;
+    uint8_t pub[32];
+    memset(pub, 0x44, sizeof(pub));
+    pub[0] = 0xA1;
+    pub[1] = 0xB2;
+    s.c.learnRepeater(pub, "Tetuan Repeater");
+    meshtastic_NodeInfoLite *n = nodeDB->getOrCreateMeshNode(MeshCoreNodeStore<1>::nodeNumForKey(pub));
+    strncpy(n->long_name, "Tetuan Repeater", sizeof(n->long_name) - 1);
+    n->public_key.size = 32;
+    memcpy(n->public_key.bytes, pub, 32);
+
+    MeshCoreCompanion::HeardPath entry;
+    entry.hopCount = 1;
+    entry.hashSize = 2;
+    entry.routeType = 1;
+    memcpy(entry.path, pub, 2);
+    char body[256];
+    TEST_ASSERT_TRUE(formatOneRoute(s.c, entry, nullptr, body, sizeof(body)) > 0);
+    TEST_ASSERT_NOT_NULL(strstr(body, "Tetuan Rep"));
+    TEST_ASSERT_NULL(strstr(body, "|"));
+}
+
+// A one-byte hash shared by two repeaters names both, as for contacts.
+void test_path_hop_lists_the_repeaters_that_share_a_hash()
+{
+    GroupSetup s;
+    uint8_t a[32] = {0xA1, 0x01, 0x01};
+    uint8_t b[32] = {0xA1, 0x02, 0x02};
+    s.c.learnRepeater(a, "Nord");
+    s.c.learnRepeater(b, "Sud");
+    MeshCoreCompanion::HeardPath entry;
+    entry.hopCount = 1;
+    entry.hashSize = 1;
+    entry.routeType = 1;
+    entry.path[0] = 0xA1;
+    char body[256];
+    TEST_ASSERT_TRUE(formatOneRoute(s.c, entry, nullptr, body, sizeof(body)) > 0);
+    TEST_ASSERT_NOT_NULL(strstr(body, "Nord"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Sud"));
+}
+
+// A repeater named by what is kept of its name: the long name, or the first letters, finds its first key byte.
+void test_trace_names_a_repeater_by_its_short_name()
+{
+    GroupSetup s;
+    uint8_t pub[32] = {0xAB, 0xCD, 0xEF};
+    s.c.learnRepeater(pub, "Montseny Nord");
+    meshtastic_MeshPacket command = textPacket(0, 0x1234, "..trace @Montseny");
+    TEST_ASSERT_TRUE(s.c.handleTraceCommand(&command, false));
+    TEST_ASSERT_TRUE(s.c.activeTrace.active);
+    TEST_ASSERT_EQUAL_UINT8(1, s.c.activeTrace.totalHops);
+    TEST_ASSERT_EQUAL_HEX8(0xAB, s.c.activeTrace.hopHashes[0]);
+}
+
+// What is typed can also be the start of the key in hex: 2, 4 or 6 digits.
+void test_trace_names_a_repeater_by_the_start_of_its_key()
+{
+    uint8_t pub[32] = {0xAB, 0xCD, 0xEF};
+    const char *typed[] = {"..trace @ab", "..trace @abcd", "..trace @abcdef"};
+    for (const char *text : typed) {
+        GroupSetup s;
+        s.c.learnRepeater(pub, "Montseny Nord");
+        meshtastic_MeshPacket command = textPacket(0, 0x1234, text);
+        TEST_ASSERT_TRUE(s.c.handleTraceCommand(&command, false));
+        TEST_ASSERT_TRUE(s.c.activeTrace.active);
+        TEST_ASSERT_EQUAL_HEX8(0xAB, s.c.activeTrace.hopHashes[0]);
+    }
+}
+
+// A trace carries only the first byte of each hop, so two repeaters that share it are one target by hex, but two with the
+// same letters and different bytes are a guess the user is asked to settle: nothing is sent.
+void test_trace_asks_which_repeater_when_a_name_fits_several()
+{
+    GroupSetup s;
+    uint8_t a[32] = {0xAB, 0x01, 0x01};
+    uint8_t b[32] = {0xAC, 0x02, 0x02};
+    s.c.learnRepeater(a, "Montseny Nord");
+    s.c.learnRepeater(b, "Montseny Sud");
+
+    meshtastic_MeshPacket command = textPacket(0, 0x1234, "..trace @Montseny");
+    TEST_ASSERT_TRUE(s.c.handleTraceCommand(&command, false));
+    TEST_ASSERT_FALSE(s.c.activeTrace.active);
+    char body[256];
+    reportText(s.capture.received.back(), body, sizeof(body));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Nombre ambiguo"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "[ab0101]"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "[ac0202]"));
+}
+
+void test_trace_by_a_hex_byte_two_repeaters_share_uses_that_byte()
+{
+    GroupSetup s;
+    uint8_t a[32] = {0xAB, 0x01, 0x01};
+    uint8_t b[32] = {0xAB, 0x02, 0x02};
+    s.c.learnRepeater(a, "Montseny Nord");
+    s.c.learnRepeater(b, "Montseny Sud");
+    meshtastic_MeshPacket command = textPacket(0, 0x1234, "..trace @ab");
+    TEST_ASSERT_TRUE(s.c.handleTraceCommand(&command, false));
+    TEST_ASSERT_TRUE(s.c.activeTrace.active);
+    TEST_ASSERT_EQUAL_HEX8(0xAB, s.c.activeTrace.hopHashes[0]);
+}
+
+// ".mcl REPEATERS" and "NODE" read the repeater table: its names, a key prefix instead of a node number, the signal and
+// the hops, newest first.
+void test_repeater_listing_and_detail_come_from_the_repeater_table()
+{
+    GroupSetup s;
+    uint8_t older[32] = {0x55, 0x01};
+    uint8_t newer[32] = {0x55, 0x02};
+    s.c.learnRepeater(older, "OldTower", 1.0f, 3);
+    s.c.learnRepeater(newer, "NewTower", 4.5f, 2);
+
+    char list[256];
+    TEST_ASSERT_TRUE(s.c.formatNodeList(MeshCoreNode::REPEATER, list, sizeof(list)) > 0);
+    TEST_ASSERT_NOT_NULL(strstr(list, "Repeaters (2)"));
+    TEST_ASSERT_NOT_NULL(strstr(list, "NewTower [550200] 2h SNR:4.5"));
+    TEST_ASSERT_TRUE(strstr(list, "NewTower") < strstr(list, "OldTower")); // newest first
+
+    char contacts[128];
+    s.c.formatNodeList(MeshCoreNode::CHAT, contacts, sizeof(contacts));
+    TEST_ASSERT_NOT_NULL(strstr(contacts, "no Contacts"));
+
+    char detail[128];
+    TEST_ASSERT_TRUE(s.c.formatNodeDetail("NewTower", detail, sizeof(detail)));
+    TEST_ASSERT_NOT_NULL(strstr(detail, "REPEATER"));
+    TEST_ASSERT_NOT_NULL(strstr(detail, "hops:2"));
+    TEST_ASSERT_FALSE(s.c.formatNodeDetail("Nobody", detail, sizeof(detail)));
 }
 
 void test_meshcore_node_listing(void)
@@ -2423,6 +2650,16 @@ void setup()
     RUN_TEST(test_trace_timeout_handling);
     RUN_TEST(test_meshcore_drops_filter);
     RUN_TEST(test_meshcore_node_listing);
+    RUN_TEST(test_repeater_adverts_never_take_a_contact_slot);
+    RUN_TEST(test_repeater_advert_with_a_bad_signature_is_ignored);
+    RUN_TEST(test_repeater_advert_copy_is_dropped_and_a_new_advert_refreshes);
+    RUN_TEST(test_path_hop_prefers_the_node_db_whole_name_over_the_short_one);
+    RUN_TEST(test_path_hop_lists_the_repeaters_that_share_a_hash);
+    RUN_TEST(test_trace_names_a_repeater_by_its_short_name);
+    RUN_TEST(test_trace_names_a_repeater_by_the_start_of_its_key);
+    RUN_TEST(test_trace_asks_which_repeater_when_a_name_fits_several);
+    RUN_TEST(test_trace_by_a_hex_byte_two_repeaters_share_uses_that_byte);
+    RUN_TEST(test_repeater_listing_and_detail_come_from_the_repeater_table);
     RUN_TEST(test_meshcore_heard_find_by_from);
     RUN_TEST(test_meshcore_format_route_line_bounds);
     RUN_TEST(test_a_path_longer_than_the_hop_fields_does_not_reannounce_every_frame);

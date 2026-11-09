@@ -146,6 +146,9 @@ static constexpr uint32_t MESHCORE_ADVERT_RETRY_MS = 60 * 1000;           // no 
 static constexpr uint32_t MESHCORE_ADVERT_NUDGE_MS = 1000;                // radio busy: ask again
 static constexpr uint32_t MESHCORE_SERVICE_MS = 5 * 1000;                 // longest wait between housekeeping steps
 static constexpr uint32_t MESHCORE_CONTACTS_SAVE_MIN_MS = 60 * 60 * 1000; // flash wear: at most one save per hour
+// Repeater names change all the time (every advert heard from a new one) and are relearned from the next advert, so they only
+// earn a flash write now and then. The file is rewritten whole, contacts included, whichever of the two asked for it.
+static constexpr uint32_t MESHCORE_REPEATERS_SAVE_MIN_MS = 3 * 60 * 60 * 1000; // at most one save per 3 hours for them
 static constexpr uint32_t MESHCORE_TX_POLL_MS = 100;                      // a raw frame is on air: look again for a lost TX-done
 
 /** Runs RadioLibInterface::meshCoreAdvertTick() on its own schedule. */
@@ -291,22 +294,37 @@ static const char *meshCoreContactsPath = "/prefs/meshcore_contacts.bin";
 static void loadMeshCoreContacts()
 {
 #ifdef FSCom
+    // The contacts image is read whole and the repeater names after it one record at a time: the loop stack of a small board
+    // has no room for a table's worth of them.
     uint8_t image[MeshCoreNodeFile::IMAGE_MAX];
     size_t n = 0;
+    size_t used = 0;
+    size_t repeatersLoaded = 0;
     {
         concurrency::LockGuard g(spiLock);
         auto f = FSCom.open(meshCoreContactsPath, FILE_O_READ);
         if (!f)
             return;
-        n = f.size() <= sizeof(image) ? f.read(image, f.size()) : 0;
+        const size_t fileSize = f.size();
+        n = f.read(image, fileSize < sizeof(image) ? fileSize : sizeof(image));
+        used = MeshCoreNodeFile::imageLength(image, n);
+        if (used && used < fileSize && image[3] == MeshCoreNodeFile::VERSION && f.seek(used)) {
+            uint8_t count = 0;
+            if (f.read(&count, 1) == 1) {
+                uint8_t record[MeshCoreNodeFile::REPEATER_RECORD_LEN];
+                for (uint8_t i = 0; i < count && f.read(record, sizeof(record)) == sizeof(record); i++)
+                    if (meshCoreCompanion.restoreRepeater(record))
+                        repeatersLoaded++;
+            }
+        }
         f.close();
     }
-    const size_t loaded = meshCoreCompanion.importContacts(image, n);
-    LOG_INFO("MeshCore nodes: %u restored from flash", (unsigned)loaded);
+    const size_t loaded = meshCoreCompanion.importContacts(image, used);
+    LOG_INFO("MeshCore nodes: %u contacts and %u repeaters restored from flash", (unsigned)loaded, (unsigned)repeatersLoaded);
 #endif
 }
 
-// False when the file was not replaced, so the caller keeps the old fingerprint and tries again at the next window.
+// False when the file was not replaced, so the caller keeps the old fingerprints and tries again at the next window.
 static bool saveMeshCoreContacts()
 {
 #ifdef FSCom
@@ -316,6 +334,26 @@ static bool saveMeshCoreContacts()
         return true; // nothing worth keeping, nothing to retry
     SafeFile out(meshCoreContactsPath, true); // atomic replace
     out.write(image, n);
+
+    // The repeater names, oldest first so that reading them back in order leaves the newest the most recent, a few records
+    // at a time.
+    const MeshCoreCompanion::RepeaterTable &names = meshCoreCompanion.repeaterNames();
+    const size_t total = names.count() < MeshCoreNodeFile::REPEATERS_SAVED_MAX ? names.count() : MeshCoreNodeFile::REPEATERS_SAVED_MAX;
+    const uint8_t count = (uint8_t)total;
+    out.write(&count, 1);
+    constexpr size_t BATCH = 8;
+    uint8_t batch[BATCH * MeshCoreNodeFile::REPEATER_RECORD_LEN];
+    size_t inBatch = 0;
+    for (size_t rank = total; rank-- > 0;) {
+        const MeshCoreRepeaterName *e = names.nthNewest(rank);
+        if (!e)
+            continue;
+        MeshCoreNodeFile::writeRepeaterRecord(&batch[inBatch++ * MeshCoreNodeFile::REPEATER_RECORD_LEN], *e);
+        if (inBatch == BATCH || rank == 0) {
+            out.write(batch, inBatch * MeshCoreNodeFile::REPEATER_RECORD_LEN);
+            inBatch = 0;
+        }
+    }
     if (!out.close()) {
         LOG_WARN("MeshCore contacts: could not save %s", meshCoreContactsPath);
         return false;
@@ -362,16 +400,25 @@ uint32_t RadioLibInterface::meshCoreServiceTick()
         meshCoreContactsLoaded = true;
         loadMeshCoreContacts();
         meshCoreContactsFingerprint = meshCoreCompanion.contactsFingerprint();
+        meshCoreRepeatersFingerprint = meshCoreCompanion.repeatersFingerprint();
         lastMeshCoreContactsSaveMs = millis();
     }
 
     meshCoreCompanion.service();
 
-    if (meshCoreContactsLoaded && Throttle::hasElapsed(lastMeshCoreContactsSaveMs, MESHCORE_CONTACTS_SAVE_MIN_MS)) {
-        const uint32_t fingerprint = meshCoreCompanion.contactsFingerprint();
-        if (fingerprint != meshCoreContactsFingerprint) {
-            if (saveMeshCoreContacts())
-                meshCoreContactsFingerprint = fingerprint;
+    if (meshCoreContactsLoaded) {
+        const uint32_t contacts = meshCoreCompanion.contactsFingerprint();
+        const uint32_t repeaters = meshCoreCompanion.repeatersFingerprint();
+        // A change to the contacts waits for its window; one to the repeater names alone waits for the longer one.
+        const bool due = (contacts != meshCoreContactsFingerprint &&
+                          Throttle::hasElapsed(lastMeshCoreContactsSaveMs, MESHCORE_CONTACTS_SAVE_MIN_MS)) ||
+                         (repeaters != meshCoreRepeatersFingerprint &&
+                          Throttle::hasElapsed(lastMeshCoreContactsSaveMs, MESHCORE_REPEATERS_SAVE_MIN_MS));
+        if (due) {
+            if (saveMeshCoreContacts()) {
+                meshCoreContactsFingerprint = contacts;
+                meshCoreRepeatersFingerprint = repeaters;
+            }
             lastMeshCoreContactsSaveMs = millis();
         }
     }

@@ -1,20 +1,30 @@
 #pragma once
 
 #include "MeshCoreNodeStore.h"
+#include "MeshCoreRepeaterNames.h"
 
 /**
  * The image of the few MeshCore nodes kept across a reboot (favourites, then conversations, then the rest), and the
  * migration from the contacts file written before the node store existed.
+ *
+ * The file is that image, then optionally the repeater names: a count byte and that many 13-byte records, oldest first, so
+ * that reading them in order leaves the newest the most recent. The caller writes and reads that tail in pieces (the loop
+ * stack of a small board cannot hold a table's worth of records), so this file only describes its records.
  */
 namespace MeshCoreNodeFile
 {
 static constexpr size_t SAVED_MAX = 16;
 
 static constexpr uint8_t MAGIC[3] = {'M', 'C', 'N'};
-static constexpr uint8_t VERSION = 2;
+static constexpr uint8_t VERSION = 3; // 3: repeater names may follow the contacts; the contacts are laid out as in 2
+static constexpr uint8_t PREVIOUS_VERSION = 2;
 static constexpr size_t HEADER_LEN = 5;
 static constexpr size_t RECORD_LEN = 32 + MeshCoreNode::NAME_LEN + 3 + MeshCoreNode::MAX_PATH_HOPS + 4 * 4;
 static constexpr size_t IMAGE_MAX = HEADER_LEN + SAVED_MAX * RECORD_LEN;
+
+/// A repeater name on disk: key prefix, name, SNR in quarter dB, hops plus one. The saved count is one byte.
+static constexpr size_t REPEATER_RECORD_LEN = MeshCoreRepeaterName::PREFIX_LEN + MeshCoreRepeaterName::NAME_LEN + 2;
+static constexpr size_t REPEATERS_SAVED_MAX = 255;
 
 // The contacts file before the node store: public key and a 40-byte name per record.
 static constexpr uint8_t LEGACY_MAGIC[3] = {'M', 'C', 'C'};
@@ -35,6 +45,32 @@ inline const uint8_t *getU32(const uint8_t *p, uint32_t *v)
     for (int i = 0; i < 4; i++)
         *v |= (uint32_t)*p++ << (8 * i);
     return p;
+}
+
+inline void writeRepeaterRecord(uint8_t *p, const MeshCoreRepeaterName &e)
+{
+    memcpy(p, e.prefix, MeshCoreRepeaterName::PREFIX_LEN);
+    p += MeshCoreRepeaterName::PREFIX_LEN;
+    memcpy(p, e.name, MeshCoreRepeaterName::NAME_LEN);
+    p += MeshCoreRepeaterName::NAME_LEN;
+    *p++ = (uint8_t)e.snrQuarter;
+    *p = e.hopsPlusOne;
+}
+
+/// Restore one record into the table. A record with no key or no name names nothing and is dropped.
+template <size_t N> bool readRepeaterRecord(MeshCoreRepeaterNames<N> &table, const uint8_t *p)
+{
+    const uint8_t *name = p + MeshCoreRepeaterName::PREFIX_LEN;
+    bool keyed = false, named = false;
+    for (size_t i = 0; i < MeshCoreRepeaterName::PREFIX_LEN; i++)
+        keyed |= p[i] != 0;
+    for (size_t i = 0; i < MeshCoreRepeaterName::NAME_LEN; i++)
+        named |= name[i] != 0;
+    if (!keyed || !named)
+        return false;
+    const uint8_t *tail = name + MeshCoreRepeaterName::NAME_LEN;
+    table.restore(p, (const char *)name, (int8_t)tail[0], tail[1]);
+    return true;
 }
 
 inline void writeRecord(uint8_t *p, const MeshCoreNode &n)
@@ -101,14 +137,18 @@ template <size_t N> size_t loadCurrent(MeshCoreNodeStore<N> &store, const uint8_
     if (count > SAVED_MAX || len != HEADER_LEN + count * RECORD_LEN)
         return 0;
     // Best first on disk: load the worst first so the best ends up the most recent, and the save order survives.
+    size_t loaded = 0;
     for (size_t i = count; i-- > 0;) {
         const uint8_t *rec = &buf[HEADER_LEN + i * RECORD_LEN];
+        if (rec[32 + MeshCoreNode::NAME_LEN] == MeshCoreNode::REPEATER)
+            continue; // an earlier build kept repeaters here; they have their own table now and are learned again
         MeshCoreNode *n = store.upsert(rec);
         readRecord(rec, n);
         if (n->hadDm())
             store.noteDirectMessage(n);
+        loaded++;
     }
-    return count;
+    return loaded;
 }
 
 /// Contacts from the old file come in as chat nodes with no node number yet: the companion assigns one.
@@ -149,12 +189,26 @@ template <size_t N> uint32_t fingerprint(const MeshCoreNodeStore<N> &store)
     return sum ^ (uint32_t)count;
 }
 
+/// How many bytes of the file the nodes image takes, 0 when it does not start with one. What follows it, in a file of the
+/// current version, is the repeater names.
+inline size_t imageLength(const uint8_t *buf, size_t len)
+{
+    if (!buf || len < HEADER_LEN)
+        return 0;
+    const size_t count = buf[4];
+    if (memcmp(buf, MAGIC, sizeof(MAGIC)) == 0 && (buf[3] == VERSION || buf[3] == PREVIOUS_VERSION))
+        return count <= SAVED_MAX && len >= HEADER_LEN + count * RECORD_LEN ? HEADER_LEN + count * RECORD_LEN : 0;
+    if (memcmp(buf, LEGACY_MAGIC, sizeof(LEGACY_MAGIC)) == 0 && buf[3] == LEGACY_VERSION)
+        return count <= SAVED_MAX && len >= HEADER_LEN + count * LEGACY_RECORD_LEN ? HEADER_LEN + count * LEGACY_RECORD_LEN : 0;
+    return 0;
+}
+
 /// Load an image of either version into the store. Returns how many nodes it held, 0 when it is not one.
 template <size_t N> size_t load(MeshCoreNodeStore<N> &store, const uint8_t *buf, size_t len)
 {
     if (!buf || len < HEADER_LEN)
         return 0;
-    if (memcmp(buf, MAGIC, sizeof(MAGIC)) == 0 && buf[3] == VERSION)
+    if (memcmp(buf, MAGIC, sizeof(MAGIC)) == 0 && (buf[3] == VERSION || buf[3] == PREVIOUS_VERSION))
         return loadCurrent(store, buf, len);
     if (memcmp(buf, LEGACY_MAGIC, sizeof(LEGACY_MAGIC)) == 0 && buf[3] == LEGACY_VERSION)
         return loadLegacy(store, buf, len);

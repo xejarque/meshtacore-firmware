@@ -676,6 +676,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
 
   private:
     uint32_t meshCoreContactsFingerprint = 0; // of what is on flash, so a save happens only on a change
+    uint32_t meshCoreRepeatersFingerprint = 0; // same for the repeater names saved in that file
     uint32_t lastMeshCoreContactsSaveMs = 0;
     bool meshCoreContactsLoaded = false;
 

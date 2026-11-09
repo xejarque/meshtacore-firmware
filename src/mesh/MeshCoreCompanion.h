@@ -9,6 +9,7 @@
 #include "MeshCoreNodeFile.h"
 #include "MeshCoreNodeStore.h"
 #include "MeshCoreRepeater.h"
+#include "MeshCoreRepeaterNames.h"
 #include "MeshCoreSecretCache.h"
 #include "MeshTypes.h"
 #include "memory/MemClass.h"
@@ -351,8 +352,17 @@ class MeshCoreCompanion
     /// past it. False when the walk is done.
     bool nextReplayNode(size_t &cursor, MeshCoreNode &out) const;
 
-    /// Learn or refresh a repeater, numbered from its public key.
-    MeshCoreNode *learnRepeater(const uint8_t pub[32], const char *name);
+    /// Remember a repeater heard now: the start of its key, a short name and how it was heard, which is all a path needs to
+    /// name a hop. Repeaters are not contacts, so they never take a slot of the contact table.
+    const MeshCoreRepeaterName *learnRepeater(const uint8_t pub[32], const char *name, float snr = 0.0f,
+                                              uint8_t hops = MeshCoreRepeaterName::HOPS_UNKNOWN);
+
+    using RepeaterTable = MeshCoreRepeaterNames<MESHCORE_REPEATER_NAMES_MAX>;
+    const RepeaterTable &repeaterNames() const { return repeaters; }
+    /// Restore one saved repeater record (MeshCoreNodeFile::REPEATER_RECORD_LEN bytes). False when it names nothing.
+    bool restoreRepeater(const uint8_t *record) { return MeshCoreNodeFile::readRepeaterRecord(repeaters, record); }
+    /// Changes when the set of repeaters or a name does, not when one is heard again.
+    uint32_t repeatersFingerprint() const { return repeaters.fingerprint(); }
 
     /// Queue a TXT_MSG for the contact behind nodeNum and wait for a repeater to re-flood it, then for its ACK, answering
     /// packetId to the client. text is cut to MAX_TEXT_LEN on a UTF-8 boundary. False if not queued.
@@ -439,6 +449,8 @@ class MeshCoreCompanion
     static constexpr size_t SECRETS_MAX = 32;
     MeshCoreSecretCache<SECRETS_MAX> secrets;
 
+    RepeaterTable repeaters;
+
     /// The ECDH secret shared with n, derived on a cache miss; null without an identity or for a bad key.
     const uint8_t *secretFor(const MeshCoreNode &n);
     MeshCoreNode *contactByPub(const uint8_t pub[32]);
@@ -470,6 +482,18 @@ class MeshCoreCompanion
     /// a node DB eviction. Duplicates (the same node listed twice) collapse, so an ambiguous hash still shows names.
     /// Returns the total found; up to max names are written to out.
     size_t pathHopNames(const uint8_t *hash, uint8_t size, const char **out, size_t max) const;
+    /// Terminated copies of the repeater names pathHopNames() returns: valid until its next call, which is how they are used.
+    mutable char hopNameScratch[3][MeshCoreRepeaterName::NAME_LEN + 1];
+
+    /// Who a trace target names: all a trace needs of it is the first byte of its key and a name to report.
+    struct TraceTarget {
+        uint8_t hash = 0;
+        char name[MeshCoreNode::NAME_LEN] = {};
+    };
+    enum class TargetLookup : uint8_t { FOUND, NOT_FOUND, AMBIGUOUS };
+    /// A contact by name or number, a repeater by name, or a repeater by the start of its key in hex (2, 4 or 6 digits). When
+    /// several repeaters answer to it, they are listed in candidates and nothing is chosen for the user.
+    TargetLookup resolveTraceTarget(const char *typed, TraceTarget &out, char *candidates, size_t candidatesCap) const;
 
     /// Everything injectReportChunk() needs to send one report piece as a text from the right sender.
     struct ReportInject {
