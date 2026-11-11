@@ -263,6 +263,32 @@ template <size_t N> class MeshCoreRepeaterNames
         return nullptr;
     }
 
+    /// Stamps are unique, so the table can be walked by recency one O(N) step at a time with no sorted copy: start from
+    /// newest() (or nthNewest()) and follow nextOlder() / nextNewer() until null.
+    const Entry *newest() const { return nextOlder(NO_STAMP_ABOVE); }
+
+    /// The repeater heard just before the one stamped `heard`, or null if none is older.
+    const Entry *nextOlder(uint32_t heard) const
+    {
+        const Entry *best = nullptr;
+        for (const Entry &e : entries) {
+            if (e.heard && e.heard < heard && (!best || e.heard > best->heard))
+                best = &e;
+        }
+        return best;
+    }
+
+    /// The repeater heard just after the one stamped `heard`, or null if none is newer.
+    const Entry *nextNewer(uint32_t heard) const
+    {
+        const Entry *best = nullptr;
+        for (const Entry &e : entries) {
+            if (e.heard > heard && (!best || e.heard < best->heard))
+                best = &e;
+        }
+        return best;
+    }
+
     /// Changes when the set of repeaters or a name changes, not when one is merely heard again: only that is worth a flash
     /// write.
     uint32_t fingerprint() const
@@ -293,6 +319,7 @@ template <size_t N> class MeshCoreRepeaterNames
   private:
     Entry entries[N];
     uint16_t clock = 0;
+    static constexpr uint32_t NO_STAMP_ABOVE = 0x10000; // above every 16-bit stamp
 
     static size_t nameLength(const Entry &e)
     {

@@ -1447,10 +1447,8 @@ size_t MeshCoreCompanion::formatNodeList(uint8_t typeFilter, char *out, size_t c
         });
     }
     // Newest first. A repeater is kept as a key prefix and a short name, so it has no RSSI to show.
-    for (size_t rank = 0; wantRepeaters && len < cap - 1; rank++) {
-        const MeshCoreRepeaterName *r = repeaters.nthNewest(rank);
-        if (!r)
-            break;
+    for (const MeshCoreRepeaterName *r = wantRepeaters ? repeaters.newest() : nullptr; r && len < cap - 1;
+         r = repeaters.nextOlder(r->heard)) {
         char name[MeshCoreRepeaterName::NAME_LEN + 1];
         r->copyName(name);
         char route[16];

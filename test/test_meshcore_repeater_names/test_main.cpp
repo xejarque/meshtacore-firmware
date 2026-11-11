@@ -300,6 +300,29 @@ void test_newest_first_orders_by_recency_and_cuts_at_the_limit()
     TEST_ASSERT_TRUE(nameIs(out[1], "C"));
 }
 
+// Walking by recency one step at a time visits every repeater once, in the same order as the ranks.
+void test_recency_walk_matches_the_ranks()
+{
+    MeshCoreRepeaterNames<4> t;
+    hear(t, 0x01, "A");
+    hear(t, 0x02, "B");
+    hear(t, 0x03, "C");
+    hear(t, 0x01, "A"); // A is now the newest
+
+    const MeshCoreRepeaterName *r = t.newest();
+    for (size_t rank = 0; rank < 3; rank++, r = t.nextOlder(r->heard))
+        TEST_ASSERT_EQUAL_PTR(t.nthNewest(rank), r);
+    TEST_ASSERT_NULL(r);
+
+    r = t.nthNewest(2);
+    TEST_ASSERT_TRUE(nameIs(r, "B"));
+    r = t.nextNewer(r->heard);
+    TEST_ASSERT_TRUE(nameIs(r, "C"));
+    r = t.nextNewer(r->heard);
+    TEST_ASSERT_TRUE(nameIs(r, "A"));
+    TEST_ASSERT_NULL(t.nextNewer(r->heard));
+}
+
 // --- restore: loading a saved table ---
 
 // Restored oldest first, the entries keep the saved order: the last restored is the newest. A repeater restored twice is
@@ -438,6 +461,7 @@ void setup()
     RUN_TEST(test_name_lookup_by_prefix_reports_ambiguity);
     RUN_TEST(test_name_lookup_does_not_match_a_shorter_name);
     RUN_TEST(test_newest_first_orders_by_recency_and_cuts_at_the_limit);
+    RUN_TEST(test_recency_walk_matches_the_ranks);
     RUN_TEST(test_restore_keeps_the_order_it_is_given_and_does_not_duplicate);
     RUN_TEST(test_restore_is_not_heard_this_boot);
     RUN_TEST(test_learn_keeps_node_number_type_and_when);

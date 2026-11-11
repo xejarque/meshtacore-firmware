@@ -375,12 +375,12 @@ static bool saveMeshCoreContacts()
     constexpr size_t BATCH = 4;
     uint8_t batch[BATCH * RECORD_LEN];
     size_t inBatch = 0;
-    for (size_t rank = total; rank-- > 0;) {
-        const MeshCoreRepeaterName *e = names.nthNewest(rank);
-        if (!e)
-            continue;
+    // The oldest one kept is found once; from there each newer one is a single pass, not a rank search per record.
+    const MeshCoreRepeaterName *e = total ? names.nthNewest(total - 1) : nullptr;
+    for (size_t written = 0; e && written < total; e = names.nextNewer(e->heard)) {
         MeshCoreNodeFile::writeRepeaterRecord(&batch[inBatch++ * RECORD_LEN], *e);
-        if (inBatch == BATCH || rank == 0) {
+        written++;
+        if (inBatch == BATCH || written == total) {
             out.write(batch, inBatch * RECORD_LEN);
             inBatch = 0;
         }
