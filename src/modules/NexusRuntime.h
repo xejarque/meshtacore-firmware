@@ -75,28 +75,38 @@ template <typename Vault> bool decodeVault(Vault &out, size_t fileSize, size_t b
 }
 
 template <typename FS, typename ReadMode, typename WriteMode>
-bool writeVault(FS &fs, const void *image, size_t size, ReadMode readMode, WriteMode writeMode)
+bool writeAndVerify(FS &fs, const char *path, const uint8_t *bytes, size_t size, ReadMode readMode, WriteMode writeMode)
 {
-    constexpr const char *TEMP = "/nexus.bin.tmp";
-    if (fs.exists(TEMP) && !fs.remove(TEMP))
-        return false;
-    auto file = fs.open(TEMP, writeMode);
+    auto file = fs.open(path, writeMode);
     if (!file)
         return false;
-    const auto *bytes = static_cast<const uint8_t *>(image);
-    size_t written = file.write(bytes, size);
+    const size_t written = file.write(bytes, size);
     file.close();
     if (written != size)
         return false;
-    auto check = fs.open(TEMP, readMode);
+    auto check = fs.open(path, readMode);
     if (!check)
         return false;
     bool valid = check.size() == size;
     for (size_t i = 0; valid && i < size; ++i)
         valid = check.read() == bytes[i];
     check.close();
+    return valid;
+}
+
+template <typename FS, typename ReadMode, typename WriteMode>
+bool writeVault(FS &fs, const void *image, size_t size, ReadMode readMode, WriteMode writeMode)
+{
+    constexpr const char *TEMP = "/nexus.bin.tmp";
+    if (fs.exists(TEMP) && !fs.remove(TEMP))
+        return false;
     // The existing cross-platform SafeFile path uses the same atomic rename.
-    return valid && fs.rename(TEMP, "/nexus.bin");
+    if (writeAndVerify(fs, TEMP, static_cast<const uint8_t *>(image), size, readMode, writeMode) && fs.rename(TEMP, "/nexus.bin"))
+        return true;
+    // A failed tmp is removed: on a small LittleFS its blocks would starve every other save until the next vault write.
+    if (fs.exists(TEMP))
+        fs.remove(TEMP);
+    return false;
 }
 
 template <size_t Capacity> class ReplayRing

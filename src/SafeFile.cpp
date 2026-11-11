@@ -93,14 +93,19 @@ bool SafeFile::close()
     f.close();
     spiLock->unlock();
 
-    if (!testReadback())
+    // A failed tmp is removed: on a small LittleFS its blocks would starve every other save until the next write of
+    // this file.
+    if (!testReadback()) {
+        abort();
         return false;
+    }
 
     // Rename or overwrite (atomic operation)
     String filenameTmp = filename;
     filenameTmp += ".tmp";
     if (!renameFile(filenameTmp.c_str(), filename.c_str())) {
         LOG_ERROR("Can't rename new pref file");
+        abort();
         return false;
     }
 
