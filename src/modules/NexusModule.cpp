@@ -847,7 +847,7 @@ int NexusModule::onInputEvent(const InputEvent *event) {
         LOG_INFO("MTC: Tactical Button Trigger detected!");
 
         // 1. Generate Tactical Report
-        char report[200];
+        char report[NEXUS_MAX_REPLY];
         int len = 0;
 
         auto node = nodeDB->getMeshNode(nodeDB->getNodeNum());
@@ -1626,6 +1626,14 @@ void NexusModule::applyBS(meshtastic_Telemetry *m) {
 static const char *const SCOPE_REFUSED_MT = "MESHTACORE: /mt does not accept MESHCORE, use /mc";
 static const char *const SCOPE_TOO_LONG = "MESHTACORE: command too long";
 
+// Holds the root of the command being dispatched in activeScope and puts the previous one back on the way out.
+struct ScopeGuard {
+    CmdScope &slot;
+    const CmdScope previous;
+    ScopeGuard(CmdScope &target, CmdScope scope) : slot(target), previous(target) { slot = scope; }
+    ~ScopeGuard() { slot = previous; }
+};
+
 // Why applyCommandScope refused: /mt does not take MeshCore commands, and a /mc body can be too long for the scope buffer.
 static const char *scopeRefusalText(CmdScope scope)
 {
@@ -1895,7 +1903,7 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                         }
 
                         // Static buffer (BSS, not stack).
-                        static char rMsg[200];
+                        static char rMsg[NEXUS_MAX_REPLY];
                         memset(rMsg, 0, sizeof(rMsg));
 
                 int l = 0;
@@ -2190,7 +2198,10 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                                 return ProcessMessage::CONTINUE;
                             }
                             LOG_INFO("MTC: Targeted command for us (kind=%u): %s", (unsigned)kind, finalCmd);
-                            handleNexusCommand(mp, finalCmd, isGroup, mp.id, false);
+                            {
+                                const ScopeGuard guard(activeScope, scope);
+                                handleNexusCommand(mp, finalCmd, isGroup, mp.id, false);
+                            }
                         }
                         return ProcessMessage::CONTINUE;
                     }
@@ -2201,7 +2212,10 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                         const char *finalCmd = applyCommandScope(scope, cmdStart, scopeCmd, sizeof(scopeCmd));
                         if (!finalCmd) // a broadcast refusal stays silent: every node on the channel would answer
                             return ProcessMessage::CONTINUE;
-                        handleNexusCommand(mp, finalCmd, true, mp.id, false);
+                        {
+                            const ScopeGuard guard(activeScope, scope);
+                            handleNexusCommand(mp, finalCmd, true, mp.id, false);
+                        }
                         return ProcessMessage::CONTINUE;
                     }
                 } else {
@@ -2321,6 +2335,7 @@ ProcessMessage NexusModule::handleLocal(const meshtastic_MeshPacket &mp) {
         sendToPhone(local.from, mp.channel, mp.id, scopeRefusalText(scope), strlen(scopeRefusalText(scope)));
         return ProcessMessage::STOP;
     }
+    const ScopeGuard guard(activeScope, scope);
     handleNexusCommand(local, finalTail, false, mp.id, true);
     return ProcessMessage::STOP;
 }
@@ -2556,6 +2571,7 @@ int32_t NexusModule::runOnce() {
     if (paging_ptr == 0 && pagingWindow.hasMore() && pagingCommand[0] && !pagingRendering) {
         pagingOffset = pagingWindow.end();
         pagingRendering = true;
+        const ScopeGuard guard(activeScope, pagingScope);
         handleNexusCommand(pagingRequest, pagingCommand, pagingIsBroadcast, paging_reply_id, pagingReply.phoneOnly);
         pagingRendering = false;
     }
@@ -2563,16 +2579,30 @@ int32_t NexusModule::runOnce() {
         char partBuf[NEXUS_MAX_REPLY];
         int headerLen = snprintf(partBuf, sizeof(partBuf), "P%d: ", paging_part + 1);
         size_t take = std::min<size_t>(paging_ptr, NEXUS_MAX_REPLY_BODY - headerLen);
-        // Keep UTF-8 code points in a single transport packet.
-        if (take < paging_ptr)
-            while (take && (static_cast<uint8_t>(paging_buf[take]) & 0xC0) == 0x80)
-                --take;
+        size_t consumed = take;
+        if (take < paging_ptr) {
+            // Cut at the end of a line so no entry is split between two messages; the newline itself is not sent.
+            size_t lineEnd = take;
+            while (!pagingRawBytes && lineEnd > 0 && paging_buf[lineEnd] != '\n')
+                --lineEnd;
+            if (!pagingRawBytes && lineEnd > 0) {
+                take = lineEnd;
+                consumed = lineEnd + 1;
+            } else {
+                // One line longer than a message, or raw text: keep UTF-8 code points in a single transport packet.
+                while (take && (static_cast<uint8_t>(paging_buf[take]) & 0xC0) == 0x80)
+                    --take;
+                consumed = take;
+            }
+        } else if (take > 0 && paging_buf[take - 1] == '\n') {
+            --take;
+        }
         memcpy(partBuf + headerLen, paging_buf, take);
         partBuf[headerLen + take] = '\0';
         if (sendReply(pagingReply, partBuf, headerLen + take)) {
             ++paging_part;
-            memmove(paging_buf, paging_buf + take, paging_ptr - take);
-            paging_ptr -= take;
+            memmove(paging_buf, paging_buf + consumed, paging_ptr - consumed);
+            paging_ptr -= consumed;
         }
         paging_next_send = now + 2000;
     }
@@ -4930,7 +4960,9 @@ void NexusModule::startPaging(uint32_t to, uint32_t ch, uint32_t replyId, const 
             pagingIsBroadcast = activeIsBroadcast;
         }
         pagingReply = {to, ch, replyId, activePhoneOnly, activePhoneOnly || (to == 0xFFFFFFFF)};
+        pagingScope = activeScope;
     }
+    pagingRawBytes = false;
     paging_to = to;
     paging_ch = ch;
     paging_reply_id = replyId;

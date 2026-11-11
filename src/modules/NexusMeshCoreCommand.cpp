@@ -174,8 +174,8 @@ size_t NexusModule::formatNeighborLine(const DirectNeighborEntry &entry, uint32_
     char ago[8];
     formatAgo(now > entry.lastHeard ? now - entry.lastHeard : 0, ago, sizeof(ago));
     char cleanName[24];
-    cleanNeighborName(entry.name[0] ? entry.name : "???", cleanName, sizeof(cleanName), 16);
-    const int n = snprintf(out, outLen, "⚡ **%s** · 📶 *%.1fdB* · *%s*\n", cleanName, entry.snr, ago);
+    cleanNeighborName(entry.name[0] ? entry.name : "???", cleanName, sizeof(cleanName), 20);
+    const int n = snprintf(out, outLen, "%s %.1fdB %s\n", cleanName, entry.snr, ago);
     if (n < 0)
         return 0;
     return (size_t)n < outLen ? (size_t)n : outLen - 1;
@@ -225,14 +225,14 @@ void NexusModule::renderNeighbors(const DirectNeighborEntry *entries, size_t cou
         formatNeighborLine(entries[i], now, item, sizeof(item));
         appendPaging(item);
     }
-    snprintf(reply, replyLen, "📡 Paging %s (%u)...", title, (unsigned)count);
+    snprintf(reply, replyLen, "Paging %s (%u)...", title, (unsigned)count);
 }
 
-void NexusModule::formatNeighbors(char *reply, size_t replyLen)
+/// The Meshtastic nodes heard directly, into entries (at most 32); returns how many.
+static size_t collectMeshtasticNeighbors(NexusModule::DirectNeighborEntry *entries)
 {
     const uint32_t myNum = myNodeInfo.my_node_num != 0 ? myNodeInfo.my_node_num : (nodeDB ? nodeDB->getNodeNum() : 0);
     const size_t nodeCount = nodeDB ? nodeDB->getNumMeshNodes() : 0;
-    DirectNeighborEntry *entries = neighborEntries;
     size_t count = 0;
     for (size_t i = 0; i < nodeCount; i++) {
         const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
@@ -246,13 +246,20 @@ void NexusModule::formatNeighbors(char *reply, size_t replyLen)
             count++;
         }
     }
+    return count;
+}
+
+void NexusModule::formatNeighbors(char *reply, size_t replyLen)
+{
+    DirectNeighborEntry *entries = neighborEntries;
+    const size_t count = collectMeshtasticNeighbors(entries);
     if (count == 0) {
-        snprintf(reply, replyLen, "📡 **Vecinos directos**: *0 directos*");
+        snprintf(reply, replyLen, "Vecinos directos: 0");
         return;
     }
 
     char header[48];
-    snprintf(header, sizeof(header), "📡 **Vecinos directos** (%u):\n", (unsigned)count);
+    snprintf(header, sizeof(header), "Vecinos directos (%u):\n", (unsigned)count);
     renderNeighbors(entries, count, header, "Vecinos", reply, replyLen);
 }
 
@@ -459,36 +466,74 @@ static void addRepeaterTableNeighbors(NexusModule::DirectNeighborEntry *entries,
 }
 #endif
 
-void NexusModule::formatMeshCoreNeighbors(char *reply, size_t replyLen)
+/// The MeshCore peers heard directly, into entries; false when this build has no MeshCore neighbour table.
+static bool collectMeshCoreNeighbors(NexusModule::DirectNeighborEntry *entries, size_t *count)
 {
+    *count = 0;
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
-    DirectNeighborEntry *entries = neighborEntries;
-    size_t count = 0;
-    addContactNeighbors(entries, &count);
-    addNodeDbNeighbors(entries, &count); // before the table: the node DB has the whole name
-    addRepeaterTableNeighbors(entries, &count);
+    addContactNeighbors(entries, count);
+    addNodeDbNeighbors(entries, count); // before the table: the node DB has the whole name
+    addRepeaterTableNeighbors(entries, count);
+    return true;
 #elif MESHTASTIC_ENABLE_MESHCORE_NEIGHBORS
     RadioLibInterface *radio = RadioLibInterface::instance;
     static MeshCoreRepeater::NeighborView heard[MeshCoreRepeater::NEIGHBOR_MAX]; // 8 B each: pointers into the relay table
-    const size_t count = radio ? radio->getMeshCoreRepeater().copyNeighbors(heard, MeshCoreRepeater::NEIGHBOR_MAX) : 0;
+    *count = radio ? radio->getMeshCoreRepeater().copyNeighbors(heard, MeshCoreRepeater::NEIGHBOR_MAX) : 0;
     const uint32_t now = getTime(false);
-    DirectNeighborEntry *entries = neighborEntries;
-    for (size_t i = 0; i < count; i++)
+    for (size_t i = 0; i < *count; i++)
         entries[i] = neighborFromEntry(*heard[i].node, heard[i].ageSecs, now);
+    return true;
 #else
-    snprintf(reply, replyLen, "📡 **Vecinos MeshCore**: *companion off*");
-    return;
+    (void)entries;
+    return false;
 #endif
+}
 
-#if MESHTASTIC_ENABLE_MESHCORE_COMPANION || MESHTASTIC_ENABLE_MESHCORE_NEIGHBORS
+void NexusModule::formatMeshCoreNeighbors(char *reply, size_t replyLen)
+{
+    DirectNeighborEntry *entries = neighborEntries;
+    size_t count = 0;
+    if (!collectMeshCoreNeighbors(entries, &count)) {
+        snprintf(reply, replyLen, "Vecinos MeshCore: companion off");
+        return;
+    }
     if (count == 0) {
-        snprintf(reply, replyLen, "📡 **Vecinos MeshCore**: *0 directos*");
+        snprintf(reply, replyLen, "Vecinos MeshCore: 0 directos");
         return;
     }
     char header[48];
-    snprintf(header, sizeof(header), "📡 **Vecinos MeshCore** (%u):\n", (unsigned)count);
+    snprintf(header, sizeof(header), "Vecinos MeshCore (%u):\n", (unsigned)count);
     renderNeighbors(entries, count, header, "Vecinos MeshCore", reply, replyLen);
-#endif
+}
+
+void NexusModule::formatAllNeighbors(char *reply, size_t replyLen)
+{
+    if (!activeRequest) {
+        formatNeighbors(reply, replyLen); // no chat to page into: the Meshtastic list alone fits a reply
+        return;
+    }
+    const uint32_t now = getTime(false);
+    const uint32_t to = activeRequest->to == myNodeInfo.my_node_num ? activeRequest->from : 0xFFFFFFFF;
+    startPaging(to, activeRequest->channel, activeRequest->id, "Vecinos");
+    // One titled section of the combined listing, its lines appended to the page being built.
+    auto appendSection = [&](const char *label, const DirectNeighborEntry *list, size_t total) {
+        char head[40];
+        snprintf(head, sizeof(head), total ? "%s (%u):\n" : "%s: 0\n", label, (unsigned)total);
+        appendPaging(head);
+        for (size_t i = 0; i < total; i++) {
+            char item[96];
+            formatNeighborLine(list[i], now, item, sizeof(item));
+            appendPaging(item);
+        }
+    };
+
+    // One table serves both lists in turn: the first is already in the page when the second is collected.
+    DirectNeighborEntry *entries = neighborEntries;
+    size_t count = collectMeshtasticNeighbors(entries);
+    appendSection("Meshtastic", entries, count);
+    if (collectMeshCoreNeighbors(entries, &count))
+        appendSection("MeshCore", entries, count);
+    snprintf(reply, replyLen, "Paging Vecinos...");
 }
 
 // Accepts "4d", "!a1b2", "0xA1B2", "a1:b2" or "a1 b2": optional "!"/"0x" prefix, bytes optionally split by ':' or ' '.
@@ -690,10 +735,10 @@ void NexusModule::finishMeshCoreDiscover()
 
     char body[NEXUS_MAX_REPLY_BODY];
     if (listed == 0) {
-        snprintf(body, sizeof(body), "🔎 **Vecinos MeshCore**: *nadie respondió* (%us)",
+        snprintf(body, sizeof(body), "Vecinos MeshCore: nadie respondió (%us)",
                  (unsigned)(meshCoreDiscoverWindowMs / 1000));
     } else {
-        snprintf(body, sizeof(body), "🔎 **Vecinos MeshCore** (%u, %u nuevos):\n", (unsigned)listed, (unsigned)added);
+        snprintf(body, sizeof(body), "Vecinos MeshCore (%u, %u nuevos):\n", (unsigned)listed, (unsigned)added);
         // One line per peer, built with the same renderer as VECINOS so both listings read alike.
         size_t shown = 0;
         for (; shown < listed; shown++) {
@@ -1073,7 +1118,7 @@ static void handleMeshCorePathCommand(const char *arg, char *reply, size_t reply
         snprintf(reply, replyLen, "MESHTACORE: no route heard for %s", contact->name);
         return;
     }
-    static char line[200];
+    static char line[NEXUS_MAX_REPLY];
     if (meshCoreCompanion.formatRouteLine(*route, line, sizeof(line), 0.0f,
                                           MeshCoreCompanion::SIGNAL_SNR | MeshCoreCompanion::SIGNAL_RSSI)) {
         snprintf(reply, replyLen, "MESHTACORE: %s › %s", contact->name, line);
@@ -1497,7 +1542,7 @@ bool NexusModule::formatMeshCorePingReply(const meshtastic_MeshPacket &mp, char 
         header = "🤖MESHTACORE Ping🤖";
 
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
-    static char routeLine[200];
+    static char routeLine[NEXUS_MAX_REPLY];
     routeLine[0] = '\0';
     const float fErr = mp.rx_frequency_error;
     const uint8_t signal = (ping_snr ? MeshCoreCompanion::SIGNAL_SNR : 0) | (ping_rssi ? MeshCoreCompanion::SIGNAL_RSSI : 0) |
@@ -1707,7 +1752,12 @@ void NexusModule::handleMeshCorePingSend(const char *, char *reply, size_t reply
 
 void NexusModule::formatMeshCoreNeighbors(char *reply, size_t replyLen)
 {
-    snprintf(reply, replyLen, "📡 **Vecinos MeshCore**: *companion off*");
+    snprintf(reply, replyLen, "Vecinos MeshCore: companion off");
+}
+
+void NexusModule::formatAllNeighbors(char *reply, size_t replyLen)
+{
+    formatNeighbors(reply, replyLen);
 }
 
 void NexusModule::handleMeshCoreDiscoverCommand(const char *, const ReplyContext &, char *reply, size_t replyLen)

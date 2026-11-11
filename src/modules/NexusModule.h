@@ -14,13 +14,15 @@
 #include "input/InputBroker.h"
 #include "mesh/MeshModule.h"
 #include "mesh/generated/meshtastic/mesh.pb.h"
+#include "modules/NexusCommandParse.h"
 #include "modules/NexusRuntime.h"
 #include "modules/NexusSurvivalWatch.h"
 #include <vector>
 
 namespace meshtastic {
 
-static constexpr size_t NEXUS_MAX_REPLY = 200;
+// Meshtastic carries 233 payload bytes; 230 leaves room for the "Pn: " part header.
+static constexpr size_t NEXUS_MAX_REPLY = 230;
 static constexpr size_t NEXUS_MAX_REPLY_BODY = NEXUS_MAX_REPLY - 1;
 
 // PPING header mode, one per layer (Meshtastic and MeshCore). DEFAULT prints the layer's own branding, CUSTOM prints the
@@ -205,6 +207,8 @@ private:
     void formatNeighbors(char *reply, size_t replyLen);
     // /mtc MESHCORE VECINOS: direct MeshCore neighbours.
     void formatMeshCoreNeighbors(char *reply, size_t replyLen);
+    // /mtc VECINOS: both lists, Meshtastic then MeshCore, whatever channel it is typed in.
+    void formatAllNeighbors(char *reply, size_t replyLen);
     // Where a delayed reply goes: the requester's chat, or the phone alone.
     struct ReplyContext {
         uint32_t to = 0xFFFFFFFF;
@@ -1195,6 +1199,11 @@ private:
     const meshtastic_MeshPacket *activeRequest = nullptr;
     bool activePhoneOnly = false;
     bool activeIsBroadcast = false;
+    // Root the running command came in on (/mt, /mc, /mtc); paging keeps it so a later window re-renders on the same layer.
+    CmdScope activeScope = SCOPE_BOTH;
+    CmdScope pagingScope = SCOPE_BOTH;
+    // True for paged text that is not made of lines (base64): those are cut at the byte limit, everything else at a line end.
+    bool pagingRawBytes = false;
 
     void startPaging(uint32_t to, uint32_t ch, uint32_t replyId, const char* title);
     void appendPaging(const char* entry);

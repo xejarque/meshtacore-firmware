@@ -2735,6 +2735,7 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
                     if (b64) {
                         nexus_base64_encode(b64, fBuf, s);
                         startPaging(mp.to == myNodeInfo.my_node_num ? mp.from : 0xFFFFFFFF, mp.channel, replyId, "File Download (B64)");
+                        pagingRawBytes = true;
                         appendPaging(b64);
                         free(b64);
                         snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Paging file '%s' (%uB) to mesh...", filename, (unsigned int)s);
@@ -2803,10 +2804,13 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
     }
     else if (strcasecmp(cmd, "NEIGHBORS") == 0 || strcasecmp(cmd, "NEIGHBOURS") == 0 || strcasecmp(cmd, "VECINOS") == 0 ||
              strcasecmp(cmd, "DIRECT") == 0) {
-        if (isMeshCorePing(mp, !isBroadcast))
+        // /mt asks for Meshtastic, /mc for MeshCore and /mtc for both, wherever it is typed: the channel does not decide.
+        if (activeScope == SCOPE_MC)
             formatMeshCoreNeighbors(replyMsg, sizeof(replyMsg));
-        else
+        else if (activeScope == SCOPE_MT)
             formatNeighbors(replyMsg, sizeof(replyMsg));
+        else
+            formatAllNeighbors(replyMsg, sizeof(replyMsg));
     }
     else if (strncasecmp(cmd, "FNODE", 5) == 0 && *skipSpaces(cmd + 5) == '\0') {
         snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Use FNODE <search/!id>");
