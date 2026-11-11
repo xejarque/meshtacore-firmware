@@ -2312,6 +2312,8 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
         latMicro = (int32_t)readLe32(&payload[at]);
         lonMicro = (int32_t)readLe32(&payload[at + 4]);
         at += 8;
+        if (!isValidPositionMicro(latMicro, lonMicro))
+            latMicro = lonMicro = 0; // a bogus position is dropped: x10 into Meshtastic units would overflow int32
     }
     if (flags & 0x20)
         at += 2;

@@ -181,6 +181,16 @@ void test_hop_fields_report_the_path_length(void)
     TEST_ASSERT_EQUAL_UINT8(7, start - limit);
 }
 
+// An ADVERT position is degrees x 1e6; Meshtastic wants x 1e7, so anything off the globe would overflow int32 on x10.
+void test_advert_position_off_the_globe_is_rejected(void)
+{
+    TEST_ASSERT_TRUE(MeshCoreCompanion::isValidPositionMicro(41385064, 2173403));
+    TEST_ASSERT_TRUE(MeshCoreCompanion::isValidPositionMicro(-90000000, 180000000));
+    TEST_ASSERT_FALSE(MeshCoreCompanion::isValidPositionMicro(90000001, 0));
+    TEST_ASSERT_FALSE(MeshCoreCompanion::isValidPositionMicro(0, -180000001));
+    TEST_ASSERT_FALSE(MeshCoreCompanion::isValidPositionMicro(INT32_MAX, INT32_MIN));
+}
+
 void test_round_trip(void)
 {
     uint8_t frame[255];
@@ -2637,6 +2647,7 @@ void setup()
     RUN_TEST(test_encode_matches_meshcore_vector);
     RUN_TEST(test_frame_uses_two_byte_path_hashes);
     RUN_TEST(test_hop_fields_report_the_path_length);
+    RUN_TEST(test_advert_position_off_the_globe_is_rejected);
     RUN_TEST(test_round_trip);
     RUN_TEST(test_rejects_wrong_channel);
     RUN_TEST(test_rejects_tampered_mac);

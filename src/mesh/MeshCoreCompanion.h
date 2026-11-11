@@ -131,6 +131,12 @@ class MeshCoreCompanion
     static constexpr uint8_t HOP_START = 7;
     static void hopFields(uint8_t pathHashCount, uint8_t *hopStart, uint8_t *hopLimit);
 
+    /// True when an ADVERT position (degrees x 1e6) lies on the globe; only then is x10 into Meshtastic units safe.
+    static constexpr bool isValidPositionMicro(int32_t latMicro, int32_t lonMicro)
+    {
+        return latMicro >= -90000000 && latMicro <= 90000000 && lonMicro >= -180000000 && lonMicro <= 180000000;
+    }
+
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
     /// How a bridged text was heard, kept so ".path" can report it. RAM only; a reboot loses it.
     struct HeardPath {
