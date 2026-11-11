@@ -4,6 +4,7 @@
 //   - A heap below the floor for three consecutive checks asks for a reboot; one good reading resets the count.
 //   - A radio whose RX counter (good or bad frames) does not move for 12 h asks for a reboot; any movement restarts the clock.
 //   - Checks run at most once a minute, the first one only arms the clocks, and unknown heap or no radio never trip it.
+//   - A node already below the heap floor on its first check never trips the heap check (no reboot loop).
 //
 // Why that behavior is required:
 //   - A summit node cannot be power-cycled by hand: a leaked heap or a radio that went deaf must end in a clean restart,
@@ -49,6 +50,16 @@ void test_first_check_only_arms_and_never_trips()
 {
     SurvivalWatch w;
     TEST_ASSERT_EQUAL(Verdict::Healthy, w.check(kLowHeap, true, 0));
+}
+
+// A build that boots below the floor (a slim nRF52 image) would reboot every three minutes forever: only a heap that
+// falls after a healthy start is a leak worth a restart.
+void test_a_node_that_boots_below_the_floor_never_trips()
+{
+    SurvivalWatch w;
+    w.check(kLowHeap, true, 0);
+    for (uint32_t i = 1; i <= 10; i++)
+        TEST_ASSERT_EQUAL(Verdict::Healthy, nextCheck(w, kLowHeap, true, i));
 }
 
 void test_low_heap_trips_on_the_third_consecutive_check()
@@ -143,6 +154,7 @@ void setup()
     UNITY_BEGIN();
     RUN_TEST(test_first_check_only_arms_and_never_trips);
     RUN_TEST(test_low_heap_trips_on_the_third_consecutive_check);
+    RUN_TEST(test_a_node_that_boots_below_the_floor_never_trips);
     RUN_TEST(test_one_healthy_reading_resets_the_low_heap_count);
     RUN_TEST(test_unknown_heap_never_counts_as_low);
     RUN_TEST(test_checks_run_at_most_once_a_minute);
