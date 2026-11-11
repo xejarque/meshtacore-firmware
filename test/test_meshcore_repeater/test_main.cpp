@@ -1729,6 +1729,22 @@ void test_trace_revisiting_us_is_forwarded_twice()
     TEST_ASSERT_FALSE(repeater.hasPendingFrame());
 }
 
+// The path count has 6 bits: a 64th SNR would spill into the hash-size bits, so a full path is not forwarded.
+void test_trace_with_a_full_path_is_not_forwarded()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    const uint8_t us = repeater.getIdentityPub()[0];
+    uint8_t hashes[64];
+    memset(hashes, 0x55, sizeof(hashes));
+    hashes[63] = us;
+    uint8_t buf[MeshCoreRepeater::MAX_FRAME_LEN];
+    size_t len = makeTrace(buf, 63, hashes, 64, 0);
+
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+}
+
 void test_trace_with_wider_hashes()
 {
     MeshCoreRepeater repeater;
@@ -2202,6 +2218,7 @@ void setup()
     RUN_TEST(test_trace_is_ignored_unless_we_are_next);
     RUN_TEST(test_trace_needs_an_identity);
     RUN_TEST(test_trace_revisiting_us_is_forwarded_twice);
+    RUN_TEST(test_trace_with_a_full_path_is_not_forwarded);
     RUN_TEST(test_trace_with_wider_hashes);
     RUN_TEST(test_multipart_ack_is_forwarded_as_plain_ack);
     RUN_TEST(test_multipart_other_types_are_not_forwarded);
