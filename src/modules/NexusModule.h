@@ -17,6 +17,7 @@
 #include "modules/NexusCommandParse.h"
 #include "modules/NexusRuntime.h"
 #include "modules/NexusSurvivalWatch.h"
+#include "modules/NexusVoltRuleCheck.h"
 #include <vector>
 
 namespace meshtastic {
@@ -192,6 +193,7 @@ private:
     void showVoltRule(uint8_t slot);
     void clearVoltRule(uint8_t slot);
     void configureVoltRule(uint8_t slot, const char *args);
+    VoltRuleProposal proposeVoltRule(uint8_t slot, uint16_t mv, uint8_t direction, uint8_t action, uint8_t channel);
     void seedHibernatingFromRtc();
     void handleHealthCommand();
     // /mtc MESHCORE [INFO|STATS|RELAY|ADVERT|RESET] (NexusMeshCoreCommand.cpp): the MeshCore relay and ADVERT settings.

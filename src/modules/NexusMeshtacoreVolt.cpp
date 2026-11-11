@@ -353,6 +353,27 @@ void NexusModule::clearVoltRule(uint8_t slot)
     snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: Volt slot [%d] cleared (RAM). /mtc SAVE to persist.", slot);
 }
 
+// The rule about to go into `slot`, seen against the reading now and the other slots' HIB and WAKE thresholds.
+VoltRuleProposal NexusModule::proposeVoltRule(uint8_t slot, uint16_t mv, uint8_t direction, uint8_t action, uint8_t channel)
+{
+    VoltRuleProposal p;
+    p.hibernate = action == NEXUS_VOLT_ACT_HIBERNATE;
+    p.wake = action == NEXUS_VOLT_ACT_WAKE;
+    p.fallingEdge = direction == NEXUS_VOLT_DIR_LOW;
+    p.mv = mv;
+    p.currentMv = getVoltageReadingMv(channel);
+    for (uint8_t i = 0; i < VOLT_RULE_COUNT; i++) {
+        const NexusVoltRule &other = volt_rules[i];
+        if (i == slot - 1 || !isRuleActive(other))
+            continue;
+        if (other.action == NEXUS_VOLT_ACT_HIBERNATE && other.mv > p.highestOtherHibMv)
+            p.highestOtherHibMv = other.mv;
+        if (other.action == NEXUS_VOLT_ACT_WAKE && (p.lowestOtherWakeMv == 0 || other.mv < p.lowestOtherWakeMv))
+            p.lowestOtherWakeMv = other.mv;
+    }
+    return p;
+}
+
 // <voltage> <HIGH|LOW> <CMD|HIB|WAKE> [CH1..3|BAT] [command...]
 void NexusModule::configureVoltRule(uint8_t slot, const char *args)
 {
@@ -384,6 +405,11 @@ void NexusModule::configureVoltRule(uint8_t slot, const char *args)
     }
     uint8_t channel = 0;
     args = takeChannel(args, &channel);
+
+    if (const char *problem = voltRuleStrandsNode(proposeVoltRule(slot, targetMv, direction, action, channel))) {
+        snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE VOLT: [%d] refused, %s", slot, problem);
+        return;
+    }
 
     NexusVoltRule &rule = volt_rules[slot - 1];
     memset(&rule, 0, sizeof(rule));
