@@ -28,7 +28,7 @@ static bool isKnownPayloadType(uint8_t type)
 }
 
 // Mesh::onRecvPacket forwards an ADVERT only when its Ed25519 signature over pub_key || timestamp || app_data holds.
-static bool advertSignatureValid(const uint8_t *payload, size_t payloadLen)
+static bool ed25519AdvertValid(const uint8_t *payload, size_t payloadLen)
 {
     constexpr size_t signedHeadLen = MC_PUB_KEY_SIZE + 4;
     constexpr size_t appDataAt = signedHeadLen + MC_SIGNATURE_SIZE;
@@ -41,7 +41,81 @@ static bool advertSignatureValid(const uint8_t *payload, size_t payloadLen)
     uint8_t message[signedHeadLen + MAX_ADVERT_DATA_SIZE];
     memcpy(message, payload, signedHeadLen);
     memcpy(&message[signedHeadLen], &payload[appDataAt], appLen);
+    MeshCoreRepeater::advertSignatureChecks++;
     return Ed25519::verify(&payload[signedHeadLen], payload, message, signedHeadLen + appLen);
+}
+
+namespace
+{
+// The same ADVERT arrives once per route and is checked by the firewall, the companion and the relay queue. An Ed25519
+// verify costs tens of ms on an nRF52 with the receiver deaf meanwhile, so a payload proven good is remembered by its
+// SHA-256 (truncated, still collision resistant; the 32-bit dedupe hash is not and a forger could match it).
+class VerifiedAdverts
+{
+  public:
+    static constexpr size_t DIGEST_LEN = 16;
+
+    bool contains(const uint8_t digest[DIGEST_LEN]) const
+    {
+        for (const Entry &e : entries) {
+            if (e.used && memcmp(e.digest, digest, DIGEST_LEN) == 0)
+                return true;
+        }
+        return false;
+    }
+
+    void add(const uint8_t digest[DIGEST_LEN])
+    {
+        Entry &e = entries[next];
+        memcpy(e.digest, digest, DIGEST_LEN);
+        e.used = true;
+        next = (uint8_t)((next + 1) % CAPACITY);
+    }
+
+    void clear()
+    {
+        for (Entry &e : entries)
+            e.used = false;
+        next = 0;
+    }
+
+    static void digestOf(const uint8_t *payload, size_t len, uint8_t out[DIGEST_LEN])
+    {
+        SHA256 sha;
+        sha.update(payload, len);
+        sha.finalize(out, DIGEST_LEN);
+    }
+
+  private:
+    static constexpr size_t CAPACITY = 8;
+    struct Entry {
+        uint8_t digest[DIGEST_LEN];
+        bool used;
+    };
+    Entry entries[CAPACITY] = {};
+    uint8_t next = 0;
+};
+
+VerifiedAdverts verifiedAdverts;
+} // namespace
+
+uint32_t MeshCoreRepeater::advertSignatureChecks = 0;
+
+static bool advertSignatureValid(const uint8_t *payload, size_t payloadLen)
+{
+    uint8_t digest[VerifiedAdverts::DIGEST_LEN];
+    VerifiedAdverts::digestOf(payload, payloadLen, digest);
+    if (verifiedAdverts.contains(digest))
+        return true;
+    if (!ed25519AdvertValid(payload, payloadLen))
+        return false;
+    verifiedAdverts.add(digest);
+    return true;
+}
+
+void MeshCoreRepeater::forgetVerifiedAdverts()
+{
+    verifiedAdverts.clear();
 }
 
 uint8_t MeshCoreRepeater::nodeTypeForRole(int role)

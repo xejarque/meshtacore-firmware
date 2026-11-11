@@ -82,6 +82,7 @@ void test_stats_reply_is_cut_to_a_small_buffer()
 void setUp(void)
 {
     MeshCoreRepeater::setIgnorePredicate(nullptr);
+    MeshCoreRepeater::forgetVerifiedAdverts();
     Time::setTestMillis(1000);
     config.device.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
     config.device.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_ALL;
@@ -1692,6 +1693,24 @@ void test_advert_with_valid_signature_is_relayed()
     TEST_ASSERT_EQUAL_UINT32(0, repeater.rxDropped);
 }
 
+// Every route of one advert carries the same payload: the Ed25519 check runs once, later copies are answered from the
+// cache. A payload that differs in a single byte is not in it and still fails.
+void test_a_verified_advert_is_not_checked_again()
+{
+    uint8_t buf[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = makeSignedAdvertFlood(buf, 1);
+    const size_t payloadAt = 2 + 1;
+    const uint32_t before = MeshCoreRepeater::advertSignatureChecks;
+
+    TEST_ASSERT_TRUE(MeshCoreRepeater::verifyAdvert(&buf[payloadAt], len - payloadAt));
+    TEST_ASSERT_TRUE(MeshCoreRepeater::verifyAdvert(&buf[payloadAt], len - payloadAt));
+    TEST_ASSERT_EQUAL_UINT32(before + 1, MeshCoreRepeater::advertSignatureChecks);
+
+    buf[len - 1] ^= 0x01;
+    TEST_ASSERT_FALSE(MeshCoreRepeater::verifyAdvert(&buf[payloadAt], len - payloadAt));
+    TEST_ASSERT_EQUAL_UINT32(before + 2, MeshCoreRepeater::advertSignatureChecks);
+}
+
 // --- TRACE ---
 
 // Direct TRACE: path holds the SNRs gathered so far; payload = tag, auth, flags (hash size exponent), hashes to visit.
@@ -2269,6 +2288,7 @@ void setup()
     RUN_TEST(test_advert_with_bad_signature_is_not_relayed);
     RUN_TEST(test_forged_advert_does_not_block_the_next_frame);
     RUN_TEST(test_advert_with_valid_signature_is_relayed);
+    RUN_TEST(test_a_verified_advert_is_not_checked_again);
     RUN_TEST(test_trace_is_forwarded_with_our_snr);
     RUN_TEST(test_trace_is_ignored_unless_we_are_next);
     RUN_TEST(test_trace_needs_an_identity);

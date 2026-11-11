@@ -208,6 +208,12 @@ class MeshCoreRepeater
     /** Check an ADVERT payload's Ed25519 signature over pub_key || timestamp || app_data. */
     static bool verifyAdvert(const uint8_t *payload, size_t payloadLen);
 
+    /** Ed25519 verifications actually run; a payload already proven good is answered from a small cache instead. */
+    static uint32_t advertSignatureChecks;
+
+    /** Empty the cache of verified ADVERT payloads (tests start from a clean slate). */
+    static void forgetVerifiedAdverts();
+
     /**
      * Encode an ADVERT for this node, signed over pub||timestamp||app_data exactly as MeshCore's Mesh::createAdvert does.
      * flood=false gives a zero-hop advert (route DIRECT, empty path) that only direct neighbours hear, like a MeshCore
