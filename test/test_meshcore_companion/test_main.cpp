@@ -2482,9 +2482,8 @@ void test_advert_with_position_announces_real_hops(void)
 }
 
 /**
- * Pins the unified formatting for direct neighbors in /mtc VECINOS and MESHCORE VECINOS.
- * Guards against regression of markdown bolding for node names, italics for metrics,
- * emoji indicators (direct bolt and signal), and UTF-8 truncation for long names.
+ * Pins the plain formatting for direct neighbors in /mtc VECINOS and MESHCORE VECINOS: "name SNRdB ago", no emojis
+ * or markdown (dropped to fit more neighbours per message), and UTF-8 safe truncation for long names.
  */
 void test_unified_vecinos_formatting(void)
 {
@@ -2497,9 +2496,7 @@ void test_unified_vecinos_formatting(void)
     char line[96];
     size_t len = meshtastic::NexusModule::formatNeighborLine(entry, 1020, line, sizeof(line));
     TEST_ASSERT_TRUE(len > 0);
-    TEST_ASSERT_NOT_NULL(strstr(line, "⚡ **Repeater-Sud**"));
-    TEST_ASSERT_NOT_NULL(strstr(line, "📶 *5.2dB*"));
-    TEST_ASSERT_NOT_NULL(strstr(line, "*2m*"));
+    TEST_ASSERT_EQUAL_STRING("Repeater-Sud 5.2dB 2m\n", line);
 
     meshtastic::NexusModule::DirectNeighborEntry longEntry = {};
     strncpy(longEntry.name, "SuperLongNodeName12345", sizeof(longEntry.name) - 1);
@@ -2509,8 +2506,8 @@ void test_unified_vecinos_formatting(void)
 
     len = meshtastic::NexusModule::formatNeighborLine(longEntry, 1020, line, sizeof(line));
     TEST_ASSERT_TRUE(len > 0);
-    TEST_ASSERT_NOT_NULL(strstr(line, "..**"));
-    TEST_ASSERT_NOT_NULL(strstr(line, "📶 *-3.5dB*"));
+    TEST_ASSERT_NOT_NULL(strstr(line, ".. -3.5dB"));
+    TEST_ASSERT_NULL(strstr(line, "*"));
 }
 
 /**
