@@ -300,6 +300,31 @@ static void test_undecodableConfig_runsOnTheRescueCopyWithoutTouchingTheFile(voi
 
     bootHealthyAgain();
 }
+
+// The snapshot builds the live copy over the stored one (one static buffer, not two): an admin key the live config lost
+// must still come from the stored copy, so only RESCUE CLEAR forgets it.
+static void test_rescueSnapshot_keepsAStoredAdminKeyTheLiveConfigLost(void)
+{
+    TEST_MESSAGE("=== Rescue snapshot: an emptied live admin slot keeps the stored key ===");
+    NexusRescue::clear();
+    const meshtastic_Config_SecurityConfig savedSecurity = config.security;
+    config.security.admin_key_count = 1;
+    config.security.admin_key[0].size = 32;
+    memset(config.security.admin_key[0].bytes, 0xA5, 32);
+    NexusRescue::snapshot();
+
+    memset(config.security.admin_key[0].bytes, 0, 32); // the live key is gone
+    NexusRescue::snapshot();
+    config.security.admin_key_count = 0;
+    TEST_ASSERT_TRUE(NexusRescue::reapplyToLive());
+    TEST_ASSERT_EQUAL_UINT32(1, config.security.admin_key_count);
+    TEST_ASSERT_EQUAL_HEX8(0xA5, config.security.admin_key[0].bytes[0]);
+    TEST_ASSERT_EQUAL_HEX8(0xA5, config.security.admin_key[0].bytes[31]);
+
+    config.security = savedSecurity;
+    NexusRescue::clear();
+    bootHealthyAgain();
+}
 #endif
 
 // --- Absent config: fresh install, not a freeze ---
@@ -467,6 +492,7 @@ NBR_TEST_ENTRY void setup()
 #if HAS_NEXUS
     RUN_TEST(test_undecodableConfig_withoutRescueCopy_staysRadioSilent);
     RUN_TEST(test_undecodableConfig_runsOnTheRescueCopyWithoutTouchingTheFile);
+    RUN_TEST(test_rescueSnapshot_keepsAStoredAdminKeyTheLiveConfigLost);
 #endif
 
     printf("\n=== Fresh install vs freeze scoping ===\n");

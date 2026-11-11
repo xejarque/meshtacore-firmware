@@ -38,9 +38,14 @@ struct __attribute__((packed)) RescueCopy {
     uint32_t crc;
 };
 
-// Static: about 1.5 KB, too much for the nRF52 loop stack.
+// Static: too big for the nRF52 loop stack. One copy only: a snapshot builds the live copy in place over the stored one,
+// keeping aside just the admin keys it merges and the CRC it compares.
 static RescueCopy stored;
-static RescueCopy pending;
+
+struct KeptAdminKeys {
+    pb_size_t count = 0;
+    meshtastic_Config_SecurityConfig_admin_key_t keys[3] = {};
+};
 
 static uint32_t bodyCrc(const RescueCopy &c)
 {
@@ -85,28 +90,28 @@ static bool isEmptyKey(const meshtastic_Config_SecurityConfig_admin_key_t &k)
 }
 
 // An empty live slot keeps the stored key: only RESCUE CLEAR forgets an admin key.
-static void mergeAdminKeys(RescueCopy &c, bool haveStored)
+static void mergeAdminKeys(RescueCopy &c, const KeptAdminKeys &kept)
 {
     pb_size_t count = 0;
     for (int i = 0; i < 3; i++) {
         const bool liveSet = i < config.security.admin_key_count && !isEmptyKey(config.security.admin_key[i]);
         if (liveSet)
             c.adminKeys[i] = config.security.admin_key[i];
-        else if (haveStored && i < stored.adminKeyCount)
-            c.adminKeys[i] = stored.adminKeys[i];
+        else if (i < kept.count)
+            c.adminKeys[i] = kept.keys[i];
         if (c.adminKeys[i].size && !isEmptyKey(c.adminKeys[i]))
             count = i + 1;
     }
     c.adminKeyCount = count;
 }
 
-static void captureLive(RescueCopy &c, bool haveStored)
+static void captureLive(RescueCopy &c, const KeptAdminKeys &kept)
 {
     memset(&c, 0, sizeof(c));
     memcpy(c.magic, RESCUE_MAGIC, sizeof(RESCUE_MAGIC));
     c.version = RESCUE_VERSION;
     c.size = sizeof(c);
-    mergeAdminKeys(c, haveStored);
+    mergeAdminKeys(c, kept);
     c.channels = channelFile;
     c.lora = config.lora;
     c.role = config.device.role;
@@ -126,10 +131,17 @@ void snapshot()
     if (!nodeDB || nodeDB->bootedWithUndecodableConfig())
         return; // a degraded boot runs on defaults: copying them would overwrite the good copy
     const bool haveStored = loadStored();
-    captureLive(pending, haveStored);
-    if (haveStored && pending.crc == stored.crc)
+    KeptAdminKeys kept;
+    uint32_t storedCrc = 0;
+    if (haveStored) {
+        kept.count = stored.adminKeyCount < 3 ? stored.adminKeyCount : 3;
+        memcpy(kept.keys, stored.adminKeys, sizeof(kept.keys));
+        storedCrc = stored.crc;
+    }
+    captureLive(stored, kept); // from here `stored` holds the live copy; loadStored() rereads the file before any use
+    if (haveStored && stored.crc == storedCrc)
         return; // unchanged: no flash write
-    if (writeCopy(pending))
+    if (writeCopy(stored))
         LOG_INFO("MTC: rescue copy updated");
     else
         LOG_ERROR("MTC: rescue copy write failed");
