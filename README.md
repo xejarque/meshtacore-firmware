@@ -36,7 +36,7 @@ Good fits: clubs and events that run both ecosystems, Meshtastic solar or repeat
 
 - **Hybrid sync word RX**: register `0x14B4` receives Meshtastic (`0x2B`) and MeshCore (`0x12`) on one SX126x. TX still uses each protocol's own sync word, so both meshes hear a native frame.
 - **Meshtastic first**: a frame that parses as MeshCore is first trial-decrypted with our channels. Only if that fails is it handled as MeshCore, so Meshtastic traffic is never sacrificed for the bridge.
-- **SX126x only**: the hybrid receive is a radio-register trick, not a protocol change.
+- **Best on SX126x**: the hybrid receive is a radio-register trick, not a protocol change. LR11x0 and LR20x0 use `0x1B`, which keeps Meshtastic whole but, as measured on a T1000-E (LR1110), only hears MeshCore frames that arrive weak: strong, direct MeshCore traffic is lost there. LR20x0 is not measured yet.
 
 ### MeshCore repeater
 

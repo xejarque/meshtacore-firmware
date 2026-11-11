@@ -151,8 +151,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #endif
 
 // SX126x, LR11x0 and LR20x0: receive with a hybrid sync word so one radio hears both Meshtastic (0x2B) and MeshCore (0x12)
-// frames, and transmit each protocol with its own sync word. Verified on air (SX126x 0x14B4, LR11x0 0x1B on a
-// T1000-E, LR20x0 0x1B). On by default; -D...=0 opts out.
+// frames, and transmit each protocol with its own sync word. SX126x (0x14B4) hears both on air. LR11x0 (0x1B, measured
+// on a T1000-E) keeps Meshtastic whole but only hears MeshCore frames that arrive weak: strong direct ones are lost, and
+// no LR11x0 value hears both. LR20x0 (0x1B) is not measured. On by default; -D...=0 opts out.
 #ifndef MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC
 #define MESHTASTIC_ENABLE_MESHCORE_HYBRID_SYNC 1
 #endif
