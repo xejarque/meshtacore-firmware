@@ -907,6 +907,26 @@ void test_expired_relay_is_forgotten()
     TEST_ASSERT_EQUAL_UINT32(dupBefore, repeater.rxDup);
 }
 
+// A frame refused for good (TX disabled) never went on air: dropping it counts it, forgets its hash and leaves the
+// contention estimate alone.
+void test_dropped_pending_frame_is_forgotten_and_not_a_contention_sample()
+{
+    MeshCoreRepeater repeater;
+    uint8_t buf[64];
+    const size_t len = makeFloodFrame(buf, kTxtMsg, 2, 1, 0x10, 0x10);
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    const float factorBefore = repeater.getFloodDelayFactor();
+
+    repeater.dropPendingFrame();
+    TEST_ASSERT_FALSE(repeater.hasPendingFrame());
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.txDropped);
+    TEST_ASSERT_EQUAL_FLOAT(factorBefore, repeater.getFloodDelayFactor());
+
+    const uint32_t dupBefore = repeater.rxDup;
+    repeater.handleReceivedFrame(buf, len, 5, kAirtimeMs);
+    TEST_ASSERT_EQUAL_UINT32(dupBefore, repeater.rxDup);
+}
+
 void test_take_pending_frame_copies_without_clearing()
 {
     MeshCoreRepeater repeater;
@@ -2216,6 +2236,7 @@ void setup()
     RUN_TEST(test_relay_deadline_survives_millis_wrap);
     RUN_TEST(test_stale_pending_relay_is_dropped_for_new_frame);
     RUN_TEST(test_expired_relay_is_forgotten);
+    RUN_TEST(test_dropped_pending_frame_is_forgotten_and_not_a_contention_sample);
     RUN_TEST(test_take_pending_frame_copies_without_clearing);
     RUN_TEST(test_advert_is_signed_and_parseable);
     RUN_TEST(test_advert_type_follows_the_meshtastic_role);

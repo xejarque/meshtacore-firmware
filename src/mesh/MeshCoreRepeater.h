@@ -124,6 +124,9 @@ class MeshCoreRepeater
     /** Remove the picked frame (sent or refused): folds a relayed flood's dupe sample into the contention estimate. */
     void clearPendingFrame();
 
+    /** Drop the picked frame without sending it (TX refused for good): not a contention sample, its hash is forgotten. */
+    void dropPendingFrame();
+
     /** The picked frame went on air: counts it and keeps the contention estimate from going stale. */
     void markRelayed();
 

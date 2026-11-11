@@ -865,6 +865,15 @@ bool MeshCoreRepeater::pendingIsOwn() const
     return pick >= 0 && queue[pick].own;
 }
 
+void MeshCoreRepeater::dropPendingFrame()
+{
+    const int pick = selectedIndex();
+    selected = -1;
+    selectedHash = 0;
+    if (pick >= 0)
+        discardUnsent(pick);
+}
+
 void MeshCoreRepeater::clearPendingFrame()
 {
     const int pick = selectedIndex();

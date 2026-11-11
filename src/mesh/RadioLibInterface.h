@@ -562,8 +562,12 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
 
     size_t formatContentionStats(char *buf, size_t len) override;
 
-    /** True if a MeshCore frame may go on air now: radio enabled, tx_enabled and within the duty cycle. */
+    /** True if a MeshCore frame may go on air now: meshCoreTxPossible() and within the duty cycle. */
     bool meshCoreTxAllowed();
+    /** True unless MeshCore TX is refused for good: radio disabled, tx_enabled off, alternate modem or unsupported chip. */
+    bool meshCoreTxPossible();
+    /** True while our TX airtime stays within the regional duty cycle (or it is overridden). */
+    bool meshCoreWithinDutyCycle();
 
     /** True when the driver switches to the MeshCore sync word for a raw frame (SX126x, LR11x0, LR20x0). */
     virtual bool meshCoreTxSupported() const { return false; }
