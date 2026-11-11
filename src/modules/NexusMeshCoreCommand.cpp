@@ -709,9 +709,11 @@ void NexusModule::finishMeshCoreDiscover()
         const bool wasKnown = meshCoreCompanion.nodes.find(peer.pub) != nullptr;
         MeshCoreNode *n = meshCoreCompanion.nodes.upsertIfRoom(peer.pub);
         if (n) {
-            if (!wasKnown)
+            // The discover answer is unsigned: it may name a new node's type, never overwrite one an ADVERT set.
+            if (!wasKnown) {
                 added++;
-            n->type = peer.type;
+                n->type = peer.type;
+            }
             n->snr = peer.rxSnr;
             n->setHops(0); // it answered a zero-hop request: it is a direct neighbour by definition
             n->lastHeard = now;
