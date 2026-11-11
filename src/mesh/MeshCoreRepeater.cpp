@@ -652,10 +652,7 @@ int MeshCoreRepeater::claimSlot(uint8_t priority)
     if (victim < 0)
         return -1;
 
-    // It was remembered when queued, but never forwarded: a later copy must be eligible again.
-    dedup.forget(queue[victim].hash32);
-    release(victim);
-    txDropped++;
+    discardUnsent(victim);
     return victim;
 }
 
@@ -696,14 +693,20 @@ void MeshCoreRepeater::release(int index)
         busyAttempts = 0;
 }
 
+void MeshCoreRepeater::discardUnsent(int index)
+{
+    // It was remembered when queued, but never forwarded: a later copy must be eligible again.
+    dedup.forget(queue[index].hash32);
+    release(index);
+    txDropped++;
+}
+
 void MeshCoreRepeater::expireStale()
 {
     for (size_t i = 0; i < QUEUE_SIZE; i++) {
         const QueuedFrame &f = queue[i];
-        if (f.len != 0 && !f.own && !Throttle::isWithinTimespanMs(f.firstSeenMs, DUPE_WINDOW_MS)) {
-            release((int)i);
-            txDropped++;
-        }
+        if (f.len != 0 && !f.own && !Throttle::isWithinTimespanMs(f.firstSeenMs, DUPE_WINDOW_MS))
+            discardUnsent((int)i);
     }
 }
 

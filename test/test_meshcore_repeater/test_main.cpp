@@ -888,6 +888,25 @@ void test_stale_pending_relay_is_dropped_for_new_frame()
     TEST_ASSERT_TRUE(repeater.hasPendingFrame());    // the new one is queued
 }
 
+// An expired relay never went on air either, so like an evicted one it must not stay remembered as seen.
+void test_expired_relay_is_forgotten()
+{
+    MeshCoreRepeater repeater;
+    uint8_t stale[64];
+    const size_t staleLen = makeFloodFrame(stale, kTxtMsg, 2, 1, 0x10, 0x10);
+    repeater.handleReceivedFrame(stale, staleLen, 5, kAirtimeMs);
+
+    Time::advanceTestMillis(11000); // past DUPE_WINDOW_MS: the next frame heard expires it
+    uint8_t other[64];
+    const size_t otherLen = makeFloodFrame(other, kTxtMsg, 2, 1, 0x10, 0x20);
+    repeater.handleReceivedFrame(other, otherLen, 5, kAirtimeMs);
+    TEST_ASSERT_EQUAL_UINT32(1, repeater.txDropped);
+
+    const uint32_t dupBefore = repeater.rxDup;
+    repeater.handleReceivedFrame(stale, staleLen, 5, kAirtimeMs);
+    TEST_ASSERT_EQUAL_UINT32(dupBefore, repeater.rxDup);
+}
+
 void test_take_pending_frame_copies_without_clearing()
 {
     MeshCoreRepeater repeater;
@@ -2196,6 +2215,7 @@ void setup()
     RUN_TEST(test_dupe_postpones_pending_relay);
     RUN_TEST(test_relay_deadline_survives_millis_wrap);
     RUN_TEST(test_stale_pending_relay_is_dropped_for_new_frame);
+    RUN_TEST(test_expired_relay_is_forgotten);
     RUN_TEST(test_take_pending_frame_copies_without_clearing);
     RUN_TEST(test_advert_is_signed_and_parseable);
     RUN_TEST(test_advert_type_follows_the_meshtastic_role);

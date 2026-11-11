@@ -540,6 +540,8 @@ class MeshCoreRepeater
     /** Index of the frame to send next: best priority among the due ones, else the soonest to become due. -1 if empty. */
     int pickNext() const;
     void release(int index);
+    /** Drop a frame that never went on air: forget its hash so a later copy may be relayed, and count it dropped. */
+    void discardUnsent(int index);
     /** Index of the frame takePendingFrame() picked (or would pick), -1 if it is gone from the queue. */
     int selectedIndex() const;
     /** Drop floods that waited longer than a copy of them could still matter (they were never forwarded). */
