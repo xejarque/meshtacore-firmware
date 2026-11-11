@@ -373,6 +373,13 @@ uint32_t MeshCoreRepeater::directDelayMs(uint32_t airtimeMs)
     return DELAY_FLOOR_MS + (uint32_t)random(0, (long)airtimeMs + 1);
 }
 
+/// MeshCore carries SNR as a signed byte in quarter dB; out-of-range readings saturate instead of wrapping.
+static uint8_t snrQuarterDbByte(float snr)
+{
+    const float x4 = snr * 4;
+    return (uint8_t)(int8_t)(x4 > 127.0f ? 127.0f : (x4 < -128.0f ? -128.0f : x4));
+}
+
 void MeshCoreRepeater::handleTrace(const uint8_t *raw, size_t len, const FrameInfo &info, float snr, uint32_t airtimeMs)
 {
     // Mesh::onRecvPacket, TRACE: payload = tag(4) auth(4) flags(1) then the hashes to visit; the path field holds
@@ -407,9 +414,7 @@ void MeshCoreRepeater::handleTrace(const uint8_t *raw, size_t len, const FrameIn
     uint8_t forwarded[MAX_FRAME_LEN];
     memcpy(forwarded, raw, snrAt);
     forwarded[pathLenAt] = raw[pathLenAt] + 1;
-    float snrX4 = snr * 4;
-    snrX4 = snrX4 > 127.0f ? 127.0f : (snrX4 < -128.0f ? -128.0f : snrX4);
-    forwarded[snrAt] = (uint8_t)(int8_t)snrX4;
+    forwarded[snrAt] = snrQuarterDbByte(snr);
     memcpy(&forwarded[snrAt + 1], &raw[snrAt], len - snrAt);
 
     if (!queueRelay(forwarded, len + 1, hash, airtimeMs, directDelayMs(airtimeMs), PRIORITY_DIRECT))
@@ -502,7 +507,7 @@ bool MeshCoreRepeater::queueDiscoverReply(const uint8_t pub[32], uint8_t type, b
     frame[0] = (MC_PAYLOAD_TYPE_CONTROL << 2) | MC_ROUTE_DIRECT;
     frame[1] = 0x00; // zero hop
     frame[2] = MC_CTL_DISCOVER_RESP | type;
-    frame[3] = (uint8_t)(int8_t)(snr * 4);
+    frame[3] = snrQuarterDbByte(snr);
     memcpy(&frame[4], tag, 4);
     memcpy(&frame[8], pub, keyLen);
 

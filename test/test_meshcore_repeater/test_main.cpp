@@ -1101,6 +1101,19 @@ void test_discover_request_gets_a_reply()
     TEST_ASSERT_EQUAL_UINT32(0, repeater.txRelayed);
 }
 
+// SNR x4 travels in a signed byte: a reading past 31.75 dB saturates at 127 instead of wrapping negative.
+void test_discover_reply_saturates_a_strong_snr()
+{
+    MeshCoreRepeater repeater;
+    giveIdentity(repeater);
+    uint8_t req[2 + 10] = {(0x0B << 2) | 0x02, 0x00, 0x80, 1 << 2, 0xDE, 0xAD, 0xBE, 0xEF, 0, 0, 0, 0};
+
+    repeater.handleReceivedFrame(req, sizeof(req), 40.0f, kAirtimeMs);
+    uint8_t out[MeshCoreRepeater::MAX_FRAME_LEN];
+    TEST_ASSERT_GREATER_THAN(3, repeater.takePendingFrame(out, sizeof(out)));
+    TEST_ASSERT_EQUAL_INT8(127, (int8_t)out[3]);
+}
+
 // --- relay alias: the second identity that puts a name on the hop we append ---
 
 // The alias is derived from the chat seed, so it survives reboots with no extra file, and stays unused until the radio
@@ -2191,6 +2204,7 @@ void setup()
     RUN_TEST(test_flood_relay_appends_our_hash);
     RUN_TEST(test_direct_frame_forwarded_only_as_next_hop);
     RUN_TEST(test_discover_request_gets_a_reply);
+    RUN_TEST(test_discover_reply_saturates_a_strong_snr);
     RUN_TEST(test_relay_alias_is_derived_and_off_until_enabled);
     RUN_TEST(test_flood_relay_appends_the_alias_when_enabled);
     RUN_TEST(test_direct_frame_addressed_to_the_alias_is_forwarded);
