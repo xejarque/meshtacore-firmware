@@ -888,7 +888,8 @@ void MeshCoreRepeater::foldContentionSample(const QueuedFrame &f)
     } else {
         emaX256 = (uint32_t)((int32_t)emaX256 + (diff >> EMA_SHIFT));
     }
-    finalizedSamples++;
+    if (finalizedSamples < WARMUP_SAMPLES) // past warmup the count only gates it; letting it wrap would restart warmup
+        finalizedSamples++;
 }
 
 void MeshCoreRepeater::applyLazyDecay()
