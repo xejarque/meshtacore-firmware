@@ -110,6 +110,21 @@ static void test_tree_export_deep_chain_stays_bounded()
     }
 }
 
+// A map loaded from flash can hold a region that names itself as parent, or a deeper cycle: export must terminate
+// instead of recursing until the stack runs out.
+static void test_tree_export_terminates_on_a_cycle()
+{
+    MeshCoreRegionMap map;
+    TEST_ASSERT_NOT_NULL(map.putRegion("SELF", 50, 50)); // its own parent, as a loaded file may say
+    RegionEntry *a = map.putRegion("A", 0);
+    TEST_ASSERT_NOT_NULL(a);
+    TEST_ASSERT_NOT_NULL(map.putRegion("B", a->id, 60));
+    a->parent = 60; // A under B under A: only a corrupt file builds this
+    char tree[2048];
+    const size_t len = map.exportTo(tree, sizeof(tree));
+    TEST_ASSERT_EQUAL_size_t(strlen(tree), len);
+}
+
 static void test_remove_region_rules()
 {
     MeshCoreRegionMap map;
@@ -331,6 +346,7 @@ void setup()
     RUN_TEST(test_put_region_explicit_id_respects_capacity);
     RUN_TEST(test_put_region_rejects_parent_cycle);
     RUN_TEST(test_tree_export_deep_chain_stays_bounded);
+    RUN_TEST(test_tree_export_terminates_on_a_cycle);
     RUN_TEST(test_remove_region_rules);
     RUN_TEST(test_find_by_name_and_prefix);
     RUN_TEST(test_transport_key_and_code_calculation);

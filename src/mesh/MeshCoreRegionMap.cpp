@@ -340,8 +340,13 @@ void MeshCoreRegionMap::printChildRegions(int indent, const RegionEntry *parent,
         buf[pos] = '\0';
     }
 
+    // A loaded map may hold a cycle (a region that names itself or a descendant as parent): the depth cap keeps it from
+    // recursing until the stack runs out. Real hierarchies are a few levels deep.
+    constexpr int MAX_PRINT_DEPTH = 8;
+    if (indent >= MAX_PRINT_DEPTH)
+        return;
     for (int i = 0; i < num_regions; i++) {
-        if (regions[i].parent == parent->id) {
+        if (regions[i].parent == parent->id && &regions[i] != parent) {
             printChildRegions(indent + 1, &regions[i], buf, max_len, pos);
         }
     }
