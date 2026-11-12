@@ -400,6 +400,7 @@ copy_ota_loader() {
 	esac
 
 	cp "$manifest" "$out_dir/"
+	cp "$SCRIPT_DIR"/bin/device-install.sh "$SCRIPT_DIR"/bin/device-install.bat "$out_dir/"
 	find "$build_dir" -maxdepth 1 -name "littlefs-${target}-*.bin" -exec cp {} "$out_dir/" \;
 	if ! OUTDIR="$out_dir" "$SCRIPT_DIR/.github/scripts/fetch_ota_loader.sh" "$mcu"; then
 		echo "❌ Could not fetch the OTA Loader for $target ($mcu)" >&2

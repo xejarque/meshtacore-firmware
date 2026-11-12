@@ -257,7 +257,9 @@ jobs:
 
           - First install, by cable: put \`firmware-<target>-<version>.factory.bin\`, \`firmware-<target>-<version>.mt.json\`,
             \`littlefs-<target>-<version>.bin\` and \`mt-<mcu>-ota.bin\` in one folder (\`<mcu>\` is \`esp32s3\` for Heltec V3/V4)
-            and run \`./bin/device-install.sh -f firmware-<target>-<version>.factory.bin\`. It writes the OTA Loader too.
+            and run \`./device-install.sh -f firmware-<target>-<version>.factory.bin\` (Linux/macOS) or
+            \`device-install.bat -f firmware-<target>-<version>.factory.bin\` (Windows, needs Python with esptool). Both are in
+            this release, and both write the OTA Loader too.
           - Later updates, over Bluetooth from the app: choose \`firmware-<target>-<version>.bin\` (**without** \`factory\`).
           - The \`.factory.bin\` is only for cable: the app rejects it ("does not match"). Flashed alone, without
             \`mt-<mcu>-ota.bin\`, the node answers "Device does not have a valid OTA Loader" to a Bluetooth update.
@@ -277,7 +279,7 @@ jobs:
             while read -r name; do gh release delete-asset "$TAG" "$name" --yes; done
           # ESP32 builds also ship the OTA Loader (mt-*-ota.bin) and the littlefs image next to the firmware.
           shopt -s nullglob
-          assets=(./artifacts/firmware-* ./artifacts/mt-*-ota.bin ./artifacts/littlefs-*.bin)
+          assets=(./artifacts/firmware-* ./artifacts/mt-*-ota.bin ./artifacts/littlefs-*.bin ./artifacts/device-install.*)
           gh release upload "$TAG" "${assets[@]}" --clobber
           DRAFT_FLAG="--draft=false"
           if [ "${{ inputs.draft }}" = "true" ]; then DRAFT_FLAG="--draft=true"; fi
@@ -295,7 +297,7 @@ jobs:
           if [ "${{ inputs.draft }}" = "true" ]; then FLAGS+=("--draft"); fi
           if [ "${{ inputs.prerelease }}" = "true" ]; then FLAGS+=("--prerelease"); fi
           shopt -s nullglob
-          assets=(./artifacts/firmware-* ./artifacts/mt-*-ota.bin ./artifacts/littlefs-*.bin)
+          assets=(./artifacts/firmware-* ./artifacts/mt-*-ota.bin ./artifacts/littlefs-*.bin ./artifacts/device-install.*)
           gh release create "$TAG" "${assets[@]}" \
             --target "${{ github.sha }}" \
             --title "Meshtacore Community - ${{ steps.version.outputs.long }}" \
