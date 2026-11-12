@@ -21,6 +21,9 @@ import {
   webSerialSupported,
 } from "./flasher-esp.js";
 
+const OTA_LOADER_MISSING =
+  "Este paquete no trae el OTA Loader: la placa se flasheará, pero no podrá actualizarse por Bluetooth (error «Device does not have a valid OTA Loader»). Vuelve a compilar el firmware o flashéalo por cable con el loader.";
+
 const WORKFLOW_FILE = "custom_builder.yml";
 
 function h(tag, props = {}, ...children) {
@@ -232,7 +235,10 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
       ),
     );
     say(
-      "Firmware listo. Conecta la placa por USB y pulsa el botón; se abrirá el selector de puerto del navegador.",
+      resolved.extraImages?.length
+        ? "Firmware listo. Conecta la placa por USB y pulsa el botón; se abrirá el selector de puerto del navegador."
+        : `Firmware listo. ${OTA_LOADER_MISSING}`,
+      resolved.extraImages?.length ? "" : "error",
     );
     showStep({
       icon: "🔌",
@@ -304,18 +310,24 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
       ui.phases
         .querySelectorAll("li")
         .forEach((li) => li.classList.replace("is-active", "is-done"));
+      const withLoader = Boolean(bundle.extraImages?.length);
       say(
-        "Listo: el firmware está escrito y la placa se ha reiniciado.",
-        "success",
+        withLoader
+          ? "Listo: el firmware está escrito y la placa se ha reiniciado."
+          : `Firmware escrito, pero sin OTA Loader. ${OTA_LOADER_MISSING}`,
+        withLoader ? "success" : "error",
       );
       showStep({
-        icon: "✅",
-        title: "¡Firmware instalado!",
+        icon: withLoader ? "✅" : "⚠️",
+        title: withLoader
+          ? "¡Firmware instalado!"
+          : "Firmware instalado, sin OTA Loader",
         steps: [
           "La placa se ha reiniciado sola con el firmware nuevo.",
           "Espera unos segundos a que arranque. Si no lo hace, pulsa el botón RESET.",
           "Ya puedes desconectarla del USB.",
         ],
+        note: withLoader ? "" : OTA_LOADER_MISSING,
         actions: [{ label: "Entendido", primary: true }],
       });
     } catch (error) {

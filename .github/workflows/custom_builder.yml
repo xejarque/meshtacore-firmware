@@ -436,6 +436,9 @@ jobs:
           path: ~/.ccache
           key: ccache-${{ steps.arch-step.outputs.arch }}-${{ steps.target-step.outputs.target }}-${{ github.run_id }}
 
+      - name: Add OTA Loader to the bundle
+        run: bash .github/scripts/fetch_ota_loader.sh "${{ steps.arch-step.outputs.arch }}"
+
       - name: Prepare Release Bundle
         run: |
           TARGET="${{ steps.target-step.outputs.target }}"
