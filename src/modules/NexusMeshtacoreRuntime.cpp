@@ -236,8 +236,6 @@ void NexusModule::noteLoadedVault(const NexusVault &v)
     vaultVersionLoaded = v.version;
     if (v.version >= 68)
         applyVaultV68(v);
-    else
-        applyPingHeaderModes(v); // the header text and mode exist since v15: an old vault must not lose them
 }
 
 void NexusModule::applyVaultV68(const NexusVault &v)
@@ -264,27 +262,6 @@ void NexusModule::applyVaultV68(const NexusVault &v)
             }
         }
     }
-    applyPingHeaderModes(v);
-}
-
-// The PPING header mode is per layer from v71 on. An older vault only carries the shared custom_pping_active flag, which
-// both layers inherit: a custom header stays custom, and without one each layer keeps the banner it printed before the
-// split. Only a device with no vault at all gets MeshCore's new factory default (no banner).
-void NexusModule::applyPingHeaderModes(const NexusVault &v)
-{
-    strncpy(pping_header, v.pping_header, sizeof(pping_header));
-    pping_header[sizeof(pping_header) - 1] = '\0';
-    if (v.version >= 71) {
-        const uint8_t mtMode = v.ping_header_modes & 0x03;
-        const uint8_t mcMode = (v.ping_header_modes >> 2) & 0x03;
-        mt_ping_header_mode = (mtMode <= PING_HEADER_NONE) ? mtMode : PING_HEADER_DEFAULT;
-        mc_ping_header_mode = (mcMode <= PING_HEADER_NONE) ? mcMode : PING_HEADER_NONE;
-    } else {
-        mt_ping_header_mode = v.custom_pping_active ? PING_HEADER_CUSTOM : PING_HEADER_DEFAULT;
-        mc_ping_header_mode = v.custom_pping_active ? PING_HEADER_CUSTOM : PING_HEADER_DEFAULT;
-    }
-    // Kept as the Meshtastic mirror, which is what an older build reading this vault understands.
-    custom_pping_active = (mt_ping_header_mode == PING_HEADER_CUSTOM);
 }
 
 bool NexusModule::isLiveAutoZeroHopRelay(uint8_t relay_id, bool clientBase)

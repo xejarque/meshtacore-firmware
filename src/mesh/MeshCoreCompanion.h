@@ -240,6 +240,13 @@ class MeshCoreCompanion
     bool formatRouteLine(const HeardPath &route, char *out, size_t cap, float freqErr = 0.0f, uint8_t signal = SIGNAL_ALL,
                          const char *header = nullptr) const;
 
+    /// The PPING answer for a MeshCore route, in ZephCore's shape: "@[sender] N hops", one "↓name" line per hop and the
+    /// "(RSSI/SNR)" stuck to the last one; direct: "@[sender] direct (RSSI/SNR)". signal takes SIGNAL_SNR / SIGNAL_RSSI.
+    bool formatPingLine(const HeardPath &route, char *out, size_t cap, const char *sender = nullptr,
+                        uint8_t signal = SIGNAL_SNR) const;
+    bool formatPingForPacket(uint32_t packetId, char *out, size_t cap, const char *sender = nullptr,
+                             uint8_t signal = SIGNAL_SNR) const;
+
     /// Format route for a given packet id into out. Returns true on success.
     bool formatRouteForPacket(uint32_t packetId, char *out, size_t cap, float freqErr = 0.0f, uint8_t signal = SIGNAL_ALL,
                               const char *header = nullptr) const;

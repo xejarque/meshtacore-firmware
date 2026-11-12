@@ -227,65 +227,6 @@
       ]
     },
     {
-      "id": "pping_mt_header_mode",
-      "group": "bots",
-      "section": "meshtastic",
-      "type": "enum",
-      "key": "USERPREFS_NEXUS_PPING_MT_HEADER_MODE",
-      "label": "Cabecera del bot de Meshtastic",
-      "cmd": "/mt PPING HEADER",
-      "default": "0",
-      "values": [
-        {
-          "value": "0",
-          "label": "Por defecto"
-        },
-        {
-          "value": "1",
-          "label": "Texto propio"
-        },
-        {
-          "value": "2",
-          "label": "Sin cabecera"
-        }
-      ]
-    },
-    {
-      "id": "pping_mc_header_mode",
-      "group": "bots",
-      "section": "meshcore",
-      "type": "enum",
-      "key": "USERPREFS_NEXUS_PPING_MC_HEADER_MODE",
-      "label": "Cabecera del bot de MeshCore",
-      "cmd": "/mc PPING HEADER",
-      "default": "2",
-      "values": [
-        {
-          "value": "0",
-          "label": "Por defecto"
-        },
-        {
-          "value": "1",
-          "label": "Texto propio"
-        },
-        {
-          "value": "2",
-          "label": "Sin cabecera"
-        }
-      ]
-    },
-    {
-      "id": "pping_header",
-      "group": "bots",
-      "section": "shared",
-      "type": "string",
-      "key": "USERPREFS_NEXUS_PPING_HEADER",
-      "label": "Texto de cabecera propio (ambas capas)",
-      "cmd": "/mt PPING HEADER <texto>",
-      "default": "",
-      "maxLen": 63
-    },
-    {
       "id": "drop_mask",
       "group": "firewall",
       "type": "bitmask",

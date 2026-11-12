@@ -12,6 +12,7 @@
 #include <unity.h>
 
 #include "configuration.h"
+#include "mesh/PingReport.h"
 #include "modules/NexusModule.h"
 
 namespace
@@ -137,76 +138,23 @@ void test_cmd_sets_the_trigger_up_to_the_first_space()
     TEST_ASSERT_EQUAL_STRING("/ping", m.ping_trigger);
 }
 
-// The header mode is per layer: acting on one leaves the other where it was, and the custom text is shared.
-void test_header_modes_are_per_layer()
+// The Meshtastic ping line, in ZephCore's shape (zephtacore ping_tests.cpp UNIT-PING-003).
+void test_the_meshtastic_line_names_the_last_relay_only()
 {
-    TestNexusModule m;
-    m.mt_ping_header_mode = meshtastic::PING_HEADER_DEFAULT;
-    m.mc_ping_header_mode = meshtastic::PING_HEADER_NONE;
-
-    m.run("HEADER NONE");
-    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_NONE, m.mt_ping_header_mode);
-    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_NONE, m.mc_ping_header_mode); // untouched
-
-    m.run("HEADER DEFAULT");
-    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_DEFAULT, m.mt_ping_header_mode);
-    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_NONE, m.mc_ping_header_mode);
-
-    // OFF is the spelling the first release documented for "back to the default header".
-    m.run("HEADER OFF");
-    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_DEFAULT, m.mt_ping_header_mode);
-}
-
-void test_a_custom_header_applies_to_the_layer_it_was_typed_on()
-{
-    TestNexusModule m;
-    m.mt_ping_header_mode = meshtastic::PING_HEADER_DEFAULT;
-    m.mc_ping_header_mode = meshtastic::PING_HEADER_NONE;
-
-    m.run("HEADER Relay Under Test");
-    TEST_ASSERT_EQUAL_STRING("Relay Under Test", m.pping_header);
-    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_CUSTOM, m.mt_ping_header_mode);
-    TEST_ASSERT_TRUE(m.custom_pping_active); // the mirror older builds read
-    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_NONE, m.mc_ping_header_mode);
-
-    // CUSTOM reuses the stored text without retyping it.
-    m.run("HEADER DEFAULT");
-    m.run("HEADER CUSTOM");
-    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_CUSTOM, m.mt_ping_header_mode);
-    TEST_ASSERT_EQUAL_STRING("Relay Under Test", m.pping_header);
-}
-
-// A keyword needs quotes to be a literal header; an empty text and CUSTOM with nothing stored are refused.
-void test_header_keywords_can_be_quoted_and_empty_text_is_refused()
-{
-    TestNexusModule m;
-    m.mt_ping_header_mode = meshtastic::PING_HEADER_DEFAULT;
-
-    m.run("HEADER CUSTOM");
-    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_DEFAULT, m.mt_ping_header_mode); // nothing stored to show
-    m.run("HEADER ");
-    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_DEFAULT, m.mt_ping_header_mode);
-
-    m.run("HEADER \"none\"");
-    TEST_ASSERT_EQUAL_STRING("none", m.pping_header);
-    TEST_ASSERT_EQUAL_UINT8(meshtastic::PING_HEADER_CUSTOM, m.mt_ping_header_mode);
-}
-
-// The vault mirror tracks the Meshtastic mode alone, so a MeshCore-only custom header does not light it up.
-void test_the_vault_mirror_follows_the_meshtastic_mode()
-{
-    TestNexusModule m;
-    m.custom_pping_active = false;
-    strncpy(m.pping_header, "Shared Text", sizeof(m.pping_header) - 1); // CUSTOM needs a stored text to show
-    m.mt_ping_header_mode = meshtastic::PING_HEADER_DEFAULT;
-    m.mc_ping_header_mode = meshtastic::PING_HEADER_CUSTOM;
-
-    m.run("HEADER NONE");
-    TEST_ASSERT_FALSE(m.custom_pping_active);
-    m.run("HEADER CUSTOM");
-    TEST_ASSERT_TRUE(m.custom_pping_active);
-    m.run("HEADER DEFAULT");
-    TEST_ASSERT_FALSE(m.custom_pping_active);
+    char out[120];
+    PingReport::meshtasticLine(out, sizeof(out), "!1234abcd", 2, "Montjuic", true, false, 7.5f, -92);
+    TEST_ASSERT_EQUAL_STRING("@[!1234abcd] 2 hops, last Montjuic, SNR 7.5 dB", out);
+    PingReport::meshtasticLine(out, sizeof(out), nullptr, 1, "aa", true, false, 7.5f, -92);
+    TEST_ASSERT_EQUAL_STRING("1 hop, last aa, SNR 7.5 dB", out);
+    PingReport::meshtasticLine(out, sizeof(out), "Ana", 0, nullptr, true, false, 7.5f, -92);
+    TEST_ASSERT_EQUAL_STRING("@[Ana] direct, SNR 7.5 dB", out);
+    PingReport::meshtasticLine(out, sizeof(out), "Ana", 3, "", true, true, -2.5f, -110);
+    TEST_ASSERT_EQUAL_STRING("@[Ana] 3 hops, SNR -2.5 dB, RSSI -110 dBm", out);
+    PingReport::meshtasticLine(out, sizeof(out), "Ana", 0, nullptr, false, false, 7.5f, -92);
+    TEST_ASSERT_EQUAL_STRING("@[Ana] direct", out);
+    char tiny[10];
+    const size_t n = PingReport::meshtasticLine(tiny, sizeof(tiny), "Ana", 2, "Montjuic", true, true, 7.5f, -92);
+    TEST_ASSERT_TRUE(n < sizeof(tiny) && strlen(tiny) == n);
 }
 
 } // namespace
@@ -222,10 +170,7 @@ void setup()
     RUN_TEST(test_reporting_toggles_reach_the_shared_flags);
     RUN_TEST(test_a_toggle_without_on_or_off_is_not_applied);
     RUN_TEST(test_cmd_sets_the_trigger_up_to_the_first_space);
-    RUN_TEST(test_header_modes_are_per_layer);
-    RUN_TEST(test_a_custom_header_applies_to_the_layer_it_was_typed_on);
-    RUN_TEST(test_header_keywords_can_be_quoted_and_empty_text_is_refused);
-    RUN_TEST(test_the_vault_mirror_follows_the_meshtastic_mode);
+    RUN_TEST(test_the_meshtastic_line_names_the_last_relay_only);
     exit(UNITY_END());
 }
 

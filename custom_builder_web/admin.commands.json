@@ -733,10 +733,6 @@
           "description": "Set emoji ping acknowledgment mode (aliases `INDR`, `ALW`)."
         },
         {
-          "syntax": "PPING HEADER <text|OFF|DEFAULT|NONE|CUSTOM>",
-          "description": "Header line of the ping response, per layer. Free text stores it and selects it (`CUSTOM` reuses it without retyping); `DEFAULT` restores the layer's branding, `OFF` is its alias, and `NONE` drops the header so the reply opens with the hop line. Meshtastic defaults to `DEFAULT`, MeshCore to `NONE`."
-        },
-        {
           "syntax": "PPING RSSI|SNR|FREQERR|FLAGS|OM|ALLOWDM <ON|OFF>",
           "description": "Additional per-metric and routing toggles (see `PPING` usage line); the reporting toggles are shared with `MESHCORE PPING`. `HEX`/`GETHEX` mask: bit0 public ping, 1 RSSI, 2 SNR, 3 FREQERR, 4 ignore direct, 5 ignore remote, 6 flags, 7-14 channels 0-7, 15 allow DM."
         }
@@ -2274,13 +2270,6 @@
       "usage": []
     },
     {
-      "name": "USERPREFS_NEXUS_PPING_MC_HEADER_MODE",
-      "aliases": [],
-      "category": "`/mc PPING HEADER`",
-      "summary": "one of 0, 1, 2",
-      "usage": []
-    },
-    {
       "name": "USERPREFS_NEXUS_PPING_ALLOW_DM",
       "aliases": [],
       "category": "`/mt PPING ALLOWDM`",
@@ -2327,20 +2316,6 @@
       "aliases": [],
       "category": "`/mt PPING FREQERR`",
       "summary": "bool",
-      "usage": []
-    },
-    {
-      "name": "USERPREFS_NEXUS_PPING_HEADER",
-      "aliases": [],
-      "category": "`/mt PPING HEADER <texto>`",
-      "summary": "text, max 63",
-      "usage": []
-    },
-    {
-      "name": "USERPREFS_NEXUS_PPING_MT_HEADER_MODE",
-      "aliases": [],
-      "category": "`/mt PPING HEADER`",
-      "summary": "one of 0, 1, 2",
       "usage": []
     },
     {

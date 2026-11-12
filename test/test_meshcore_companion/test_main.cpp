@@ -2545,12 +2545,83 @@ void test_unified_vecinos_formatting(void)
 }
 
 /**
- * Pins MeshCore PPING formatting:
- * Guards against regression of the hop count on the first line, one hop name per line,
- * direct bolt + emojis on direct pings, delta frequency error reporting, and the header
- * sharing the first line with the hop count.
+ * Pins the PPING answer of a MeshCore route in ZephCore's shape (zephtacore ping_tests.cpp):
+ * "@[sender] N hops", one "↓name" line per hop, the "(RSSI/SNR)" stuck to the last hop, hex for hops nobody claims,
+ * "direct" when there are none, and the signal metrics that are off left out.
  */
 void test_meshcore_ping_formatting(void)
+{
+    GroupSetup s;
+    const char *arrow = "\xE2\x86\x93";
+    uint8_t pub[32];
+    memset(pub, 0x44, sizeof(pub));
+    pub[0] = 0xA1;
+    s.c.learnRepeater(pub, "Montjuic");
+
+    MeshCoreCompanion::HeardPath direct;
+    direct.hopCount = 0;
+    direct.snr = 7.5f;
+    direct.rssi = -92;
+    char out[160];
+    TEST_ASSERT_TRUE(s.c.formatPingLine(direct, out, sizeof(out), "Ana", MeshCoreCompanion::SIGNAL_SNR));
+    TEST_ASSERT_EQUAL_STRING("@[Ana] direct (+7.5)", out);
+    TEST_ASSERT_TRUE(s.c.formatPingLine(direct, out, sizeof(out), "Ana", MeshCoreCompanion::SIGNAL_SNR | MeshCoreCompanion::SIGNAL_RSSI));
+    TEST_ASSERT_EQUAL_STRING("@[Ana] direct (-92/+7.5)", out);
+    TEST_ASSERT_TRUE(s.c.formatPingLine(direct, out, sizeof(out), nullptr, MeshCoreCompanion::SIGNAL_RSSI));
+    TEST_ASSERT_EQUAL_STRING("direct (-92)", out);
+    TEST_ASSERT_TRUE(s.c.formatPingLine(direct, out, sizeof(out), "Ana", 0));
+    TEST_ASSERT_EQUAL_STRING("@[Ana] direct", out);
+
+    MeshCoreCompanion::HeardPath hops;
+    hops.hopCount = 3;
+    hops.hashSize = 1;
+    hops.path[0] = 0xA1; // Montjuic
+    hops.path[1] = 0x77; // nobody
+    hops.path[2] = 0x3F; // nobody
+    hops.snr = -2.5f;
+    hops.rssi = -88;
+    char expected[160];
+    snprintf(expected, sizeof(expected), "@[Ana] 3 hops\n%sMontjuic\n%s77\n%s3f(-88/-2.5)", arrow, arrow, arrow);
+    TEST_ASSERT_TRUE(s.c.formatPingLine(hops, out, sizeof(out), "Ana", MeshCoreCompanion::SIGNAL_SNR | MeshCoreCompanion::SIGNAL_RSSI));
+    TEST_ASSERT_EQUAL_STRING(expected, out);
+
+    // A single hop is singular, and a route the packet did not carry (no hashes) is the count and the signal.
+    MeshCoreCompanion::HeardPath one;
+    one.hopCount = 1;
+    one.hashSize = 1;
+    one.path[0] = 0x3F;
+    one.snr = 7.5f;
+    TEST_ASSERT_TRUE(s.c.formatPingLine(one, out, sizeof(out), "Ana", MeshCoreCompanion::SIGNAL_SNR));
+    snprintf(expected, sizeof(expected), "@[Ana] 1 hop\n%s3f(+7.5)", arrow);
+    TEST_ASSERT_EQUAL_STRING(expected, out);
+    MeshCoreCompanion::HeardPath unnamed;
+    unnamed.hopCount = 2;
+    unnamed.snr = 7.5f;
+    TEST_ASSERT_TRUE(s.c.formatPingLine(unnamed, out, sizeof(out), "Ana", MeshCoreCompanion::SIGNAL_SNR));
+    TEST_ASSERT_EQUAL_STRING("@[Ana] 2 hops (+7.5)", out);
+
+    // A long route is cut with ".." and keeps its signal; a small buffer is never overrun.
+    MeshCoreCompanion::HeardPath longRoute;
+    longRoute.hopCount = 20;
+    longRoute.hashSize = 1;
+    for (int i = 0; i < 20; i++)
+        longRoute.path[i] = (uint8_t)(0x50 + i);
+    longRoute.snr = 7.5f;
+    char small[60];
+    TEST_ASSERT_TRUE(s.c.formatPingLine(longRoute, small, sizeof(small), "Ana", MeshCoreCompanion::SIGNAL_SNR));
+    TEST_ASSERT_TRUE(strlen(small) < sizeof(small));
+    TEST_ASSERT_NOT_NULL(strstr(small, "\n.."));
+    TEST_ASSERT_EQUAL_STRING("(+7.5)", small + strlen(small) - 6);
+    char tiny[12];
+    s.c.formatPingLine(hops, tiny, sizeof(tiny), "Ana", MeshCoreCompanion::SIGNAL_SNR);
+    TEST_ASSERT_TRUE(strlen(tiny) < sizeof(tiny));
+}
+
+/**
+ * The route line .path prints, with the header some layers put on its first line:
+ * the hop count on the first line, one hop name per line, direct bolt + emojis, delta frequency error.
+ */
+void test_route_line_formatting(void)
 {
     GroupSetup s;
     MeshCoreCompanion::HeardPath directRoute;
@@ -2776,6 +2847,7 @@ void setup()
     RUN_TEST(test_known_contact_advert_must_be_signed_and_newer);
     RUN_TEST(test_unified_vecinos_formatting);
     RUN_TEST(test_meshcore_ping_formatting);
+    RUN_TEST(test_route_line_formatting);
     RUN_TEST(test_handle_frame_carries_the_frequency_error);
 #endif
     exit(UNITY_END());

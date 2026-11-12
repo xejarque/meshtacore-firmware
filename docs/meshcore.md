@@ -366,13 +366,13 @@ Text with a non-plain type is ignored.
 `MESHCORE PPING` (alias `MCORE PPING`) and `/mtc PPING` are independent: `PPING ON|OFF` under MESHCORE only switches the MeshCore ping channels (`MC:#bot`), and `/mtc PPING ON|OFF` only switches the Meshtastic public ping (`public_ping`). A MeshCore ping is answered whenever its channel is on, whatever `public_ping` says. The reporting settings (`RSSI`, `SNR`, `FREQERR`, `EMOJI`, `CMD`, `FLAGS`, `ALLOWDM`, `CHAN`, `HEX`, `GETHEX`) are one shared set, and the route line of a MeshCore reply prints only the metrics that are on. `HEADER` is the exception: the custom text is shared, but the mode it applies is per layer, so `MESHCORE PPING HEADER NONE` leaves the Meshtastic header where it was. A MeshCore reply ships with no header at all (`NONE`), since its first line already carries the hop count:
 
 ```
-📡 2 hops
-Montjuic RPT
-Tibidabo RPT
-SNR: -3.2 dB · RSSI: -88 dBm · Δf -12Hz
+@[Ana] 2 hops
+↓Montjuic RPT
+↓Tibidabo RPT(-88/-3.2)
 ```
 
-`HEADER <text>` puts that text in front of the hop count on the first line (`Relay Under Test · 📡 2 hops`), and `HEADER DEFAULT` restores the `🤖MESHTACORE Ping🤖` banner. The `CMD` / `TRIGGER` value is the same trigger `/mtc PPING CMD` sets: any leading character is accepted (`.ping` works, there is no `/` requirement), the incoming text must match it exactly, it is at most 15 characters, and `MESHCORE PING <target>` sends it as the ping body.
+That is the shape ZephCore answers with: the sender first (none on a DM), one `↓name` line per hop (hex when no node claims it, `?` after a name several nodes share), and `(RSSI/SNR)` stuck to the last hop; a direct ping reads `@[Ana] direct (-88/-3.2)`. Meshtastic carries only the last relay: `@[Ana] 2 hops, last Montjuic, SNR -3.2 dB`. With `FREQERR` on, a `Δf` line closes the answer. 
+The `CMD` / `TRIGGER` value is the same trigger `/mtc PPING CMD` sets: any leading character is accepted (`.ping` works, there is no `/` requirement), the incoming text must match it exactly, it is at most 15 characters, and `MESHCORE PING <target>` sends it as the ping body.
 
 ## Threads, timers and coexistence
 

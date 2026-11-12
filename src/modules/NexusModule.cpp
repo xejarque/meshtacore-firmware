@@ -11,6 +11,7 @@
 #include "modules/NexusModule.h"
 #include "SafeFile.h"
 #include "modules/NexusRescue.h"
+#include "mesh/PingReport.h"
 
 /*
  * Nexus module implementation.
@@ -1609,6 +1610,20 @@ void NexusModule::getRelayNames(char *buf, size_t bufSize, uint8_t suffix) {
     }
 }
 
+void NexusModule::pingSenderName(const meshtastic_MeshPacket &mp, char *out, size_t cap)
+{
+    if (!out || cap == 0)
+        return;
+    out[0] = '\0';
+    if (mp.to == myNodeInfo.my_node_num) // a DM: the answer goes straight back, no need to name them
+        return;
+    const meshtastic_NodeInfoLite *node = nodeDB ? nodeDB->getMeshNode(mp.from) : nullptr;
+    if (node && node->long_name[0])
+        cleanNeighborName(node->long_name, out, cap, 24);
+    if (!out[0])
+        snprintf(out, cap, "!%08x", (unsigned)mp.from);
+}
+
 void NexusModule::applyBS(meshtastic_Telemetry *m) {
     // Internal telemetry hook. Public builds: empty body so external callers
     // (EnvironmentTelemetry.cpp) compile and simply do nothing. Private builds:
@@ -1912,75 +1927,59 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                     formatMeshCorePingReply(mp, rMsg, sizeof(rMsg));
                 } else {
 #endif
-                // Meshtastic keeps its own header mode: DEFAULT prints the MESHTACORE banner, CUSTOM the shared text, and
-                // NONE starts the reply with the hop line.
-                if (mt_ping_header_mode == PING_HEADER_CUSTOM && pping_header[0] != '\0') {
-                    l = appendClamped(rMsg, sizeof(rMsg), 0, "%s\n", pping_header);
-                } else if (mt_ping_header_mode != PING_HEADER_NONE) {
-                    l = appendClamped(rMsg, sizeof(rMsg), 0, "🤖MESHTACORE Ping🤖\n");
-                }
+                // Meshtastic carries only the last relay, so the line is: "@[name] 2 hops, last NAME, SNR 7.5 dB" (the
+                // same shape ZephCore answers with); a direct ping reads "direct, SNR 7.5 dB".
+                char sender[40];
+                pingSenderName(mp, sender, sizeof(sender));
+                if (sender[0])
+                    l = appendClamped(rMsg, sizeof(rMsg), l, "@[%s] ", sender);
 
-                if (hopsUsed == 0) {
-                    l = appendClamped(rMsg, sizeof(rMsg), l, "⚡ *directo* · 📡 *0/%u*\n", mp.hop_start);
-                } else {
+                char relay[48] = {0};
+                const uint8_t targetSuffix = (uint8_t)(mp.relay_node & 0xFF);
+                if (hopsUsed > 0 && targetSuffix != 0) {
                     static char relayNames[64];
                     memset(relayNames, 0, sizeof(relayNames));
-                    uint8_t targetSuffix = (uint8_t)(mp.relay_node & 0xFF);
                     getRelayNames(relayNames, sizeof(relayNames), targetSuffix);
-
                     if (relayNames[0] != '\0') {
-                        char cleanRelay[64];
-                        NexusModule::cleanNeighborName(relayNames, cleanRelay, sizeof(cleanRelay), sizeof(cleanRelay) - 1);
-                        l = appendClamped(rMsg, sizeof(rMsg), l, "📡 **Hops**: *%u/%u* · 🔄 **%s** (*%02x*)\n",
-                                      hopsUsed, mp.hop_start, cleanRelay, targetSuffix);
-                    } else {
-                        l = appendClamped(rMsg, sizeof(rMsg), l, "📡 **Hops**: *%u/%u* · 🔄 (*%02x*)\n",
-                                      hopsUsed, mp.hop_start, targetSuffix);
+                        // First name only, "?" when the suffix matches several nodes.
+                        const char *comma = strchr(relayNames, ',');
+                        char first[64];
+                        snprintf(first, sizeof(first), "%.*s", comma ? (int)(comma - relayNames) : 63, relayNames);
+                        NexusModule::cleanNeighborName(first, relay, sizeof(relay) - 1, PingReport::NAME_MAX_BYTES);
+                        if (comma && relay[0] && strlen(relay) + 1 < sizeof(relay))
+                            strcat(relay, "?");
                     }
+                    if (!relay[0])
+                        snprintf(relay, sizeof(relay), "%02x", targetSuffix);
                     memset(relayNames, 0, sizeof(relayNames));
                 }
+                l = (int)PingReport::meshtasticLine(rMsg, sizeof(rMsg), sender, (unsigned)hopsUsed, relay, ping_snr, ping_rssi,
+                                                    mp.rx_snr, (int)mp.rx_rssi);
 
-                if (ping_rssi || ping_snr) {
-                    l = appendClamped(rMsg, sizeof(rMsg), l, "📶 ");
-                    if (ping_snr && ping_rssi) {
-                        l = appendClamped(rMsg, sizeof(rMsg), l, "**%.1fdB** · *%ddBm*\n", mp.rx_snr, (int)mp.rx_rssi);
-                    } else if (ping_snr) {
-                        l = appendClamped(rMsg, sizeof(rMsg), l, "**%.1fdB**\n", mp.rx_snr);
-                    } else {
-                        l = appendClamped(rMsg, sizeof(rMsg), l, "*%ddBm*\n", (int)mp.rx_rssi);
-                    }
-                }
-
-                if (ping_freqerr) {
-                    l = appendClamped(rMsg, sizeof(rMsg), l, "🔬 *Δf %.0fHz* · *CR %d*\n",
-                                      mp.rx_frequency_error, nexusCRDisplay(mp.rx_coding_rate));
-                }
+                // The optional extras close the answer, each on its own line.
+                if (ping_freqerr)
+                    l = appendClamped(rMsg, sizeof(rMsg), l, "\nΔf %.0fHz · CR %d", mp.rx_frequency_error,
+                                      nexusCRDisplay(mp.rx_coding_rate));
 
                 if (ping_bitmask) {
                     if (l < 0 || (size_t)l >= sizeof(rMsg)) l = sizeof(rMsg) - 1;
                     bool om = (mp.decoded.has_bitfield && (mp.decoded.bitfield & BITFIELD_OK_TO_MQTT_MASK));
                     bool mqtt = mp.via_mqtt;
 
-                    l = appendClamped(rMsg, sizeof(rMsg), l, "🌐 OM:%d%s MQTT:%d%s UDP:%d",
+                    l = appendClamped(rMsg, sizeof(rMsg), l, "\nOM:%d%s MQTT:%d%s UDP:%d",
                                  om ? 1 : 0, !om ? "⚠️" : "",
                                  mqtt ? 1 : 0, mqtt ? "⚠️" : "",
                                  (mp.transport_mechanism == meshtastic_MeshPacket_TransportMechanism_TRANSPORT_MULTICAST_UDP) ? 1 : 0);
 
-                    // (SIGNATURE FLAG 2026-08-23) Append S:<emoji> to the flags line.
-                    // Three states, intentionally a different palette than the auto-prefix
-                    // convention in NexusCommands.cpp:8134 (which uses ✅/🚫/📄):
-                    //   🔴 — no signature field on the wire (decoded.xeddsa_signature.size == 0)
-                    //   🟠 — signature present but xeddsa_verify() failed (size != 0, !xeddsa_signed)
-                    //   🟢 — signature present AND verified by Router::checkXeddsaReceivePolicy
-                    // Converging the two is a separate follow-up — for now PPING uses traffic-light
-                    // colors and the auto-prefix keeps its checkmark/ban/document set.
+                    // (SIGNATURE FLAG 2026-08-23) S:<emoji>: 🔴 no signature on the wire, 🟠 signed but unverified,
+                    // 🟢 signed and verified by Router::checkXeddsaReceivePolicy.
                     const char *sigEmoji;
                     if (mp.decoded.xeddsa_signature.size == 0) {
-                        sigEmoji = "🔴"; // F0 9F 94 B4 — not signed
+                        sigEmoji = "🔴";
                     } else if (!mp.xeddsa_signed) {
-                        sigEmoji = "🟠"; // F0 9F 9F A0 — signed but unverified
+                        sigEmoji = "🟠";
                     } else {
-                        sigEmoji = "🟢"; // F0 9F 9F A2 — signed & verified
+                        sigEmoji = "🟢";
                     }
                     l = appendClamped(rMsg, sizeof(rMsg), l, " S:%s", sigEmoji);
                 }
@@ -4533,7 +4532,7 @@ bool NexusModule::saveVault()
     }
     memset(v, 0, sizeof(NexusVault));
     memcpy(v->magic, "JenT", 4);
-    v->version = 71; // v71: ping_header_modes (v70: volt_rules, v69: custom PPING command, ping_trigger)
+    v->version = 71; // v71: ping_header_modes, now reserved (v70: volt_rules, v69: custom PPING command, ping_trigger)
     // v67: nexusVariantBits (generic variant-bitmask pool — station-g3 PA/LNA today, future variants tomorrow)
     // - v66 was: features_mask + secondary_keys[4] (4 slots)
     v->drop_mask = getNexusDropHex();
@@ -4609,12 +4608,8 @@ bool NexusModule::saveVault()
         v->cron_table[i] = cron_table[i];
     }
 
-    // Custom PPING Header (v15). v71 splits the mode per layer into ping_header_modes; custom_pping_active stays as the
-    // Meshtastic mirror so an older build reading this vault still sees the header it knows.
-    v->custom_pping_active = (mt_ping_header_mode == PING_HEADER_CUSTOM) ? 1 : 0;
-    v->ping_header_modes = (uint8_t)((mt_ping_header_mode & 0x03) | ((mc_ping_header_mode & 0x03) << 2));
-    strncpy(v->pping_header, pping_header, 64);
-    v->pping_header[63] = '\0';
+    // The PPING header command is gone: v15 custom_pping_active, pping_header and v71 ping_header_modes stay in the
+    // vault layout as reserved bytes (memset to 0 above), so no vault version bump is needed.
 
     // Trace Alert (v16)
     v->trace_alert = trace_alert ? 1 : 0;
@@ -4801,9 +4796,6 @@ bool NexusModule::loadVault()
                 job.active = 0;
             cronLastRunMs[i] = Time::getMillis();
         }
-
-        strncpy(pping_header, v->pping_header, 64);
-        pping_header[63] = '\0';
 
         trace_alert      = (v->trace_alert != 0);
         trace_alert_mode = (v->trace_alert_mode <= 2) ? v->trace_alert_mode : 0;

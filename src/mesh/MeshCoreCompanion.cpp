@@ -9,6 +9,7 @@
 #include "Channels.h"
 #include "NodeDB.h"
 #include "PathReport.h"
+#include "PingReport.h"
 #include "RadioInterface.h"
 #include "Router.h"
 #include "Throttle.h"
@@ -1087,6 +1088,79 @@ bool MeshCoreCompanion::formatRouteForPacket(uint32_t packetId, char *out, size_
     if (!entry)
         return false;
     return formatRouteLine(*entry, out, cap, freqErr, signal, header);
+}
+
+bool MeshCoreCompanion::formatPingLine(const HeardPath &route, char *out, size_t cap, const char *sender, uint8_t signal) const
+{
+    if (!out || cap == 0)
+        return false;
+    out[0] = '\0';
+
+    char tail[24];
+    const size_t tailLen = PingReport::signalTail(tail, sizeof(tail), signal & SIGNAL_SNR, signal & SIGNAL_RSSI, route.snr,
+                                                  (int)route.rssi);
+    size_t n = 0;
+    auto add = [&](const char *fmt, auto... args) {
+        if (n >= cap - 1)
+            return;
+        const int w = snprintf(out + n, cap - n, fmt, args...);
+        if (w > 0)
+            n = (size_t)w < cap - n ? n + (size_t)w : cap - 1;
+    };
+
+    if (sender && sender[0])
+        add("@[%s] ", sender);
+    if (route.hopCount == 0)
+        add("direct");
+    else
+        add("%u hop%s", (unsigned)route.hopCount, route.hopCount == 1 ? "" : "s");
+
+    // One hop per line, the way the packet carries them. The signal sticks to the last one, so its room is kept back and a
+    // route that does not fit ends in "\n..".
+    bool listed = false;
+    const size_t stored = route.hashSize ? sizeof(route.path) / route.hashSize : 0;
+    const size_t total = route.hopCount < stored ? route.hopCount : stored;
+    for (size_t hop = 0; route.hopCount > 0 && hop < total; hop++) {
+        const uint8_t *hash = &route.path[hop * route.hashSize];
+        const char *names[PATH_HOP_NAMES_MAX];
+        const size_t nameCount = pathHopNames(hash, route.hashSize, names, PATH_HOP_NAMES_MAX);
+        char label[48];
+        label[0] = '\0';
+        if (nameCount > 0) {
+            char cleaned[48];
+            formatHopLabel(names, 1, cleaned, sizeof(cleaned)); // the first name alone: a shared hash gets a "?" below
+            cleanNeighborName(cleaned, label, sizeof(label), PingReport::NAME_MAX_BYTES);
+            if (label[0] && nameCount > 1 && strlen(label) + 2 < sizeof(label))
+                strcat(label, "?");
+        }
+        if (!label[0])
+            PingReport::hexLabel(hash, route.hashSize, label, sizeof(label));
+
+        const size_t need = 1 + strlen(PingReport::ARROW) + strlen(label);
+        const size_t more = hop + 1 < total ? 3 : 0; // room for "\n.."
+        if (n + need + more + tailLen >= cap) {
+            add("\n..");
+            listed = true;
+            break;
+        }
+        add("\n%s%s", PingReport::ARROW, label);
+        listed = true;
+    }
+
+    if (tailLen > 0) {
+        if (!listed)
+            add(" ");
+        add("%s", tail);
+    }
+    return n > 0 && n < cap;
+}
+
+bool MeshCoreCompanion::formatPingForPacket(uint32_t packetId, char *out, size_t cap, const char *sender, uint8_t signal) const
+{
+    const HeardPath *entry = heardFind(packetId);
+    if (!entry)
+        return false;
+    return formatPingLine(*entry, out, cap, sender, signal);
 }
 
 size_t MeshCoreCompanion::formatPathReport(const HeardPath *const *routes, size_t count, const char *sender, ReportSink sink,

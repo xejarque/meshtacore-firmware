@@ -11,19 +11,12 @@
 
 using namespace meshtastic;
 
-#if defined(USERPREFS_NEXUS_PPING_TRIGGER) || defined(USERPREFS_NEXUS_PPING_HEADER)
+#if defined(USERPREFS_NEXUS_PPING_TRIGGER)
 // Copies a build-time string into a fixed buffer, always terminated.
 static void copyUserPrefString(char *dst, size_t dstLen, const char *src)
 {
     strncpy(dst, src, dstLen - 1);
     dst[dstLen - 1] = '\0';
-}
-#endif
-
-#if defined(USERPREFS_NEXUS_PPING_MT_HEADER_MODE) || defined(USERPREFS_NEXUS_PPING_MC_HEADER_MODE)
-static bool validPingHeaderMode(long mode)
-{
-    return mode >= PING_HEADER_DEFAULT && mode <= PING_HEADER_NONE;
 }
 #endif
 
@@ -68,20 +61,6 @@ void NexusModule::applyFactoryUserPrefs()
     if (USERPREFS_NEXUS_PPING_EMOJI_MODE >= 0 && USERPREFS_NEXUS_PPING_EMOJI_MODE <= 2)
         ping_emoji_mode = USERPREFS_NEXUS_PPING_EMOJI_MODE;
 #endif
-#ifdef USERPREFS_NEXUS_PPING_HEADER
-    if (((const char *)USERPREFS_NEXUS_PPING_HEADER)[0] != '\0')
-        copyUserPrefString(pping_header, sizeof(pping_header), USERPREFS_NEXUS_PPING_HEADER);
-#endif
-#ifdef USERPREFS_NEXUS_PPING_MT_HEADER_MODE
-    if (validPingHeaderMode(USERPREFS_NEXUS_PPING_MT_HEADER_MODE))
-        mt_ping_header_mode = USERPREFS_NEXUS_PPING_MT_HEADER_MODE;
-#endif
-#ifdef USERPREFS_NEXUS_PPING_MC_HEADER_MODE
-    if (validPingHeaderMode(USERPREFS_NEXUS_PPING_MC_HEADER_MODE))
-        mc_ping_header_mode = USERPREFS_NEXUS_PPING_MC_HEADER_MODE;
-#endif
-    // The vault mirror older builds read: "the Meshtastic header is CUSTOM".
-    custom_pping_active = (mt_ping_header_mode == PING_HEADER_CUSTOM);
 
     // ---- Firewall (/mtc DROP, OUTDROP, INVALID, RATELIMIT, BD) ----
 #ifdef USERPREFS_NEXUS_DROP_MASK

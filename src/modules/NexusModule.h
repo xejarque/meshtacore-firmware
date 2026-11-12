@@ -26,17 +26,6 @@ namespace meshtastic {
 static constexpr size_t NEXUS_MAX_REPLY = 230;
 static constexpr size_t NEXUS_MAX_REPLY_BODY = NEXUS_MAX_REPLY - 1;
 
-// PPING header mode, one per layer (Meshtastic and MeshCore). DEFAULT prints the layer's own branding, CUSTOM prints the
-// shared pping_header text, NONE leaves the first line to the hop count. MeshCore ships as NONE: its replies are read by
-// MeshCore clients, where the "MeshCore Ping" banner is noise.
-enum : uint8_t { PING_HEADER_DEFAULT = 0, PING_HEADER_CUSTOM = 1, PING_HEADER_NONE = 2 };
-
-// The mode as the PPING status line spells it.
-static inline const char *pingHeaderModeName(uint8_t mode)
-{
-    return mode == PING_HEADER_CUSTOM ? "CUSTOM" : mode == PING_HEADER_NONE ? "NONE" : "DEFAULT";
-}
-
 // Nexus v66: Feature toggles (uint64 bitmask, persisted in NexusVault::features_mask).
 // Bit semantics — stable IDs; new bits append at the high end, never reuse a bit number.
 //   bit0  FORWARD_OPAQUE_TO_PHONE       — forward encrypted packets we cannot decode
@@ -229,6 +218,8 @@ private:
     bool isMeshCoreBotChannel(uint32_t channel);
     bool isMeshCorePing(const meshtastic_MeshPacket &mp, bool isPingDM);
     bool formatMeshCorePingReply(const meshtastic_MeshPacket &mp, char *rMsg, size_t rMsgLen);
+    // Who the PPING answer is addressed to: the sender's name, or empty for a DM (the reply goes straight back to them).
+    static void pingSenderName(const meshtastic_MeshPacket &mp, char *out, size_t cap);
     void handleMeshCorePpingCommand(const char *args, char *reply, size_t replyLen);
     void handleMeshCorePingSend(const char *target, char *reply, size_t replyLen);
 public:
@@ -699,8 +690,8 @@ public:
         uint8_t  T_S_mode;      // Added in v12
         uint32_t T_S_id;        // Added in v12
         NexusCronEntry cron_table[8];   // Added in v13 (Increased to 8 in v23)
-        uint8_t  custom_pping_active;   // Added in v15
-        char     pping_header[64];      // Added in v15
+        uint8_t  custom_pping_active;   // Added in v15; reserved since the PPING header command was removed (always 0)
+        char     pping_header[64];      // Added in v15; reserved since the PPING header command was removed (always empty)
         uint8_t  trace_alert;           // Added in v16
         uint8_t  trace_alert_mode;      // Added in v16
         uint8_t  trusted_ch_active[2];  // Added in v17
@@ -764,7 +755,6 @@ public:
     virtual bool saveVault();
     void fillVaultV68(NexusVault &v) const;
     void applyVaultV68(const NexusVault &v);
-    void applyPingHeaderModes(const NexusVault &v);
     void noteLoadedVault(const NexusVault &v);
     // VAULT DIFF / VAULT: the v68 fields against RAM, and a one-line summary of what the vault holds.
     int diffVaultV68(const NexusVault &v);
@@ -835,10 +825,6 @@ public:
     bool dm_forward = false; // DM Forwarding toggle (v10)
     uint32_t v11_id = 0; // v11 slot (RAM mirror)
     bool v11_mode = false; // v11 slot (RAM mirror)
-    bool custom_pping_active = false; // v15/v71: vault mirror of "Meshtastic header is CUSTOM" (downgrade compatibility)
-    uint8_t mt_ping_header_mode = PING_HEADER_DEFAULT; // v71: Meshtastic PPING header mode
-    uint8_t mc_ping_header_mode = PING_HEADER_NONE;    // v71: MeshCore PPING header mode (no banner out of the box)
-    char pping_header[64] = {0}; // Custom PPING header string, shared by both layers (v15)
     bool trusted_ch_active[2] = {false, false};
     char trusted_ch_names[2][16] = {{0}, {0}};
 
