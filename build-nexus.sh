@@ -382,6 +382,32 @@ build_one() {
 }
 
 # -----------------------------------------------------------------------------
+# ESP32 only: copy the manifest and littlefs image, and fetch the unified OTA Loader for the chip.
+# Boards without a unified loader (nRF52, ESP32-C3/C6...) are left alone.
+# -----------------------------------------------------------------------------
+copy_ota_loader() {
+	local target="$1"
+	local build_dir="$2"
+	local out_dir="$3"
+	local manifest mcu
+
+	manifest=$(find "$build_dir" -maxdepth 1 -name "firmware-${target}-*.mt.json" -print -quit 2>/dev/null)
+	[[ -n $manifest ]] || return 0
+	mcu=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("mcu",""))' "$manifest" 2>/dev/null || true)
+	case "$mcu" in
+	esp32 | esp32s3) ;;
+	*) return 0 ;;
+	esac
+
+	cp "$manifest" "$out_dir/"
+	find "$build_dir" -maxdepth 1 -name "littlefs-${target}-*.bin" -exec cp {} "$out_dir/" \;
+	if ! OUTDIR="$out_dir" "$SCRIPT_DIR/.github/scripts/fetch_ota_loader.sh" "$mcu"; then
+		echo "❌ Could not fetch the OTA Loader for $target ($mcu)" >&2
+		return 1
+	fi
+}
+
+# -----------------------------------------------------------------------------
 # Copy build artifacts (.bin for ESP32, .zip + .uf2 for NRF52, plus .factory.bin)
 # -----------------------------------------------------------------------------
 copy_artifacts() {
@@ -409,6 +435,10 @@ copy_artifacts() {
 		echo "  📦 copied: $(basename "$f")"
 		copied=$((copied + 1))
 	done < <(find "$build_dir" -maxdepth 1 \( -name "firmware-${target}-*.zip" -o -name "firmware-${target}-*.uf2" \) -print0 2>/dev/null)
+
+	# ESP32 unified-OTA boards: the factory image does not carry the OTA Loader, so ship it (plus the manifest
+	# and the littlefs image device-install.sh needs) or Bluetooth updates fail with "no valid OTA Loader".
+	copy_ota_loader "$target" "$build_dir" "$out_dir"
 
 	if [[ $copied -eq 0 ]]; then
 		echo "⚠️  Warning: no artifacts found for $target" >&2
