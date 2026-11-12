@@ -21,7 +21,13 @@ y el OTA falla (`AdminModule.cpp`, caso `ota_request`).
 Desde el propio nodo, el comando de información OTA (`NexusModule`) muestra `Available: yes/no/error`
 y el tipo de loader (`MeshtasticOTA`, `MeshtasticOTA-BLE` o `MeshtasticOTA-WiFi`).
 
-## Recuperación (una sola vez, por cable)
+## Recuperación más simple: la web
+
+Abre [Instalar / Actualizar](https://xejarque.github.io/meshtacore-firmware/update.html) en Chrome o Edge de escritorio, elige tu placa y
+pulsa el botón. Si la placa ya tiene Meshtastic solo reescribe la aplicación (se conserva la
+configuración) y escribe el loader en `ota_1` si está vacía; si está en blanco, la instala desde cero.
+
+## Recuperación con script (una sola vez, por cable)
 
 Con los ficheros de la release en el mismo directorio
 (`firmware-<target>-<version>.factory.bin`, `.mt.json`, `littlefs-<target>-<version>.bin` y

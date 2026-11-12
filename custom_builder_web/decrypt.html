@@ -81,8 +81,28 @@
         </a>
         <nav>
           <ul class="nav-links">
+            <li><a href="index.html">Inicio</a></li>
+            <li><a href="docs/index.html">Documentación</a></li>
+            <li><a href="admin.html">Admin Bluetooth</a></li>
+            <li><a href="flasher.html">⚡ Flasher</a></li>
+            <li><a href="update.html">🔄 Instalar / Actualizar</a></li>
+            <li><a href="builder.html" class="nav-cta-btn">🚀 Web Builder</a></li>
             <li>
-              <a href="builder.html" class="nav-cta-btn">🚀 Web Builder</a>
+              <a
+                href="https://github.com/xejarque/meshtacore-firmware"
+                target="_blank"
+                rel="noopener"
+                >GitHub</a
+              >
+            </li>
+            <li>
+              <button
+                class="theme-toggle-btn"
+                type="button"
+                aria-label="Cambiar tema de color"
+              >
+                🌙 Oscuro
+              </button>
             </li>
           </ul>
         </nav>
@@ -218,10 +238,8 @@
            <code class="dl-file">${escapeHtml(zipName)}</code>
            <p>Búscalo en la carpeta de <strong>Descargas</strong> de tu navegador.</p>
            <ol class="dl-steps">
-             <li>Descomprime el <code>.zip</code>.</li>
-             <li>Flashéalo en
-               <a href="https://flasher.meshtastic.org" target="_blank" rel="noopener">flasher.meshtastic.org</a>
-               (Chrome o Edge), o copia el <code>.uf2</code> si tu placa es nRF52.</li>
+             <li>Abre el <a href="flasher.html">Flasher</a> (Chrome o Edge de escritorio) y elige el <code>.zip</code> tal cual, sin descomprimirlo. También escribe el OTA Loader, necesario para actualizar por Bluetooth.</li>
+             <li>Si tu placa es nRF52 puedes, en vez de eso, descomprimir y copiar el <code>.uf2</code> a la unidad que aparece al pulsar dos veces RESET.</li>
            </ol>
            <button id="btnAgain" type="button" class="btn btn-outline btn-sm">
              ¿No lo ves? Descargar de nuevo

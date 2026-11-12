@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Meshtacore - Actualizar</title>
+    <title>Meshtacore - Instalar / Actualizar</title>
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="flasher.css" />
@@ -24,9 +24,28 @@
         </a>
         <nav>
           <ul class="nav-links">
+            <li><a href="index.html">Inicio</a></li>
+            <li><a href="docs/index.html">Documentación</a></li>
+            <li><a href="admin.html">Admin Bluetooth</a></li>
             <li><a href="flasher.html">⚡ Flasher</a></li>
+            <li><a href="update.html" class="active">🔄 Instalar / Actualizar</a></li>
+            <li><a href="builder.html" class="nav-cta-btn">🚀 Web Builder</a></li>
             <li>
-              <a href="builder.html" class="nav-cta-btn">🚀 Web Builder</a>
+              <a
+                href="https://github.com/xejarque/meshtacore-firmware"
+                target="_blank"
+                rel="noopener"
+                >GitHub</a
+              >
+            </li>
+            <li>
+              <button
+                class="theme-toggle-btn"
+                type="button"
+                aria-label="Cambiar tema de color"
+              >
+                🌙 Oscuro
+              </button>
             </li>
           </ul>
         </nav>
@@ -35,7 +54,7 @@
 
     <main style="max-width: 720px; margin: 2rem auto; padding: 0 1rem">
       <div class="card">
-        <div class="card-header"><h2>🔄 Actualizar una placa</h2></div>
+        <div class="card-header"><h2>🔄 Instalar o actualizar una placa</h2></div>
         <div class="card-body">
           <p>
             Instala un firmware nuevo en una placa que ya funciona con
@@ -46,7 +65,8 @@
             flash, y te lo pregunta antes). En los dos casos deja puesto el
             OTA Loader, para poder actualizar después por Bluetooth desde la
             app. Necesita <strong>Chrome o Edge de escritorio</strong> y la
-            placa por USB.
+            placa por USB. Para flashear un firmware del Web Builder usa el
+            <a href="flasher.html">Flasher</a>.
           </p>
 
           <div class="update-tabs" role="tablist">

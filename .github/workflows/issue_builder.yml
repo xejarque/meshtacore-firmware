@@ -266,11 +266,21 @@ jobs:
              - Aparecerá una unidad USB en tu ordenador.
              - Copia el archivo .uf2 a esa unidad. El nodo se reiniciará automáticamente.
 
-          2. Dispositivos ESP32 (Heltec V3, T-Beam, Station G2...):
-             - Opción Web: Abre https://flasher.meshtastic.org en Chrome o Edge.
-               Elige tu placa, selecciona "Custom firmware" y carga el archivo .bin de factory.
-             - Opción esptool / terminal:
-               esptool.py write_flash 0x0 firmware-*.factory.bin
+          2. Dispositivos ESP32 (Heltec V3/V4, T-Beam, Station G2...):
+             - Opción Web (la más simple): abre
+               https://xejarque.github.io/meshtacore-firmware/flasher.html
+               en Chrome o Edge de escritorio, elige este .zip tal cual y pulsa el botón.
+               Escribe también el OTA Loader.
+             - Opción Script (este .zip trae todo lo necesario): descomprime y, en esa carpeta:
+               En Linux/macOS: ./device-install.sh -f firmware-*.factory.bin
+               En Windows:     device-install.bat -f firmware-*.factory.bin   (necesita Python con esptool)
+             - No escribas el .factory.bin a mano con esptool: sin el OTA Loader (mt-*-ota.bin
+               en ota_1) la placa no se podrá actualizar por Bluetooth.
+
+          ACTUALIZAR MÁS ADELANTE POR BLUETOOTH (ESP32):
+          ----------------------------------------------
+          En la app de Meshtastic, Ajustes > Actualización de firmware, elige el
+          firmware-*.bin SIN "factory" en el nombre. El .factory.bin solo vale por cable.
           ===================================================================
           EOF
 
@@ -362,7 +372,7 @@ jobs:
           🔒 El firmware lleva tus claves y contraseñas, así que está **cifrado**: solo el navegador desde el que hiciste la solicitud puede abrirlo.
 
           1. 🔓 **[Descargar y descifrar firmware]($DECRYPT_URL)** (ábrelo en el mismo navegador desde el que hiciste la solicitud: te entrega el \`.zip\` directamente).
-          2. Descomprime el \`.zip\` obtenido y flashéalo en [flasher.meshtastic.org](https://flasher.meshtastic.org) (o copia el \`.uf2\` si tu placa es nRF52).
+          2. Abre el [Flasher](https://xejarque.github.io/meshtacore-firmware/flasher.html) (Chrome o Edge de escritorio) y elige el \`.zip\` tal cual: también escribe el OTA Loader, necesario para actualizar por Bluetooth. Si tu placa es nRF52, puedes descomprimir y copiar el \`.uf2\`.
 
           > ℹ️ Si el descifrador no puede descargarlo solo, [baja el archivo cifrado a mano]($DOWNLOAD_URL) y selecciónalo en esa misma página.
           >

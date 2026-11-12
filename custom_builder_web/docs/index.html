@@ -50,12 +50,12 @@
 
         <nav>
           <ul class="nav-links">
-            <li><a href="../index.html">← Inicio</a></li>
-            <li><a href="../index.html#comparativa">Comparativa</a></li>
+            <li><a href="../index.html">Inicio</a></li>
+            <li><a href="index.html" class="active">Documentación</a></li>
             <li><a href="../admin.html">Admin Bluetooth</a></li>
-            <li>
-              <a href="../builder.html" class="nav-cta-btn">🚀 Web Builder</a>
-            </li>
+            <li><a href="../flasher.html">⚡ Flasher</a></li>
+            <li><a href="../update.html">🔄 Instalar / Actualizar</a></li>
+            <li><a href="../builder.html" class="nav-cta-btn">🚀 Web Builder</a></li>
             <li>
               <a
                 href="https://github.com/xejarque/meshtacore-firmware"
@@ -201,7 +201,7 @@
               >Web Builder Online</a
             >
             para tener tus canales, coordenadas y claves sellados en la
-            partición de fábrica.
+            partición de fábrica. Después se instala así:
           </p>
           <ul
             style="
@@ -211,16 +211,67 @@
             "
           >
             <li>
-              <strong>nRF52 (RAK4631, T114, T-Echo):</strong> Doble clic en
-              reset y arrastrar el archivo <code>.uf2</code> a la unidad USB.
+              <strong>ESP32 / ESP32-S3 con la release estándar:</strong> abre
+              <a href="../update.html">Instalar / Actualizar</a> (Chrome o Edge
+              de escritorio), elige tu placa y pulsa el botón. Si la placa ya
+              tiene Meshtastic solo se reescribe la aplicación y se conserva tu
+              configuración; si está en blanco se instala desde cero (te avisa
+              antes de borrar). En los dos casos deja puesto el OTA Loader.
             </li>
             <li>
-              <strong>ESP32 / ESP32-S3 (Heltec V3, T-Beam):</strong> Flashear
-              mediante Web Flasher o
-              <code
-                >esptool.py --port /dev/ttyUSB0 write_flash 0x0
-                firmware.bin</code
-              >.
+              <strong>Un firmware del Web Builder:</strong> carga el
+              <code>.zip</code> o <code>.zip.enc</code> tal cual en el
+              <a href="../flasher.html">Flasher</a>; también escribe el OTA
+              Loader.
+            </li>
+            <li>
+              <strong>nRF52 (RAK4631, T114, T-Echo):</strong> doble clic en
+              reset y arrastrar el archivo <code>.uf2</code> a la unidad USB, o
+              el <code>.zip</code> en el <a href="../flasher.html">Flasher</a>.
+            </li>
+            <li>
+              <strong>ESP32 sin navegador:</strong> descarga de la release el
+              <code>.factory.bin</code>, su <code>.mt.json</code>, el
+              <code>littlefs-*.bin</code>, <code>mt-&lt;mcu&gt;-ota.bin</code>
+              y <code>device-install.sh</code> (Linux/macOS) o
+              <code>device-install.bat</code> (Windows, con Python y esptool), y
+              ejecuta <code>device-install -f firmware-…factory.bin</code>.
+            </li>
+          </ul>
+          <p class="docs-paragraph">
+            <strong>No escribas el <code>.factory.bin</code> a mano con
+            esptool sin el OTA Loader</strong>: la placa arranca, pero la app
+            de Meshtastic no podrá actualizarla por Bluetooth ("Device does not
+            have a valid OTA Loader").
+          </p>
+
+          <h3>Actualizar por Bluetooth (OTA)</h3>
+          <p class="docs-paragraph">
+            Con el OTA Loader instalado, la app de Meshtastic
+            (<em>Ajustes → Actualización de firmware</em>, archivo local)
+            actualiza la placa sin cable. Hay que elegir el fichero correcto:
+          </p>
+          <ul
+            style="
+              margin-left: 1.5rem;
+              color: var(--text-secondary);
+              margin-bottom: 1rem;
+            "
+          >
+            <li>
+              <strong>ESP32:</strong> <code>firmware-&lt;placa&gt;-&lt;versión&gt;.bin</code>,
+              el normal, <strong>sin</strong> <code>factory</code> en el
+              nombre y de la variante exacta de tu placa. La app rechaza el
+              <code>.factory.bin</code> ("does not match") porque ese solo vale
+              por cable.
+            </li>
+            <li>
+              <strong>nRF52:</strong>
+              <code>firmware-&lt;placa&gt;-&lt;versión&gt;.zip</code>.
+            </li>
+            <li>
+              No se sube nunca <code>mt-&lt;mcu&gt;-ota.bin</code>: es el
+              loader, se instala una sola vez.
             </li>
           </ul>
         </section>

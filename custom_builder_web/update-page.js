@@ -315,7 +315,7 @@ function describeBoard() {
   ui.releaseInfo.textContent =
     board.kind === "esp32"
       ? `${board.name} · ${formatBytes(board.size)}${board.buildId ? ` · build ${board.buildId}` : ""}`
-      : "Las placas nRF52 aún no se pueden actualizar desde aquí.";
+      : "Las placas nRF52 no se actualizan desde esta página: usa el Flasher con el .zip de la release, o copia el .uf2.";
   refreshButtons();
 }
 
@@ -331,7 +331,7 @@ async function loadRelease() {
       ...releaseBoards.map((board) => {
         const option = document.createElement("option");
         option.value = board.name;
-        option.textContent = `${board.board}${board.kind === "nrf52" ? " (nRF52, próximamente)" : ""}`;
+        option.textContent = `${board.board}${board.kind === "nrf52" ? " (nRF52: usa el Flasher)" : ""}`;
         return option;
       }),
     );
