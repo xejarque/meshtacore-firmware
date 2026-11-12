@@ -1,10 +1,16 @@
 // "Actualizar": installs a new application image on a board that already runs Meshtastic, keeping its
 // configuration. Two sources: the standard release published next to this page, or the user's own build.
-import { chipMatchesImage, formatBytes } from "./flasher-core.js";
+import {
+  chipMatchesImage,
+  formatBytes,
+  otaLoaderName,
+} from "./flasher-core.js";
 import { resolveBundle } from "./flasher-bundle.js";
 import {
   closeEsp,
   connectEsp,
+  installEsp,
+  planBoard,
   readNodeBuildId,
   updateEspApp,
   webSerialSupported,
@@ -153,6 +159,43 @@ async function confirmReleaseMatchesNode(session, image) {
   });
 }
 
+/** The OTA Loader for the connected chip, or null (with the reason logged) so the update still goes ahead. */
+async function fetchLoader(image, chip) {
+  if (!image.getLoader) return null;
+  try {
+    const loader = await image.getLoader(chip);
+    if (!loader) log(`No hay OTA Loader para ${chip}: no se añadirá.`);
+    return loader;
+  } catch (error) {
+    log(`No se pudo obtener el OTA Loader: ${errorText(error)}`);
+    return null;
+  }
+}
+
+/** A blank board, or one with another layout: erases it and writes the factory image plus the OTA Loader. */
+async function installFromScratch(session, image, loader, reason) {
+  const factory = await image.getFactory?.();
+  if (!factory) throw new Error(reason);
+  const ok = await askToContinue({
+    icon: "⚠️",
+    title: "Instalación completa: se borrará la placa",
+    steps: [
+      "La placa no tiene firmware de Meshtastic con el reparto de memoria de esta release.",
+      "Se borra toda la flash, incluida la configuración, y se instala desde cero.",
+      "Si la placa ya funciona y esperabas conservar tu configuración, cancela.",
+    ],
+    confirmLabel: "Borrar e instalar",
+  });
+  if (!ok) throw new Error("Instalación cancelada. No se ha escrito nada.");
+  const { loaderWritten } = await installEsp(session, factory, {
+    loader,
+    onErase: () =>
+      setProgress(0.08, "Borrando toda la flash… puede tardar medio minuto"),
+    onProgress: (f) => setProgress(0.1 + f * 0.9, "Escribiendo el firmware"),
+  });
+  return loaderWritten;
+}
+
 // ---------- the update itself ----------
 async function updateBoard(image, buttons) {
   if (busy) return;
@@ -169,28 +212,51 @@ async function updateBoard(image, buttons) {
     const match = chipMatchesImage(session.chip, image.data);
     if (!match.ok) throw new Error(`${match.reason} No se ha escrito nada.`);
 
-    if (image.checkBuild && !(await confirmReleaseMatchesNode(session, image)))
-      throw new Error("Actualización cancelada. No se ha escrito nada.");
-
-    const plan = await updateEspApp(session, image, {
-      onProgress: (f) =>
-        setProgress(0.05 + f * 0.95, "Escribiendo el firmware"),
-    });
-    log(
-      `Escrito en la partición «${plan.app.label}» (0x${plan.app.offset.toString(16)}).`,
-    );
+    const loader = await fetchLoader(image, session.chip);
+    const choice = await planBoard(session, image.data.length);
+    let loaderWritten;
+    if (choice.mode === "install") {
+      loaderWritten = await installFromScratch(
+        session,
+        image,
+        loader,
+        choice.reason,
+      );
+    } else {
+      if (
+        image.checkBuild &&
+        !(await confirmReleaseMatchesNode(session, image))
+      )
+        throw new Error("Actualización cancelada. No se ha escrito nada.");
+      const plan = await updateEspApp(session, image, {
+        loader,
+        onProgress: (f) =>
+          setProgress(0.05 + f * 0.95, "Escribiendo el firmware"),
+      });
+      log(
+        `Escrito en la partición «${plan.app.label}» (0x${plan.app.offset.toString(16)}).`,
+      );
+      loaderWritten = plan.loaderWritten;
+    }
     setProgress(1, "Terminado");
+    const installed = choice.mode === "install";
     say(
-      "Listo: el firmware está actualizado y la placa se ha reiniciado.",
+      installed
+        ? "Listo: el firmware está instalado y la placa se ha reiniciado."
+        : "Listo: el firmware está actualizado y la placa se ha reiniciado.",
       "success",
     );
     showDialog({
       icon: "✅",
-      title: "¡Placa actualizada!",
+      title: installed ? "¡Placa instalada!" : "¡Placa actualizada!",
       steps: [
         "La placa se ha reiniciado sola con el firmware nuevo.",
-        "Tu configuración (canales, LoRa, nombre) se ha conservado.",
-        "Espera unos segundos a que arranque y ya puedes desconectarla.",
+        installed
+          ? "Es una instalación limpia: configura la región y los canales."
+          : "Tu configuración (canales, LoRa, nombre) se ha conservado.",
+        loaderWritten
+          ? "Se ha añadido el OTA Loader: ya puedes actualizar por Bluetooth desde la app."
+          : "Espera unos segundos a que arranque y ya puedes desconectarla.",
       ],
       actions: [{ label: "Entendido", primary: true }],
     });
@@ -278,6 +344,22 @@ async function loadRelease() {
   }
 }
 
+/** Fetched only when needed: the loader for the chip that turns out to be connected, the factory image for an install. */
+function releaseExtras(board) {
+  const download = async (file) => {
+    const response = await fetch(`firmware/${encodeURIComponent(file)}`);
+    if (!response.ok) throw new Error(`${file} (HTTP ${response.status})`);
+    return { name: file, data: new Uint8Array(await response.arrayBuffer()) };
+  };
+  return {
+    getLoader: async (chip) => {
+      const file = otaLoaderName(chip);
+      return file ? download(file) : null;
+    },
+    getFactory: () => download(board.name.replace(/\.bin$/i, ".factory.bin")),
+  };
+}
+
 async function updateFromRelease() {
   const board = selectedBoard();
   if (!board) return;
@@ -291,10 +373,10 @@ async function updateFromRelease() {
       );
     const data = new Uint8Array(await response.arrayBuffer());
     setProgress(0, "Firmware descargado");
-    confirmThenUpdate({ name: board.name, data, checkBuild: true }, [
-      ui.releaseButton,
-      ui.ownButton,
-    ]);
+    confirmThenUpdate(
+      { name: board.name, data, checkBuild: true, ...releaseExtras(board) },
+      [ui.releaseButton, ui.ownButton],
+    );
   } catch (error) {
     ui.bar.classList.add("is-error");
     say(errorText(error), "error");
@@ -314,7 +396,11 @@ async function loadOwnFile(file) {
       image = { name: file.name, data: bytes }; // a plain app image, as published in Releases
     } else {
       const bundle = await resolveBundle(file.name, bytes, { decrypt });
-      image = bundle.updateImage;
+      image = bundle.updateImage && {
+        ...bundle.updateImage,
+        getFactory: async () => bundle.image,
+        getLoader: async () => bundle.extraImages?.[0] ?? null,
+      };
       if (!image)
         throw new Error(
           bundle.kind === "esp32"

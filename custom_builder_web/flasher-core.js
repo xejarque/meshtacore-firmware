@@ -226,6 +226,17 @@ export function chipFamily(chipDescription) {
   return name.startsWith("ESP32") ? "ESP32" : name;
 }
 
+/**
+ * File name of the unified OTA Loader for the connected chip ("mt-esp32s3-ota.bin"), or null for chips that
+ * have none (C3/C6 use another loader this page does not carry).
+ */
+export function otaLoaderName(chipDescription) {
+  const family = chipFamily(chipDescription);
+  if (family === "ESP32") return "mt-esp32-ota.bin";
+  if (family === "ESP32-S3") return "mt-esp32s3-ota.bin";
+  return null;
+}
+
 /** Does the chip esptool reports ("ESP32-S3 (QFN56) (revision v0.2)") match the image's target? */
 export function chipMatchesImage(chipDescription, data) {
   const target = imageChip(data);

@@ -5,7 +5,10 @@ import { buildIdFromImage } from "./update-core.js";
 import {
   PARTITION_TABLE_ADDRESS,
   PARTITION_TABLE_SIZE,
+  chooseFlashMode,
+  loaderToWrite,
   planAppUpdate,
+  planOtaLoader,
 } from "./esp-partitions.js";
 
 const FLASH_BAUDRATE = 921600;
@@ -83,12 +86,9 @@ export async function flashEsp(
 export async function updateEspApp(
   session,
   { name, data },
-  { onProgress } = {},
+  { onProgress, loader = null } = {},
 ) {
-  const table = await session.loader.readFlash(
-    PARTITION_TABLE_ADDRESS,
-    PARTITION_TABLE_SIZE,
-  );
+  const table = await readBoardTable(session);
   const plan = planAppUpdate(table, data.length);
   const extraImages = plan.otadata
     ? [
@@ -99,12 +99,54 @@ export async function updateEspApp(
         },
       ]
     : [];
+  // A board flashed with only a .factory.bin has an empty ota_1: without the loader, Bluetooth updates fail.
+  const slot = loader ? planOtaLoader(table, loader.data.length) : null;
+  const head = slot
+    ? await session.loader.readFlash(slot.offset, 16)
+    : new Uint8Array();
+  const loaderImage = loaderToWrite(slot, head, loader);
+  if (loaderImage) extraImages.push(loaderImage);
   await flashEsp(
     session,
     { name, data, address: plan.app.offset },
     { extraImages, onProgress },
   );
-  return plan;
+  return { ...plan, loaderWritten: Boolean(loaderImage) };
+}
+
+/** The first 0xc00 bytes of the partition table the board has now (blank flash reads as 0xFF). */
+export const readBoardTable = (session) =>
+  session.loader.readFlash(PARTITION_TABLE_ADDRESS, PARTITION_TABLE_SIZE);
+
+/** What to do with this board for an image of `appSize` bytes: update it, or install from scratch. */
+export async function planBoard(session, appSize) {
+  return chooseFlashMode(await readBoardTable(session), appSize);
+}
+
+/**
+ * Full install: erases the chip and writes the .factory.bin at 0x0 plus the OTA Loader at the ota_1 slot its own
+ * partition table declares, which is what device-install.sh does. The configuration is lost.
+ * @returns {{loaderWritten: boolean}}
+ */
+export async function installEsp(
+  session,
+  factory,
+  { onProgress, onErase, loader = null } = {},
+) {
+  const table = factory.data.subarray(
+    PARTITION_TABLE_ADDRESS,
+    PARTITION_TABLE_ADDRESS + PARTITION_TABLE_SIZE,
+  );
+  const slot = loader ? planOtaLoader(table, loader.data.length) : null;
+  const extraImages = slot
+    ? [{ name: loader.name, data: loader.data, address: slot.offset }]
+    : [];
+  await flashEsp(
+    session,
+    { name: factory.name, data: factory.data, address: 0 },
+    { extraImages, eraseAll: true, onErase, onProgress },
+  );
+  return { loaderWritten: extraImages.length > 0 };
 }
 
 /**

@@ -306,3 +306,16 @@ test("run: runs that existed before the dispatch are ignored", () => {
   assert.equal(F.pickRun(runs, { dispatchedAtMs: NOW }).id, 1);
   assert.equal(F.pickRun(runs, { dispatchedAtMs: NOW, ignoreRunIds: [1] }), null);
 });
+
+test("loader name: the unified OTA Loader that matches the connected chip, none for chips without one", () => {
+  assert.equal(
+    F.otaLoaderName("ESP32-S3 (QFN56) (revision v0.2)"),
+    "mt-esp32s3-ota.bin",
+  );
+  assert.equal(
+    F.otaLoaderName("ESP32-D0WD-V3 (revision v3.1)"),
+    "mt-esp32-ota.bin",
+  );
+  assert.equal(F.otaLoaderName("ESP32-C3 (revision v0.4)"), null);
+  assert.equal(F.otaLoaderName("ESP32-C6"), null);
+});

@@ -3,8 +3,9 @@
 # serves it from the same origin as the builder. The browser cannot download release assets itself:
 # the final redirect (release-assets.githubusercontent.com) sends no CORS headers.
 #
-# Only what an update needs is kept: the plain ESP32 .bin (app image) and the nRF52 .zip (DFU package).
-# .factory.bin and .uf2 are left out to keep the Pages site small.
+# Kept: the plain ESP32 .bin (app image, for updates), the .factory.bin (for a first install on a blank board),
+# the OTA Loaders (mt-*-ota.bin, written to ota_1 so Bluetooth updates work) and the nRF52 .zip (DFU package).
+# .uf2 is left out to keep the Pages site small.
 #
 # Usage: GH_TOKEN=... bin/pages-firmware.sh [output-dir]
 set -euo pipefail
@@ -16,8 +17,7 @@ TAG=""
 for candidate in $(gh release list --exclude-drafts --limit 10 --json tagName --jq '.[].tagName'); do
 	rm -rf "$OUT"
 	mkdir -p "$OUT"
-	if gh release download "$candidate" --dir "$OUT" --pattern 'firmware-*.bin' --pattern 'firmware-*.zip' 2>/dev/null; then
-		rm -f "$OUT"/*.factory.bin
+	if gh release download "$candidate" --dir "$OUT" --pattern 'firmware-*.bin' --pattern 'firmware-*.zip' --pattern 'mt-*-ota.bin' 2>/dev/null; then
 		if compgen -G "$OUT/firmware-*" >/dev/null; then
 			TAG="$candidate"
 			break

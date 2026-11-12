@@ -1,7 +1,14 @@
 // Run: node --test custom_builder_web/tests/
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parsePartitionTable, planAppUpdate } from "../esp-partitions.js";
+import {
+  chooseFlashMode,
+  hasAppImage,
+  loaderToWrite,
+  parsePartitionTable,
+  planAppUpdate,
+  planOtaLoader,
+} from "../esp-partitions.js";
 
 function entry(type, subtype, offset, size, label) {
   const out = new Uint8Array(32);
@@ -82,4 +89,51 @@ test("plan: a blank table, no app slot or an image that does not fit are refused
     /ranura de aplicación/,
   );
   assert.throws(() => planAppUpdate(meshtastic(), 0x640001), /no cabe/);
+});
+
+test("loader slot: ota_1 (app1) is where the OTA Loader goes, and a loader that does not fit is refused", () => {
+  assert.deepEqual(planOtaLoader(meshtastic(), 100_000), {
+    offset: 0x650000,
+    size: 0x20000,
+  });
+  assert.throws(() => planOtaLoader(meshtastic(), 0x20001), /no cabe/);
+});
+
+test("loader slot: a table without ota_1 has nothing to add", () => {
+  assert.equal(
+    planOtaLoader(table(entry(0, 0x10, 0x10000, 0x100000, "app0")), 1000),
+    null,
+  );
+  assert.equal(planOtaLoader(new Uint8Array(0xc00).fill(0xff), 1000), null);
+});
+
+test("loader write: only an empty slot gets the loader; one that holds an app is left alone", () => {
+  const slot = { offset: 0x650000, size: 0x20000 };
+  const loader = { name: "mt-esp32s3-ota.bin", data: new Uint8Array([1, 2]) };
+  const blank = new Uint8Array(16).fill(0xff);
+  const app = new Uint8Array(16).fill(0xff);
+  app[0] = 0xe9;
+  assert.deepEqual(loaderToWrite(slot, blank, loader), {
+    name: "mt-esp32s3-ota.bin",
+    data: loader.data,
+    address: 0x650000,
+  });
+  assert.equal(loaderToWrite(slot, app, loader), null);
+  assert.equal(loaderToWrite(null, blank, loader), null);
+  assert.equal(loaderToWrite(slot, blank, null), null);
+  assert.equal(hasAppImage(new Uint8Array()), false);
+});
+
+test("mode: a Meshtastic board is updated, a blank or foreign one is installed from scratch", () => {
+  const known = chooseFlashMode(meshtastic(), 2_217_728);
+  assert.equal(known.mode, "update");
+  assert.equal(known.plan.app.label, "app0");
+
+  const blank = chooseFlashMode(new Uint8Array(0xc00).fill(0xff), 10);
+  assert.equal(blank.mode, "install");
+  assert.match(blank.reason, /tabla de particiones/);
+
+  const other = chooseFlashMode(meshtastic(), 0x640001);
+  assert.equal(other.mode, "install");
+  assert.match(other.reason, /no cabe/);
 });

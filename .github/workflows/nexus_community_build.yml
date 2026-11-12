@@ -255,12 +255,15 @@ jobs:
 
           **ESP32 (Heltec, T-Beam, Station G2...)**
 
-          - First install, by cable: put \`firmware-<target>-<version>.factory.bin\`, \`firmware-<target>-<version>.mt.json\`,
+          - Easiest: open the [web updater](https://xejarque.github.io/meshtacore-firmware/update.html) in Chrome or Edge,
+            pick your board and press the button. It updates a working board keeping its configuration, or installs from
+            scratch a blank one, and it leaves the OTA Loader in place so Bluetooth updates work. No files to download.
+          - Without a browser: put \`firmware-<target>-<version>.factory.bin\`, \`firmware-<target>-<version>.mt.json\`,
             \`littlefs-<target>-<version>.bin\` and \`mt-<mcu>-ota.bin\` in one folder (\`<mcu>\` is \`esp32s3\` for Heltec V3/V4)
             and run \`./device-install.sh -f firmware-<target>-<version>.factory.bin\` (Linux/macOS) or
-            \`device-install.bat -f firmware-<target>-<version>.factory.bin\` (Windows, needs Python with esptool). Both are in
-            this release, and both write the OTA Loader too.
-          - Later updates, over Bluetooth from the app: choose \`firmware-<target>-<version>.bin\` (**without** \`factory\`).
+            \`device-install.bat -f firmware-<target>-<version>.factory.bin\` (Windows, needs Python with esptool).
+            Both scripts are in this release and both write the OTA Loader too.
+          - Updates over Bluetooth from the app: choose \`firmware-<target>-<version>.bin\` (**without** \`factory\`).
           - The \`.factory.bin\` is only for cable: the app rejects it ("does not match"). Flashed alone, without
             \`mt-<mcu>-ota.bin\`, the node answers "Device does not have a valid OTA Loader" to a Bluetooth update.
           EOF
