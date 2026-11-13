@@ -189,7 +189,9 @@ static bool passkeyShowing;
  * The phone API for BLE. A ToRadio write arrives in the SoftDevice event task, but handling it reaches mesh state the
  * main loop owns (the MeshCore relay queue, node tables, secrets) without a lock. So the write is left in lastToRadio
  * and handled by runOnce() on the main loop. The event task never blocks for long: it must keep serving the BLE events a
- * notify from the main loop waits for. Only a write that arrives while the previous one is still pending waits, briefly.
+ * notify from the main loop waits for. Only a write that arrives while the previous one is still pending waits, briefly;
+ * if the main loop is still busy after that, the write is dropped. The event task never handles a write itself, and a
+ * disconnect closes the API on the main loop too, so no PhoneAPI state is ever touched from two tasks.
  */
 class BluetoothPhoneAPI : public PhoneAPI, public concurrency::OSThread
 {
@@ -213,17 +215,23 @@ class BluetoothPhoneAPI : public PhoneAPI, public concurrency::OSThread
             handleToRadio(lastToRadio, pendingLen);
             pendingLen = 0; // only now may the event task reuse lastToRadio
         }
-        return INT32_MAX; // idle until the next write wakes it
+        if (closePending) {
+            close();
+            // Clear the last ToRadio packet buffer to avoid rejecting first packet from new connection
+            memset(lastToRadio, 0, sizeof(lastToRadio));
+            closePending = false; // only now may the event task start a new write
+        }
+        return INT32_MAX; // idle until the next write or disconnect wakes it
     }
 
   public:
     BluetoothPhoneAPI() : concurrency::OSThread("BLEToRadio") { api_type = TYPE_BLE; }
 
-    /// From the event task: wait (bounded) for the previous write to be handled; false if the main loop is still on it.
+    /// From the event task: wait (bounded) for the previous write or close to be handled; false if the main loop is still on it.
     bool waitUntilIdle()
     {
         constexpr uint32_t MAX_WAIT_MS = 200;
-        for (uint32_t waited = 0; pendingLen != 0; waited++) {
+        for (uint32_t waited = 0; pendingLen != 0 || closePending; waited++) {
             if (waited >= MAX_WAIT_MS)
                 return false;
             vTaskDelay(pdMS_TO_TICKS(1));
@@ -239,8 +247,17 @@ class BluetoothPhoneAPI : public PhoneAPI, public concurrency::OSThread
         concurrency::mainDelay.interrupt();
     }
 
+    /// From the event task: the link is gone, the main loop closes the API once it has handled any write still pending.
+    void requestClose()
+    {
+        closePending = true;
+        setIntervalFromNow(0);
+        concurrency::mainDelay.interrupt();
+    }
+
   private:
     volatile uint16_t pendingLen = 0;
+    volatile bool closePending = false;
 };
 
 static BluetoothPhoneAPI *bluetoothPhoneAPI;
@@ -293,13 +310,9 @@ void onDisconnect(uint16_t conn_handle, uint8_t reason)
 #endif
     if (conn_handle == connectionHandle) {
         connectionHandle = BLE_CONN_HANDLE_INVALID;
-        if (bluetoothPhoneAPI) {
-            bluetoothPhoneAPI->waitUntilIdle(); // a write still pending is handled before the API closes under it
-            bluetoothPhoneAPI->close();
-        }
-
-        // Clear the last ToRadio packet buffer to avoid rejecting first packet from new connection
-        memset(lastToRadio, 0, sizeof(lastToRadio));
+        // The main loop handles a write still pending, then closes the API and clears lastToRadio (see runOnce()).
+        if (bluetoothPhoneAPI)
+            bluetoothPhoneAPI->requestClose();
 
         // Notify UI (or any other interested firmware components)
         meshtastic::BluetoothStatus newStatus(meshtastic::BluetoothStatus::ConnectionState::DISCONNECTED);
@@ -448,9 +461,9 @@ void onToRadioWrite(uint16_t conn_hdl, BLECharacteristic *chr, uint8_t *data, ui
     markPhoneConnection(conn_hdl);
     LOG_INFO("toRadioWriteCb data %p, len %u", data, len);
     if (!bluetoothPhoneAPI->waitUntilIdle()) {
-        // The main loop is stuck on the previous write: handle this one here, as before, rather than lose it.
-        LOG_WARN("ToRadio handled in the BLE task: main loop busy");
-        bluetoothPhoneAPI->handleToRadio(data, len);
+        // The main loop is stuck on the previous write. Handling this one here would race it on the same PhoneAPI state,
+        // so it is dropped: the phone resyncs, a corrupted node table would not recover.
+        LOG_WARN("ToRadio dropped: main loop busy");
         return;
     }
     if (memcmp(lastToRadio, data, len) != 0) {
