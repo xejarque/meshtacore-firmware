@@ -2171,6 +2171,37 @@ void test_repeater_advert_copy_is_dropped_and_a_new_advert_refreshes()
     TEST_ASSERT_EQUAL_FLOAT(9.0f, s.c.repeaterNames().nthNewest(0)->snr());
 }
 
+// MeshCore drops an advert older than the last one it took from that key as a possible replay. A validly signed old advert of a
+// repeater must not rename it or refresh how it was heard. Regression guard: the repeater branch had no replay check.
+void test_old_signed_repeater_advert_is_a_replay_and_changes_nothing()
+{
+    GroupSetup s;
+    giveIdentity(s.c);
+    const RepeaterAdvert later = makeRepeaterAdvert("Tower", 0x30, 1792521507 + 3600);
+    s.c.handleFrame(later.frame, later.len, 5, -60);
+    TEST_ASSERT_EQUAL_UINT32(1, s.c.repeaterNames().count());
+
+    const RepeaterAdvert replay = makeRepeaterAdvert("Hacked", 0x30, 1792521507 + 60);
+    s.c.handleFrame(replay.frame, replay.len, 9, -40);
+    TEST_ASSERT_EQUAL_UINT32(1, s.c.repeaterNames().count());
+    const MeshCoreRepeaterName *e = s.c.repeaterNames().nthNewest(0);
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, e->snr());
+    TEST_ASSERT_EQUAL_UINT8('T', (uint8_t)e->name[0]);
+}
+
+// The table keeps the timestamp of the last advert it took from a repeater, and only ever moves it forward.
+void test_repeater_advert_timestamp_only_moves_forward()
+{
+    GroupSetup s;
+    giveIdentity(s.c);
+    const RepeaterAdvert first = makeRepeaterAdvert("Tower", 0x30, 1792521507);
+    const RepeaterAdvert newer = makeRepeaterAdvert("Tower", 0x30, 1792521507 + 3600);
+    s.c.handleFrame(first.frame, first.len, 5, -60);
+    TEST_ASSERT_EQUAL_UINT32(1792521507, s.c.repeaterNames().nthNewest(0)->lastAdvert);
+    s.c.handleFrame(newer.frame, newer.len, 7, -50);
+    TEST_ASSERT_EQUAL_UINT32(1792521507 + 3600, s.c.repeaterNames().nthNewest(0)->lastAdvert);
+}
+
 // A repeater the node DB still holds is named by its whole name, not also by the short form the table keeps of it: that would
 // list one hop as two candidates ("Tetuan Repeater|Tetuan R").
 void test_path_hop_prefers_the_node_db_whole_name_over_the_short_one()
@@ -2271,6 +2302,23 @@ void test_trace_by_a_hex_byte_two_repeaters_share_uses_that_byte()
     uint8_t b[32] = {0xAB, 0x02, 0x02};
     s.c.learnRepeater(a, "Montseny Nord");
     s.c.learnRepeater(b, "Montseny Sud");
+    meshtastic_MeshPacket command = textPacket(0, 0x1234, "..trace @ab");
+    TEST_ASSERT_TRUE(s.c.handleTraceCommand(&command, false));
+    TEST_ASSERT_TRUE(s.c.activeTrace.active);
+    TEST_ASSERT_EQUAL_HEX8(0xAB, s.c.activeTrace.hopHashes[0]);
+}
+
+// The hex shortcut names a first byte, so it works however many repeaters start with it: only the names listed in an
+// ambiguity message are capped, not the targets a trace can reach. Regression guard: more than four matches were "ambiguous".
+void test_trace_by_a_hex_byte_many_repeaters_share_still_uses_that_byte()
+{
+    GroupSetup s;
+    for (uint8_t i = 1; i <= 6; i++) {
+        uint8_t key[32] = {0xAB, i, i};
+        char name[16];
+        snprintf(name, sizeof(name), "Montseny %u", (unsigned)i);
+        s.c.learnRepeater(key, name);
+    }
     meshtastic_MeshPacket command = textPacket(0, 0x1234, "..trace @ab");
     TEST_ASSERT_TRUE(s.c.handleTraceCommand(&command, false));
     TEST_ASSERT_TRUE(s.c.activeTrace.active);
@@ -2836,6 +2884,9 @@ void setup()
     RUN_TEST(test_trace_names_a_repeater_by_the_start_of_its_key);
     RUN_TEST(test_trace_asks_which_repeater_when_a_name_fits_several);
     RUN_TEST(test_trace_by_a_hex_byte_two_repeaters_share_uses_that_byte);
+    RUN_TEST(test_trace_by_a_hex_byte_many_repeaters_share_still_uses_that_byte);
+    RUN_TEST(test_old_signed_repeater_advert_is_a_replay_and_changes_nothing);
+    RUN_TEST(test_repeater_advert_timestamp_only_moves_forward);
     RUN_TEST(test_repeater_listing_and_detail_come_from_the_repeater_table);
     RUN_TEST(test_meshcore_heard_find_by_from);
     RUN_TEST(test_meshcore_format_route_line_bounds);
