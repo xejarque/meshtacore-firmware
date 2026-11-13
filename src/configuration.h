@@ -548,19 +548,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
    also enable HAS_ option not specifically disabled by variant.h */
 #include "architecture.h"
 
-// ===== Nexus firewall (in by default, out by default on nRF52) =====
+// ===== Nexus firewall (in by default, on every architecture) =====
 // NEXUS_EXCLUDE_FIREWALL=1 leaves the whole input/output firewall out of the build, Meshtastic and MeshCore: the drop rules, the
 // rate limits, the invalid-packet filters, the signature scan, the NIGN list and their /mtc commands (which answer that the
 // firewall is not included). The vault and prefs keep their layout, so a node can move between builds with and without it. The
 // TRACE / META alerts and the packet statistics are not firewall and stay. About 22 KB of flash on an nRF52840.
-// Default: in everywhere except nRF52, where flash is tight. -DNEXUS_INCLUDE_FIREWALL=1 puts it back on nRF52 (the web builder
-// does this); -DNEXUS_EXCLUDE_FIREWALL=0/1 forces either way. Placed after architecture.h so ARCH_NRF52 is known.
+// It is in by default everywhere, nRF52 included: a node whose operator ignored a node or set a rate limit must keep that
+// protection after an update. A build short of flash opts out with -DNEXUS_EXCLUDE_FIREWALL=1. NEXUS_INCLUDE_FIREWALL=1 (what
+// the web builder passes) is still accepted and changes nothing.
 #ifndef NEXUS_EXCLUDE_FIREWALL
-#if defined(ARCH_NRF52) && !defined(NEXUS_INCLUDE_FIREWALL)
-#define NEXUS_EXCLUDE_FIREWALL 1
-#else
 #define NEXUS_EXCLUDE_FIREWALL 0
-#endif
 #endif
 
 #ifndef DEFAULT_REBOOT_SECONDS
