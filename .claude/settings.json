@@ -1,1 +1,6 @@
-{}
+{
+  "enabledPlugins": {
+    "motor@motor-claude-marketplace": false,
+    "kotlin-lsp@claude-plugins-official": false
+  }
+}
