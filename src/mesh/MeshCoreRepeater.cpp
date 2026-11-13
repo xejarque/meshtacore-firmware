@@ -779,8 +779,19 @@ void MeshCoreRepeater::expireStale()
 {
     for (size_t i = 0; i < QUEUE_SIZE; i++) {
         const QueuedFrame &f = queue[i];
-        if (f.len != 0 && !f.own && !Throttle::isWithinTimespanMs(f.firstSeenMs, DUPE_WINDOW_MS))
-            discardUnsent((int)i);
+        if (f.len == 0)
+            continue;
+        if (!f.own) {
+            if (!Throttle::isWithinTimespanMs(f.firstSeenMs, DUPE_WINDOW_MS))
+                discardUnsent((int)i);
+            continue;
+        }
+        // Counted from the due time, which an own frame may set well after it was queued. It stays remembered in the dedup
+        // table: a neighbour re-flooding our own advert must still not be relayed by us.
+        if (!Throttle::isWithinTimespanMs(f.firstSeenMs, (f.deadlineMs - f.firstSeenMs) + OWN_EXPIRY_MS)) {
+            release((int)i);
+            txDropped++;
+        }
     }
 }
 

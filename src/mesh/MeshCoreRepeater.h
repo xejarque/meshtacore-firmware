@@ -415,6 +415,9 @@ class MeshCoreRepeater
     static constexpr float REACTIVE_AIRTIME_CAP = 12.0f;
     static constexpr uint32_t REACTIVE_HARD_CAP_MS = 2000;
     static constexpr uint32_t DUPE_WINDOW_MS = 10000;
+    // An own frame (advert, reply) that has waited this long past its due time, held back by the duty cycle or a busy channel,
+    // is dropped: it is stale by then, and a queue full of them would leave no slot for relaying.
+    static constexpr uint32_t OWN_EXPIRY_MS = 10UL * 60 * 1000;
 
     // Contention estimate: EMA (x256 fixed point) of the per-relay dupe counts.
     static constexpr int EMA_SHIFT = 3;      // alpha = 1/8

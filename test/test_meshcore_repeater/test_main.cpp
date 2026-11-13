@@ -908,6 +908,27 @@ void test_expired_relay_is_forgotten()
     TEST_ASSERT_EQUAL_UINT32(dupBefore, repeater.rxDup);
 }
 
+// An own frame held back past its due time (duty cycle, busy channel) is not kept for ever: a queue full of them would leave
+// no slot to relay in. It goes after OWN_EXPIRY_MS, the next time a frame is heard; before that it stays.
+void test_stale_own_frame_is_dropped_after_the_own_expiry()
+{
+    MeshCoreRepeater repeater;
+    uint8_t own[64];
+    const size_t ownLen = makeFloodFrame(own, kTxtMsg, 2, 1, 0x10, 0x10);
+    TEST_ASSERT_TRUE(repeater.queueOwnFrame(own, ownLen));
+
+    uint8_t other[64];
+    Time::advanceTestMillis(10UL * 60 * 1000 - 1000 /* OWN_EXPIRY_MS */);
+    size_t otherLen = makeFloodFrame(other, kTxtMsg, 2, 1, 0x10, 0x20);
+    repeater.handleReceivedFrame(other, otherLen, 5, kAirtimeMs);
+    TEST_ASSERT_EQUAL_UINT32(0, repeater.txDropped); // still fresh enough: it keeps waiting
+
+    Time::advanceTestMillis(2000);
+    otherLen = makeFloodFrame(other, kTxtMsg, 2, 1, 0x10, 0x30);
+    repeater.handleReceivedFrame(other, otherLen, 5, kAirtimeMs);
+    TEST_ASSERT_FALSE(repeater.hasPendingOwnFrame());
+}
+
 // A frame refused for good (TX disabled) never went on air: dropping it counts it, forgets its hash and leaves the
 // contention estimate alone.
 void test_dropped_pending_frame_is_forgotten_and_not_a_contention_sample()
@@ -2255,6 +2276,7 @@ void setup()
     RUN_TEST(test_relay_deadline_survives_millis_wrap);
     RUN_TEST(test_stale_pending_relay_is_dropped_for_new_frame);
     RUN_TEST(test_expired_relay_is_forgotten);
+    RUN_TEST(test_stale_own_frame_is_dropped_after_the_own_expiry);
     RUN_TEST(test_dropped_pending_frame_is_forgotten_and_not_a_contention_sample);
     RUN_TEST(test_take_pending_frame_copies_without_clearing);
     RUN_TEST(test_advert_is_signed_and_parseable);

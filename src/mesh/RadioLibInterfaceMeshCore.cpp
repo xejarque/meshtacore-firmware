@@ -839,7 +839,8 @@ void RadioLibInterface::maybeSendMeshCoreFrame()
         meshCoreRepeater.dropPendingFrame();
         return;
     }
-    // Over the duty cycle the frame waits for the window to free up; a relay that waits too long expires on its own.
+    // Over the duty cycle the frame waits for the window to free up; one that waits too long expires on its own (a relay
+    // after its dupe window, an own frame after MeshCoreRepeater::OWN_EXPIRY_MS).
     if (!meshCoreWithinDutyCycle()) {
         if (logDefer) {
             LOG_DEBUG("MeshCore TX deferred: duty cycle");
