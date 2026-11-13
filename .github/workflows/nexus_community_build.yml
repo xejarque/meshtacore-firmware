@@ -151,6 +151,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write # to dispatch pages.yml below
     steps:
       - uses: actions/checkout@v7
         with:
@@ -299,3 +300,12 @@ jobs:
             --title "Meshtacore Community - ${{ steps.version.outputs.long }}" \
             --notes-file ./notes.md \
             "${FLAGS[@]}"
+
+      # A release published with GITHUB_TOKEN does not fire the `release` event, so pages-on-release.yml never runs for
+      # it. Dispatch the Pages deploy here instead (workflow_dispatch is allowed with GITHUB_TOKEN), after the assets
+      # are attached: bin/pages-firmware.sh picks the newest release that carries firmware. A draft is not served.
+      - name: Refresh the Pages firmware
+        if: ${{ inputs.draft != true }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.event.repository.default_branch }}"
