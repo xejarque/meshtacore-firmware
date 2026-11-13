@@ -2002,7 +2002,9 @@ size_t MeshCoreCompanion::prepareGroupText(const char *text, uint32_t replyId, c
 
     // MeshCore shows a reply as "@[name] " in front of the text.
     const char *replied = replyId ? recentSender(replyId) : nullptr;
-    if (replied) {
+    // A body that already opens with a tag (the ping answer does, with the name cleaned) is not tagged a second time.
+    const bool alreadyTagged = strncmp(text, "@[", 2) == 0;
+    if (replied && !alreadyTagged) {
         put("@[", 2);
         put(replied, strlen(replied));
         put("] ", 2);

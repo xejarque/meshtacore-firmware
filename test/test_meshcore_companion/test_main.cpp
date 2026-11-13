@@ -847,6 +847,10 @@ void test_group_text_marks_replies_and_known_mentions(void)
 
     c.prepareGroupText("already @[Carol]", 99, out, sizeof(out)); // unknown reply id, existing mention
     TEST_ASSERT_EQUAL_STRING("already @[Carol]", out);
+
+    // A body that opens with its own tag (the ping answer) is not tagged twice
+    c.prepareGroupText("@[Bob Builder] 2 hops", 1234, out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("@[Bob Builder] 2 hops", out);
 }
 
 void test_reply_tag_cites_the_newest_text_by_that_name(void)
