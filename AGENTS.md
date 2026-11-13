@@ -7,7 +7,7 @@
 > | Local tests    | `./bin/run-tests.sh` (exit 0 GREEN · 1 RED · 2 AMBER · 3 FILTERED · 4 BUSY · 5 ABORTED · 6 UNSUPPORTED); `--status` first               |
 > | Hardware tests | [meshtastic/meshtastic-mcp](https://github.com/meshtastic/meshtastic-mcp) (`MESHTASTIC_FIRMWARE_ROOT` → this checkout)                  |
 > | Format         | `trunk fmt`                                                                                                                             |
-> | ESP32 builds   | one `~/.platformio/penv` on `pioarduino==6.1.19`; ESP platform stays 55.03.311 - see [Build toolchain](#build-toolchain-pio-and-python) |
+> | ESP32 builds   | one `~/.platformio/penv` on `pioarduino==6.2.0` + `platformio==6.2.0`; ESP platform 55.03.312-1 - see [Build toolchain](#build-toolchain-pio-and-python) |
 > | Mirror docs    | `.github/copilot-instructions.md` (canonical) · `CLAUDE.md` (Claude Code)                                                               |
 >
 > **Need this? It's here.**
@@ -44,34 +44,27 @@ This file (`AGENTS.md`) is a short pointer + quick reference for agents that don
 
 ## Build toolchain (pio and Python)
 
-ESP32 and nRF52 build from the **single shared venv at `~/.platformio/penv`**, pinned to **`pioarduino==6.1.19`** - the version every `nexus_*.yml` workflow installs and the last core that survives ESP-IDF linking. Matching CI locally is the point: a locally "working" toolchain that CI does not use hides regressions instead of catching them.
+ESP32 and nRF52 both build from the **single shared venv at `~/.platformio/penv`**, pinned to **exactly `6.2.0`** for both `pioarduino` and `platformio`. This is what every workflow and `bin/build-esp32.sh` install, so a local build matches CI.
 
 ```bash
 rm -rf ~/.platformio/penv
 python3.12 -m venv ~/.platformio/penv
-~/.platformio/penv/bin/pip install -U "pioarduino==6.1.19"
+~/.platformio/penv/bin/pip install "pioarduino==6.2.0" "platformio==6.2.0"
 ```
 
-Exactly one distribution must be listed, and it must be `6.1.19`. Two lines means the venv is mixed and broken:
+Check it (both lines must say `6.2.0`):
 
 ```bash
 ~/.platformio/penv/bin/pio --version && ~/.platformio/penv/bin/pip list | grep -Ei '^(platformio|pioarduino) '
 ```
 
+**Never `6.2.0.post1`.** It is a prerelease that sorts below `6.2.0` for semver, so the ESP platform's `engines.platformio >=6.2.0` check fails with `IncompatiblePlatform`. Pin the exact release (CI also exports `UV_CONSTRAINT`/`PIP_CONSTRAINT` for this).
+
 ### The core and the ESP platform are a matched pair
 
-`variants/esp32/esp32-common.ini` pins platform **`55.03.311`** deliberately. Do not bump it to `55.03.312+` while the core stays 6.1.19 - that pair aborts with `IncompatiblePlatform` before compiling anything:
+`variants/esp32/esp32-common.ini` uses platform **`55.03.312-1`** (pioarduino, `engines >=6.2.0`). Going back to the meshtastic fork `55.03.311` (`engines >=6.1.19`) works with either core. Either both move or neither does.
 
-| Platform                                | `engines`  | Works with 6.1.19 |
-| --------------------------------------- | ---------- | ----------------- |
-| `55.03.311` (meshtastic fork)           | `>=6.1.19` | yes               |
-| `55.03.312`, `55.03.312-1` (pioarduino) | `>=6.2.0`  | **no**            |
-
-Either both move or neither does. The 2.8.2 merge brings `e09cec6ad` ("Update pioarduino to v3.3.12-1"), which is what bumped this to 312; it was reverted here on purpose.
-
-### FortranCommon: why the core is pinned at all
-
-PlatformIO 6.2.0 **wipes `tool-scons` during ESP-IDF builds**; the link then dies with `ModuleNotFoundError: No module named 'SCons.Tool.FortranCommon'`. It reinstalls three times and ends up deleting the package, so patching `FortranCommon.py` does not help - the whole package disappears. Do not try `pio pkg install`, a hand-written shim, or `pip install platformio` to "fix" it; the fix is the 6.1.19 pin. Related trap: the pioarduino `scons-4.11.1.zip` registry artifact is only a ~12 KB descriptor and the real `scons-local` payload is fetched separately, so hand-installing that URL yields an empty package.
+The old FortranCommon trap (`No module named 'SCons.Tool.FortranCommon'` at ESP-IDF link) was tied to the core/platform combination of the 6.1.19 era; a clean `heltec-v3` build with 6.2.0 + 312-1 verified on 2026-11-13 links without it. If it ever comes back, do not hand-install `tool-scons` or patch `FortranCommon.py`: re-check the pins above first.
 
 ### Verify with a clean build, never an incremental one
 
@@ -82,7 +75,7 @@ rm -rf .pio/build/heltec-v3
 pio run -e heltec-v3          # expect SUCCESS, ~66% flash
 ```
 
-With 6.1.19 + 311 a clean `heltec-v3` build finishes in ~220 s at 65.9% flash. A run that dies in ~30 s at the link step with the FortranCommon error means the core was upgraded to 6.2.x.
+With 6.2.0 + 312-1 a clean `heltec-v3` build ends in SUCCESS (about 8 min on a cold cache). A run that dies in ~30 s at link with the FortranCommon error means the venv is mixed or on `6.2.0.post1`.
 
 **Never let two cores share one checkout.** `.pio/build/` is a single directory for all envs, and `clean_build_dir()` deletes all of it whenever `compute_project_checksum()` changes - and that checksum includes the core version string. Two cores therefore wipe each other's artifacts on every alternation, leaving `release/` empty with no build error to point at.
 
