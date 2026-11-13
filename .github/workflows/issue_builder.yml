@@ -84,14 +84,14 @@ jobs:
       - name: Install PlatformIO and Dependencies
         if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
         run: |
-          pip install -U "platformio==6.1.19" jq
+          pip install -U "platformio==6.2.0" jq
           mkdir -p "$HOME/.platformio/packages"
-          echo '{"last_version": "6.1.19", "last_check": {"platformio_upgrade": 2147483647, "prune_system": 2147483647}}' > "$HOME/.platformio/appstate.json"
-          if [ ! -f "$HOME/.platformio/penv/bin/python" ] || ! "$HOME/.platformio/penv/bin/python" -c "import pioarduino; assert pioarduino.__version__ == '6.1.19'" 2>/dev/null; then
+          echo '{"last_version": "6.2.0", "last_check": {"platformio_upgrade": 2147483647, "prune_system": 2147483647}}' > "$HOME/.platformio/appstate.json"
+          if [ ! -f "$HOME/.platformio/penv/bin/python" ] || ! "$HOME/.platformio/penv/bin/python" -c "import pioarduino; assert pioarduino.__version__ == '6.2.0'" 2>/dev/null; then
             rm -rf "$HOME/.platformio/penv"
             python -m venv "$HOME/.platformio/penv"
             "$HOME/.platformio/penv/bin/pip" install --upgrade "uv>=0.1.0"
-            "$HOME/.platformio/penv/bin/pip" install "pioarduino==6.1.19" "platformio==6.1.19"
+            "$HOME/.platformio/penv/bin/pip" install "pioarduino==6.2.0" "platformio==6.2.0"
           fi
 
       - name: Resolve Architecture
@@ -114,9 +114,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: pio6119-py312-${{ runner.os }}-${{ steps.arch-step.outputs.arch }}-${{ hashFiles('platformio.ini') }}
+          key: pio620-py312-${{ runner.os }}-${{ steps.arch-step.outputs.arch }}-${{ hashFiles('platformio.ini') }}
           restore-keys: |
-            pio6119-py312-${{ runner.os }}-${{ steps.arch-step.outputs.arch }}-
+            pio620-py312-${{ runner.os }}-${{ steps.arch-step.outputs.arch }}-
 
       - name: Guard against gutted tool-scons cache
         if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
@@ -129,32 +129,25 @@ jobs:
             echo "tool-scons OK or absent (PIO installs on demand)"
           fi
 
-      - name: Lock PlatformIO and ESP32 penv to 6.1.19
+      - name: Lock PlatformIO and ESP32 penv to 6.2.0
         if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
         run: |
           mkdir -p "$HOME/.platformio/packages"
-          echo '{"last_version": "6.1.19", "last_check": {"platformio_upgrade": 2147483647, "prune_system": 2147483647}}' > "$HOME/.platformio/appstate.json"
-          pip install -U "platformio==6.1.19"
-          if [ ! -f "$HOME/.platformio/penv/bin/python" ] || ! "$HOME/.platformio/penv/bin/python" -c "import pioarduino; assert pioarduino.__version__ == '6.1.19'" 2>/dev/null; then
-            echo "Pre-creating ~/.platformio/penv pinned to 6.1.19..."
+          echo '{"last_version": "6.2.0", "last_check": {"platformio_upgrade": 2147483647, "prune_system": 2147483647}}' > "$HOME/.platformio/appstate.json"
+          pip install -U "platformio==6.2.0"
+          if [ ! -f "$HOME/.platformio/penv/bin/python" ] || ! "$HOME/.platformio/penv/bin/python" -c "import pioarduino; assert pioarduino.__version__ == '6.2.0'" 2>/dev/null; then
+            echo "Pre-creating ~/.platformio/penv pinned to 6.2.0..."
             rm -rf "$HOME/.platformio/penv"
             python -m venv "$HOME/.platformio/penv"
             "$HOME/.platformio/penv/bin/pip" install --upgrade "uv>=0.1.0"
-            "$HOME/.platformio/penv/bin/pip" install "pioarduino==6.1.19" "platformio==6.1.19"
+            "$HOME/.platformio/penv/bin/pip" install "pioarduino==6.2.0" "platformio==6.2.0"
           fi
+          printf '%s\n' 'pioarduino==6.2.0' 'platformio==6.2.0' > "$HOME/.platformio/constraints.txt"
+          echo "UV_CONSTRAINT=$HOME/.platformio/constraints.txt" >> "$GITHUB_ENV"
+          echo "PIP_CONSTRAINT=$HOME/.platformio/constraints.txt" >> "$GITHUB_ENV"
           if [ -d "$HOME/.platformio/packages/tool-scons" ]; then
             touch "$HOME/.platformio/packages/tool-scons/.piokeep"
           fi
-          for scons_tool_dir in $(find "$HOME/.platformio/packages" -type d -name "Tool" 2>/dev/null); do
-            if [ -f "$scons_tool_dir/linkCommon/__init__.py" ] && [ ! -f "$scons_tool_dir/FortranCommon.py" ]; then
-              echo "Adding FortranCommon fallback shim to $scons_tool_dir"
-              printf '%s\n' \
-                '"""Fallback shim for SCons FortranCommon to prevent link crashes"""' \
-                'def isfortran(env, source): return False' \
-                'def add_all_to_env(env): pass' \
-                'def add_fortran_to_env(env): pass' > "$scons_tool_dir/FortranCommon.py"
-            fi
-          done
 
       - name: Generate tailored userPrefs.jsonc
         if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
