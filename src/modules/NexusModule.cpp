@@ -1931,8 +1931,6 @@ ProcessMessage NexusModule::handleReceived(const meshtastic_MeshPacket &mp) {
                 // same shape ZephCore answers with); a direct ping reads "direct, SNR 7.5 dB".
                 char sender[40];
                 pingSenderName(mp, sender, sizeof(sender));
-                if (sender[0])
-                    l = appendClamped(rMsg, sizeof(rMsg), l, "@[%s] ", sender);
 
                 char relay[48] = {0};
                 const uint8_t targetSuffix = (uint8_t)(mp.relay_node & 0xFF);
