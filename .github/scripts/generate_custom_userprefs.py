@@ -415,7 +415,6 @@ def main():
         prefs["USERPREFS_LORACONFIG_OVERRIDE_FREQUENCY"] = "869.618"
         prefs["USERPREFS_LORACONFIG_TX_POWER"] = "22"
         prefs["USERPREFS_CONFIG_LORA_HOP_LIMIT"] = "7"
-        prefs["USERPREFS_CONFIG_LORA_CONFIG_OK_TO_MQTT"] = "true"
         prefs.pop("USERPREFS_LORACONFIG_MODEM_PRESET", None)
     elif args.lora_preset_mode == "custom":
         prefs["USERPREFS_LORACONFIG_USE_PRESET"] = "false"
@@ -433,8 +432,6 @@ def main():
             prefs["USERPREFS_CONFIG_LORA_HOP_LIMIT"] = str(args.lora_hop_limit)
         if args.lora_channel_num:
             prefs["USERPREFS_LORACONFIG_CHANNEL_NUM"] = str(args.lora_channel_num)
-        if args.lora_ok_to_mqtt:
-            prefs["USERPREFS_CONFIG_LORA_CONFIG_OK_TO_MQTT"] = "true"
         if args.lora_ignore_mqtt:
             prefs["USERPREFS_CONFIG_LORA_IGNORE_MQTT"] = "true"
         prefs.pop("USERPREFS_LORACONFIG_MODEM_PRESET", None)
@@ -448,6 +445,12 @@ def main():
         prefs.pop("USERPREFS_LORACONFIG_SPREAD_FACTOR", None)
         prefs.pop("USERPREFS_LORACONFIG_CODING_RATE", None)
         prefs.pop("USERPREFS_LORACONFIG_OVERRIDE_FREQUENCY", None)
+
+    # OK to MQTT applies to every preset and always carries the user's choice (true or false), as the web builder does:
+    # the firmware default is off, so leaving it unwritten would silently drop a ticked box.
+    prefs["USERPREFS_CONFIG_LORA_CONFIG_OK_TO_MQTT"] = (
+        "true" if args.lora_ok_to_mqtt else "false"
+    )
 
     # Timezone String
     if args.timezone_string:
