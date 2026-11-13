@@ -369,7 +369,7 @@ class MeshCoreCompanion
     /// is all a path needs to name a hop and the neighbour listing to show it. Repeaters are not contacts, so they never take
     /// a slot of the contact table.
     const MeshCoreRepeaterName *learnRepeater(const uint8_t pub[32], const char *name, float snr = 0.0f,
-                                              uint8_t hops = MeshCoreRepeaterName::HOPS_UNKNOWN);
+                                              uint8_t hops = MeshCoreRepeaterName::HOPS_UNKNOWN, uint32_t advertTime = 0);
 
     using RepeaterTable = MeshCoreRepeaterNames<MESHCORE_REPEATER_NAMES_MAX>;
     const RepeaterTable &repeaterNames() const { return repeaters; }

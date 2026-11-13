@@ -427,11 +427,11 @@ void test_fingerprint_follows_the_set_and_the_names()
 
 // --- budget ---
 
-// The entry stays at 16 bytes plus its name: the table is sized for it, and a bigger entry costs the heap on a board that has
-// little (an nRF52 keeps 12 bytes of name, 28 B an entry).
+// The entry stays at 20 bytes plus its name: the table is sized for it, and a bigger entry costs the heap on a board that has
+// little (an nRF52 keeps 12 bytes of name, 32 B an entry).
 void test_entry_fits_the_ram_budget()
 {
-    TEST_ASSERT_EQUAL_UINT32(16 + 8, sizeof(MeshCoreRepeaterName));
+    TEST_ASSERT_EQUAL_UINT32(20 + 8, sizeof(MeshCoreRepeaterName));
 }
 
 // All-zero defaults keep the table in .bss; a non-zero default would store the whole table in flash as initialised data.

@@ -9,7 +9,7 @@
 #include <string.h>
 #include <strings.h> // strncasecmp
 
-// 16 B plus the name an entry, all in RAM. A repeater is only named on a path, so far fewer are worth remembering than
+// 20 B plus the name an entry, all in RAM. A repeater is only named on a path, so far fewer are worth remembering than
 // contacts, and the oldest heard is the first to go. The ThinkNode M1 (nRF52 with a screen and a GPS) is the tight one,
 // measured with 88 % of its heap used: it keeps 48.
 #ifndef MESHCORE_REPEATER_NAMES_MAX
@@ -54,6 +54,7 @@ struct MeshCoreRepeaterName {
     uint8_t type = 0;       // MeshCore ADV_TYPE_*; 0 when restored from a file that did not keep it
     uint32_t nodeNum = 0;   // MeshCoreNodeStore::nodeNumForKey of the whole key; 0 when restored from such a file
     uint32_t heardAt = 0;   // Time::getUptimeSecs() + 1 when last heard; 0 when only restored from flash this boot
+    uint32_t lastAdvert = 0; // timestamp of the last advert taken from it: an older one is a replay. 0 until heard this boot
     char name[NAME_LEN] = {};
     int8_t snrQuarter = 0;   // SNR in quarter dB, clamped: a path label needs no more
     uint8_t hopsPlusOne = 0; // hops the last advert travelled, plus one: 0 is "never heard over RF"
@@ -72,7 +73,7 @@ struct MeshCoreRepeaterName {
         out[NAME_LEN] = 0;
     }
 };
-static_assert(sizeof(MeshCoreRepeaterName) == 16 + MeshCoreRepeaterName::NAME_LEN, "an entry is budgeted at 16 B plus its name");
+static_assert(sizeof(MeshCoreRepeaterName) == 20 + MeshCoreRepeaterName::NAME_LEN, "an entry is budgeted at 20 B plus its name");
 
 /// How a node was heard: what learn() records besides its key and name.
 struct MeshCoreHeard {
@@ -80,6 +81,7 @@ struct MeshCoreHeard {
     uint8_t hops = MeshCoreRepeaterName::HOPS_UNKNOWN;
     uint8_t type = MeshCoreRepeaterName::TYPE_REPEATER;
     uint32_t uptimeSecs = 0; // Time::getUptimeSecs() when heard
+    uint32_t advertTime = 0; // the timestamp the advert carried; 0 when it did not come from an advert
 };
 
 namespace MeshCoreRepeaterLabel
@@ -156,6 +158,8 @@ template <size_t N> class MeshCoreRepeaterNames
         e->type = how.type;
         e->nodeNum = MeshCoreNodeStore<1>::nodeNumForKey(pub);
         e->heardAt = how.uptimeSecs + 1;
+        if (how.advertTime > e->lastAdvert)
+            e->lastAdvert = how.advertTime;
         const float q = how.snr * 4.0f;
         e->snrQuarter = q > 127.0f ? 127 : q < -128.0f ? -128 : (int8_t)q;
         e->hopsPlusOne = how.hops >= Entry::HOPS_UNKNOWN ? 0 : (uint8_t)(how.hops + 1);
@@ -172,6 +176,7 @@ template <size_t N> class MeshCoreRepeaterNames
             e = &entries[victim()];
         *e = saved;
         e->heardAt = 0;
+        e->lastAdvert = 0; // a timestamp from a past boot proves nothing about the next advert
         touch(e);
         return e;
     }

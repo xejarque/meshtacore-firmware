@@ -1440,11 +1440,9 @@ MeshCoreCompanion::TargetLookup MeshCoreCompanion::resolveTraceTarget(const char
         found[0]->copyName(name);
         return take(found[0]->prefix[0], name);
     }
-    // Several repeaters share the first byte of a hex key: the trace can only name that byte, so they are one target.
-    bool sameFirstByte = byHex;
-    for (size_t i = 1; sameFirstByte && i < total && i < LISTED; i++)
-        sameFirstByte = found[i]->prefix[0] == found[0]->prefix[0];
-    if (sameFirstByte && total <= LISTED)
+    // Several repeaters start with the hex key typed, so they all share its first byte, however many there are: the trace can
+    // only name that byte, so they are one target. (Only LISTED of them fit in found[], but the count is not what matters.)
+    if (byHex)
         return take(found[0]->prefix[0], typed[0] == '!' ? typed + 1 : typed);
 
     size_t len = 0;
@@ -2332,11 +2330,13 @@ bool MeshCoreCompanion::nextReplayNode(size_t &cursor, MeshCoreNode &out) const
     return false;
 }
 
-const MeshCoreRepeaterName *MeshCoreCompanion::learnRepeater(const uint8_t pub[32], const char *name, float snr, uint8_t hops)
+const MeshCoreRepeaterName *MeshCoreCompanion::learnRepeater(const uint8_t pub[32], const char *name, float snr, uint8_t hops,
+                                                             uint32_t advertTime)
 {
     MeshCoreHeard how;
     how.snr = snr;
     how.hops = hops;
+    how.advertTime = advertTime;
     how.uptimeSecs = Time::getUptimeSecs();
     return repeaters.learn(pub, name, how);
 }
@@ -2428,11 +2428,20 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
         // overwrite the better hops/SNR, re-announce the node and repeat the signature check.
         if (known && wasRecentlySeen(frameHash) && info.path_hash_count >= heard->hops())
             return;
+        const uint32_t num = MeshCoreNodeStore<1>::nodeNumForKey(payload);
+        if (known) {
+            // Only a prefix of the key is kept, so a key that merely starts the same (cheap to grind for 3 bytes) must not take
+            // the entry over: the first key to hold a prefix keeps it, and the other is not remembered as a repeater.
+            if (heard->nodeNum != 0 && heard->nodeNum != num)
+                return;
+            // MeshCore drops an advert older than the last one it took from that key as a possible replay.
+            if (heard->lastAdvert != 0 && advertTime < heard->lastAdvert)
+                return;
+        }
         if (!MeshCoreRepeater::verifyAdvert(payload, info.payload_len))
             return;
         rememberFrame(frameHash);
-        learnRepeater(payload, name, snr, info.path_hash_count);
-        const uint32_t num = MeshCoreNodeStore<1>::nodeNumForKey(payload);
+        learnRepeater(payload, name, snr, info.path_hash_count, advertTime);
         const MeshCoreNode *owner = nodes.findByNodeNum(num);
         if (num == PSEUDO_NODE_NUM || (owner && memcmp(owner->pub, payload, 32) != 0))
             return; // a contact already has this number: the repeater is remembered, but not announced over it
