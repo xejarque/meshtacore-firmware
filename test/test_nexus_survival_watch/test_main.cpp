@@ -4,7 +4,8 @@
 //   - A heap below the floor for three consecutive checks asks for a reboot; one good reading resets the count.
 //   - A radio whose RX counter (good or bad frames) does not move for 12 h asks for a reboot; any movement restarts the clock.
 //   - Checks run at most once a minute, the first one only arms the clocks, and unknown heap or no radio never trip it.
-//   - A node already below the heap floor on its first check never trips the heap check (no reboot loop).
+//   - A node already below the heap floor on its first check never trips the heap check while it stays low (no reboot
+//     loop); once the heap has been above the floor, a later leak trips it.
 //
 // Why that behavior is required:
 //   - A summit node cannot be power-cycled by hand: a leaked heap or a radio that went deaf must end in a clean restart,
@@ -60,6 +61,18 @@ void test_a_node_that_boots_below_the_floor_never_trips()
     w.check(kLowHeap, true, 0);
     for (uint32_t i = 1; i <= 10; i++)
         TEST_ASSERT_EQUAL(Verdict::Healthy, nextCheck(w, kLowHeap, true, i));
+}
+
+// The boot exemption lasts only while the heap stays low: a node that boots low, settles above the floor and then leaks
+// must still reboot, or a slim build would hang for good instead of restarting.
+void test_a_node_that_boots_low_and_recovers_is_protected_from_a_later_leak()
+{
+    SurvivalWatch w;
+    w.check(kLowHeap, true, 0);
+    TEST_ASSERT_EQUAL(Verdict::Healthy, nextCheck(w, kHealthyHeap, true, 1));
+    TEST_ASSERT_EQUAL(Verdict::Healthy, nextCheck(w, kLowHeap, true, 2));
+    TEST_ASSERT_EQUAL(Verdict::Healthy, nextCheck(w, kLowHeap, true, 3));
+    TEST_ASSERT_EQUAL(Verdict::HeapExhausted, nextCheck(w, kLowHeap, true, 4));
 }
 
 void test_low_heap_trips_on_the_third_consecutive_check()
@@ -155,6 +168,7 @@ void setup()
     RUN_TEST(test_first_check_only_arms_and_never_trips);
     RUN_TEST(test_low_heap_trips_on_the_third_consecutive_check);
     RUN_TEST(test_a_node_that_boots_below_the_floor_never_trips);
+    RUN_TEST(test_a_node_that_boots_low_and_recovers_is_protected_from_a_later_leak);
     RUN_TEST(test_one_healthy_reading_resets_the_low_heap_count);
     RUN_TEST(test_unknown_heap_never_counts_as_low);
     RUN_TEST(test_checks_run_at_most_once_a_minute);
