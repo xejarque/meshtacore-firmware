@@ -55,27 +55,44 @@
 
     <main style="max-width: 720px; margin: 2rem auto; padding: 0 1rem">
       <div class="card">
-        <div class="card-header"><h2>⚡ Flasher web</h2></div>
+        <div class="card-header"><h2>⚡ Instalar un archivo en mi placa</h2></div>
         <div class="card-body">
           <p>
-            Flashea por USB, desde el navegador, un firmware que ya tienes: el
-            que generó el
-            <a href="builder.html">Web Builder</a> (ESP32 o nRF52). Todo ocurre
-            en tu equipo: el firmware no se sube a ningún sitio. Necesita
-            <strong>Chrome o Edge de escritorio</strong>. En las placas ESP32
-            escribe también el OTA Loader, para poder actualizar después por
-            Bluetooth.
+            Aquí instalas por USB un firmware que <strong>ya tienes como
+            archivo</strong>: por ejemplo el que descargaste después de usar
+            <a href="builder.html">Crear mi firmware</a>. Todo ocurre en tu
+            ordenador: el archivo no se sube a ningún sitio.
           </p>
+          <ol class="steps-simple">
+            <li>
+              Usa <strong>Google Chrome o Microsoft Edge en un ordenador</strong>
+              y conecta la placa con un cable USB <strong>de datos</strong>.
+            </li>
+            <li>Pulsa «Elegir archivo» y selecciona el firmware.</li>
+            <li>
+              Cuando el navegador te pida un puerto, elige el de tu placa (suele
+              llamarse <em>USB</em>, <em>CP210x</em> o <em>CH340</em>).
+            </li>
+            <li>Espera a que ponga «Terminado» sin desconectar el cable.</li>
+          </ol>
           <p class="helper-text">
-            ¿Quieres la versión estándar de la última release, o actualizar una
-            placa conservando su configuración? Usa
+            ¿Solo quieres la última versión oficial, conservando tu
+            configuración? Es más fácil en
             <a href="update.html">Instalar / Actualizar</a>.
           </p>
+          <details class="mt-2">
+            <summary>La placa no responde: cómo ponerla en modo instalación</summary>
+            <ol class="steps-simple">
+              <li><strong>Placas ESP32</strong> (Heltec, T-Beam, Station…): mantén pulsado el botón <strong>BOOT</strong> (o PRG), pulsa una vez <strong>RESET</strong>, suelta BOOT y vuelve a intentarlo.</li>
+              <li><strong>Placas nRF52</strong> (RAK4631, T114, T-Echo, T1000-E…): pulsa dos veces seguidas y rápido el botón <strong>RESET</strong>. Aparecerá una unidad USB nueva.</li>
+              <li>Si sigue sin funcionar, prueba otro cable USB y otro puerto del ordenador.</li>
+            </ol>
+          </details>
 
-          <h3>Opción A · Un archivo que ya tienes</h3>
+          <h3>Elegir archivo</h3>
           <p class="helper-text">
-            El <code>.zip.enc</code> o <code>.zip</code> que descargaste de
-            GitHub Actions, o un <code>*.factory.bin</code> suelto.
+            Vale el archivo que te dio el descargador (<code>.zip.enc</code> o
+            <code>.zip</code>) o un <code>*.factory.bin</code> suelto.
           </p>
           <input
             type="file"
@@ -84,7 +101,8 @@
             class="mt-2"
           />
 
-          <h3 class="mt-3">Opción B · Una compilación de GitHub Actions</h3>
+          <details class="mt-3">
+            <summary>Avanzado (colaboradores): descargar una compilación de GitHub Actions</summary>
           <p class="helper-text">
             Descarga el firmware directamente. Necesita un token con permiso de
             lectura de Actions (el mismo del builder).
@@ -106,6 +124,7 @@
           <button id="btnRun" type="button" class="btn btn-primary btn-lg mt-2">
             Descargar y preparar
           </button>
+          </details>
         </div>
       </div>
 
