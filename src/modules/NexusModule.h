@@ -185,6 +185,7 @@ private:
     VoltRuleProposal proposeVoltRule(uint8_t slot, uint16_t mv, uint8_t direction, uint8_t action, uint8_t channel);
     void seedHibernatingFromRtc();
     void handleHealthCommand();
+    void appendHealthWarnings(int len);
     // /mtc MESHCORE [INFO|STATS|RELAY|ADVERT|RESET] (NexusMeshCoreCommand.cpp): the MeshCore relay and ADVERT settings.
     // mp/replyId are only needed by the commands that answer later (DESCUBRIR); the rest ignore them.
     void handleMeshCoreCommand(const char *args, char *reply, size_t replyLen, const meshtastic_MeshPacket *mp = nullptr,

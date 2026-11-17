@@ -419,6 +419,56 @@ void fsInit()
 #endif
 }
 
+size_t fsFreeBytes()
+{
+    const size_t total = fsTotalBytes();
+    const size_t used = fsUsedBytes();
+    return total > used ? total - used : 0;
+}
+
+bool fsIsLowOnSpace()
+{
+#ifdef FSCom
+    return fsTotalBytes() > 0 && fsFreeBytes() < FS_LOW_SPACE_BYTES;
+#else
+    return false;
+#endif
+}
+
+void fsWarnIfLowOnSpace()
+{
+    if (fsIsLowOnSpace())
+        LOG_WARN("Filesystem low: %u B free of %u B, saves may fail", (unsigned)fsFreeBytes(), (unsigned)fsTotalBytes());
+}
+
+bool isOrphanTmpName(const char *path)
+{
+    static constexpr const char *SUFFIX = ".tmp";
+    const size_t len = strlen(path);
+    const size_t suffixLen = strlen(SUFFIX);
+    return len > suffixLen && strcmp(path + len - suffixLen, SUFFIX) == 0;
+}
+
+void fsRemoveOrphanTmpFiles()
+{
+    // Portduino's FS is the host's: leave its files alone, the volume is not the 28 KB that fills up.
+#if defined(FSCom) && !defined(ARCH_PORTDUINO)
+    concurrency::LockGuard g(spiLock);
+    for (const auto &file : getFiles("/", 10)) {
+        if (!isOrphanTmpName(file.file_name))
+            continue;
+        String target = file.file_name;
+        target.remove(target.length() - 4);
+        if (!FSCom.exists(target.c_str())) {
+            LOG_WARN("Keep %s: %s is missing, it may be the only copy", file.file_name, target.c_str());
+            continue;
+        }
+        if (FSCom.remove(file.file_name))
+            LOG_INFO("Removed stale %s (%u B)", file.file_name, (unsigned)file.size_bytes);
+    }
+#endif
+}
+
 /**
  * Initializes the SD card and mounts the file system.
  */

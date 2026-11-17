@@ -1,4 +1,5 @@
 #include "NodeInfoModule.h"
+#include "BootLoopGuard.h"
 #include "Default.h"
 #include "MeshService.h"
 #include "NodeDB.h"
@@ -137,6 +138,10 @@ bool NodeInfoModule::sendOurNodeInfo(NodeNum dest, bool wantReplies, uint8_t cha
 
 void NodeInfoModule::triggerImmediateNodeInfoCheck()
 {
+    if (bootLoopGuard && bootLoopGuard->isHoldoffActive()) {
+        LOG_DEBUG("NodeInfo: boot loop holdoff, immediate check skipped");
+        return;
+    }
     LOG_DEBUG("NodeInfo: scheduling immediate periodic check");
     setIntervalFromNow(0);
 }

@@ -1,5 +1,6 @@
 #include "MeshModule.h"
 #include "AckProof.h"
+#include "BootLoopGuard.h"
 #include "Channels.h"
 #include "MeshService.h"
 #include "NodeDB.h"
@@ -48,6 +49,8 @@ int32_t MeshModule::setStartDelay()
 {
     int32_t startDelay = MESHMODULE_MIN_BROADCAST_DELAY_MS + numPeriodicModules * MESHMODULE_BROADCAST_SPACING_MS;
     numPeriodicModules++;
+    if (bootLoopGuard)
+        startDelay += static_cast<int32_t>(bootLoopGuard->getBroadcastHoldoffMs());
 
     return startDelay;
 }

@@ -57,6 +57,16 @@ size_t fsTotalBytes();
 size_t fsUsedBytes();
 
 void fsInit();
+
+/// Free bytes under which a save of nodes.proto (written twice through its temporary) is at risk.
+constexpr size_t FS_LOW_SPACE_BYTES = 4096;
+size_t fsFreeBytes();
+bool fsIsLowOnSpace();
+void fsWarnIfLowOnSpace();
+/// Removes "X.tmp" files left by an interrupted SafeFile write, but only when "X" exists: a non-atomic
+/// SafeFile deletes X before writing X.tmp, so an orphan tmp without X may be the only copy left.
+void fsRemoveOrphanTmpFiles();
+bool isOrphanTmpName(const char *path);
 bool renameFile(const char *pathFrom, const char *pathTo);
 bool fsFormat();
 std::vector<meshtastic_FileInfo> getFiles(const char *dirname, uint8_t levels, size_t maxCount = 64, bool *wasLimited = nullptr);

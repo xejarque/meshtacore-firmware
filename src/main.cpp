@@ -15,6 +15,7 @@
 #include "PowerMon.h"
 #include "RadioLibInterface.h"
 #include "ReliableRouter.h"
+#include "BootLoopGuard.h"
 #include "TransmitHistory.h"
 #include "UptimeClock.h"
 #include "airtime.h"
@@ -881,6 +882,11 @@ void setup()
 
     // Initialize transmit history to persist broadcast throttle timers across reboots
     TransmitHistory::getInstance()->loadFromDisk();
+    // Before setupModules(): a suspected reboot loop delays every module's first broadcast.
+    bootLoopGuard = new BootLoopGuard();
+    bootLoopGuard->begin();
+    fsRemoveOrphanTmpFiles();
+    fsWarnIfLowOnSpace();
 #if HAS_TFT
     if (config.display.displaymode == meshtastic_Config_DisplayConfig_DisplayMode_COLOR) {
         tftSetup();

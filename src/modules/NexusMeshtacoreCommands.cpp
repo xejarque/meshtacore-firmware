@@ -4,7 +4,9 @@
 // in NexusCommands.cpp, so a merge of the jentastic upstream does not collide with them: the dispatch chain in
 // handleNexusCommand() carries a single call to handleMeshtacoreCommand().
 
+#include "BootLoopGuard.h"
 #include "Channels.h"
+#include "FSCommon.h"
 #include "MeshService.h"
 #include "NodeDB.h"
 #include "Power.h"
@@ -286,6 +288,20 @@ void NexusModule::handleChemCommand(const char *arg)
              activeBatteryOcv[NUM_OCV_POINTS - 1]);
 }
 
+/// Appends the boot-loop and low-flash flags to a HEALTH reply of length len, while they fit.
+void NexusModule::appendHealthWarnings(int len)
+{
+    auto append = [&](const char *fmt, unsigned value) {
+        if (len < 0 || (size_t)len >= sizeof(replyMsg))
+            return;
+        len += snprintf(replyMsg + len, sizeof(replyMsg) - len, fmt, value);
+    };
+    if (bootLoopGuard && bootLoopGuard->isLoopSuspected())
+        append("\nLoop: %u boots, TX held", (unsigned)bootLoopGuard->getStreak());
+    if (fsIsLowOnSpace())
+        append("\nFS low: %uB free", (unsigned)fsFreeBytes());
+}
+
 void NexusModule::handleHealthCommand()
 {
     uint64_t ms = Time::getMillisMonotonic();
@@ -343,7 +359,8 @@ void NexusModule::handleHealthCommand()
     float txUtil = (airTime != NULL) ? airTime->utilizationTXPercent() : 0.0f;
     int32_t noise = (RadioLibInterface::instance) ? RadioLibInterface::instance->getAverageNoiseFloor() : -120;
 
-    snprintf(replyMsg, sizeof(replyMsg),
-             "MESHTACORE HEALTH:\nUp: %s\nBoot: %s\nBat: %s\nHeap: %s\nTemp: %.1fC\nChU: %.1f%% TxU: %.1f%% Noise: %ddBm", upBuf,
-             bootBuf, batBuf, heapBuf, temp, chUtil, txUtil, (int)noise);
+    int len = snprintf(replyMsg, sizeof(replyMsg),
+                       "MESHTACORE HEALTH:\nUp: %s\nBoot: %s\nBat: %s\nHeap: %s\nTemp: %.1fC\nChU: %.1f%% TxU: %.1f%% Noise: %ddBm",
+                       upBuf, bootBuf, batBuf, heapBuf, temp, chUtil, txUtil, (int)noise);
+    appendHealthWarnings(len);
 }
