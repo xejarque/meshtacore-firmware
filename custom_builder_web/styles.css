@@ -837,7 +837,6 @@ details.collapsible[open] summary {
 }
 
 /* ---- Legibilidad y accesibilidad (pensado para personas mayores y lectores de pantalla) ---- */
-html { font-size: 112.5%; } /* 18 px de base en lugar de 16 px */
 .helper-text { font-size: 0.9rem; }
 .btn { font-size: 1rem; min-height: 44px; }
 .btn-sm { font-size: 0.95rem; min-height: 40px; padding: 0.45rem 0.85rem; }
@@ -854,3 +853,24 @@ html { font-size: 112.5%; } /* 18 px de base en lugar de 16 px */
 .steps-simple li { margin-bottom: 0.4rem; }
 input[type="file"] { font-size: 1rem; padding: 0.5rem 0; }
 input[type="file"]::file-selector-button { font: inherit; font-weight: 600; min-height: 44px; padding: 0.5rem 1rem; margin-right: 0.75rem; cursor: pointer; }
+
+/* ---- Menú superior: pocas opciones visibles y el resto en "Más" (se adapta a pantallas estrechas) ---- */
+.nav-more { position: relative; }
+.nav-more > details > summary {
+  list-style: none; cursor: pointer; color: var(--text-muted); font-size: 0.88rem; font-weight: 500;
+  padding: 0.2rem 0.4rem;
+}
+.nav-more > details > summary::-webkit-details-marker { display: none; }
+.nav-more > details > summary::after { content: " ▾"; }
+.nav-more > details[open] > summary { color: var(--text-main); }
+.nav-more-list {
+  position: absolute; right: 0; top: calc(100% + 0.4rem); z-index: 50; min-width: 15rem;
+  display: flex; flex-direction: column; gap: 0.15rem; padding: 0.4rem; list-style: none;
+  background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 8px; box-shadow: var(--card-shadow);
+}
+.nav-more-list a { display: block; padding: 0.5rem 0.65rem; border-radius: 6px; }
+.nav-more-list a:hover { background: var(--card-header-bg); }
+@media (max-width: 720px) {
+  .nav-links { justify-content: flex-start; }
+  .nav-more-list { right: auto; left: 0; }
+}

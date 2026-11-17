@@ -6,8 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Meshtacore - Instalar / Actualizar</title>
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
-    <link rel="stylesheet" href="styles.css" />
-    <link rel="stylesheet" href="flasher.css" />
+    <link rel="stylesheet" href="styles.css?v=4" />
+    <link rel="stylesheet" href="flasher.css?v=4" />
     <script src="theme.js"></script>
   </head>
   <body>
@@ -26,18 +26,18 @@
         <nav>
           <ul class="nav-links">
             <li><a href="index.html">Inicio</a></li>
-            <li><a href="docs/index.html">Ayuda y manuales</a></li>
-            <li><a href="admin.html">Administrar por Bluetooth</a></li>
             <li><a href="flasher.html">⚡ Instalar un archivo</a></li>
             <li><a href="update.html" class="active">🔄 Instalar / Actualizar</a></li>
             <li><a href="builder.html" class="nav-cta-btn">🚀 Crear mi firmware</a></li>
-            <li>
-              <a
-                href="https://github.com/xejarque/meshtacore-firmware"
-                target="_blank"
-                rel="noopener"
-                >GitHub</a
-              >
+            <li class="nav-more">
+              <details>
+                <summary>Más</summary>
+                <ul class="nav-more-list">
+                  <li><a href="docs/index.html">Ayuda y manuales</a></li>
+                  <li><a href="admin.html">Administrar por Bluetooth</a></li>
+                  <li><a href="https://github.com/xejarque/meshtacore-firmware" target="_blank" rel="noopener" >GitHub</a ></li>
+                </ul>
+              </details>
             </li>
             <li>
               <button
@@ -126,14 +126,15 @@
             ></select>
             <p id="releaseInfo" class="helper-text mt-2"></p>
             <div class="update-warning" role="note">
-              <strong>Ojo con las builds personalizadas.</strong> Esto instala
-              la build estándar de la comunidad. Si tu nodo se compiló con el
-              builder, se pierden los módulos que excluiste y las opciones que
-              compilaste. Tu configuración guardada sí se conserva. Para
-              actualizar una build propia usa la pestaña «Mi versión personalizada».
+              <strong>Ojo si creaste tu propia versión.</strong> Esto instala la
+              versión estándar de la comunidad. Si tu aparato lleva una versión
+              personalizada, perderás los módulos que quitaste y los ajustes que
+              grabaste al crearla. Tu configuración guardada sí se conserva.
+              Para actualizar una versión propia usa la pestaña «Mi versión
+              personalizada».
               <label class="update-confirm">
                 <input type="checkbox" id="confirmStandard" />
-                Entiendo que se instala la build estándar
+                Entiendo que se instala la versión estándar
               </label>
             </div>
             <button
