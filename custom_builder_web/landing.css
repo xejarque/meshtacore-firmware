@@ -457,3 +457,19 @@ body {
 .artisan-site-footer a:hover {
   color: var(--text-main);
 }
+
+/* ---- Punto de entrada "¿Qué quieres hacer?" (pensado para quien no es técnico) ---- */
+.quick-start { margin: 1.5rem 0 2.5rem; }
+.quick-start h2 { font-size: 1.9rem; margin: 0 0 0.5rem; }
+.quick-start-sub { font-size: 1.1rem; line-height: 1.6; margin: 0 0 1.25rem; }
+.quick-start-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.quick-card {
+  display: flex; flex-direction: column; gap: 0.5rem; min-height: 11rem;
+  padding: 1.25rem 1.4rem; border: 2px solid var(--accent-blue, #0969da); border-radius: 12px;
+  text-decoration: none; color: inherit; background: var(--card-bg, transparent);
+}
+.quick-card:hover, .quick-card:focus-visible { box-shadow: 0 0 0 4px rgba(9, 105, 218, 0.25); }
+.quick-card-icon { font-size: 2.2rem; line-height: 1; }
+.quick-card-title { font-size: 1.3rem; font-weight: 700; }
+.quick-card-desc { font-size: 1.05rem; line-height: 1.5; }
+.quick-start-more { font-size: 1rem; margin-top: 1rem; }
