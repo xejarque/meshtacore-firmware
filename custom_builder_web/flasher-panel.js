@@ -9,6 +9,7 @@ import {
 } from "./flasher-core.js";
 import { flashNrf, touchBootloader } from "./flasher-nrf.js";
 import { resolveBundle } from "./flasher-bundle.js";
+import { friendlyError } from "./friendly-errors.js";
 import {
   fetchRunArtifact,
   githubClient,
@@ -166,7 +167,7 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
   function fail(error) {
     if (error?.name === "AbortError") return;
     section.classList.add("is-error");
-    say(errorText(error), "error");
+    say(friendlyError(error), "error");
     log(`Error: ${errorText(error)}`);
   }
 

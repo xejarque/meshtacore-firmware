@@ -58,33 +58,64 @@
         <div class="card-header"><h2>🔄 Instalar o actualizar una placa</h2></div>
         <div class="card-body">
           <p>
-            Instala un firmware nuevo en una placa que ya funciona con
-            Meshtastic
-            <strong>sin perder su configuración</strong> (canales, LoRa,
-            nombre): solo se reescribe la aplicación. Si la placa está en
-            blanco o tiene otro firmware, la instala desde cero (borra la
-            flash, y te lo pregunta antes). En los dos casos deja puesto el
-            OTA Loader, para poder actualizar después por Bluetooth desde la
-            app. Necesita <strong>Chrome o Edge de escritorio</strong> y la
-            placa por USB. Para flashear un firmware del Web Builder usa el
-            <a href="flasher.html">Flasher</a>.
+            Esta página pone el firmware más reciente en tu placa
+            <strong>sin perder tu configuración</strong> (canales, nombre y
+            ajustes de radio).
           </p>
+          <ol class="steps-simple">
+            <li>
+              Abre esta página con
+              <strong>Google Chrome o Microsoft Edge en un ordenador</strong>.
+            </li>
+            <li>
+              Conecta la placa al ordenador con un cable USB
+              <strong>de datos</strong> (algunos cables solo cargan y no
+              sirven).
+            </li>
+            <li>Elige tu placa en la lista y pulsa el botón grande.</li>
+            <li>
+              Cuando el navegador te pida elegir un puerto, selecciona el de tu
+              placa (suele llamarse <em>USB</em>, <em>CP210x</em> o
+              <em>CH340</em>) y pulsa «Conectar».
+            </li>
+            <li>No desconectes el cable hasta que ponga «Terminado».</li>
+          </ol>
+          <details class="mt-2">
+            <summary>Más información</summary>
+            <p class="helper-text">
+              Si la placa está en blanco o tiene otro firmware, se instala desde
+              cero (te avisamos antes de borrar). En los dos casos queda puesto
+              el OTA Loader, para poder actualizar después por Bluetooth desde
+              la app. Para instalar un firmware creado en el
+              <a href="builder.html">Web Builder</a> usa
+              <a href="flasher.html">Instalar un archivo</a>.
+            </p>
+          </details>
 
-          <div class="update-tabs" role="tablist">
+          <div class="update-tabs" role="tablist" aria-label="Qué quieres instalar">
             <button
               type="button"
               role="tab"
               class="update-tab"
               data-tab="release"
+              id="tab-release"
+              aria-controls="panel-release"
             >
-              Release estándar
+              Versión estándar
             </button>
-            <button type="button" role="tab" class="update-tab" data-tab="own">
-              Mi build
+            <button
+              type="button"
+              role="tab"
+              class="update-tab"
+              data-tab="own"
+              id="tab-own"
+              aria-controls="panel-own"
+            >
+              Mi versión personalizada
             </button>
           </div>
 
-          <div data-panel="release">
+          <div data-panel="release" id="panel-release" role="tabpanel" aria-labelledby="tab-release">
             <p class="helper-text">
               Última versión publicada:
               <strong id="releaseVersion">—</strong>
@@ -99,7 +130,7 @@
               la build estándar de la comunidad. Si tu nodo se compiló con el
               builder, se pierden los módulos que excluiste y las opciones que
               compilaste. Tu configuración guardada sí se conserva. Para
-              actualizar una build propia usa la pestaña «Mi build».
+              actualizar una build propia usa la pestaña «Mi versión personalizada».
               <label class="update-confirm">
                 <input type="checkbox" id="confirmStandard" />
                 Entiendo que se instala la build estándar
@@ -108,14 +139,14 @@
             <button
               id="btnUpdateRelease"
               type="button"
-              class="btn btn-primary btn-sm mt-2"
+              class="btn btn-primary btn-lg mt-2"
               disabled
             >
               🔌 Actualizar por USB
             </button>
           </div>
 
-          <div data-panel="own" class="hidden">
+          <div data-panel="own" id="panel-own" role="tabpanel" aria-labelledby="tab-own" class="hidden">
             <p class="helper-text">
               El <code>.zip.enc</code> o <code>.zip</code> que generó el
               builder, o un <code>firmware-….bin</code> suelto. Se usa su
@@ -127,7 +158,7 @@
             <button
               id="btnUpdateOwn"
               type="button"
-              class="btn btn-primary btn-sm mt-2"
+              class="btn btn-primary btn-lg mt-2"
               disabled
             >
               🔌 Actualizar por USB
@@ -144,13 +175,14 @@
           aria-valuemin="0"
           aria-valuemax="100"
           aria-valuenow="0"
+          aria-label="Progreso de la instalación"
         >
           <div id="updateFill" class="flasher-bar-fill"></div>
         </div>
         <div class="flasher-bar-text">
-          <span id="updateStatus">En espera</span>
+          <span id="updateStatus" aria-live="polite">En espera</span>
         </div>
-        <p id="updateMessage" class="flasher-message hidden"></p>
+        <p id="updateMessage" class="flasher-message hidden" role="status" aria-live="polite"></p>
         <pre id="updateLog" class="flasher-log hidden"></pre>
       </section>
       <dialog id="updateModal" class="flasher-modal"></dialog>
@@ -158,5 +190,6 @@
 
     <script src="crypto.js"></script>
     <script type="module" src="update-page.js"></script>
+      <script src="compat.js"></script>
   </body>
 </html>
