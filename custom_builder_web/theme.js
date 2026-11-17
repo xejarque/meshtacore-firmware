@@ -3,7 +3,12 @@
   const STORAGE_KEY = "meshtacore_theme";
 
   // Check saved theme; default to 'light'
-  const saved = localStorage.getItem(STORAGE_KEY);
+  let saved = null;
+  try {
+    saved = localStorage.getItem(STORAGE_KEY);
+  } catch (e) {
+    // Storage blocked (private mode, strict settings): the default theme is fine.
+  }
   const initialTheme = saved === "dark" ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", initialTheme);
 
