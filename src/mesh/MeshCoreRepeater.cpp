@@ -49,8 +49,9 @@ namespace
 {
 // The same ADVERT arrives once per route and is checked by the firewall, the companion and the relay queue. An Ed25519
 // verify costs tens of ms on an nRF52 with the receiver deaf meanwhile, so a payload proven good is remembered by its
-// SHA-256 (truncated, still collision resistant; the 32-bit dedupe hash is not and a forger could match it).
-class VerifiedAdverts
+// SHA-256 (truncated, still collision resistant; the 32-bit dedupe hash is not and a forger could match it). A payload
+// proven bad is remembered the same way, so a replayed forgery costs one verify, not one per copy and per checker.
+class AdvertDigests
 {
   public:
     static constexpr size_t DIGEST_LEN = 16;
@@ -96,19 +97,24 @@ class VerifiedAdverts
     uint8_t next = 0;
 };
 
-VerifiedAdverts verifiedAdverts;
+AdvertDigests verifiedAdverts;
+AdvertDigests rejectedAdverts;
 } // namespace
 
 uint32_t MeshCoreRepeater::advertSignatureChecks = 0;
 
 static bool advertSignatureValid(const uint8_t *payload, size_t payloadLen)
 {
-    uint8_t digest[VerifiedAdverts::DIGEST_LEN];
-    VerifiedAdverts::digestOf(payload, payloadLen, digest);
+    uint8_t digest[AdvertDigests::DIGEST_LEN];
+    AdvertDigests::digestOf(payload, payloadLen, digest);
     if (verifiedAdverts.contains(digest))
         return true;
-    if (!ed25519AdvertValid(payload, payloadLen))
+    if (rejectedAdverts.contains(digest))
         return false;
+    if (!ed25519AdvertValid(payload, payloadLen)) {
+        rejectedAdverts.add(digest);
+        return false;
+    }
     verifiedAdverts.add(digest);
     return true;
 }
@@ -116,6 +122,7 @@ static bool advertSignatureValid(const uint8_t *payload, size_t payloadLen)
 void MeshCoreRepeater::forgetVerifiedAdverts()
 {
     verifiedAdverts.clear();
+    rejectedAdverts.clear();
 }
 
 uint8_t MeshCoreRepeater::nodeTypeForRole(int role)

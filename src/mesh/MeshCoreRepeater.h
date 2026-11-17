@@ -208,10 +208,10 @@ class MeshCoreRepeater
     /** Check an ADVERT payload's Ed25519 signature over pub_key || timestamp || app_data. */
     static bool verifyAdvert(const uint8_t *payload, size_t payloadLen);
 
-    /** Ed25519 verifications actually run; a payload already proven good is answered from a small cache instead. */
+    /** Ed25519 verifications actually run; a payload already proven good or bad is answered from a small cache instead. */
     static uint32_t advertSignatureChecks;
 
-    /** Empty the cache of verified ADVERT payloads (tests start from a clean slate). */
+    /** Empty the caches of verified and rejected ADVERT payloads (tests start from a clean slate). */
     static void forgetVerifiedAdverts();
 
     /**

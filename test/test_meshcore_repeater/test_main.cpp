@@ -1730,6 +1730,12 @@ void test_a_verified_advert_is_not_checked_again()
     buf[len - 1] ^= 0x01;
     TEST_ASSERT_FALSE(MeshCoreRepeater::verifyAdvert(&buf[payloadAt], len - payloadAt));
     TEST_ASSERT_EQUAL_UINT32(before + 2, MeshCoreRepeater::advertSignatureChecks);
+
+    // The firewall, the companion and every route of a replayed forgery ask again: the rejection is remembered, so the
+    // radio is not kept deaf by repeating one bad advert.
+    TEST_ASSERT_FALSE(MeshCoreRepeater::verifyAdvert(&buf[payloadAt], len - payloadAt));
+    TEST_ASSERT_FALSE(MeshCoreRepeater::verifyAdvert(&buf[payloadAt], len - payloadAt));
+    TEST_ASSERT_EQUAL_UINT32(before + 2, MeshCoreRepeater::advertSignatureChecks);
 }
 
 // --- TRACE ---
