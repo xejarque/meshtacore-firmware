@@ -2,7 +2,10 @@
 <html lang="es" data-theme="light">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com; connect-src 'self' https://api.github.com https://github.com https://*.githubusercontent.com https://*.blob.core.windows.net https://ipwho.is; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://github.com" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com; connect-src 'self' https://api.github.com https://github.com https://*.githubusercontent.com https://*.blob.core.windows.net https://ipwho.is; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://github.com"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Meshtacore - Firmware Builder</title>
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
@@ -43,14 +46,25 @@
             <li><a href="index.html">Inicio</a></li>
             <li><a href="flasher.html">⚡ Instalar un archivo</a></li>
             <li><a href="update.html">🔄 Instalar / Actualizar</a></li>
-            <li><a href="builder.html" class="active nav-cta-btn">🚀 Crear mi firmware</a></li>
+            <li>
+              <a href="builder.html" class="active nav-cta-btn"
+                >🚀 Crear mi firmware</a
+              >
+            </li>
             <li class="nav-more">
               <details>
                 <summary>Más</summary>
                 <ul class="nav-more-list">
                   <li><a href="docs/index.html">Ayuda y manuales</a></li>
                   <li><a href="admin.html">Administrar por Bluetooth</a></li>
-                  <li><a href="https://github.com/xejarque/meshtacore-firmware" target="_blank" rel="noopener" >GitHub</a ></li>
+                  <li>
+                    <a
+                      href="https://github.com/xejarque/meshtacore-firmware"
+                      target="_blank"
+                      rel="noopener"
+                      >GitHub</a
+                    >
+                  </li>
                 </ul>
               </details>
             </li>
@@ -1039,7 +1053,10 @@
                   >
                     <label class="checkbox-label">
                       <input type="checkbox" id="loraOkToMqtt" checked />
-                      <span>Permitir OK to MQTT (otras pasarelas suben tus paquetes a MQTT)</span>
+                      <span
+                        >Permitir OK to MQTT (otras pasarelas suben tus paquetes
+                        a MQTT)</span
+                      >
                     </label>
                     <label class="checkbox-label">
                       <input type="checkbox" id="loraIgnoreMqtt" />
@@ -1449,14 +1466,14 @@
                       «Create»).
                     </li>
                     <li>
-                      Espera. Tarda entre <strong>5 y 20 minutos</strong>. Puedes
-                      cerrar la página: GitHub te avisará por correo cuando esté
-                      listo.
+                      Espera. Tarda entre <strong>5 y 20 minutos</strong>.
+                      Puedes cerrar la página: GitHub te avisará por correo
+                      cuando esté listo.
                     </li>
                   </ol>
                   <p class="helper-text mt-2">
-                    Hay un límite de 6 firmwares al día por persona para repartir
-                    los recursos entre todos.
+                    Hay un límite de 6 firmwares al día por persona para
+                    repartir los recursos entre todos.
                   </p>
                   <button
                     type="button"
@@ -1475,7 +1492,10 @@
                 </div>
 
                 <details class="action-box">
-                  <summary><strong>Opciones avanzadas</strong> (para quien sabe lo que hace)</summary>
+                  <summary>
+                    <strong>Opciones avanzadas</strong> (para quien sabe lo que
+                    hace)
+                  </summary>
                   <h3>Opciones alternativas</h3>
                   <p>
                     También puedes descargar el archivo de configuración para
@@ -1542,8 +1562,8 @@
               <p>
                 Instala el firmware en tu placa directamente desde el navegador,
                 sin programas ni cables especiales. Necesita
-                <strong>Google Chrome o Microsoft Edge en un ordenador</strong>. Todo ocurre en tu
-                equipo: el firmware no se sube a ningún sitio.
+                <strong>Google Chrome o Microsoft Edge en un ordenador</strong>.
+                Todo ocurre en tu equipo: el firmware no se sube a ningún sitio.
               </p>
               <ul class="flasher-intro">
                 <li>

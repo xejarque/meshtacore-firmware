@@ -2,7 +2,10 @@
 <html lang="es" data-theme="light">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com; connect-src 'self' https://api.github.com https://github.com https://*.githubusercontent.com https://*.blob.core.windows.net https://ipwho.is; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://github.com" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com; connect-src 'self' https://api.github.com https://github.com https://*.githubusercontent.com https://*.blob.core.windows.net https://ipwho.is; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://github.com"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Meshtacore - Administración del nodo por Bluetooth</title>
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
@@ -23,14 +26,29 @@
             <li><a href="index.html">Inicio</a></li>
             <li><a href="flasher.html">⚡ Instalar un archivo</a></li>
             <li><a href="update.html">🔄 Instalar / Actualizar</a></li>
-            <li><a href="builder.html" class="nav-cta-btn">🚀 Crear mi firmware</a></li>
+            <li>
+              <a href="builder.html" class="nav-cta-btn"
+                >🚀 Crear mi firmware</a
+              >
+            </li>
             <li class="nav-more">
               <details>
                 <summary>Más</summary>
                 <ul class="nav-more-list">
                   <li><a href="docs/index.html">Ayuda y manuales</a></li>
-                  <li><a href="admin.html" class="active">Administrar por Bluetooth</a></li>
-                  <li><a href="https://github.com/xejarque/meshtacore-firmware" target="_blank" rel="noopener" >GitHub</a ></li>
+                  <li>
+                    <a href="admin.html" class="active"
+                      >Administrar por Bluetooth</a
+                    >
+                  </li>
+                  <li>
+                    <a
+                      href="https://github.com/xejarque/meshtacore-firmware"
+                      target="_blank"
+                      rel="noopener"
+                      >GitHub</a
+                    >
+                  </li>
                 </ul>
               </details>
             </li>
@@ -57,25 +75,60 @@
       </section>
       <section class="bar when-connected capture-bar">
         <button id="capture" class="run">Capturar salidas del nodo</button>
-        <button id="download">Descargar grabación (<span id="recCount">0</span>)</button>
-        <span class="muted">Ejecuta solo comandos de lectura y descarga un JSON con las respuestas reales.</span>
+        <button id="download">
+          Descargar grabación (<span id="recCount">0</span>)
+        </button>
+        <span class="muted"
+          >Ejecuta solo comandos de lectura y descarga un JSON con las
+          respuestas reales.</span
+        >
       </section>
       <p class="muted">
-        Requiere Chrome o Edge (escritorio o Android) con el Bluetooth del nodo activo y emparejado. Los comandos se
-        ejecutan en local con <code>/mtcl</code>: no salen por radio.
+        Requiere Chrome o Edge (escritorio o Android) con el Bluetooth del nodo
+        activo y emparejado. Los comandos se ejecutan en local con
+        <code>/mtcl</code>: no salen por radio.
       </p>
 
       <nav class="tabs" role="tablist">
-        <button role="tab" id="tab-panel" aria-selected="true" data-tab="panel">Panel en vivo</button>
-        <button role="tab" id="tab-settings" aria-selected="false" data-tab="settings">Ajustes Nexus</button>
-        <button role="tab" id="tab-keys" aria-selected="false" data-tab="keys">Claves y canales</button>
-        <button role="tab" id="tab-remote" aria-selected="false" data-tab="remote">Nodos remotos</button>
-        <button role="tab" id="tab-console" aria-selected="false" data-tab="console">Consola</button>
-        <label class="muted pause"><input type="checkbox" id="pause" /> Pausar refresco</label>
+        <button role="tab" id="tab-panel" aria-selected="true" data-tab="panel">
+          Panel en vivo
+        </button>
+        <button
+          role="tab"
+          id="tab-settings"
+          aria-selected="false"
+          data-tab="settings"
+        >
+          Ajustes Nexus
+        </button>
+        <button role="tab" id="tab-keys" aria-selected="false" data-tab="keys">
+          Claves y canales
+        </button>
+        <button
+          role="tab"
+          id="tab-remote"
+          aria-selected="false"
+          data-tab="remote"
+        >
+          Nodos remotos
+        </button>
+        <button
+          role="tab"
+          id="tab-console"
+          aria-selected="false"
+          data-tab="console"
+        >
+          Consola
+        </button>
+        <label class="muted pause"
+          ><input type="checkbox" id="pause" /> Pausar refresco</label
+        >
       </nav>
 
       <div id="view-panel" class="panel-view">
-        <div id="panel" class="cards"><p class="muted">Conecta el nodo para ver el panel.</p></div>
+        <div id="panel" class="cards">
+          <p class="muted">Conecta el nodo para ver el panel.</p>
+        </div>
       </div>
 
       <div id="view-settings" class="panel-view" hidden>
@@ -96,7 +149,11 @@
           <div id="list" class="list"></div>
         </aside>
         <section>
-          <div id="detail" class="detail"><p class="muted">Elige un comando de la lista para ver su ayuda y ejecutarlo.</p></div>
+          <div id="detail" class="detail">
+            <p class="muted">
+              Elige un comando de la lista para ver su ayuda y ejecutarlo.
+            </p>
+          </div>
           <h3>Registro</h3>
           <div id="log" class="log"></div>
         </section>

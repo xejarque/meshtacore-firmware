@@ -90,7 +90,7 @@ if git ls-remote --exit-code --heads "$REMOTE" "$DATA_BRANCH" >/dev/null 2>&1; t
   done
   # Aunque no sobre nada, se aprovecha para descartar el historial con bundles ya borrados.
   if $APPLY && [ "$removed" -gt 0 ]; then
-    cd "$WORK"
+    cd "$WORK" || exit 1
     git checkout -q --orphan clean
     git add -A
     git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \

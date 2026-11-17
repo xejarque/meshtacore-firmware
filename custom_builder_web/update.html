@@ -2,7 +2,10 @@
 <html lang="es" data-theme="light">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com; connect-src 'self' https://api.github.com https://github.com https://*.githubusercontent.com https://*.blob.core.windows.net https://ipwho.is; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://github.com" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com; connect-src 'self' https://api.github.com https://github.com https://*.githubusercontent.com https://*.blob.core.windows.net https://ipwho.is; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://github.com"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Meshtacore - Instalar / Actualizar</title>
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
@@ -27,15 +30,28 @@
           <ul class="nav-links">
             <li><a href="index.html">Inicio</a></li>
             <li><a href="flasher.html">⚡ Instalar un archivo</a></li>
-            <li><a href="update.html" class="active">🔄 Instalar / Actualizar</a></li>
-            <li><a href="builder.html" class="nav-cta-btn">🚀 Crear mi firmware</a></li>
+            <li>
+              <a href="update.html" class="active">🔄 Instalar / Actualizar</a>
+            </li>
+            <li>
+              <a href="builder.html" class="nav-cta-btn"
+                >🚀 Crear mi firmware</a
+              >
+            </li>
             <li class="nav-more">
               <details>
                 <summary>Más</summary>
                 <ul class="nav-more-list">
                   <li><a href="docs/index.html">Ayuda y manuales</a></li>
                   <li><a href="admin.html">Administrar por Bluetooth</a></li>
-                  <li><a href="https://github.com/xejarque/meshtacore-firmware" target="_blank" rel="noopener" >GitHub</a ></li>
+                  <li>
+                    <a
+                      href="https://github.com/xejarque/meshtacore-firmware"
+                      target="_blank"
+                      rel="noopener"
+                      >GitHub</a
+                    >
+                  </li>
                 </ul>
               </details>
             </li>
@@ -55,7 +71,9 @@
 
     <main style="max-width: 720px; margin: 2rem auto; padding: 0 1rem">
       <div class="card">
-        <div class="card-header"><h2>🔄 Instalar o actualizar una placa</h2></div>
+        <div class="card-header">
+          <h2>🔄 Instalar o actualizar una placa</h2>
+        </div>
         <div class="card-body">
           <p>
             Esta página pone el firmware más reciente en tu placa
@@ -92,7 +110,11 @@
             </p>
           </details>
 
-          <div class="update-tabs" role="tablist" aria-label="Qué quieres instalar">
+          <div
+            class="update-tabs"
+            role="tablist"
+            aria-label="Qué quieres instalar"
+          >
             <button
               type="button"
               role="tab"
@@ -115,7 +137,12 @@
             </button>
           </div>
 
-          <div data-panel="release" id="panel-release" role="tabpanel" aria-labelledby="tab-release">
+          <div
+            data-panel="release"
+            id="panel-release"
+            role="tabpanel"
+            aria-labelledby="tab-release"
+          >
             <p class="helper-text">
               Última versión publicada:
               <strong id="releaseVersion">—</strong>
@@ -147,7 +174,13 @@
             </button>
           </div>
 
-          <div data-panel="own" id="panel-own" role="tabpanel" aria-labelledby="tab-own" class="hidden">
+          <div
+            data-panel="own"
+            id="panel-own"
+            role="tabpanel"
+            aria-labelledby="tab-own"
+            class="hidden"
+          >
             <p class="helper-text">
               El <code>.zip.enc</code> o <code>.zip</code> que generó el
               builder, o un <code>firmware-….bin</code> suelto. Se usa su
@@ -183,7 +216,12 @@
         <div class="flasher-bar-text">
           <span id="updateStatus" aria-live="polite">En espera</span>
         </div>
-        <p id="updateMessage" class="flasher-message hidden" role="status" aria-live="polite"></p>
+        <p
+          id="updateMessage"
+          class="flasher-message hidden"
+          role="status"
+          aria-live="polite"
+        ></p>
         <pre id="updateLog" class="flasher-log hidden"></pre>
       </section>
       <dialog id="updateModal" class="flasher-modal"></dialog>
@@ -191,6 +229,6 @@
 
     <script src="crypto.js"></script>
     <script type="module" src="update-page.js"></script>
-      <script src="compat.js"></script>
+    <script src="compat.js"></script>
   </body>
 </html>

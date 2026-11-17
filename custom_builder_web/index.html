@@ -2,7 +2,10 @@
 <html lang="es" data-theme="light">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com; connect-src 'self' https://api.github.com https://github.com https://*.githubusercontent.com https://*.blob.core.windows.net https://ipwho.is; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://github.com" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com; connect-src 'self' https://api.github.com https://github.com https://*.githubusercontent.com https://*.blob.core.windows.net https://ipwho.is; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://github.com"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Meshtacore - Un Radio, Dos Meshes | Firmware LoRa</title>
     <meta
@@ -35,14 +38,25 @@
             <li><a href="#comparativa">Comparativa</a></li>
             <li><a href="flasher.html">⚡ Instalar un archivo</a></li>
             <li><a href="update.html">🔄 Instalar / Actualizar</a></li>
-            <li><a href="builder.html" class="nav-cta-btn">🚀 Crear mi firmware</a></li>
+            <li>
+              <a href="builder.html" class="nav-cta-btn"
+                >🚀 Crear mi firmware</a
+              >
+            </li>
             <li class="nav-more">
               <details>
                 <summary>Más</summary>
                 <ul class="nav-more-list">
                   <li><a href="docs/index.html">Ayuda y manuales</a></li>
                   <li><a href="admin.html">Administrar por Bluetooth</a></li>
-                  <li><a href="https://github.com/xejarque/meshtacore-firmware" target="_blank" rel="noopener" >GitHub</a ></li>
+                  <li>
+                    <a
+                      href="https://github.com/xejarque/meshtacore-firmware"
+                      target="_blank"
+                      rel="noopener"
+                      >GitHub</a
+                    >
+                  </li>
                 </ul>
               </details>
             </li>
@@ -72,7 +86,9 @@
         <div class="quick-start-grid">
           <a class="quick-card" href="update.html">
             <span class="quick-card-icon" aria-hidden="true">🔄</span>
-            <span class="quick-card-title">Instalar o actualizar mi aparato</span>
+            <span class="quick-card-title"
+              >Instalar o actualizar mi aparato</span
+            >
             <span class="quick-card-desc"
               >Pon la última versión en tu placa en pocos clics. Es la opción
               más sencilla.</span
@@ -605,7 +621,7 @@
         </p>
       </footer>
     </div>
-      <script>
+    <script>
       // Muestra la versión realmente publicada (la que sirve la página de instalación) en lugar de un texto fijo.
       fetch("firmware/index.json")
         .then((r) => (r.ok ? r.json() : null))
