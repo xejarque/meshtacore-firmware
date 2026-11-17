@@ -2,6 +2,7 @@
 // companion bridge. Kept out of RadioLibInterface.cpp so that file stays close to the jentastic upstream and a merge of
 // origin/main does not collide with this code. The hooks that call into it remain in RadioLibInterface.cpp.
 #include "ContentionStats.h"
+#include "MeshCoreProtocol.h"
 #include "MeshTypes.h"
 #include "NodeDB.h"
 #include "PowerMon.h"
@@ -898,7 +899,11 @@ void RadioLibInterface::maybeSendMeshCoreFrame()
         startReceive(); // the channel scan left the radio in standby
         return;
     }
-    LOG_INFO("MeshCore TX %s: len=%u header=0x%02x path_len=0x%02x", own ? "own" : "relay", (unsigned)len, frame[0], frame[1]);
+    // path_len follows the 4 bytes of transport codes on a transport route, so it is read where the route puts it.
+    const uint8_t routeType = frame[0] & 0x03;
+    const size_t pathLenAt = (routeType == MC_ROUTE_TRANSPORT_FLOOD || routeType == MC_ROUTE_TRANSPORT_DIRECT) ? 5 : 1;
+    LOG_INFO("MeshCore TX %s: len=%u header=0x%02x path_len=0x%02x", own ? "own" : "relay", (unsigned)len, frame[0],
+             pathLenAt < len ? frame[pathLenAt] : 0);
     if (!own)
         meshCoreRepeater.markRelayed();
     meshCoreRepeater.clearPendingFrame();

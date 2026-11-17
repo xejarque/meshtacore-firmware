@@ -2061,7 +2061,7 @@ void test_trace_timeout_handling(void)
 
     char body[256];
     reportText(s.capture.received.back(), body, sizeof(body));
-    TEST_ASSERT_NOT_NULL(strstr(body, "Trace timeout"));
+    TEST_ASSERT_NOT_NULL(strstr(body, "Trace sin respuesta"));
 }
 
 void test_meshcore_drops_filter(void)
@@ -2697,7 +2697,7 @@ void test_route_line_formatting(void)
     char hopOut[128];
     TEST_ASSERT_TRUE(s.c.formatRouteLine(hopRoute, hopOut, sizeof(hopOut), -12.0f));
     // The hop count opens the line; the names keep their own lines and the metrics close the block.
-    TEST_ASSERT_NOT_NULL(strstr(hopOut, "📡 2 hops\n"));
+    TEST_ASSERT_NOT_NULL(strstr(hopOut, "📡 2 saltos\n"));
     TEST_ASSERT_NULL(strstr(hopOut, "2 hops:"));
     TEST_ASSERT_NOT_NULL(strstr(hopOut, "\n`AA`\n`BB`\n"));
     TEST_ASSERT_NOT_NULL(strstr(hopOut, "SNR: -3.2 dB · RSSI: -88 dBm · Δf -12Hz"));
@@ -2706,7 +2706,7 @@ void test_route_line_formatting(void)
     char headOut[128];
     TEST_ASSERT_TRUE(
         s.c.formatRouteLine(hopRoute, headOut, sizeof(headOut), -12.0f, MeshCoreCompanion::SIGNAL_ALL, "🤖MeshCore Ping🤖"));
-    TEST_ASSERT_TRUE(strncmp(headOut, "🤖MeshCore Ping🤖 · 📡 2 hops\n", strlen("🤖MeshCore Ping🤖 · 📡 2 hops\n")) == 0);
+    TEST_ASSERT_TRUE(strncmp(headOut, "🤖MeshCore Ping🤖 · 📡 2 saltos\n", strlen("🤖MeshCore Ping🤖 · 📡 2 saltos\n")) == 0);
     char directHead[128];
     TEST_ASSERT_TRUE(s.c.formatRouteLine(directRoute, directHead, sizeof(directHead), 50.0f, MeshCoreCompanion::SIGNAL_ALL, "T"));
     TEST_ASSERT_TRUE(strncmp(directHead, "T · ⚡ directo\n", strlen("T · ⚡ directo\n")) == 0);
@@ -2759,7 +2759,7 @@ void test_a_long_route_keeps_its_signal_line(void)
 
     char out[60];
     TEST_ASSERT_TRUE(s.c.formatRouteLine(route, out, sizeof(out), 125.0f));
-    TEST_ASSERT_NOT_NULL(strstr(out, "📡 8 hops\n"));
+    TEST_ASSERT_NOT_NULL(strstr(out, "📡 8 saltos\n"));
     TEST_ASSERT_NOT_NULL(strstr(out, "SNR: 9.5 dB · RSSI: -75 dBm · Δf 125Hz"));
     TEST_ASSERT_LESS_THAN(sizeof(out), strlen(out)); // fits, NUL included
 }

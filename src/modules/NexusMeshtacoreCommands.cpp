@@ -283,9 +283,10 @@ void NexusModule::handleChemCommand(const char *arg)
         }
         battery_chemistry = chosen;
     }
-    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: CHEM %s, full %u mV, cutoff %u mV per cell",
+    const bool nimhPack = battery_chemistry == (uint8_t)BatteryChemistry::NIMH;
+    snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE: CHEM %s, full %u mV, cutoff %u mV per %s",
              batteryChemistryName((BatteryChemistry)battery_chemistry), activeBatteryOcv[0],
-             activeBatteryOcv[NUM_OCV_POINTS - 1]);
+             activeBatteryOcv[NUM_OCV_POINTS - 1], nimhPack ? "3-cell pack" : "cell");
 }
 
 /// Appends the boot-loop and low-flash flags to a HEALTH reply of length len, while they fit.

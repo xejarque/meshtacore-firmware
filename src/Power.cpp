@@ -323,6 +323,7 @@ struct ChemistryCurve {
 static constexpr ChemistryCurve CHEMISTRY_CURVES[] = {
     {"VARIANT", {0}},
     {"LIPO", {4190, 4050, 3990, 3890, 3800, 3720, 3630, 3530, 3420, 3300, 3100}},
+    // Three NiMH cells in series (1.43..1.13 V each) standing in for one Li cell: the pack, not a single NiMH cell.
     {"NIMH", {4300, 4100, 4000, 3900, 3800, 3700, 3600, 3500, 3450, 3400, 3400}},
     {"SODIUM", {3950, 3800, 3700, 3600, 3500, 3400, 3200, 3000, 2800, 2600, 2500}},
     {"LIFEPO4", {3650, 3550, 3450, 3380, 3320, 3270, 3220, 3170, 3100, 3000, 2800}},

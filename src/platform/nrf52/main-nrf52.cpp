@@ -683,7 +683,17 @@ void cpuDeepSleep(uint32_t msecToWake)
                     meshtastic_Config_DeviceConfig_Role_TAK_TRACKER, meshtastic_Config_DeviceConfig_Role_SENSOR) &&
           config.power.is_power_saving == true))) {
         sd_power_mode_set(NRF_POWER_MODE_LOWPWR);
-        delay(msecToWake);
+        // The watchdog pauses only while the CPU sleeps; over a sleep of hours the SoftDevice and the remaining tasks wake
+        // it often enough to add up past APP_WATCHDOG_SECS. Feed it in slices so a long STORM sleep runs its full length.
+        constexpr uint32_t WDT_FEED_SLICE_MS = 30 * 1000;
+        static_assert(WDT_FEED_SLICE_MS < APP_WATCHDOG_SECS * 1000, "a slice must end before the watchdog does");
+        uint32_t remainingMs = msecToWake;
+        while (remainingMs > 0) {
+            const uint32_t sliceMs = remainingMs < WDT_FEED_SLICE_MS ? remainingMs : WDT_FEED_SLICE_MS;
+            nrfx_wdt_channel_feed(&nrfx_wdt, nrfx_wdt_channel_id_nrf52_main);
+            delay(sliceMs);
+            remainingMs -= sliceMs;
+        }
         NVIC_SystemReset();
     } else {
         // Resume on user button press

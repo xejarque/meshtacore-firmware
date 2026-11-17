@@ -7,6 +7,7 @@
 #endif
 
 #include "Channels.h"
+#include "MeshCoreProtocol.h"
 #include "NodeDB.h"
 #include "PathReport.h"
 #include "PingReport.h"
@@ -181,7 +182,7 @@ size_t MeshCoreCompanion::encodeGroupText(const uint8_t *key, size_t keyLen, con
     if (!channelHash(key, keyLen, &hash))
         return 0;
 
-    out[0] = (0x05 << 2) | 0x01;                      // GRP_TXT, ROUTE_FLOOD
+    out[0] = MC_HEADER(MC_PAYLOAD_TYPE_GRP_TXT, MC_ROUTE_FLOOD);
     out[1] = MeshCoreRepeater::ownFloodPathLenByte(); // zero hops, hashes of the configured size
     out[2] = hash;
 
@@ -199,7 +200,7 @@ bool MeshCoreCompanion::decodeGroupText(const uint8_t *key, size_t keyLen, const
                                         uint32_t *timestampOut)
 {
     size_t keySize = normalizedKeyLen(key, keyLen);
-    if (keySize == 0 || !frame || info.payload_type != 0x05 || info.header_len >= len)
+    if (keySize == 0 || !frame || info.payload_type != MC_PAYLOAD_TYPE_GRP_TXT || info.header_len >= len)
         return false;
     if (info.payload_len < 1 + 2 + 16)
         return false;
@@ -290,7 +291,7 @@ static size_t sealDatagram(const uint8_t secret[32], uint8_t payloadType, uint8_
     if (cipherLen == 0 || 6 + cipherLen > outCap)
         return 0;
 
-    out[0] = (payloadType << 2) | 0x01;               // ROUTE_FLOOD
+    out[0] = MC_HEADER(payloadType, MC_ROUTE_FLOOD);
     out[1] = MeshCoreRepeater::ownFloodPathLenByte(); // zero hops, hashes of the configured size
     out[2] = destHash;
     out[3] = srcHash;
@@ -346,7 +347,7 @@ size_t MeshCoreCompanion::encodeDirectText(const uint8_t secret[32], uint8_t des
     if (textLen)
         memcpy(&plain[5], text, textLen);
 
-    return sealDatagram(secret, 0x02, destHash, srcHash, plain, 5 + textLen, out, outCap); // TXT_MSG
+    return sealDatagram(secret, MC_PAYLOAD_TYPE_TXT_MSG, destHash, srcHash, plain, 5 + textLen, out, outCap);
 }
 
 bool MeshCoreCompanion::decodeDirectText(const uint8_t secret[32], const uint8_t *frame, size_t len,
@@ -355,7 +356,7 @@ bool MeshCoreCompanion::decodeDirectText(const uint8_t secret[32], const uint8_t
 {
     uint8_t plain[MAX_DIRECT_CIPHER_LEN];
     size_t plainLen = 0;
-    if (!openDatagram(secret, 0x02, frame, len, info, plain, &plainLen) || plainLen < 5 || (plain[4] >> 2) != TXT_FLAGS_PLAIN)
+    if (!openDatagram(secret, MC_PAYLOAD_TYPE_TXT_MSG, frame, len, info, plain, &plainLen) || plainLen < 5 || (plain[4] >> 2) != TXT_FLAGS_PLAIN)
         return false;
 
     if (textOut && textOutCap) {
@@ -382,9 +383,9 @@ size_t MeshCoreCompanion::encodePathAck(const uint8_t secret[32], uint8_t destHa
     // Mesh::createPathReturn: the path walked so far (none), then an extra block: its type and the ACK hash.
     uint8_t plain[6];
     plain[0] = 0x00; // path_len: 1-byte hashes, no hops
-    plain[1] = 0x03; // extra type: ACK
+    plain[1] = MC_PATH_EXTRA_ACK;
     writeLe32(&plain[2], hash);
-    return sealDatagram(secret, 0x08, destHash, srcHash, plain, sizeof(plain), out, outCap); // PATH
+    return sealDatagram(secret, MC_PAYLOAD_TYPE_PATH, destHash, srcHash, plain, sizeof(plain), out, outCap);
 }
 
 bool MeshCoreCompanion::decodePathAck(const uint8_t secret[32], const uint8_t *frame, size_t len,
@@ -392,14 +393,14 @@ bool MeshCoreCompanion::decodePathAck(const uint8_t secret[32], const uint8_t *f
 {
     uint8_t plain[MAX_CIPHER_LEN];
     size_t plainLen = 0;
-    if (!hashOut || !openDatagram(secret, 0x08, frame, len, info, plain, &plainLen))
+    if (!hashOut || !openDatagram(secret, MC_PAYLOAD_TYPE_PATH, frame, len, info, plain, &plainLen))
         return false;
 
     // path_len (hash size in the top two bits, hop count in the rest), the path, then the extra block.
     size_t at = 0;
     const uint8_t pathLenByte = plain[at++];
     at += (size_t)((pathLenByte >> 6) + 1) * (pathLenByte & 0x3F);
-    if (at >= plainLen || (plain[at++] & 0x0F) != 0x03 || plainLen - at < 4) // the extra must be an ACK
+    if (at >= plainLen || (plain[at++] & 0x0F) != MC_PATH_EXTRA_ACK || plainLen - at < 4) // the extra must be an ACK
         return false;
     *hashOut = readLe32(&plain[at]);
     return true;
@@ -426,33 +427,31 @@ size_t MeshCoreCompanion::encodeAck(uint32_t hash, uint8_t *out, size_t outCap)
 {
     if (!out || outCap < 6)
         return 0;
-    out[0] = (0x03 << 2) | 0x01; // ACK, ROUTE_FLOOD
+    out[0] = MC_HEADER(MC_PAYLOAD_TYPE_ACK, MC_ROUTE_FLOOD);
     out[1] = MeshCoreRepeater::ownFloodPathLenByte();
     writeLe32(&out[2], hash);
     return 6;
 }
 
-void MeshCoreCompanion::announceUser(uint32_t nodeNum, const meshtastic_User &user, const MeshCoreRx &rx)
+/// A packet that tells the client about a MeshCore node, as if heard from it now. Null when the pool is empty.
+static meshtastic_MeshPacket *localAnnouncement(uint32_t nodeNum, meshtastic_PortNum port, const pb_msgdesc_t *fields,
+                                                const void *message, const MeshCoreRx &rx)
 {
-    if (!router)
-        return;
     meshtastic_MeshPacket *p = packetPool.allocZeroed();
     if (!p)
-        return;
-
+        return nullptr;
     p->from = nodeNum;
     p->to = NODENUM_BROADCAST;
     p->id = generatePacketId();
     p->channel = 0;
     p->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
-    p->decoded.portnum = meshtastic_PortNum_NODEINFO_APP;
-    p->decoded.payload.size =
-        pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), &meshtastic_User_msg, &user);
+    p->decoded.portnum = port;
+    p->decoded.payload.size = pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), fields, message);
     // Local news for the client, never to be repeated over Meshtastic: a next hop that is not us closes the relay gate. The
     // router drops a packet whose hop_start is missing, so it carries the hop fields of the frame it announces.
     p->decoded.has_bitfield = true;
     p->decoded.bitfield = 0;
-    hopFields(rx.pathHashCount, &p->hop_start, &p->hop_limit);
+    MeshCoreCompanion::hopFields(rx.pathHashCount, &p->hop_start, &p->hop_limit);
     const uint8_t ourRelay = nodeDB->getLastByteOfNodeNum(nodeDB->getNodeNum());
     p->next_hop = (uint8_t)(ourRelay + 1);
     if (p->next_hop == NO_NEXT_HOP_PREFERENCE)
@@ -464,7 +463,15 @@ void MeshCoreCompanion::announceUser(uint32_t nodeNum, const meshtastic_User &us
         p->has_rx_rssi = true;
         p->rx_rssi = rx.rssi;
     }
-    router->enqueueReceivedMessage(p);
+    return p;
+}
+
+void MeshCoreCompanion::announceUser(uint32_t nodeNum, const meshtastic_User &user, const MeshCoreRx &rx)
+{
+    if (!router || !nodeDB)
+        return;
+    if (meshtastic_MeshPacket *p = localAnnouncement(nodeNum, meshtastic_PortNum_NODEINFO_APP, &meshtastic_User_msg, &user, rx))
+        router->enqueueReceivedMessage(p);
 }
 
 void MeshCoreCompanion::announceIfNeeded(uint32_t nodeNum, const meshtastic_User &user, const MeshCoreRx &rx)
@@ -475,12 +482,8 @@ void MeshCoreCompanion::announceIfNeeded(uint32_t nodeNum, const meshtastic_User
 
 void MeshCoreCompanion::announcePosition(uint32_t nodeNum, int32_t latitudeI, int32_t longitudeI, const MeshCoreRx &rx)
 {
-    if (!router)
+    if (!router || !nodeDB)
         return;
-    meshtastic_MeshPacket *p = packetPool.allocZeroed();
-    if (!p)
-        return;
-
     meshtastic_Position pos = meshtastic_Position_init_default;
     pos.has_latitude_i = true;
     pos.latitude_i = latitudeI;
@@ -488,29 +491,8 @@ void MeshCoreCompanion::announcePosition(uint32_t nodeNum, int32_t latitudeI, in
     pos.longitude_i = longitudeI;
     pos.location_source = meshtastic_Position_LocSource_LOC_MANUAL;
     pos.time = getValidTime(RTCQualityFromNet);
-
-    p->from = nodeNum;
-    p->to = NODENUM_BROADCAST;
-    p->id = generatePacketId();
-    p->channel = 0;
-    p->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
-    p->decoded.portnum = meshtastic_PortNum_POSITION_APP;
-    p->decoded.payload.size =
-        pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), &meshtastic_Position_msg, &pos);
-    p->decoded.has_bitfield = true;
-    p->decoded.bitfield = 0;
-    hopFields(rx.pathHashCount, &p->hop_start, &p->hop_limit);
-    const uint8_t ourRelay = nodeDB->getLastByteOfNodeNum(nodeDB->getNodeNum());
-    p->next_hop = (uint8_t)(ourRelay + 1);
-    if (p->next_hop == NO_NEXT_HOP_PREFERENCE)
-        p->next_hop = 1;
-    p->transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
-    if (rx.pathHashCount == 0 && rx.hasSignal) {
-        p->rx_snr = rx.snr;
-        p->has_rx_rssi = true;
-        p->rx_rssi = rx.rssi;
-    }
-    router->enqueueReceivedMessage(p);
+    if (meshtastic_MeshPacket *p = localAnnouncement(nodeNum, meshtastic_PortNum_POSITION_APP, &meshtastic_Position_msg, &pos, rx))
+        router->enqueueReceivedMessage(p);
 }
 
 void MeshCoreCompanion::updatePosition(uint32_t nodeNum, int32_t latMicro, int32_t lonMicro, const MeshCoreRx &rx)
@@ -1009,8 +991,8 @@ bool MeshCoreCompanion::formatRouteLine(const HeardPath &route, char *out, size_
         if (cap - len > 1)
             len += formatSignal(out + len, cap - len, true);
     } else {
-        int n = lead[0] ? snprintf(out, cap, "%s · 📡 %u hops\n", lead, (unsigned)route.hopCount)
-                        : snprintf(out, cap, "📡 %u hops\n", (unsigned)route.hopCount);
+        int n = lead[0] ? snprintf(out, cap, "%s · 📡 %u saltos\n", lead, (unsigned)route.hopCount)
+                        : snprintf(out, cap, "📡 %u saltos\n", (unsigned)route.hopCount);
         if (n > 0)
             len = (size_t)n < cap ? (size_t)n : cap - 1;
 
@@ -1789,7 +1771,7 @@ bool MeshCoreCompanion::startTrace(const char *args, uint32_t fromNum, uint32_t 
     const uint32_t tag = generatePacketId();
     uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
     size_t flen = 0;
-    frame[flen++] = (0x09 << 2) | 0x02; // MC_PAYLOAD_TYPE_TRACE << 2 | ROUTE_TYPE_DIRECT
+    frame[flen++] = MC_HEADER(MC_PAYLOAD_TYPE_TRACE, MC_ROUTE_DIRECT);
     frame[flen++] = 0;
     memcpy(&frame[flen], &tag, 4);
     flen += 4;
@@ -1933,7 +1915,7 @@ void MeshCoreCompanion::checkTraceTimeout()
     if (activeTrace.active && Throttle::deadlinePassed(activeTrace.deadlineMs)) {
         activeTrace.active = false;
         char msg[128];
-        snprintf(msg, sizeof(msg), "🛰️ *Trace timeout*: No se recibió respuesta tras %u s.",
+        snprintf(msg, sizeof(msg), "🛰️ *Trace sin respuesta*: no se recibió respuesta tras %u s.",
                  (unsigned)((Time::getMillis() - activeTrace.startMs) / 1000));
         const MeshCoreNode *c = activeTrace.direct ? contactByNodeNum(activeTrace.to) : nullptr;
         injectText(activeTrace.fromNum, activeTrace.to, activeTrace.channel, msg, activeTrace.replyId, activeTrace.direct, c, 0,
@@ -2126,33 +2108,33 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
                 return;
         }
     }
-    if (info.payload_type == 0x04 && len >= info.header_len + 4) {
+    if (info.payload_type == MC_PAYLOAD_TYPE_ADVERT && len >= info.header_len + 4) {
         if (isDropped(&raw[info.header_len], 4))
             return;
     }
-    if (info.payload_type == 0x02 && len >= info.header_len + 2) {
+    if (info.payload_type == MC_PAYLOAD_TYPE_TXT_MSG && len >= info.header_len + 2) {
         if (isDropped(&raw[info.header_len + 1], 1))
             return;
     }
 #endif
 
     switch (info.payload_type) {
-    case 0x05: // GRP_TXT
+    case MC_PAYLOAD_TYPE_GRP_TXT:
         handleGroupText(raw, len, info, snr, rssi, freqErr);
         break;
-    case 0x04: // ADVERT
+    case MC_PAYLOAD_TYPE_ADVERT:
         handleAdvert(raw, len, info, snr, rssi);
         break;
-    case 0x02: // TXT_MSG
+    case MC_PAYLOAD_TYPE_TXT_MSG:
         handleDirectText(raw, len, info, snr, rssi, freqErr);
         break;
-    case 0x03: // ACK
+    case MC_PAYLOAD_TYPE_ACK:
         handleAck(raw, len, info);
         break;
-    case 0x08: // PATH: how MeshCore answers a flood, with the ACK inside
+    case MC_PAYLOAD_TYPE_PATH: // how MeshCore answers a flood, with the ACK inside
         handlePathAck(raw, len, info);
         break;
-    case 0x09: // TRACE
+    case MC_PAYLOAD_TYPE_TRACE:
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
         handleTraceFrame(raw, len, info, snr, rssi);
 #endif

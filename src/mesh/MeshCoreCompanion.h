@@ -237,7 +237,7 @@ class MeshCoreCompanion
 
     /// Format a single route line, unified across .path and MeshCore PPING replies. signal picks the metrics shown, so PPING
     /// can honour its SNR/RSSI/FREQERR toggles and .path can omit the frequency error it does not have. header, when set,
-    /// shares the first line with the hop count ("<header> · 📡 N hops"); the hop names follow one per line.
+    /// shares the first line with the hop count ("<header> · 📡 N saltos"); the hop names follow one per line.
     bool formatRouteLine(const HeardPath &route, char *out, size_t cap, float freqErr = 0.0f, uint8_t signal = SIGNAL_ALL,
                          const char *header = nullptr) const;
 

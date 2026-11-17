@@ -25,9 +25,10 @@
  * Meshtastic unicast between two other nodes (a few percent of overheard DMs by length); those
  * are sniffed instead of routed. Broadcasts and DMs to/from this node are never misclassified.
  *
- * Scope note: MeshCore's own repeaters also enforce region scoping (transport codes vs
- * REGION_DENY_FLOOD); this relay has no region map, so it forwards scoped floods too - same trust
- * model as a MeshCore repeater blind to the MAC. ADVERT signatures are verified before forwarding.
+ * Scope note: like MeshCore's own repeaters, the relay enforces region scoping through its region map
+ * (MeshCoreRegionMap: transport codes vs REGION_DENY_FLOOD); with an empty map it forwards scoped
+ * floods too, the same trust model as a MeshCore repeater blind to the MAC. ADVERT signatures are
+ * verified before forwarding.
  */
 // Direct-neighbour table fed by the ADVERTs the relay hears. With a companion the contact table already holds them, so
 // the relay keeps its own only when there is none.
@@ -88,11 +89,9 @@ class MeshCoreRepeater
     static uint32_t hashFrame(const uint8_t *raw, size_t len, const FrameInfo &info);
 
     /**
-     * Handle a received MeshCore frame (raw bytes as demodulated). Sniffs always; relays floods
-     * if enabled. airtimeMs is the frame's on-air time (RadioInterface::getPacketTime), used to
-     * size the adaptive relay delay.
-     */
-    /**
+     * Handle a received MeshCore frame (raw bytes as demodulated). Sniffs always; relays floods if enabled. airtimeMs is the
+     * frame's on-air time (RadioInterface::getPacketTime), used to size the adaptive relay delay.
+     *
      * Returns false when the firewall dropped the frame (a /mtc DROP rule, an ignored node, a rate limit): nothing else, the
      * companion included, should see it. True for everything else, even a frame that is not MeshCore at all.
      */

@@ -23,7 +23,8 @@
 /// Battery chemistry for the open-circuit voltage curve; VARIANT keeps the board's OCV_ARRAY.
 enum class BatteryChemistry : uint8_t { VARIANT = 0, LIPO, NIMH, SODIUM, LIFEPO4, COUNT };
 
-/// Per-cell OCV curve in use (100% .. 0%), shared by the battery reader and the low-voltage cutoff.
+/// OCV curve in use (100% .. 0%) for one Li-cell slot (NUM_CELLS scales it to the pack), shared by the battery reader and
+/// the low-voltage cutoff. NIMH fills that slot with a 3-cell NiMH pack, so its values are those of three cells.
 extern uint16_t activeBatteryOcv[];
 bool setBatteryChemistry(BatteryChemistry chemistry);
 const char *batteryChemistryName(BatteryChemistry chemistry);

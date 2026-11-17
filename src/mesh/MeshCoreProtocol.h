@@ -3,6 +3,8 @@
 // MeshCore wire constants shared by the repeater and its firewall.
 #pragma once
 
+#include <stdint.h>
+
 // MeshCore Dispatcher::tryParsePacket payload types (see MeshCore src/Packet.h)
 #define MC_PAYLOAD_TYPE_REQ 0x00
 #define MC_PAYLOAD_TYPE_RESPONSE 0x01
@@ -32,6 +34,12 @@
 
 // MeshCore header byte 0: bits 6-7 are the payload version (must be PAYLOAD_VER_1 = 0).
 #define MC_PAYLOAD_VER_SHIFT 6
+// ... bits 2-5 the payload type and bits 0-1 the route type.
+#define MC_PAYLOAD_TYPE_SHIFT 2
+#define MC_HEADER(payloadType, routeType) ((uint8_t)(((payloadType) << MC_PAYLOAD_TYPE_SHIFT) | (routeType)))
+
+// The extra type carried inside a PATH payload when it answers a flood (MeshCore Mesh.cpp createPathReturn).
+#define MC_PATH_EXTRA_ACK MC_PAYLOAD_TYPE_ACK
 
 // A full Meshtastic on-air header (to/from/id/flags/channel/next_hop/relay_node) must fit for a
 // frame to be Meshtastic at all; spelled out to keep this file free of RadioInterface.h.
