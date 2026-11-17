@@ -839,7 +839,7 @@ details.collapsible[open] summary {
 /* ---- Legibilidad y accesibilidad (pensado para personas mayores y lectores de pantalla) ---- */
 .helper-text { font-size: 0.9rem; }
 .btn { font-size: 1rem; min-height: 44px; }
-.btn-sm { font-size: 0.95rem; min-height: 40px; padding: 0.45rem 0.85rem; }
+.btn-sm { font-size: 0.88rem; min-height: 38px; padding: 0.4rem 0.8rem; }
 .btn-lg { font-size: 1.15rem; min-height: 52px; padding: 0.8rem 1.4rem; }
 :focus-visible { outline: 3px solid var(--accent-blue); outline-offset: 2px; }
 .banner-warning {
@@ -882,3 +882,16 @@ input[type="file"]::file-selector-button { font: inherit; font-weight: 600; min-
 .card-body details[open] > summary { margin-bottom: 0.4rem; }
 .card-body h3 { margin-top: 1.4rem; margin-bottom: 0.35rem; }
 input[type="file"] { width: 100%; max-width: 100%; }
+
+/* El marcado usa .toggle-info pero el CSS solo definía .toggle-label: la descripción salía sin estilo (tan grande como el título). */
+.toggle-info strong { display: block; font-size: 0.95rem; color: var(--text-main); }
+.toggle-info p { font-size: 0.85rem; color: var(--text-muted); margin: 0.15rem 0 0; line-height: 1.45; }
+.toggle-row + .toggle-row { margin-top: 1rem; }
+.card-body > .form-group { margin-top: 1rem; }
+.card-body > .form-group:first-child { margin-top: 0; }
+.flex-between > .btn-sm { min-height: 0; }
+
+/* .btn-outline no tenía estilos: los enlaces salían con el azul por defecto del navegador */
+.btn-outline { background: transparent; color: var(--accent-blue); border: 1px solid var(--card-border); }
+.btn-outline:hover { border-color: var(--accent-blue); background: var(--card-header-bg); }
+a.btn { text-decoration: none; }
