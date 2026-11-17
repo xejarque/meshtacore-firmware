@@ -1430,21 +1430,33 @@
 
               <div class="actions-grid mt-3">
                 <div class="action-box">
-                  <h3>🚀 Compilar con tu cuenta de GitHub</h3>
+                  <h3>🚀 Pedir mi firmware</h3>
                   <div class="badge-mini mb-2" style="display: inline-block">
-                    Recomendado • Sin necesidad de tokens
+                    Recomendado
                   </div>
                   <p>
-                    Cualquier usuario de GitHub puede solicitar su compilación a
-                    medida. Al pulsar el botón, se generará una solicitud
-                    oficial en GitHub con tu configuración.
+                    Te preparamos un firmware con todos los ajustes que has
+                    elegido. Es gratis.
                   </p>
+                  <ol class="steps-simple">
+                    <li>
+                      Necesitas una <strong>cuenta gratuita de GitHub</strong>.
+                      Si no la tienes, puedes crearla cuando se abra la página.
+                    </li>
+                    <li>
+                      Pulsa el botón. Se abrirá una pestaña de GitHub: pulsa el
+                      botón verde <strong>«Submit new issue»</strong> (o
+                      «Create»).
+                    </li>
+                    <li>
+                      Espera. Tarda entre <strong>5 y 20 minutos</strong>. Puedes
+                      cerrar la página: GitHub te avisará por correo cuando esté
+                      listo.
+                    </li>
+                  </ol>
                   <p class="helper-text mt-2">
-                    Un bot de GitHub Actions compilará tu placa en ~2 minutos,
-                    aplicará un límite de protección (<strong
-                      >6 compilaciones al día por usuario</strong
-                    >) y te responderá en el hilo con el enlace de descarga
-                    directa del archivo ZIP listo para flashear.
+                    Hay un límite de 6 firmwares al día por persona para repartir
+                    los recursos entre todos.
                   </p>
                   <button
                     type="button"
@@ -1457,17 +1469,19 @@
                       font-weight: 700;
                     "
                   >
-                    🚀 Enviar Solicitud de Compilación (1 Clic)
+                    🚀 Pedir mi firmware
                   </button>
                   <div id="issueStatus" class="status-msg hidden mt-2"></div>
                 </div>
 
-                <div class="action-box">
+                <details class="action-box">
+                  <summary><strong>Opciones avanzadas</strong> (para quien sabe lo que hace)</summary>
                   <h3>Opciones alternativas</h3>
                   <p>
                     También puedes descargar el archivo de configuración para
-                    compilar tú mismo en local con PlatformIO, o disparar
-                    directamente vía API si dispones de un token personal.
+                    compilar tú mismo en local con PlatformIO, o lanzar la
+                    compilación directamente si eres colaborador y tienes un
+                    token personal.
                   </p>
                   <div class="btn-group-vertical mt-3">
                     <button
@@ -1514,7 +1528,7 @@
                       class="status-msg hidden mt-2"
                     ></div>
                   </details>
-                </div>
+                </details>
               </div>
             </div>
           </section>

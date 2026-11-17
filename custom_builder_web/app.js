@@ -1155,7 +1155,7 @@ ${encryptedConfig}
         if (issueStatus) {
           issueStatus.className = "status-msg status-error";
           issueStatus.classList.remove("hidden");
-          issueStatus.textContent = `La solicitud es demasiado larga para GitHub (${url.length} caracteres, máximo ${MAX_ISSUE_URL_LENGTH}). Desactiva canales o campos opcionales, o usa el botón de compilación con token.`;
+          issueStatus.textContent = `Tu configuración es demasiado grande para enviarla así. Quita algún canal o algún ajuste opcional e inténtalo de nuevo.`;
         }
         return;
       }
@@ -1164,10 +1164,11 @@ ${encryptedConfig}
         issueStatus.className = "status-msg status-success";
         issueStatus.classList.remove("hidden");
         issueStatus.innerHTML = `
-          <strong>🚀 Redirigiendo a GitHub...</strong><br>
-          Se abrirá una nueva pestaña con tu solicitud preconfigurada. Haz clic en <em>"Submit new issue"</em> para iniciar la compilación automática.<br>
+          <strong>🚀 Se ha abierto una pestaña de GitHub.</strong><br>
+          Ve a esa pestaña y pulsa el botón verde <strong>«Submit new issue»</strong>. Si GitHub te pide entrar, usa tu cuenta (o crea una gratis). Después tarda entre 5 y 20 minutos y GitHub te avisará por correo.<br>
+          Si no se ha abierto la pestaña, pulsa el enlace de abajo.<br>
           <a href="${url}" target="_blank" style="color: var(--accent-blue); font-weight: 600; text-decoration: underline; margin-top: 6px; display: inline-block;">
-            Abrir solicitud de compilación en GitHub ↗
+            Abrir mi solicitud en GitHub ↗
           </a>
         `;
       }
