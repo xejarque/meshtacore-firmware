@@ -12,6 +12,7 @@
 #include "MeshCoreRepeaterNames.h"
 #include "MeshCoreSecretCache.h"
 #include "MeshTypes.h"
+#include "concurrency/RecursiveLock.h"
 #include "memory/MemClass.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -351,7 +352,11 @@ class MeshCoreCompanion
     bool hasIdentity() const { return identityReady; }
 
     /// True when node is a direct-message contact we hold a public key for.
-    bool hasContact(uint32_t nodeNum) { return contactByNodeNum(nodeNum) != nullptr; }
+    bool hasContact(uint32_t nodeNum)
+    {
+        concurrency::RecursiveLockGuard guard(lock);
+        return contactByNodeNum(nodeNum) != nullptr;
+    }
     /// True when nodeNum is a known CHAT contact and matches the provided 32-byte public key.
     bool isMeshCoreContact(uint32_t nodeNum, const uint8_t pubKey[32]) const;
     /// True when p is a direct text this companion injected for a contact, carrying that contact's key. The router keeps
@@ -361,8 +366,8 @@ class MeshCoreCompanion
     /// Learn or refresh a chat contact, numbered from its name the first time and keeping that number afterwards.
     MeshCoreNode *learnContact(const uint8_t pub[32], const char *name);
     /// The next node, from slot cursor on, that a client which just synced has not been told about: in the store but no
-    /// longer in the node DB. A consistent copy goes to out (the radio may be writing the store meanwhile) and cursor moves
-    /// past it. False when the walk is done.
+    /// longer in the node DB. The copy is taken under storeLock(), so a write from the radio thread cannot tear it; cursor
+    /// moves past it. False when the walk is done.
     bool nextReplayNode(size_t &cursor, MeshCoreNode &out) const;
 
     /// Remember a repeater heard now: the start of its key, its node number, a short name and how and when it was heard, which
@@ -376,10 +381,15 @@ class MeshCoreCompanion
     /// Restore one saved repeater record laid out as `tail` says. False when it names nothing.
     bool restoreRepeater(const uint8_t *record, const MeshCoreNodeFile::RepeaterTail &tail)
     {
+        concurrency::RecursiveLockGuard guard(lock);
         return MeshCoreNodeFile::readRepeaterRecord(repeaters, record, tail);
     }
     /// Changes when the set of repeaters or a name does, not when one is heard again.
-    uint32_t repeatersFingerprint() const { return repeaters.fingerprint(); }
+    uint32_t repeatersFingerprint() const
+    {
+        concurrency::RecursiveLockGuard guard(lock);
+        return repeaters.fingerprint();
+    }
 
     /// Queue a TXT_MSG for the contact behind nodeNum and wait for a repeater to re-flood it, then for its ACK, answering
     /// packetId to the client. text is cut to MAX_TEXT_LEN on a UTF-8 boundary. False if not queued.
@@ -407,10 +417,17 @@ class MeshCoreCompanion
     uint32_t rxSeen = 0, rxDecoded = 0, rxDup = 0, rxIgnored = 0, txSent = 0;
     uint32_t contactsLearned = 0, dmRx = 0, dmTx = 0, dmAcked = 0, dmTimedOut = 0, groupEchoed = 0, groupTimedOut = 0;
 
-    /// Every MeshCore node we know, kept apart from the Meshtastic node DB.
+    /// Every MeshCore node we know, kept apart from the Meshtastic node DB. Read and written from several tasks (the radio
+    /// thread, the Nexus CLI, and on nRF52 the BLE task through PhoneAPI): code outside this class holds storeLock() while it
+    /// touches it. The public members of this class take the lock themselves.
     MeshCoreNodeStore<MESHCORE_NODES_MAX> nodes;
 
+    /// Guards nodes, repeaters and the pending/heard tables. Recursive: the entry points call one another.
+    concurrency::RecursiveLock &storeLock() const { return lock; }
+
   private:
+    mutable concurrency::RecursiveLock lock;
+
     static constexpr size_t DEDUP_ENTRIES = 64;
 
     /// Cached channelHash() per channel slot, recomputed when the key bytes change.
@@ -444,6 +461,9 @@ class MeshCoreCompanion
     static constexpr size_t PENDING_ACKS = 8;
     PendingAck pending[PENDING_ACKS];
 
+    /// The route the store holds for n: its last measured hops and signal, else its learned out-path length, else one hop
+    /// with no signal. What an unsigned frame naming n is shown with, so it cannot rewrite n's route.
+    static MeshCoreRx storedRoute(const MeshCoreNode &n);
     void handleGroupText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi,
                          float freqErr);
     void handleAdvert(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi);

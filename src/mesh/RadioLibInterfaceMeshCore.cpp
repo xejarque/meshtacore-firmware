@@ -358,6 +358,9 @@ static void loadMeshCoreContacts()
 static bool saveMeshCoreContacts()
 {
 #ifdef FSCom
+    // The repeater walk below holds pointers into the table: no other task may rewrite it until the file is closed. Saves
+    // are hours apart, so holding the lock across the flash write costs little.
+    concurrency::RecursiveLockGuard storeGuard(meshCoreCompanion.storeLock());
     uint8_t image[MeshCoreNodeFile::IMAGE_MAX];
     const size_t n = meshCoreCompanion.exportContacts(image, sizeof(image));
     if (n == 0)

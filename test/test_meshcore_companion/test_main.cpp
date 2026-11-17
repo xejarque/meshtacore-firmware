@@ -2791,6 +2791,44 @@ void test_handle_frame_carries_the_frequency_error(void)
     TEST_ASSERT_EQUAL_FLOAT(47.0f, s.capture.received.back().rx_frequency_error);
 }
 
+/*
+ * A channel text signed "Alice: ..." is shown on the node of the contact called Alice, but the prefix is not signed: anyone
+ * holding the channel key can write it. Regression guard for the review of 2026-11-17: such a text rewrote the contact's
+ * hops, SNR, RSSI, last-heard and recency, so a forger on MC:Public could make a verified contact look one hop away.
+ */
+void test_group_text_naming_a_contact_does_not_touch_its_metadata(void)
+{
+    GroupSetup s;
+    uint8_t pub[32];
+    memset(pub, 0xA5, sizeof(pub));
+    MeshCoreNode *alice = s.c.learnContact(pub, "Alice");
+    TEST_ASSERT_NOT_NULL(alice);
+    alice->setHops(3);
+    alice->snr = 5.0f;
+    alice->rssi = -80;
+    alice->lastHeard = 1234;
+    const uint32_t aliceNum = alice->nodeNum;
+    const MeshCoreNode before = *alice;
+
+    uint8_t frame[255];
+    const size_t len =
+        MeshCoreCompanion::encodeGroupText(kPublicKey, sizeof(kPublicKey), "Alice", 0x01020304, "soy yo", frame, sizeof(frame));
+    TEST_ASSERT_GREATER_THAN(0, len);
+    s.c.handleFrame(frame, len, -15.0f, -120);
+
+    // Still one node per person: the text lands on Alice's node...
+    TEST_ASSERT_FALSE(s.capture.received.empty());
+    TEST_ASSERT_EQUAL_UINT32(aliceNum, s.capture.received.back().from);
+    // ...but her stored route and signal are what her signed advert gave, not the forger's frame.
+    const MeshCoreNode *after = s.c.nodes.findByNodeNum(aliceNum);
+    TEST_ASSERT_NOT_NULL(after);
+    TEST_ASSERT_EQUAL_UINT8(3, after->hops());
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, after->snr);
+    TEST_ASSERT_EQUAL_INT32(-80, after->rssi);
+    TEST_ASSERT_EQUAL_UINT32(1234, after->lastHeard);
+    TEST_ASSERT_EQUAL_UINT32(before.lastMod, after->lastMod);
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -2904,6 +2942,7 @@ void setup()
     RUN_TEST(test_meshcore_ping_formatting);
     RUN_TEST(test_route_line_formatting);
     RUN_TEST(test_handle_frame_carries_the_frequency_error);
+    RUN_TEST(test_group_text_naming_a_contact_does_not_touch_its_metadata);
 #endif
     exit(UNITY_END());
 }

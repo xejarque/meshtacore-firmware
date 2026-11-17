@@ -760,6 +760,7 @@ void MeshCoreCompanion::noteSentText(uint32_t packetId, uint32_t frameHash, uint
 
 size_t MeshCoreCompanion::heardRouteCount(uint32_t frameHash) const
 {
+    concurrency::RecursiveLockGuard guard(lock);
     size_t n = 0;
     for (const HeardPath &h : heard)
         if (h.packetId && !h.own && h.frameHash == frameHash)
@@ -769,6 +770,7 @@ size_t MeshCoreCompanion::heardRouteCount(uint32_t frameHash) const
 
 const MeshCoreCompanion::HeardPath *MeshCoreCompanion::heardFind(uint32_t packetId) const
 {
+    concurrency::RecursiveLockGuard guard(lock);
     if (!packetId)
         return nullptr;
     for (const HeardPath &h : heard)
@@ -779,6 +781,7 @@ const MeshCoreCompanion::HeardPath *MeshCoreCompanion::heardFind(uint32_t packet
 
 const MeshCoreCompanion::HeardPath *MeshCoreCompanion::heardFindByFrom(uint32_t fromNum) const
 {
+    concurrency::RecursiveLockGuard guard(lock);
     if (!fromNum)
         return nullptr;
     const HeardPath *best = nullptr;
@@ -1084,6 +1087,7 @@ bool MeshCoreCompanion::formatRouteLine(const HeardPath &route, char *out, size_
 bool MeshCoreCompanion::formatRouteForPacket(uint32_t packetId, char *out, size_t cap, float freqErr, uint8_t signal,
                                              const char *header) const
 {
+    concurrency::RecursiveLockGuard guard(lock);
     const HeardPath *entry = heardFind(packetId);
     if (!entry)
         return false;
@@ -1157,6 +1161,7 @@ bool MeshCoreCompanion::formatPingLine(const HeardPath &route, char *out, size_t
 
 bool MeshCoreCompanion::formatPingForPacket(uint32_t packetId, char *out, size_t cap, const char *sender, uint8_t signal) const
 {
+    concurrency::RecursiveLockGuard guard(lock);
     const HeardPath *entry = heardFind(packetId);
     if (!entry)
         return false;
@@ -1227,6 +1232,7 @@ void MeshCoreCompanion::injectReportChunk(void *ctx, const char *text, size_t le
 
 bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool direct)
 {
+    concurrency::RecursiveLockGuard guard(lock);
     if (!p || p->which_payload_variant != meshtastic_MeshPacket_decoded_tag ||
         p->decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP)
         return false;
@@ -1387,6 +1393,7 @@ static bool hexDigitValue(char c, uint8_t *v)
 MeshCoreCompanion::TargetLookup MeshCoreCompanion::resolveTraceTarget(const char *typed, TraceTarget &out, char *candidates,
                                                                       size_t candidatesCap) const
 {
+    concurrency::RecursiveLockGuard guard(lock);
     if (candidates && candidatesCap)
         candidates[0] = 0;
     out = TraceTarget();
@@ -1459,11 +1466,13 @@ MeshCoreCompanion::TargetLookup MeshCoreCompanion::resolveTraceTarget(const char
 
 const MeshCoreNode *MeshCoreCompanion::findContact(const char *nameOrHex) const
 {
+    concurrency::RecursiveLockGuard guard(lock);
     return findNodeForTrace(nodes, nameOrHex);
 }
 
 size_t MeshCoreCompanion::formatNodeList(uint8_t typeFilter, char *out, size_t cap) const
 {
+    concurrency::RecursiveLockGuard guard(lock);
     if (!out || cap == 0)
         return 0;
     out[0] = 0;
@@ -1535,6 +1544,7 @@ size_t MeshCoreCompanion::formatNodeList(uint8_t typeFilter, char *out, size_t c
 
 bool MeshCoreCompanion::formatNodeDetail(const char *nameOrHex, char *out, size_t cap) const
 {
+    concurrency::RecursiveLockGuard guard(lock);
     if (!nameOrHex || !out || cap == 0)
         return false;
     const MeshCoreNode *n = findContact(nameOrHex);
@@ -1571,6 +1581,7 @@ bool MeshCoreCompanion::formatNodeDetail(const char *nameOrHex, char *out, size_
 
 bool MeshCoreCompanion::addDrop(const uint8_t *prefix, uint8_t len)
 {
+    concurrency::RecursiveLockGuard guard(lock);
     if (!prefix || len == 0 || len > 4)
         return false;
     for (size_t i = 0; i < MAX_MC_DROPS; i++) {
@@ -1589,6 +1600,7 @@ bool MeshCoreCompanion::addDrop(const uint8_t *prefix, uint8_t len)
 
 bool MeshCoreCompanion::removeDrop(const uint8_t *prefix, uint8_t len)
 {
+    concurrency::RecursiveLockGuard guard(lock);
     if (!prefix || len == 0 || len > 4)
         return false;
     for (size_t i = 0; i < MAX_MC_DROPS; i++) {
@@ -1602,11 +1614,13 @@ bool MeshCoreCompanion::removeDrop(const uint8_t *prefix, uint8_t len)
 
 void MeshCoreCompanion::clearDrops()
 {
+    concurrency::RecursiveLockGuard guard(lock);
     memset(drops, 0, sizeof(drops));
 }
 
 size_t MeshCoreCompanion::listDrops(char *out, size_t cap) const
 {
+    concurrency::RecursiveLockGuard guard(lock);
     if (!out || cap == 0)
         return 0;
     size_t len = snprintf(out, cap, "MESHTACORE drops: ");
@@ -1643,6 +1657,7 @@ bool MeshCoreCompanion::isDropped(const uint8_t *hash, uint8_t hashLen) const
 bool MeshCoreCompanion::startTrace(const char *args, uint32_t fromNum, uint32_t to, uint8_t channel, uint32_t replyId,
                                    bool direct, const MeshCoreNode *c, char *statusReply, size_t statusCap)
 {
+    concurrency::RecursiveLockGuard guard(lock);
     if (activeTrace.active) {
         if (statusReply && statusCap)
             snprintf(statusReply, statusCap, "MESHTACORE: trace already in progress");
@@ -1839,6 +1854,7 @@ bool MeshCoreCompanion::startTrace(const char *args, uint32_t fromNum, uint32_t 
 
 bool MeshCoreCompanion::handleTraceCommand(const meshtastic_MeshPacket *p, bool direct)
 {
+    concurrency::RecursiveLockGuard guard(lock);
     if (!p || p->which_payload_variant != meshtastic_MeshPacket_decoded_tag ||
         p->decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP)
         return false;
@@ -1989,6 +2005,7 @@ static size_t mentionMatchLen(const char *text, const char *name)
 
 size_t MeshCoreCompanion::prepareGroupText(const char *text, uint32_t replyId, char *out, size_t cap)
 {
+    concurrency::RecursiveLockGuard guard(lock);
     if (!text || !out || cap == 0)
         return 0;
 
@@ -2099,6 +2116,7 @@ bool MeshCoreCompanion::cachedChannelHash(ChannelIndex ch, const uint8_t *key, s
 
 void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, int32_t rssi, float freqErr)
 {
+    concurrency::RecursiveLockGuard guard(lock);
     if (!raw || !router)
         return;
 
@@ -2151,6 +2169,15 @@ void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, i
     }
 }
 
+MeshCoreRx MeshCoreCompanion::storedRoute(const MeshCoreNode &n)
+{
+    if (n.hops() != MeshCoreNode::HOPS_UNKNOWN)
+        return MeshCoreRx(n.hops(), n.snr, n.rssi);
+    if (n.hasOutPath())
+        return MeshCoreRx::unmeasured(n.outPathLen);
+    return MeshCoreRx::unmeasured(MeshCoreRx().pathHashCount);
+}
+
 void MeshCoreCompanion::handleGroupText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr,
                                         int32_t rssi, float freqErr)
 {
@@ -2192,20 +2219,23 @@ void MeshCoreCompanion::handleGroupText(const uint8_t *raw, size_t len, const Me
         char sender[sizeof(((meshtastic_User *)nullptr)->long_name)];
         const char *body = text;
         uint32_t fromNum = PSEUDO_NODE_NUM;
+        // How the injected text says it arrived: this frame's route, unless it is pinned to a contact below.
+        MeshCoreRx textRx(info.path_hash_count, snr, rssi);
         if (splitSender(text, sender, sizeof(sender), &body)) {
             // Someone we can message shows up as that one node in channels too, instead of a second, unmessagable one.
             // The sender is announced before the text, and both wait in the router queue in that order: the client has the
             // name when the text arrives, with or without an advert from them.
             const MeshCoreRx rx(info.path_hash_count, snr, rssi);
-            MeshCoreNode *contact = nodes.findUniqueByName(sender, MeshCoreNode::CHAT);
+            const MeshCoreNode *contact = nodes.findUniqueByName(sender, MeshCoreNode::CHAT);
             if (contact) {
+                // The "name: " prefix is not signed: anyone holding the channel key can write it. The text still lands on
+                // the contact's node (one node per person), but it proves nothing about the contact: the store keeps the
+                // route, signal and recency the signed advert or the MAC-checked direct messages gave it, and the injected
+                // packet carries that stored route instead of this frame's.
                 fromNum = contact->nodeNum;
-                contact->setHops(info.path_hash_count);
-                contact->snr = snr;
-                contact->rssi = rssi;
-                contact->lastHeard = getTime(false);
-                nodes.touch(contact);
-                ensureSenderNode(fromNum, contact->name, true, contact->pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
+                textRx = storedRoute(*contact);
+                ensureSenderNode(fromNum, contact->name, true, contact->pub, meshtastic_Config_DeviceConfig_Role_CLIENT,
+                                 textRx);
             } else {
                 fromNum = senderNodeNum(sender);
                 // Two contacts sharing this name leave it ambiguous: the number may belong to one of them, who stays as is.
@@ -2219,7 +2249,8 @@ void MeshCoreCompanion::handleGroupText(const uint8_t *raw, size_t len, const Me
         // Looked up before this text is noted, so a text can never quote itself.
         const uint32_t replyId = replyTarget(body, nullptr);
         const uint32_t packetId =
-            injectText(fromNum, NODENUM_BROADCAST, i, body, replyId, false, nullptr, info.path_hash_count, snr, rssi, freqErr);
+            injectText(fromNum, NODENUM_BROADCAST, i, body, replyId, false, nullptr, textRx.pathHashCount,
+                       textRx.hasSignal ? textRx.snr : 0.0f, textRx.hasSignal ? textRx.rssi : 0, freqErr);
         if (!packetId)
             return;
 
@@ -2240,6 +2271,7 @@ void MeshCoreCompanion::handleGroupText(const uint8_t *raw, size_t len, const Me
 
 void MeshCoreCompanion::setIdentity(const uint8_t seed[32], const uint8_t pub[32])
 {
+    concurrency::RecursiveLockGuard guard(lock);
     memcpy(identitySeed, seed, sizeof(identitySeed));
     memcpy(identityPub, pub, sizeof(identityPub));
     identityReady = true;
@@ -2249,6 +2281,7 @@ void MeshCoreCompanion::setIdentity(const uint8_t seed[32], const uint8_t pub[32
 
 void MeshCoreCompanion::setRelayAliasPub(const uint8_t pub[32])
 {
+    concurrency::RecursiveLockGuard guard(lock);
     memcpy(aliasPub, pub, sizeof(aliasPub));
     aliasReady = true;
 }
@@ -2277,6 +2310,7 @@ MeshCoreNode *MeshCoreCompanion::contactByNodeNum(uint32_t nodeNum)
 
 bool MeshCoreCompanion::isMeshCoreContact(uint32_t nodeNum, const uint8_t pubKey[32]) const
 {
+    concurrency::RecursiveLockGuard guard(lock);
     const MeshCoreNode *n = nodes.findByNodeNum(nodeNum);
     if (!n || n->type != MeshCoreNode::CHAT)
         return false;
@@ -2287,6 +2321,7 @@ bool MeshCoreCompanion::isMeshCoreContact(uint32_t nodeNum, const uint8_t pubKey
 
 bool MeshCoreCompanion::injectedDirectText(const meshtastic_MeshPacket &p) const
 {
+    concurrency::RecursiveLockGuard guard(lock);
     if (!p.pki_encrypted || p.public_key.size != 32 || p.id == 0)
         return false;
     for (const InjectedDirect &d : injectedDirect)
@@ -2297,6 +2332,7 @@ bool MeshCoreCompanion::injectedDirectText(const meshtastic_MeshPacket &p) const
 
 MeshCoreNode *MeshCoreCompanion::learnContact(const uint8_t pub[32], const char *name)
 {
+    concurrency::RecursiveLockGuard guard(lock);
     MeshCoreNode *n = nodes.upsert(pub);
     if (n->type != MeshCoreNode::CHAT)
         n->nodeNum = 0; // a repeater turned chat takes the number contacts get, from its name
@@ -2310,22 +2346,15 @@ MeshCoreNode *MeshCoreCompanion::learnContact(const uint8_t pub[32], const char 
 
 bool MeshCoreCompanion::nextReplayNode(size_t &cursor, MeshCoreNode &out) const
 {
+    concurrency::RecursiveLockGuard guard(lock);
     for (; cursor < nodes.capacity(); cursor++) {
         const MeshCoreNode *n = nodes.at(cursor);
         if (!n || n->nodeNum == 0 || n->type != MeshCoreNode::CHAT)
             continue; // repeaters live in their own table, which keeps no key to announce them with
         if (nodeDB && nodeDB->getMeshNode(n->nodeNum))
             continue; // the sync already sent it
-        // Two equal copies: a key torn by an advert landing mid-copy would leave the client warning of a changed key.
-        MeshCoreNode check;
-        bool consistent = false;
-        for (int attempt = 0; attempt < 3 && !consistent; attempt++) {
-            out = *n;
-            check = *n;
-            consistent = memcmp(&out, &check, sizeof(out)) == 0 && out.lastMod != 0;
-        }
-        if (!consistent)
-            continue;
+        // Copied under the store lock: an advert landing meanwhile (radio thread) cannot tear the key the client is told.
+        out = *n;
         cursor++;
         return true;
     }
@@ -2335,6 +2364,7 @@ bool MeshCoreCompanion::nextReplayNode(size_t &cursor, MeshCoreNode &out) const
 const MeshCoreRepeaterName *MeshCoreCompanion::learnRepeater(const uint8_t pub[32], const char *name, float snr, uint8_t hops,
                                                              uint32_t advertTime)
 {
+    concurrency::RecursiveLockGuard guard(lock);
     MeshCoreHeard how;
     how.snr = snr;
     how.hops = hops;
@@ -2698,6 +2728,7 @@ MeshCoreCompanion::PendingAck *MeshCoreCompanion::addPending(uint32_t ackHash, u
 
 bool MeshCoreCompanion::trackGroupText(const uint8_t *frame, size_t len, uint32_t packetId, uint8_t channel)
 {
+    concurrency::RecursiveLockGuard guard(lock);
     MeshCoreRepeater::FrameInfo info;
     if (!frame || !MeshCoreRepeater::parse(frame, len, &info))
         return false;
@@ -2723,6 +2754,7 @@ void MeshCoreCompanion::settleEcho(uint32_t hash)
 
 bool MeshCoreCompanion::sendDirectText(uint32_t nodeNum, uint32_t packetId, const char *text, uint32_t now, RadioInterface *iface)
 {
+    concurrency::RecursiveLockGuard guard(lock);
     MeshCoreNode *c = contactByNodeNum(nodeNum);
     const uint8_t *secret = c && iface && now != 0 && text ? secretFor(*c) : nullptr;
     if (!secret)
@@ -2806,6 +2838,7 @@ void MeshCoreCompanion::handleAck(const uint8_t *raw, size_t len, const MeshCore
 
 void MeshCoreCompanion::service()
 {
+    concurrency::RecursiveLockGuard guard(lock);
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
     checkTraceTimeout();
 #endif
@@ -2852,12 +2885,14 @@ void MeshCoreCompanion::syncFavorite(MeshCoreNode &n, const meshtastic_NodeInfoL
 
 size_t MeshCoreCompanion::exportContacts(uint8_t *buf, size_t cap)
 {
+    concurrency::RecursiveLockGuard guard(lock);
     syncWithNodeDB();
     return MeshCoreNodeFile::save(nodes, buf, cap);
 }
 
 size_t MeshCoreCompanion::importContacts(const uint8_t *buf, size_t len)
 {
+    concurrency::RecursiveLockGuard guard(lock);
     const size_t loaded = MeshCoreNodeFile::load(nodes, buf, len);
     if (identityReady) {
         nodes.remove(identityPub);
@@ -2869,10 +2904,7 @@ size_t MeshCoreCompanion::importContacts(const uint8_t *buf, size_t len)
             return;
         if (n.nodeNum == 0) // migrated from the contacts file, which kept no numbers
             nodes.assignNodeNum(&n, MeshCoreNodeStore<1>::nodeNumForName(n.name), PSEUDO_NODE_NUM);
-        const MeshCoreRx rx = (n.hops() != MeshCoreNode::HOPS_UNKNOWN) ? MeshCoreRx(n.hops(), n.snr, n.rssi)
-                              : n.hasOutPath()                         ? MeshCoreRx::unmeasured(n.outPathLen)
-                                                                       : MeshCoreRx();
-        ensureSenderNode(n.nodeNum, n.name, true, n.pub, meshtastic_Config_DeviceConfig_Role_CLIENT, rx);
+        ensureSenderNode(n.nodeNum, n.name, true, n.pub, meshtastic_Config_DeviceConfig_Role_CLIENT, storedRoute(n));
         retireGroupNode(n.name);
         retireKeyedNode(n.pub, n.nodeNum);
     });
@@ -2881,12 +2913,14 @@ size_t MeshCoreCompanion::importContacts(const uint8_t *buf, size_t len)
 
 uint32_t MeshCoreCompanion::contactsFingerprint()
 {
+    concurrency::RecursiveLockGuard guard(lock);
     syncWithNodeDB();
     return MeshCoreNodeFile::fingerprint(nodes);
 }
 
 void MeshCoreCompanion::noteTransmitted(const uint8_t *raw, size_t len)
 {
+    concurrency::RecursiveLockGuard guard(lock);
     MeshCoreRepeater::FrameInfo info;
     if (raw && MeshCoreRepeater::parse(raw, len, &info))
         rememberFrame(MeshCoreRepeater::hashFrame(raw, len, info));
