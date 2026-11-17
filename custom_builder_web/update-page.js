@@ -6,6 +6,7 @@ import {
   otaLoaderName,
 } from "./flasher-core.js";
 import { resolveBundle } from "./flasher-bundle.js";
+import { friendlyError } from "./friendly-errors.js";
 import {
   closeEsp,
   connectEsp,
@@ -262,7 +263,7 @@ async function updateBoard(image, buttons) {
     });
   } catch (error) {
     ui.bar.classList.add("is-error");
-    say(errorText(error), "error");
+    say(friendlyError(error), "error");
     log(`Error: ${errorText(error)}`);
   } finally {
     await closeEsp(session);
@@ -312,10 +313,20 @@ function refreshButtons() {
 function describeBoard() {
   const board = selectedBoard();
   if (!board) return;
-  ui.releaseInfo.textContent =
-    board.kind === "esp32"
-      ? `${board.name} · ${formatBytes(board.size)}${board.buildId ? ` · build ${board.buildId}` : ""}`
-      : "Las placas nRF52 no se actualizan desde esta página: usa el Flasher con el .zip de la release, o copia el .uf2.";
+  if (board.kind === "esp32") {
+    ui.releaseInfo.textContent = `${board.name} · ${formatBytes(board.size)}${board.buildId ? ` · build ${board.buildId}` : ""}`;
+  } else {
+    // nRF52: no se instala desde aquí, pero se deja el archivo a un clic y se explica el siguiente paso.
+    const link = document.createElement("a");
+    link.href = `firmware/${encodeURIComponent(board.name)}`;
+    link.textContent = "Descargar el archivo para tu placa";
+    link.className = "btn btn-secondary";
+    link.setAttribute("download", "");
+    ui.releaseInfo.replaceChildren(
+      "Esta placa (nRF52) se instala de otra forma: 1) descarga el archivo, 2) abre «Instalar un archivo» y elígelo. ",
+      link,
+    );
+  }
   refreshButtons();
 }
 
@@ -331,7 +342,7 @@ async function loadRelease() {
       ...releaseBoards.map((board) => {
         const option = document.createElement("option");
         option.value = board.name;
-        option.textContent = `${board.board}${board.kind === "nrf52" ? " (nRF52: usa el Flasher)" : ""}`;
+        option.textContent = `${board.board}${board.kind === "nrf52" ? " (nRF52: descarga el archivo)" : ""}`;
         return option;
       }),
     );
@@ -339,7 +350,7 @@ async function loadRelease() {
   } catch {
     ui.boardSelect.replaceChildren();
     ui.releaseInfo.textContent =
-      "No hay firmware publicado en esta página todavía. Usa la pestaña «Mi build».";
+      "No hay firmware publicado en esta página todavía. Usa la pestaña «Mi versión personalizada».";
     ui.boardSelect.disabled = true;
   }
 }
@@ -379,7 +390,7 @@ async function updateFromRelease() {
     );
   } catch (error) {
     ui.bar.classList.add("is-error");
-    say(errorText(error), "error");
+    say(friendlyError(error), "error");
   } finally {
     refreshButtons();
   }
@@ -443,7 +454,7 @@ ui.ownFile.addEventListener("change", (event) => {
 
 if (!webSerialSupported()) {
   say(
-    "Este navegador no puede acceder al USB. Abre esta página en Chrome o Edge de escritorio.",
+    "Este navegador no puede acceder al USB. Abre esta página en Google Chrome o Microsoft Edge en un ordenador.",
     "error",
   );
   ui.releaseButton.disabled = true;

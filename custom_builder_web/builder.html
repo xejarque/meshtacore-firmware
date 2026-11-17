@@ -2,11 +2,12 @@
 <html lang="es" data-theme="light">
   <head>
     <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com; connect-src 'self' https://api.github.com https://github.com https://*.githubusercontent.com https://*.blob.core.windows.net https://ipwho.is; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://github.com" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Meshtacore - Firmware Builder</title>
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
-    <link rel="stylesheet" href="styles.css" />
-    <link rel="stylesheet" href="flasher.css" />
+    <link rel="stylesheet" href="styles.css?v=7" />
+    <link rel="stylesheet" href="flasher.css?v=7" />
     <script src="theme.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -40,18 +41,18 @@
         <nav>
           <ul class="nav-links">
             <li><a href="index.html">Inicio</a></li>
-            <li><a href="docs/index.html">Documentación</a></li>
-            <li><a href="admin.html">Admin Bluetooth</a></li>
-            <li><a href="flasher.html">⚡ Flasher</a></li>
+            <li><a href="flasher.html">⚡ Instalar un archivo</a></li>
             <li><a href="update.html">🔄 Instalar / Actualizar</a></li>
-            <li><a href="builder.html" class="active nav-cta-btn">🚀 Web Builder</a></li>
-            <li>
-              <a
-                href="https://github.com/xejarque/meshtacore-firmware"
-                target="_blank"
-                rel="noopener"
-                >GitHub</a
-              >
+            <li><a href="builder.html" class="active nav-cta-btn">🚀 Crear mi firmware</a></li>
+            <li class="nav-more">
+              <details>
+                <summary>Más</summary>
+                <ul class="nav-more-list">
+                  <li><a href="docs/index.html">Ayuda y manuales</a></li>
+                  <li><a href="admin.html">Administrar por Bluetooth</a></li>
+                  <li><a href="https://github.com/xejarque/meshtacore-firmware" target="_blank" rel="noopener" >GitHub</a ></li>
+                </ul>
+              </details>
             </li>
             <li>
               <button
@@ -1429,21 +1430,33 @@
 
               <div class="actions-grid mt-3">
                 <div class="action-box">
-                  <h3>🚀 Compilar con tu cuenta de GitHub</h3>
+                  <h3>🚀 Pedir mi firmware</h3>
                   <div class="badge-mini mb-2" style="display: inline-block">
-                    Recomendado • Sin necesidad de tokens
+                    Recomendado
                   </div>
                   <p>
-                    Cualquier usuario de GitHub puede solicitar su compilación a
-                    medida. Al pulsar el botón, se generará una solicitud
-                    oficial en GitHub con tu configuración.
+                    Te preparamos un firmware con todos los ajustes que has
+                    elegido. Es gratis.
                   </p>
+                  <ol class="steps-simple">
+                    <li>
+                      Necesitas una <strong>cuenta gratuita de GitHub</strong>.
+                      Si no la tienes, puedes crearla cuando se abra la página.
+                    </li>
+                    <li>
+                      Pulsa el botón. Se abrirá una pestaña de GitHub: pulsa el
+                      botón verde <strong>«Submit new issue»</strong> (o
+                      «Create»).
+                    </li>
+                    <li>
+                      Espera. Tarda entre <strong>5 y 20 minutos</strong>. Puedes
+                      cerrar la página: GitHub te avisará por correo cuando esté
+                      listo.
+                    </li>
+                  </ol>
                   <p class="helper-text mt-2">
-                    Un bot de GitHub Actions compilará tu placa en ~2 minutos,
-                    aplicará un límite de protección (<strong
-                      >6 compilaciones al día por usuario</strong
-                    >) y te responderá en el hilo con el enlace de descarga
-                    directa del archivo ZIP listo para flashear.
+                    Hay un límite de 6 firmwares al día por persona para repartir
+                    los recursos entre todos.
                   </p>
                   <button
                     type="button"
@@ -1456,17 +1469,19 @@
                       font-weight: 700;
                     "
                   >
-                    🚀 Enviar Solicitud de Compilación (1 Clic)
+                    🚀 Pedir mi firmware
                   </button>
                   <div id="issueStatus" class="status-msg hidden mt-2"></div>
                 </div>
 
-                <div class="action-box">
+                <details class="action-box">
+                  <summary><strong>Opciones avanzadas</strong> (para quien sabe lo que hace)</summary>
                   <h3>Opciones alternativas</h3>
                   <p>
                     También puedes descargar el archivo de configuración para
-                    compilar tú mismo en local con PlatformIO, o disparar
-                    directamente vía API si dispones de un token personal.
+                    compilar tú mismo en local con PlatformIO, o lanzar la
+                    compilación directamente si eres colaborador y tienes un
+                    token personal.
                   </p>
                   <div class="btn-group-vertical mt-3">
                     <button
@@ -1513,7 +1528,7 @@
                       class="status-msg hidden mt-2"
                     ></div>
                   </details>
-                </div>
+                </details>
               </div>
             </div>
           </section>
@@ -1527,24 +1542,28 @@
               <p>
                 Instala el firmware en tu placa directamente desde el navegador,
                 sin programas ni cables especiales. Necesita
-                <strong>Chrome o Edge de escritorio</strong>. Todo ocurre en tu
+                <strong>Google Chrome o Microsoft Edge en un ordenador</strong>. Todo ocurre en tu
                 equipo: el firmware no se sube a ningún sitio.
               </p>
               <ul class="flasher-intro">
                 <li>
-                  <strong>Con token</strong> (disparo directo): el flasher sigue
-                  tu compilación y te avisa cuando está lista.
+                  <strong>Ya tienes el archivo</strong>: elige aquí el que
+                  descargaste (<code>.zip.enc</code>, <code>.zip</code> o
+                  <code>.factory.bin</code>).
                 </li>
                 <li>
-                  <strong>Ya tienes el archivo</strong>: elige aquí el
-                  <code>.zip.enc</code>, el <code>.zip</code> o un
-                  <code>.factory.bin</code>.
+                  <strong>Colaboradores</strong> (con token): el flasher sigue
+                  tu compilación y te avisa cuando está lista.
                 </li>
               </ul>
               <div class="flasher-pick">
-                <label class="btn btn-primary" for="flasherFile"
-                  >📂 Elegir archivo de firmware</label
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  id="btnPickFlasherFile"
                 >
+                  📂 Elegir archivo de firmware
+                </button>
                 <input
                   type="file"
                   id="flasherFile"

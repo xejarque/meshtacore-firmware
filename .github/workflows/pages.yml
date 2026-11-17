@@ -37,6 +37,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bin/pages-firmware.sh custom_builder_web/firmware
 
+      - name: Leave the test suite out of the published site
+        run: rm -rf custom_builder_web/tests
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

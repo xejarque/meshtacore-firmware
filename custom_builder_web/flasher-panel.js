@@ -9,6 +9,7 @@ import {
 } from "./flasher-core.js";
 import { flashNrf, touchBootloader } from "./flasher-nrf.js";
 import { resolveBundle } from "./flasher-bundle.js";
+import { friendlyError } from "./friendly-errors.js";
 import {
   fetchRunArtifact,
   githubClient,
@@ -166,7 +167,7 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
   function fail(error) {
     if (error?.name === "AbortError") return;
     section.classList.add("is-error");
-    say(errorText(error), "error");
+    say(friendlyError(error), "error");
     log(`Error: ${errorText(error)}`);
   }
 
@@ -231,7 +232,7 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
         "label",
         {},
         erase,
-        " Borrar toda la flash antes (pierde la configuración guardada)",
+        " Borrar antes todo lo guardado en la placa (canales, nombre, claves). Déjalo sin marcar si quieres conservarlo.",
       ),
     );
     say(
@@ -252,7 +253,7 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
         "label",
         { class: "flasher-modal-option" },
         modalErase,
-        " Borrar toda la flash antes (pierde la configuración guardada)",
+        " Borrar antes todo lo guardado en la placa (canales, nombre, claves). Déjalo sin marcar si quieres conservarlo.",
       ),
       actions: [
         { label: "Más tarde" },

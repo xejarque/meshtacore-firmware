@@ -124,7 +124,7 @@ body {
   background: var(--accent-light);
   color: var(--accent);
   border: 1px solid var(--accent);
-  font-size: 0.65rem;
+  font-size: 0.85rem;
   font-weight: 700;
   padding: 0.12rem 0.45rem;
   border-radius: 9999px;
@@ -218,7 +218,7 @@ body {
   background: var(--accent-light);
   color: var(--accent);
   border: 1px solid var(--accent);
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   font-weight: 700;
   padding: 0.2rem 0.6rem;
   border-radius: 9999px;
@@ -346,7 +346,7 @@ label {
 }
 
 .helper-text {
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   color: var(--text-muted);
 }
 
@@ -468,7 +468,7 @@ input:disabled + .slider {
   background: var(--accent-light);
   color: var(--accent);
   border: 1px solid var(--accent);
-  font-size: 0.72rem;
+  font-size: 0.85rem;
   font-weight: 600;
   padding: 0.15rem 0.5rem;
   border-radius: 9999px;
@@ -620,7 +620,7 @@ details.collapsible[open] summary {
   color: var(--text-muted);
   font-weight: 600;
   border-bottom: 1px solid var(--card-border);
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   background-color: var(--card-header-bg);
@@ -653,13 +653,14 @@ details.collapsible[open] summary {
 }
 
 .ch-input:focus {
-  outline: none;
   border-color: var(--input-focus);
+  outline: 2px solid var(--input-focus);
+  outline-offset: 1px;
 }
 
 .ch-input.font-mono {
   font-family: var(--font-mono);
-  font-size: 0.78rem;
+  font-size: 0.85rem;
 }
 
 .ch-checkbox {
@@ -681,7 +682,7 @@ details.collapsible[open] summary {
 
 .badge-psk {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 0.85rem;
   padding: 0.15rem 0.45rem;
   border-radius: 4px;
   display: inline-block;
@@ -834,3 +835,63 @@ details.collapsible[open] summary {
   margin: 0 0 0.25rem;
   font-size: 0.95rem;
 }
+
+/* ---- Legibilidad y accesibilidad (pensado para personas mayores y lectores de pantalla) ---- */
+.helper-text { font-size: 0.9rem; }
+.btn { font-size: 1rem; min-height: 44px; }
+.btn-sm { font-size: 0.88rem; min-height: 38px; padding: 0.4rem 0.8rem; }
+.btn-lg { font-size: 1.15rem; min-height: 52px; padding: 0.8rem 1.4rem; }
+:focus-visible { outline: 3px solid var(--accent-blue); outline-offset: 2px; }
+.banner-warning {
+  margin: 0 0 1rem; padding: 1rem 1.25rem; border-radius: 8px; font-size: 1.05rem; line-height: 1.5;
+  background: #fff1f0; color: #82071e; border: 2px solid #cf222e;
+}
+[data-theme="dark"] .banner-warning { background: #4c1114; color: #ffdcd7; border-color: #ff7b72; }
+.banner-warning[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+.steps-simple { font-size: 1.05rem; line-height: 1.7; padding-left: 1.4rem; margin: 0.75rem 0; }
+.steps-simple li { margin-bottom: 0.4rem; }
+input[type="file"] { font-size: 1rem; padding: 0.5rem 0; }
+input[type="file"]::file-selector-button { font: inherit; font-weight: 600; min-height: 44px; padding: 0.5rem 1rem; margin-right: 0.75rem; cursor: pointer; }
+
+/* ---- Menú superior: pocas opciones visibles y el resto en "Más" (se adapta a pantallas estrechas) ---- */
+.nav-more { position: relative; }
+.nav-more > details > summary {
+  list-style: none; cursor: pointer; color: var(--text-muted); font-size: 0.88rem; font-weight: 500;
+  padding: 0.2rem 0.4rem;
+}
+.nav-more > details > summary::-webkit-details-marker { display: none; }
+.nav-more > details > summary::after { content: " ▾"; }
+.nav-more > details[open] > summary { color: var(--text-main); }
+.nav-more-list {
+  position: absolute; right: 0; top: calc(100% + 0.4rem); z-index: 50; min-width: 15rem;
+  display: flex; flex-direction: column; gap: 0.15rem; padding: 0.4rem; list-style: none;
+  background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 8px; box-shadow: var(--card-shadow);
+}
+.nav-more-list a { display: block; padding: 0.5rem 0.65rem; border-radius: 6px; }
+.nav-more-list a:hover { background: var(--card-header-bg); }
+@media (max-width: 720px) {
+  .nav-links { justify-content: flex-start; }
+  .nav-more-list { right: auto; left: 0; }
+}
+
+/* ---- Pulido: espaciado y tamaños coherentes en las páginas de instalación ---- */
+.steps-simple { font-size: 1rem; }
+.card-body details:not(.collapsible):not(.json-preview) { margin-top: 0.9rem; }
+.card-body details > summary { cursor: pointer; font-weight: 600; padding: 0.35rem 0; }
+.card-body details[open] > summary { margin-bottom: 0.4rem; }
+.card-body h3 { margin-top: 1.4rem; margin-bottom: 0.35rem; }
+input[type="file"] { width: 100%; max-width: 100%; }
+
+/* El marcado usa .toggle-info pero el CSS solo definía .toggle-label: la descripción salía sin estilo (tan grande como el título). */
+.toggle-info strong { display: block; font-size: 0.95rem; color: var(--text-main); }
+.toggle-info p { font-size: 0.85rem; color: var(--text-muted); margin: 0.15rem 0 0; line-height: 1.45; }
+.toggle-row + .toggle-row { margin-top: 1rem; }
+.card-body > .form-group { margin-top: 1rem; }
+.card-body > .form-group:first-child { margin-top: 0; }
+.flex-between > .btn-sm { min-height: 0; }
+
+/* .btn-outline no tenía estilos: los enlaces salían con el azul por defecto del navegador */
+.btn-outline { background: transparent; color: var(--accent-blue); border: 1px solid var(--card-border); }
+.btn-outline:hover { border-color: var(--accent-blue); background: var(--card-header-bg); }
+a.btn { text-decoration: none; }

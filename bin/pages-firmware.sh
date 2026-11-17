@@ -14,10 +14,14 @@ OUT="${1:-custom_builder_web/firmware}"
 
 # The newest release that actually carries firmware: a fresh rc/beta may not have its assets attached yet.
 TAG=""
-for candidate in $(gh release list --exclude-drafts --limit 10 --json tagName --jq '.[].tagName'); do
+# "custom-builds" only holds the encrypted per-user bundles, never public firmware.
+for candidate in $(gh release list --exclude-drafts --limit 10 --json tagName --jq '.[].tagName | select(. != "custom-builds")'); do
 	rm -rf "$OUT"
 	mkdir -p "$OUT"
 	if gh release download "$candidate" --dir "$OUT" --pattern 'firmware-*.bin' --pattern 'firmware-*.zip' --pattern 'mt-*-ota.bin' 2>/dev/null; then
+		# A release can also carry per-architecture bundles (firmware-esp32-<ver>.zip, hundreds of MB): they are not a
+		# single board's DFU package and would blow the 1 GB Pages limit. A real nRF52 DFU zip is a few hundred KB.
+		find "$OUT" -name 'firmware-*.zip' -size +20M -print -delete | sed 's/^/Skipping oversized bundle: /' >&2
 		if compgen -G "$OUT/firmware-*" >/dev/null; then
 			TAG="$candidate"
 			break

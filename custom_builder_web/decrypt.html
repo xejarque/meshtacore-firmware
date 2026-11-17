@@ -2,13 +2,14 @@
 <html lang="es" data-theme="light">
   <head>
     <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com; connect-src 'self' https://api.github.com https://github.com https://*.githubusercontent.com https://*.blob.core.windows.net https://ipwho.is; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://github.com" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Meshtacore - Descifrar firmware</title>
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=7" />
     <script src="theme.js"></script>
     <style>
-      /* styles.css has no status classes: define what this page needs. */
+      /* styles.css?v=7 has no status classes: define what this page needs. */
       .dl-panel {
         text-align: center;
         padding: 2rem 1rem;
@@ -82,18 +83,18 @@
         <nav>
           <ul class="nav-links">
             <li><a href="index.html">Inicio</a></li>
-            <li><a href="docs/index.html">Documentación</a></li>
-            <li><a href="admin.html">Admin Bluetooth</a></li>
-            <li><a href="flasher.html">⚡ Flasher</a></li>
+            <li><a href="flasher.html">⚡ Instalar un archivo</a></li>
             <li><a href="update.html">🔄 Instalar / Actualizar</a></li>
-            <li><a href="builder.html" class="nav-cta-btn">🚀 Web Builder</a></li>
-            <li>
-              <a
-                href="https://github.com/xejarque/meshtacore-firmware"
-                target="_blank"
-                rel="noopener"
-                >GitHub</a
-              >
+            <li><a href="builder.html" class="nav-cta-btn">🚀 Crear mi firmware</a></li>
+            <li class="nav-more">
+              <details>
+                <summary>Más</summary>
+                <ul class="nav-more-list">
+                  <li><a href="docs/index.html">Ayuda y manuales</a></li>
+                  <li><a href="admin.html">Administrar por Bluetooth</a></li>
+                  <li><a href="https://github.com/xejarque/meshtacore-firmware" target="_blank" rel="noopener" >GitHub</a ></li>
+                </ul>
+              </details>
             </li>
             <li>
               <button
@@ -126,7 +127,7 @@
             archivo no sale de tu equipo.
           </p>
 
-          <label for="encFile"
+          <label for="encFile" class="mt-3" style="display: block"
             ><strong>Archivo descargado (<code>.zip.enc</code>)</strong></label
           >
           <input type="file" id="encFile" accept=".enc" class="mt-2" />
@@ -152,13 +153,17 @@
           <button
             id="btnExportKey"
             type="button"
-            class="btn btn-secondary btn-sm"
+            class="btn btn-secondary btn-sm mt-2"
           >
             Exportar clave
           </button>
-          <label class="btn btn-outline btn-sm" for="importKeyFile"
-            >Importar clave</label
+          <button
+            id="btnImportKey"
+            type="button"
+            class="btn btn-outline btn-sm mt-2"
           >
+            Importar clave
+          </button>
           <input type="file" id="importKeyFile" accept=".json" class="hidden" />
           <div id="keyStatus" class="inline-status hidden"></div>
         </div>
@@ -335,9 +340,23 @@
         );
       });
 
+      // Un botón real (no una etiqueta) para que se pueda usar con teclado y lector de pantalla.
+      byId("btnImportKey").addEventListener("click", () =>
+        byId("importKeyFile").click(),
+      );
       byId("importKeyFile").addEventListener("change", async (e) => {
         const status = byId("keyStatus");
         try {
+          // Si ya hay una clave en este navegador, sustituirla impide abrir las descargas pendientes con ella.
+          if (
+            localStorage.getItem("meshtacore.userKeyPair.v1") &&
+            !confirm(
+              "Ya hay una clave guardada en este navegador. Si la sustituyes, no podrás abrir con ella las descargas que aún no hayas abierto. ¿Has exportado una copia antes y quieres continuar?",
+            )
+          ) {
+            e.target.value = "";
+            return;
+          }
           await BuildCrypto.importUserKeys(await e.target.files[0].text());
           inlineStatus(status, "success", "✅ Clave importada.");
         } catch (err) {

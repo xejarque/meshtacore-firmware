@@ -245,9 +245,15 @@ jobs:
 
       - name: Resolve target board
         id: target-step
+        env:
+          SELECTED: ${{ inputs.target }}
+          CUSTOM: ${{ inputs.custom_target }}
         run: |
-          SELECTED="${{ inputs.target }}"
-          CUSTOM="${{ inputs.custom_target }}"
+          # The board name ends up in later shell steps: accept only plain PlatformIO env names.
+          if [ "$SELECTED" = "custom" ] && ! printf '%s' "$CUSTOM" | grep -Eq '^[A-Za-z0-9_.-]+$'; then
+            echo "::error::custom_target solo admite letras, números, punto, guion y guion bajo."
+            exit 1
+          fi
           if [ "$SELECTED" = "custom" ]; then
             if [ -z "$CUSTOM" ]; then
               echo "::error::Has seleccionado 'custom' pero no has especificado custom_target."
@@ -335,6 +341,22 @@ jobs:
           LEGACY_CUSTOM_USERPREFS_JSON: ${{ inputs.custom_userprefs_json }}
           WIFI_PASSWORD: ${{ inputs.wifi_password }}
           NEXUS_MASTER_KEY: ${{ inputs.nexus_master_key }}
+          IN_OWNER_LONG_NAME: ${{ inputs.owner_long_name }}
+          IN_OWNER_SHORT_NAME: ${{ inputs.owner_short_name }}
+          IN_HAS_SCREEN: ${{ inputs.has_screen }}
+          IN_ENABLE_BLUETOOTH: ${{ inputs.enable_bluetooth }}
+          IN_ENABLE_MESHCORE: ${{ inputs.enable_meshcore }}
+          IN_NEXUS_BASE_TEXTS: ${{ inputs.nexus_base_texts }}
+          IN_DEVICE_ROLE: ${{ inputs.device_role }}
+          IN_LORA_REGION: ${{ inputs.lora_region }}
+          IN_LORA_PRESET_MODE: ${{ inputs.lora_preset_mode }}
+          IN_CHANNELS_PRESET: ${{ inputs.channels_preset }}
+          IN_MQTT_ADDRESS: ${{ inputs.mqtt_address }}
+          IN_WIFI_SSID: ${{ inputs.wifi_ssid }}
+          IN_GPS_MODE: ${{ inputs.gps_mode }}
+          IN_FIXED_LATITUDE: ${{ inputs.fixed_latitude }}
+          IN_FIXED_LONGITUDE: ${{ inputs.fixed_longitude }}
+          IN_FIXED_ALTITUDE: ${{ inputs.fixed_altitude }}
         run: |
           if [ -f requested_userprefs.json ]; then
             CUSTOM_JSON="$(cat requested_userprefs.json)"
@@ -344,24 +366,24 @@ jobs:
           python3 .github/scripts/generate_custom_userprefs.py \
             --file userPrefs.jsonc \
             --output userPrefs.jsonc \
-            --owner-long-name "${{ inputs.owner_long_name }}" \
-            --owner-short-name "${{ inputs.owner_short_name }}" \
-            --has-screen "${{ inputs.has_screen }}" \
-            --enable-bluetooth "${{ inputs.enable_bluetooth }}" \
-            --enable-meshcore "${{ inputs.enable_meshcore }}" \
-            --nexus-base-texts "${{ inputs.nexus_base_texts }}" \
+            --owner-long-name "$IN_OWNER_LONG_NAME" \
+            --owner-short-name "$IN_OWNER_SHORT_NAME" \
+            --has-screen "$IN_HAS_SCREEN" \
+            --enable-bluetooth "$IN_ENABLE_BLUETOOTH" \
+            --enable-meshcore "$IN_ENABLE_MESHCORE" \
+            --nexus-base-texts "$IN_NEXUS_BASE_TEXTS" \
             --nexus-master-key "$NEXUS_MASTER_KEY" \
-            --device-role "${{ inputs.device_role }}" \
-            --lora-region "${{ inputs.lora_region }}" \
-            --lora-preset-mode "${{ inputs.lora_preset_mode }}" \
-            --channels-preset "${{ inputs.channels_preset }}" \
-            --mqtt-address "${{ inputs.mqtt_address }}" \
-            --wifi-ssid "${{ inputs.wifi_ssid }}" \
+            --device-role "$IN_DEVICE_ROLE" \
+            --lora-region "$IN_LORA_REGION" \
+            --lora-preset-mode "$IN_LORA_PRESET_MODE" \
+            --channels-preset "$IN_CHANNELS_PRESET" \
+            --mqtt-address "$IN_MQTT_ADDRESS" \
+            --wifi-ssid "$IN_WIFI_SSID" \
             --wifi-password "$WIFI_PASSWORD" \
-            --gps-mode "${{ inputs.gps_mode }}" \
-            --fixed-latitude "${{ inputs.fixed_latitude }}" \
-            --fixed-longitude "${{ inputs.fixed_longitude }}" \
-            --fixed-altitude "${{ inputs.fixed_altitude }}" \
+            --gps-mode "$IN_GPS_MODE" \
+            --fixed-latitude "$IN_FIXED_LATITUDE" \
+            --fixed-longitude "$IN_FIXED_LONGITUDE" \
+            --fixed-altitude "$IN_FIXED_ALTITUDE" \
             --custom-userprefs-json "$CUSTOM_JSON"
 
       - name: Setup ccache
@@ -497,6 +519,16 @@ jobs:
           retention-days: 30
 
       - name: Generate Job Summary
+        env:
+          IN_OWNER_LONG_NAME: ${{ inputs.owner_long_name }}
+          IN_OWNER_SHORT_NAME: ${{ inputs.owner_short_name }}
+          IN_HAS_SCREEN: ${{ inputs.has_screen }}
+          IN_ENABLE_BLUETOOTH: ${{ inputs.enable_bluetooth }}
+          IN_DEVICE_ROLE: ${{ inputs.device_role }}
+          IN_LORA_REGION: ${{ inputs.lora_region }}
+          IN_LORA_PRESET_MODE: ${{ inputs.lora_preset_mode }}
+          IN_CHANNELS_PRESET: ${{ inputs.channels_preset }}
+          IN_GPS_MODE: ${{ inputs.gps_mode }}
         run: |
           TARGET="${{ steps.target-step.outputs.target }}"
           ARCH="${{ steps.arch-step.outputs.arch }}"
@@ -506,14 +538,14 @@ jobs:
           | Parámetro | Valor |
           | :--- | :--- |
           | **Placa** | \`$TARGET\` (\`$ARCH\`) |
-          | **Nombre Nodo** | \`${{ inputs.owner_long_name }}\` (\`${{ inputs.owner_short_name }}\`) |
-          | **Pantalla activa** | \`${{ inputs.has_screen }}\` |
-          | **Bluetooth** | \`${{ inputs.enable_bluetooth }}\` |
-          | **Rol** | \`${{ inputs.device_role }}\` |
-          | **Región LoRa** | \`${{ inputs.lora_region }}\` |
-          | **Preset Módem** | \`${{ inputs.lora_preset_mode }}\` |
-          | **Canales** | \`${{ inputs.channels_preset }}\` |
-          | **GPS** | \`${{ inputs.gps_mode }}\` |
+          | **Nombre Nodo** | \`$IN_OWNER_LONG_NAME\` (\`$IN_OWNER_SHORT_NAME\`) |
+          | **Pantalla activa** | \`$IN_HAS_SCREEN\` |
+          | **Bluetooth** | \`$IN_ENABLE_BLUETOOTH\` |
+          | **Rol** | \`$IN_DEVICE_ROLE\` |
+          | **Región LoRa** | \`$IN_LORA_REGION\` |
+          | **Preset Módem** | \`$IN_LORA_PRESET_MODE\` |
+          | **Canales** | \`$IN_CHANNELS_PRESET\` |
+          | **GPS** | \`$IN_GPS_MODE\` |
           | **Archivo** | \`${{ env.ZIP_NAME }}\` |
 
           Descarga el archivo desde la sección **Artifacts** de esta ejecución.

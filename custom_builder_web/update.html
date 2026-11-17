@@ -2,11 +2,12 @@
 <html lang="es" data-theme="light">
   <head>
     <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com; connect-src 'self' https://api.github.com https://github.com https://*.githubusercontent.com https://*.blob.core.windows.net https://ipwho.is; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://github.com" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Meshtacore - Instalar / Actualizar</title>
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
-    <link rel="stylesheet" href="styles.css" />
-    <link rel="stylesheet" href="flasher.css" />
+    <link rel="stylesheet" href="styles.css?v=7" />
+    <link rel="stylesheet" href="flasher.css?v=7" />
     <script src="theme.js"></script>
   </head>
   <body>
@@ -25,18 +26,18 @@
         <nav>
           <ul class="nav-links">
             <li><a href="index.html">Inicio</a></li>
-            <li><a href="docs/index.html">Documentación</a></li>
-            <li><a href="admin.html">Admin Bluetooth</a></li>
-            <li><a href="flasher.html">⚡ Flasher</a></li>
+            <li><a href="flasher.html">⚡ Instalar un archivo</a></li>
             <li><a href="update.html" class="active">🔄 Instalar / Actualizar</a></li>
-            <li><a href="builder.html" class="nav-cta-btn">🚀 Web Builder</a></li>
-            <li>
-              <a
-                href="https://github.com/xejarque/meshtacore-firmware"
-                target="_blank"
-                rel="noopener"
-                >GitHub</a
-              >
+            <li><a href="builder.html" class="nav-cta-btn">🚀 Crear mi firmware</a></li>
+            <li class="nav-more">
+              <details>
+                <summary>Más</summary>
+                <ul class="nav-more-list">
+                  <li><a href="docs/index.html">Ayuda y manuales</a></li>
+                  <li><a href="admin.html">Administrar por Bluetooth</a></li>
+                  <li><a href="https://github.com/xejarque/meshtacore-firmware" target="_blank" rel="noopener" >GitHub</a ></li>
+                </ul>
+              </details>
             </li>
             <li>
               <button
@@ -57,33 +58,64 @@
         <div class="card-header"><h2>🔄 Instalar o actualizar una placa</h2></div>
         <div class="card-body">
           <p>
-            Instala un firmware nuevo en una placa que ya funciona con
-            Meshtastic
-            <strong>sin perder su configuración</strong> (canales, LoRa,
-            nombre): solo se reescribe la aplicación. Si la placa está en
-            blanco o tiene otro firmware, la instala desde cero (borra la
-            flash, y te lo pregunta antes). En los dos casos deja puesto el
-            OTA Loader, para poder actualizar después por Bluetooth desde la
-            app. Necesita <strong>Chrome o Edge de escritorio</strong> y la
-            placa por USB. Para flashear un firmware del Web Builder usa el
-            <a href="flasher.html">Flasher</a>.
+            Esta página pone el firmware más reciente en tu placa
+            <strong>sin perder tu configuración</strong> (canales, nombre y
+            ajustes de radio).
           </p>
+          <ol class="steps-simple">
+            <li>
+              Abre esta página con
+              <strong>Google Chrome o Microsoft Edge en un ordenador</strong>.
+            </li>
+            <li>
+              Conecta la placa al ordenador con un cable USB
+              <strong>de datos</strong> (algunos cables solo cargan y no
+              sirven).
+            </li>
+            <li>Elige tu placa en la lista y pulsa el botón grande.</li>
+            <li>
+              Cuando el navegador te pida elegir un puerto, selecciona el de tu
+              placa (suele llamarse <em>USB</em>, <em>CP210x</em> o
+              <em>CH340</em>) y pulsa «Conectar».
+            </li>
+            <li>No desconectes el cable hasta que ponga «Terminado».</li>
+          </ol>
+          <details class="mt-2">
+            <summary>Más información</summary>
+            <p class="helper-text">
+              Si la placa está en blanco o tiene otro firmware, se instala desde
+              cero (te avisamos antes de borrar). En los dos casos queda puesto
+              el OTA Loader, para poder actualizar después por Bluetooth desde
+              la app. Para instalar un firmware creado en el
+              <a href="builder.html">Web Builder</a> usa
+              <a href="flasher.html">Instalar un archivo</a>.
+            </p>
+          </details>
 
-          <div class="update-tabs" role="tablist">
+          <div class="update-tabs" role="tablist" aria-label="Qué quieres instalar">
             <button
               type="button"
               role="tab"
               class="update-tab"
               data-tab="release"
+              id="tab-release"
+              aria-controls="panel-release"
             >
-              Release estándar
+              Versión estándar
             </button>
-            <button type="button" role="tab" class="update-tab" data-tab="own">
-              Mi build
+            <button
+              type="button"
+              role="tab"
+              class="update-tab"
+              data-tab="own"
+              id="tab-own"
+              aria-controls="panel-own"
+            >
+              Mi versión personalizada
             </button>
           </div>
 
-          <div data-panel="release">
+          <div data-panel="release" id="panel-release" role="tabpanel" aria-labelledby="tab-release">
             <p class="helper-text">
               Última versión publicada:
               <strong id="releaseVersion">—</strong>
@@ -94,27 +126,28 @@
             ></select>
             <p id="releaseInfo" class="helper-text mt-2"></p>
             <div class="update-warning" role="note">
-              <strong>Ojo con las builds personalizadas.</strong> Esto instala
-              la build estándar de la comunidad. Si tu nodo se compiló con el
-              builder, se pierden los módulos que excluiste y las opciones que
-              compilaste. Tu configuración guardada sí se conserva. Para
-              actualizar una build propia usa la pestaña «Mi build».
+              <strong>Ojo si creaste tu propia versión.</strong> Esto instala la
+              versión estándar de la comunidad. Si tu aparato lleva una versión
+              personalizada, perderás los módulos que quitaste y los ajustes que
+              grabaste al crearla. Tu configuración guardada sí se conserva.
+              Para actualizar una versión propia usa la pestaña «Mi versión
+              personalizada».
               <label class="update-confirm">
                 <input type="checkbox" id="confirmStandard" />
-                Entiendo que se instala la build estándar
+                Entiendo que se instala la versión estándar
               </label>
             </div>
             <button
               id="btnUpdateRelease"
               type="button"
-              class="btn btn-primary btn-sm mt-2"
+              class="btn btn-primary btn-lg mt-2"
               disabled
             >
               🔌 Actualizar por USB
             </button>
           </div>
 
-          <div data-panel="own" class="hidden">
+          <div data-panel="own" id="panel-own" role="tabpanel" aria-labelledby="tab-own" class="hidden">
             <p class="helper-text">
               El <code>.zip.enc</code> o <code>.zip</code> que generó el
               builder, o un <code>firmware-….bin</code> suelto. Se usa su
@@ -126,7 +159,7 @@
             <button
               id="btnUpdateOwn"
               type="button"
-              class="btn btn-primary btn-sm mt-2"
+              class="btn btn-primary btn-lg mt-2"
               disabled
             >
               🔌 Actualizar por USB
@@ -143,13 +176,14 @@
           aria-valuemin="0"
           aria-valuemax="100"
           aria-valuenow="0"
+          aria-label="Progreso de la instalación"
         >
           <div id="updateFill" class="flasher-bar-fill"></div>
         </div>
         <div class="flasher-bar-text">
-          <span id="updateStatus">En espera</span>
+          <span id="updateStatus" aria-live="polite">En espera</span>
         </div>
-        <p id="updateMessage" class="flasher-message hidden"></p>
+        <p id="updateMessage" class="flasher-message hidden" role="status" aria-live="polite"></p>
         <pre id="updateLog" class="flasher-log hidden"></pre>
       </section>
       <dialog id="updateModal" class="flasher-modal"></dialog>
@@ -157,5 +191,6 @@
 
     <script src="crypto.js"></script>
     <script type="module" src="update-page.js"></script>
+      <script src="compat.js"></script>
   </body>
 </html>

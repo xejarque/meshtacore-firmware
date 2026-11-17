@@ -10,6 +10,8 @@ permissions:
 
 jobs:
   build-docker:
+    # Packaging channels belong to upstream; forks have no PPA/OBS/COPR/docker credentials.
+    if: github.repository == 'meshtastic/firmware'
     uses: ./.github/workflows/docker_manifest.yml
     with:
       release_channel: |-
@@ -17,6 +19,8 @@ jobs:
     secrets: inherit
 
   package-ppa:
+    # Packaging channels belong to upstream; forks have no PPA/OBS/COPR/docker credentials.
+    if: github.repository == 'meshtastic/firmware'
     strategy:
       fail-fast: false
       matrix:
@@ -33,6 +37,8 @@ jobs:
     secrets: inherit
 
   package-obs:
+    # Packaging channels belong to upstream; forks have no PPA/OBS/COPR/docker credentials.
+    if: github.repository == 'meshtastic/firmware'
     uses: ./.github/workflows/package_obs.yml
     with:
       obs_project: |-
@@ -42,6 +48,8 @@ jobs:
     secrets: inherit
 
   hook-copr:
+    # Packaging channels belong to upstream; forks have no PPA/OBS/COPR/docker credentials.
+    if: github.repository == 'meshtastic/firmware'
     uses: ./.github/workflows/hook_copr.yml
     with:
       copr_project: |-
@@ -49,7 +57,7 @@ jobs:
     secrets: inherit
 
   publish-release-notes:
-    if: github.event.action == 'published'
+    if: github.repository == 'meshtastic/firmware' && github.event.action == 'published'
     runs-on: ubuntu-26.04
     steps:
       - name: Get release version
@@ -81,7 +89,7 @@ jobs:
 
   # Create a PR to bump version when a release is Published
   bump-version:
-    if: github.event.action == 'published'
+    if: github.repository == 'meshtastic/firmware' && github.event.action == 'published'
     runs-on: ubuntu-26.04
     permissions:
       pull-requests: write

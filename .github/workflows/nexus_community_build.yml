@@ -197,6 +197,11 @@ jobs:
             fi
             TAG="meshtacore-community-${VERSION}"
             echo "Rolling tag already published; drafting \`$TAG\` instead." >> "$GITHUB_STEP_SUMMARY"
+            # The fallback tag may be published too (third run on the same commit): do not overwrite it either.
+            if gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null | grep -q false; then
+              echo "::error::Both '$TAG' and the rolling tag are published; nothing to refresh. Bump the version or pass a new tag."
+              exit 1
+            fi
           fi
           if gh release view "$TAG" > /dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"

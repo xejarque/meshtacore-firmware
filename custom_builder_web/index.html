@@ -2,6 +2,7 @@
 <html lang="es" data-theme="light">
   <head>
     <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com; connect-src 'self' https://api.github.com https://github.com https://*.githubusercontent.com https://*.blob.core.windows.net https://ipwho.is; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://github.com" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Meshtacore - Un Radio, Dos Meshes | Firmware LoRa</title>
     <meta
@@ -9,7 +10,7 @@
       content="Firmware abierto para radioenlaces LoRa en transceptores SX126x. Coexistencia simultánea Meshtastic + MeshCore, inmunidad a Factory Reset y consola Nexus por RF."
     />
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
-    <link rel="stylesheet" href="landing.css?v=3" />
+    <link rel="stylesheet" href="landing.css?v=7" />
     <script src="theme.js"></script>
   </head>
   <body>
@@ -32,18 +33,18 @@
             <li><a href="index.html" class="active">Inicio</a></li>
             <li><a href="#arquitectura">Arquitectura</a></li>
             <li><a href="#comparativa">Comparativa</a></li>
-            <li><a href="docs/index.html">Documentación</a></li>
-            <li><a href="admin.html">Admin Bluetooth</a></li>
-            <li><a href="flasher.html">⚡ Flasher</a></li>
+            <li><a href="flasher.html">⚡ Instalar un archivo</a></li>
             <li><a href="update.html">🔄 Instalar / Actualizar</a></li>
-            <li><a href="builder.html" class="nav-cta-btn">🚀 Web Builder</a></li>
-            <li>
-              <a
-                href="https://github.com/xejarque/meshtacore-firmware"
-                target="_blank"
-                rel="noopener"
-                >GitHub</a
-              >
+            <li><a href="builder.html" class="nav-cta-btn">🚀 Crear mi firmware</a></li>
+            <li class="nav-more">
+              <details>
+                <summary>Más</summary>
+                <ul class="nav-more-list">
+                  <li><a href="docs/index.html">Ayuda y manuales</a></li>
+                  <li><a href="admin.html">Administrar por Bluetooth</a></li>
+                  <li><a href="https://github.com/xejarque/meshtacore-firmware" target="_blank" rel="noopener" >GitHub</a ></li>
+                </ul>
+              </details>
             </li>
             <li>
               <button
@@ -60,6 +61,47 @@
     </header>
 
     <div class="landing-wrapper">
+      <!-- Punto de entrada para quien no es técnico -->
+      <section class="quick-start" aria-labelledby="quick-start-title">
+        <h2 id="quick-start-title">¿Qué quieres hacer?</h2>
+        <p class="quick-start-sub">
+          Elige una opción. Te guiamos paso a paso. Necesitas un ordenador con
+          <strong>Google Chrome</strong> o <strong>Microsoft Edge</strong> y el
+          cable USB de tu aparato.
+        </p>
+        <div class="quick-start-grid">
+          <a class="quick-card" href="update.html">
+            <span class="quick-card-icon" aria-hidden="true">🔄</span>
+            <span class="quick-card-title">Instalar o actualizar mi aparato</span>
+            <span class="quick-card-desc"
+              >Pon la última versión en tu placa en pocos clics. Es la opción
+              más sencilla.</span
+            >
+          </a>
+          <a class="quick-card" href="builder.html">
+            <span class="quick-card-icon" aria-hidden="true">🛠️</span>
+            <span class="quick-card-title">Crear mi versión personalizada</span>
+            <span class="quick-card-desc"
+              >Con tu nombre, tus canales y tus ajustes ya puestos. Tarda entre
+              5 y 20 minutos.</span
+            >
+          </a>
+          <a class="quick-card" href="flasher.html">
+            <span class="quick-card-icon" aria-hidden="true">📁</span>
+            <span class="quick-card-title">Ya tengo un archivo</span>
+            <span class="quick-card-desc"
+              >Si te han pasado un archivo de firmware o lo has descargado,
+              instálalo desde aquí.</span
+            >
+          </a>
+        </div>
+        <p class="quick-start-more">
+          ¿Dudas? Mira la <a href="docs/index.html">ayuda y los manuales</a>.
+          Para gestionar un aparato por Bluetooth o por radio, ve a
+          <a href="admin.html">Administrar por Bluetooth</a> (avanzado).
+        </p>
+      </section>
+
       <!-- Artisan Hero Header -->
       <section class="artisan-hero">
         <div class="hero-identity">
@@ -73,8 +115,8 @@
           <div>
             <div class="hero-meta-bar">
               <span class="tag-arch">SX126x HYBRID LORA</span>
-              <span class="tag-ver"
-                >v2.8.104 · Base Meshtastic 2.8.1 / Nexus</span
+              <span class="tag-ver" id="heroVersion"
+                >Base Meshtastic 2.8 / Nexus</span
               >
             </div>
             <h1>Un Solo Transceptor. Dos Redes Mesh.</h1>
@@ -563,5 +605,17 @@
         </p>
       </footer>
     </div>
+      <script>
+      // Muestra la versión realmente publicada (la que sirve la página de instalación) en lugar de un texto fijo.
+      fetch("firmware/index.json")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d && d.tag) {
+            document.getElementById("heroVersion").textContent =
+              d.tag + " · Base Meshtastic 2.8 / Nexus";
+          }
+        })
+        .catch(() => {});
+    </script>
   </body>
 </html>

@@ -3,7 +3,12 @@
   const STORAGE_KEY = "meshtacore_theme";
 
   // Check saved theme; default to 'light'
-  const saved = localStorage.getItem(STORAGE_KEY);
+  let saved = null;
+  try {
+    saved = localStorage.getItem(STORAGE_KEY);
+  } catch (e) {
+    // Storage blocked (private mode, strict settings): the default theme is fine.
+  }
   const initialTheme = saved === "dark" ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", initialTheme);
 
@@ -52,4 +57,19 @@
       btn.addEventListener("click", window.toggleTheme);
     });
   }
+})();
+
+// El menú "Más" se cierra al pulsar fuera de él o con la tecla Escape.
+(function () {
+  function closeMenus(except) {
+    document.querySelectorAll(".nav-more details[open]").forEach((d) => {
+      if (d !== except) d.removeAttribute("open");
+    });
+  }
+  document.addEventListener("click", (event) => {
+    closeMenus(event.target.closest(".nav-more details"));
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeMenus(null);
+  });
 })();

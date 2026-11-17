@@ -432,12 +432,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Load saved token if present
-  const savedToken = localStorage.getItem("meshtacore_gh_token");
+  try {
+    localStorage.removeItem("meshtacore_gh_token");
+  } catch {
+    // storage bloqueado: nada que migrar
+  }
+  const savedToken = sessionStorage.getItem("meshtacore_gh_token");
   if (savedToken) {
     githubToken.value = savedToken;
   }
   githubToken.addEventListener("input", () => {
-    localStorage.setItem("meshtacore_gh_token", githubToken.value.trim());
+    sessionStorage.setItem("meshtacore_gh_token", githubToken.value.trim());
   });
 
   // Roll initial random name on load
@@ -826,7 +831,7 @@ document.addEventListener("DOMContentLoaded", () => {
           map.setView([lat, lon], 13);
         }
         const cityStr = [data.city, data.region].filter(Boolean).join(", ");
-        mapStatus.innerHTML = `📍 Ubicación detectada por red (${cityStr || "Aproximada"}): <strong>${lat.toFixed(6)}, ${lon.toFixed(6)}</strong>.<br><small style="color: #79c0ff;">El navegador o el sistema denegó el GPS exacto. Puedes afinar la posición haciendo clic o arrastrando el marcador en el mapa.</small>`;
+        mapStatus.innerHTML = `📍 Ubicación detectada por red (${escapeAttr(cityStr || "Aproximada")}): <strong>${lat.toFixed(6)}, ${lon.toFixed(6)}</strong>.<br><small style="color: var(--accent-blue);">El navegador o el sistema denegó el GPS exacto. Puedes afinar la posición haciendo clic o arrastrando el marcador en el mapa.</small>`;
         syncTimezoneWithCoords(lat, lon);
         if (
           data.timezone &&
@@ -843,7 +848,7 @@ document.addEventListener("DOMContentLoaded", () => {
         throw new Error(data.message || "Sin respuesta");
       }
     } catch (err) {
-      mapStatus.innerHTML = `⚠️ No se pudo obtener la ubicación automática (${err.message}). Puedes hacer clic directamente en cualquier punto del mapa para fijar tu posición.`;
+      mapStatus.innerHTML = `⚠️ No se pudo obtener la ubicación automática (${escapeAttr(err.message)}). Puedes hacer clic directamente en cualquier punto del mapa para fijar tu posición.`;
     }
   }
 
@@ -1155,7 +1160,7 @@ ${encryptedConfig}
         if (issueStatus) {
           issueStatus.className = "status-msg status-error";
           issueStatus.classList.remove("hidden");
-          issueStatus.textContent = `La solicitud es demasiado larga para GitHub (${url.length} caracteres, máximo ${MAX_ISSUE_URL_LENGTH}). Desactiva canales o campos opcionales, o usa el botón de compilación con token.`;
+          issueStatus.textContent = `Tu configuración es demasiado grande para enviarla así. Quita algún canal o algún ajuste opcional e inténtalo de nuevo.`;
         }
         return;
       }
@@ -1164,10 +1169,11 @@ ${encryptedConfig}
         issueStatus.className = "status-msg status-success";
         issueStatus.classList.remove("hidden");
         issueStatus.innerHTML = `
-          <strong>🚀 Redirigiendo a GitHub...</strong><br>
-          Se abrirá una nueva pestaña con tu solicitud preconfigurada. Haz clic en <em>"Submit new issue"</em> para iniciar la compilación automática.<br>
-          <a href="${url}" target="_blank" style="color: #58a6ff; font-weight: 600; text-decoration: underline; margin-top: 6px; display: inline-block;">
-            Abrir solicitud de compilación en GitHub ↗
+          <strong>🚀 Se ha abierto una pestaña de GitHub.</strong><br>
+          Ve a esa pestaña y pulsa el botón verde <strong>«Submit new issue»</strong>. Si GitHub te pide entrar, usa tu cuenta (o crea una gratis). Después tarda entre 5 y 20 minutos y GitHub te avisará por correo.<br>
+          Si no se ha abierto la pestaña, pulsa el enlace de abajo.<br>
+          <a href="${url}" target="_blank" style="color: var(--accent-blue); font-weight: 600; text-decoration: underline; margin-top: 6px; display: inline-block;">
+            Abrir mi solicitud en GitHub ↗
           </a>
         `;
       }
@@ -1261,7 +1267,7 @@ ${encryptedConfig}
         dispatchStatus.innerHTML = `
           <strong>🚀 ¡Compilación iniciada con éxito!</strong><br>
           GitHub Actions está compilando tu firmware para la placa <strong>${data.target}</strong>.<br>
-          <a href="${runUrl}" target="_blank" style="color: #58a6ff; font-weight: 600; text-decoration: underline; margin-top: 6px; display: inline-block;">
+          <a href="${runUrl}" target="_blank" style="color: var(--accent-blue); font-weight: 600; text-decoration: underline; margin-top: 6px; display: inline-block;">
             Ver progreso de compilación en GitHub Actions ↗
           </a>
         `;
@@ -1275,7 +1281,7 @@ ${encryptedConfig}
         const errorData = await res.json().catch(() => ({}));
         dispatchStatus.className = "status-msg status-error";
         dispatchStatus.innerHTML = `
-          <strong>Error ${res.status}:</strong> ${errorData.message || res.statusText}<br>
+          <strong>Error ${res.status}:</strong> ${escapeAttr(errorData.message || res.statusText)}<br>
           Verifica que tu token tenga el permiso de <code>workflow</code> y que la rama sea correcta.
         `;
       }
