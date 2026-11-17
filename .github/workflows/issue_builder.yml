@@ -9,10 +9,15 @@ permissions:
   issues: write
   actions: read
 
+# Un solo build por issue: etiquetar o reabrir mientras compila no lanza otra compilación encima.
+concurrency:
+  group: issue-build-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
 jobs:
   build-from-issue:
     name: Build Custom Firmware from Issue
-    if: (contains(github.event.issue.title, '[Build Request]') || contains(github.event.issue.body, 'meshtacore-build-config')) && !contains(github.event.issue.labels.*.name, 'build-completed')
+    if: (contains(github.event.issue.title, '[Build Request]') || contains(github.event.issue.body, 'meshtacore-build-config')) && !contains(fromJSON('["build-completed","build-in-progress","build-failed","rate-limited"]'), github.event.label.name) && !contains(github.event.issue.labels.*.name, 'build-completed') && !contains(github.event.issue.labels.*.name, 'build-in-progress') && !contains(github.event.issue.labels.*.name, 'rate-limited')
     runs-on: ubuntu-24.04
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -21,6 +26,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          persist-credentials: false
 
       - name: Setup Python 3.12
         uses: actions/setup-python@v5
@@ -30,8 +36,10 @@ jobs:
 
       - name: Check Rate Limit (Max 6 builds/user per 24 hours)
         id: rate-limit
+        env:
+          # El autor del issue, no quien lo etiqueta (en `labeled`, github.actor es quien pone la etiqueta).
+          ACTOR: ${{ github.event.issue.user.login }}
         run: |
-          ACTOR="${{ github.actor }}"
           ISSUE_NUM="${{ github.event.issue.number }}"
           REPO="${{ github.repository }}"
           ONE_DAY_AGO=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
@@ -42,7 +50,7 @@ jobs:
 
           if [ "$COUNT" -ge 6 ]; then
             echo "limit_exceeded=true" >> "$GITHUB_OUTPUT"
-            gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "⚠️ Hola @$ACTOR, has alcanzado el límite de 6 compilaciones en las últimas 24 horas para preservar los recursos de CI de la comunidad. Por favor, vuelve a intentarlo mañana."
+            gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "⚠️ Hola @$ACTOR, ya has pedido 6 firmwares en las últimas 24 horas. Ese es el máximo para repartir los recursos entre todos. No has hecho nada mal: vuelve a pedirlo mañana y se compilará."
             gh issue edit "$ISSUE_NUM" --repo "$REPO" --add-label "rate-limited"
             gh issue close "$ISSUE_NUM" --repo "$REPO" --reason "not planned"
             exit 0
@@ -57,7 +65,11 @@ jobs:
           REPO="${{ github.repository }}"
           RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           gh issue edit "$ISSUE_NUM" --repo "$REPO" --add-label "build-in-progress" || true
-          gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "⏳ **Solicitud recibida.** Compilando tu firmware personalizado en GitHub Actions... Puedes seguir el progreso en vivo aquí: [Ver ejecución]($RUN_URL)."
+          gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "⏳ **Hemos recibido tu solicitud.** Estamos preparando tu firmware.
+
+          Tarda entre **5 y 20 minutos**. No hace falta que esperes aquí: puedes cerrar esta página. Cuando esté listo, GitHub te avisará por correo y verás un mensaje nuevo en esta misma conversación.
+
+          <sub>Seguimiento técnico (opcional): [Ver ejecución]($RUN_URL)</sub>"
 
       - name: Parse Issue Configuration
         id: parse-step
@@ -76,7 +88,11 @@ jobs:
         run: |
           ISSUE_NUM="${{ github.event.issue.number }}"
           REPO="${{ github.repository }}"
-          gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "❌ **Error en la solicitud:** $MSG"
+          gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "❌ **No hemos podido preparar tu firmware.** Hay un dato de la solicitud que no es correcto:
+
+          > $MSG
+
+          Vuelve a la [página para crear tu firmware](https://xejarque.github.io/meshtacore-firmware/builder.html), revisa ese dato y envía la solicitud de nuevo."
           gh issue edit "$ISSUE_NUM" --repo "$REPO" --add-label "build-failed" || true
           gh issue close "$ISSUE_NUM" --repo "$REPO" --reason "not planned"
           exit 1
@@ -84,7 +100,7 @@ jobs:
       - name: Install PlatformIO and Dependencies
         if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
         run: |
-          pip install -U "platformio==6.2.0" jq
+          pip install -U "platformio==6.2.0"
           mkdir -p "$HOME/.platformio/packages"
           echo '{"last_version": "6.2.0", "last_check": {"platformio_upgrade": 2147483647, "prune_system": 2147483647}}' > "$HOME/.platformio/appstate.json"
           if [ ! -f "$HOME/.platformio/penv/bin/python" ] || ! "$HOME/.platformio/penv/bin/python" -c "import pioarduino; assert pioarduino.__version__ == '6.2.0'" 2>/dev/null; then
@@ -159,13 +175,15 @@ jobs:
 
       - name: Setup ccache
         if: steps.rate-limit.outputs.limit_exceeded != 'true' && steps.parse-step.outputs.valid == 'true'
+        env:
+          TARGET: ${{ steps.parse-step.outputs.target }}
         run: |
           # The toolchain compilers are replaced by a ccache wrapper (.github/scripts/pio_ccache_wrap.sh), which
           # works on ESP32 too (a CC/CXX prefix breaks ESP-IDF). The toolchain has to be on disk first.
           # userPrefs -D flags only reach src/: direct mode misses those files and falls back to the preprocessor
           # mode, so framework, libs and most of src/ still hit.
           command -v ccache >/dev/null || sudo apt-get install -y -qq ccache
-          pio pkg install -e "${{ steps.parse-step.outputs.target }}"
+          pio pkg install -e "$TARGET"
           bash .github/scripts/pio_ccache_wrap.sh
           {
             echo "CCACHE_DIR=$HOME/.ccache"
@@ -331,6 +349,7 @@ jobs:
           DATA_BRANCH="custom-builds-data"
           REMOTE="https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO}.git"
           WORK="$(mktemp -d)"
+          PUBLISHED=false
           for ATTEMPT in 1 2 3; do
             rm -rf "$WORK" && mkdir -p "$WORK"
             if git ls-remote --exit-code --heads "$REMOTE" "$DATA_BRANCH" >/dev/null 2>&1; then
@@ -347,31 +366,42 @@ jobs:
             git -C "$WORK" -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
               commit -q -m "Add encrypted bundle $ZIP_NAME"
             if git -C "$WORK" push -q "$REMOTE" "$DATA_BRANCH"; then
+              PUBLISHED=true
               break
             fi
             echo "Concurrent publish, retrying ($ATTEMPT/3)..."
           done
+          # Sin el bundle en la rama de datos, el enlace de descifrado no funcionaría: mejor fallar que dar un enlace roto.
+          if [ "$PUBLISHED" != "true" ]; then
+            echo "::error::No se pudo publicar el bundle cifrado tras 3 intentos."
+            exit 1
+          fi
 
           OWNER="${REPO%%/*}"
           DECRYPT_URL="https://${OWNER,,}.github.io/${REPO#*/}/decrypt.html?f=${ZIP_NAME}"
 
           # Post reply comment on issue
-          gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "### 🎉 ¡Tu Firmware Meshtacore está listo!
+          gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "### ✅ Tu firmware está listo
 
-          - **Placa Objetivo:** \`$TARGET\` (\`$ARCH\`)
-          - **Nombre del Nodo:** \`$LONG_NAME\` (\`$SHORT_NAME\`)
-          - **Archivo (cifrado):** \`$ZIP_NAME\`
+          **Paso 1.** Pulsa aquí para descargarlo: 🔓 **[Descargar mi firmware]($DECRYPT_URL)**
+          Hazlo desde el **mismo navegador y ordenador** con el que lo pediste. Va protegido con una clave que solo tiene ese navegador.
 
-          🔒 El firmware lleva tus claves y contraseñas, así que está **cifrado**: solo el navegador desde el que hiciste la solicitud puede abrirlo.
+          **Paso 2.** Abre **[Instalar en mi placa](https://xejarque.github.io/meshtacore-firmware/flasher.html)** con **Google Chrome o Microsoft Edge en un ordenador**, conecta la placa por USB, elige el archivo que has descargado y sigue las instrucciones.
 
-          1. 🔓 **[Descargar y descifrar firmware]($DECRYPT_URL)** (ábrelo en el mismo navegador desde el que hiciste la solicitud: te entrega el \`.zip\` directamente).
-          2. Abre el [Flasher](https://xejarque.github.io/meshtacore-firmware/flasher.html) (Chrome o Edge de escritorio) y elige el \`.zip\` tal cual: también escribe el OTA Loader, necesario para actualizar por Bluetooth. Si tu placa es nRF52, puedes descomprimir y copiar el \`.uf2\`.
+          ¿Algo no funciona? Responde a este mensaje y te ayudamos.
 
-          > ℹ️ Si el descifrador no puede descargarlo solo, [baja el archivo cifrado a mano]($DOWNLOAD_URL) y selecciónalo en esa misma página.
-          >
-          > ⚠️ Si borras los datos del navegador pierdes la clave y habrá que repetir la compilación. Puedes exportar una copia de seguridad desde el descifrador.
+          <details><summary>Detalles técnicos</summary>
 
-          _Enlace de respaldo en GitHub Actions: [Ver ejecución]($RUN_URL)_"
+          - Placa: \`$TARGET\` (\`$ARCH\`)
+          - Nombre del nodo: \`$LONG_NAME\` (\`$SHORT_NAME\`)
+          - Archivo cifrado: \`$ZIP_NAME\`
+          - Si el descargador no puede bajarlo solo, [descarga el archivo cifrado a mano]($DOWNLOAD_URL) y selecciónalo en esa misma página.
+          - Si tu placa es nRF52 puedes descomprimir el \`.zip\` y copiar el \`.uf2\`.
+          - ⚠️ Si borras los datos del navegador pierdes la clave y habrá que repetir la solicitud. Puedes exportar una copia de seguridad desde el descargador.
+          - El enlace de descarga caduca a los 7 días por privacidad.
+          - [Ver ejecución]($RUN_URL)
+
+          </details>"
 
           gh issue edit "$ISSUE_NUM" --repo "$REPO" --remove-label "build-in-progress" --add-label "build-completed" || true
           gh issue close "$ISSUE_NUM" --repo "$REPO"
@@ -382,6 +412,10 @@ jobs:
           ISSUE_NUM="${{ github.event.issue.number }}"
           REPO="${{ github.repository }}"
           RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "❌ **Error durante la compilación.** Hubo un fallo al compilar para la placa seleccionada. Puedes revisar el registro de errores en: [Ver ejecución en GitHub Actions]($RUN_URL)."
+          gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "❌ **Ha fallado la preparación de tu firmware.** Es un problema de nuestro lado, no tuyo: no hace falta que cambies nada.
+
+          Puedes volver a intentarlo reabriendo esta solicitud. Si falla otra vez, responde a este mensaje y lo revisamos.
+
+          <sub>Detalle técnico: [Ver ejecución]($RUN_URL)</sub>"
           gh issue edit "$ISSUE_NUM" --repo "$REPO" --remove-label "build-in-progress" --add-label "build-failed" || true
           gh issue close "$ISSUE_NUM" --repo "$REPO" --reason "not planned"
