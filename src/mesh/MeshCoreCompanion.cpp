@@ -794,10 +794,10 @@ const MeshCoreCompanion::HeardPath *MeshCoreCompanion::heardFindByFrom(uint32_t 
     return best;
 }
 
-/// A node the companion announced for a MeshCore peer: our number range, a MeshCore key and no Meshtastic hardware.
+/// A node the companion announced for a MeshCore peer: a MeshCore peer node holding a MeshCore key.
 static bool isMeshCoreNode(const meshtastic_NodeInfoLite *n)
 {
-    return n && (n->num >> 24) == 0x4D && n->public_key.size == 32 && n->hw_model == meshtastic_HardwareModel_UNSET;
+    return nodeInfoLiteIsMeshCorePeer(n) && n->public_key.size == 32 && n->hw_model == meshtastic_HardwareModel_UNSET;
 }
 
 /// True when the node DB holds a MeshCore node whose key starts with these bytes.
@@ -1362,7 +1362,7 @@ static const MeshCoreNode *findNodeForTrace(const MeshCoreNodeStore<MESHCORE_NOD
     if (nodeDB) {
         for (size_t i = 0; i < nodeDB->getNumMeshNodes(); i++) {
             const meshtastic_NodeInfoLite *lite = nodeDB->getMeshNodeByIndex(i);
-            if (!lite || (lite->num >> 24) != 0x4D)
+            if (!nodeInfoLiteIsMeshCorePeer(lite))
                 continue;
             char clean[48];
             cleanPathLabel(lite->long_name, clean, sizeof(clean), sizeof(clean) - 1);
@@ -2055,7 +2055,7 @@ size_t MeshCoreCompanion::prepareGroupText(const char *text, uint32_t replyId, c
             // Nodes of MeshCore people kept in the node DB (shown as "name (MC)") outlive the recent-senders list.
             for (size_t n = 0; nodeDB && n < nodeDB->getNumMeshNodes(); n++) {
                 const meshtastic_NodeInfoLite *lite = nodeDB->getMeshNodeByIndex(n);
-                if ((lite->num >> 24) != 0x4D)
+                if (!nodeInfoLiteIsMeshCorePeer(lite))
                     continue;
                 const size_t len = strlen(lite->long_name);
                 if (len > 5 && strcmp(&lite->long_name[len - 5], " (MC)") == 0)

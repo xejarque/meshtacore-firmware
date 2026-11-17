@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "MeshCoreNodeNum.h"
 #include "MeshTypes.h"
 #include "NodeStatus.h"
 #include "WarmNodeStore.h"
@@ -942,6 +943,14 @@ inline bool nodeInfoLiteViaMqtt(const meshtastic_NodeInfoLite *n)
 inline bool nodeInfoLiteIsMeshCore(const meshtastic_NodeInfoLite *n)
 {
     return n && (n->bitfield & NODEINFO_BITFIELD_IS_MESHCORE_MASK);
+}
+/// A node standing for a MeshCore peer: marked as one, or in the companion's number range with no Meshtastic hardware model
+/// (the mark comes with the peer's next frame, so a node just announced may not carry it yet). A real Meshtastic node that
+/// drew a number in that range reports its hardware and stays Meshtastic.
+inline bool nodeInfoLiteIsMeshCorePeer(const meshtastic_NodeInfoLite *n)
+{
+    return n && (nodeInfoLiteIsMeshCore(n) ||
+                 (inMeshCoreNodeNumRange(n->num) && n->hw_model == meshtastic_HardwareModel_UNSET));
 }
 inline bool nodeInfoLiteIsFavorite(const meshtastic_NodeInfoLite *n)
 {

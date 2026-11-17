@@ -2829,6 +2829,27 @@ void test_group_text_naming_a_contact_does_not_touch_its_metadata(void)
     TEST_ASSERT_EQUAL_UINT32(before.lastMod, after->lastMod);
 }
 
+// One Meshtastic node in 256 draws a number in the companion's 0x4D range. Regression guard for the review of
+// 2026-11-17: the range alone made such a node "MeshCore", hiding it from the neighbour list and matching it by name.
+void test_meshtastic_node_in_meshcore_range_is_not_a_peer(void)
+{
+    meshtastic_NodeInfoLite real = meshtastic_NodeInfoLite_init_zero;
+    real.num = 0x4D123456;
+    real.hw_model = meshtastic_HardwareModel_HELTEC_V3;
+    TEST_ASSERT_TRUE(inMeshCoreNodeNumRange(real.num));
+    TEST_ASSERT_FALSE(nodeInfoLiteIsMeshCorePeer(&real));
+
+    meshtastic_NodeInfoLite announced = meshtastic_NodeInfoLite_init_zero;
+    announced.num = MeshCoreNodeStore<4>::nodeNumForName("Alice");
+    TEST_ASSERT_TRUE(nodeInfoLiteIsMeshCorePeer(&announced)); // just announced, mark not set yet
+
+    meshtastic_NodeInfoLite marked = meshtastic_NodeInfoLite_init_zero;
+    marked.num = 0x12345678;
+    nodeInfoLiteSetBit(&marked, NODEINFO_BITFIELD_IS_MESHCORE_MASK, true);
+    TEST_ASSERT_TRUE(nodeInfoLiteIsMeshCorePeer(&marked));
+    TEST_ASSERT_FALSE(nodeInfoLiteIsMeshCorePeer(nullptr));
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -2943,6 +2964,7 @@ void setup()
     RUN_TEST(test_route_line_formatting);
     RUN_TEST(test_handle_frame_carries_the_frequency_error);
     RUN_TEST(test_group_text_naming_a_contact_does_not_touch_its_metadata);
+    RUN_TEST(test_meshtastic_node_in_meshcore_range_is_not_a_peer);
 #endif
     exit(UNITY_END());
 }

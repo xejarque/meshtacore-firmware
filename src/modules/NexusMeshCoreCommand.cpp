@@ -105,7 +105,7 @@ static void formatAgo(uint32_t secs, char *out, size_t len)
 
 static bool isDirectNeighbor(const meshtastic_NodeInfoLite *n, uint32_t myNum)
 {
-    return n && n->num != 0 && n->num != myNum && !nodeInfoLiteIsMeshCore(n) && (n->num & 0xFF000000) != 0x4D000000 &&
+    return n && n->num != 0 && n->num != myNum && !nodeInfoLiteIsMeshCorePeer(n) &&
            n->has_hops_away && n->hops_away == 0 && n->last_heard != 0;
 }
 
@@ -442,7 +442,7 @@ static void addNodeDbNeighbors(NexusModule::DirectNeighborEntry *entries, size_t
     const uint32_t myNum = myNodeInfo.my_node_num != 0 ? myNodeInfo.my_node_num : nodeDB->getNodeNum();
     for (size_t i = 0; i < nodeDB->getNumMeshNodes(); i++) {
         const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
-        if (!n || n->num == 0 || n->num == myNum || !(nodeInfoLiteIsMeshCore(n) || (n->num & 0xFF000000) == 0x4D000000) ||
+        if (!n || n->num == 0 || n->num == myNum || !nodeInfoLiteIsMeshCorePeer(n) ||
             !n->has_hops_away || n->hops_away != 0 || n->last_heard == 0 || listsNeighbor(entries, *count, n->num, n->long_name))
             continue;
         const char *srcName = n->long_name[0] ? n->long_name : (n->short_name[0] ? n->short_name : "???");
@@ -1539,7 +1539,7 @@ bool NexusModule::isMeshCorePing(const meshtastic_MeshPacket &mp, bool isPingDM)
     if (channels.isMeshCoreChannel((ChannelIndex)mp.channel))
         return true;
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION
-    if (isPingDM && (meshCoreCompanion.hasContact(mp.from) || (mp.from >> 24) == 0x4D))
+    if (isPingDM && (meshCoreCompanion.hasContact(mp.from) || (nodeDB && nodeInfoLiteIsMeshCorePeer(nodeDB->getMeshNode(mp.from)))))
         return true;
 #endif
     return false;

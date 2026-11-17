@@ -1,5 +1,7 @@
 #pragma once
 
+#include "MeshCoreNodeNum.h"
+
 #include "configuration.h" // the ARCH_* macros the memory classes key off
 #include "memory/MemClass.h"
 #include "meshUtils.h"
@@ -94,7 +96,7 @@ template <size_t N> class MeshCoreNodeStore
         uint32_t h = 2166136261u; // FNV-1a
         for (const char *p = name; p && *p; p++)
             h = (h ^ (uint8_t)*p) * 16777619u;
-        return 0x4D000000 | ((h ^ (h >> 24)) & 0x00FFFFFF);
+        return meshCoreNodeNum(h ^ (h >> 24));
     }
 
     /// Node number for a node known by its key alone (a repeater): hashed from the public key.
@@ -103,7 +105,7 @@ template <size_t N> class MeshCoreNodeStore
         uint32_t h = 2166136261u; // FNV-1a
         for (size_t i = 0; i < 32; i++)
             h = (h ^ pub[i]) * 16777619u;
-        return 0x4D000000 | ((h ^ (h >> 24)) & 0x00FFFFFF);
+        return meshCoreNodeNum(h ^ (h >> 24));
     }
 
     /// Give n the wanted node number, moved on while another node owns it or it is reserved.
@@ -112,7 +114,7 @@ template <size_t N> class MeshCoreNodeStore
         n->nodeNum = 0; // so n does not collide with itself
         uint32_t num = wanted;
         while (findByNodeNum(num) || num == reserved)
-            num = 0x4D000000 | ((num + 1) & 0x00FFFFFF);
+            num = meshCoreNodeNum(num + 1);
         n->nodeNum = num;
     }
 
