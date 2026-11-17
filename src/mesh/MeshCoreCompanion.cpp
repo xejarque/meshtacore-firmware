@@ -800,17 +800,6 @@ static bool isMeshCoreNode(const meshtastic_NodeInfoLite *n)
     return nodeInfoLiteIsMeshCorePeer(n) && n->public_key.size == 32 && n->hw_model == meshtastic_HardwareModel_UNSET;
 }
 
-/// True when the node DB holds a MeshCore node whose key starts with these bytes.
-static bool nodeDbHoldsKeyPrefix(const uint8_t *prefix, size_t len)
-{
-    for (size_t i = 0; nodeDB && i < nodeDB->getNumMeshNodes(); i++) {
-        const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
-        if (isMeshCoreNode(n) && n->long_name[0] != 0 && memcmp(n->public_key.bytes, prefix, len) == 0)
-            return true;
-    }
-    return false;
-}
-
 size_t MeshCoreCompanion::pathHopNames(const uint8_t *hash, uint8_t size, const char **out, size_t max) const
 {
     size_t total = 0;
@@ -829,22 +818,26 @@ size_t MeshCoreCompanion::pathHopNames(const uint8_t *hash, uint8_t size, const 
     const size_t knownCount = nodes.findByPrefix(hash, size, known, PATH_HOP_NAMES_MAX);
     for (size_t i = 0; i < knownCount && i < PATH_HOP_NAMES_MAX; i++)
         addName(known[i]->name);
-    // MeshCore nodes announced before the store existed are only in the node DB. A Meshtastic node's key has nothing to
-    // do with a MeshCore hash, so only MeshCore nodes are looked at.
-    for (size_t i = 0; nodeDB && i < nodeDB->getNumMeshNodes(); i++) {
-        const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
-        if (!isMeshCoreNode(n) || n->long_name[0] == 0 || memcmp(n->public_key.bytes, hash, size) != 0)
-            continue;
-        if (!nodes.find(n->public_key.bytes))
-            addName(n->long_name);
-    }
     // Repeaters are kept as a key prefix and a short name. One the node DB still holds is already listed by its whole name,
     // and the short form would only be a second candidate for the same hop.
     const MeshCoreRepeaterName *heard[PATH_HOP_NAMES_MAX];
     const size_t heardCount = repeaters.findByPrefix(hash, size, heard, PATH_HOP_NAMES_MAX);
+    bool heardInNodeDb[PATH_HOP_NAMES_MAX] = {};
+    // One pass over the node DB serves both lists. MeshCore nodes announced before the store existed are only there; a
+    // Meshtastic node's key has nothing to do with a MeshCore hash, so only MeshCore nodes are looked at.
+    for (size_t i = 0; nodeDB && i < nodeDB->getNumMeshNodes(); i++) {
+        const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
+        if (!isMeshCoreNode(n) || n->long_name[0] == 0)
+            continue;
+        for (size_t r = 0; r < heardCount && r < PATH_HOP_NAMES_MAX; r++)
+            if (memcmp(n->public_key.bytes, heard[r]->prefix, MeshCoreRepeaterName::PREFIX_LEN) == 0)
+                heardInNodeDb[r] = true;
+        if (memcmp(n->public_key.bytes, hash, size) == 0 && !nodes.find(n->public_key.bytes))
+            addName(n->long_name);
+    }
     size_t scratchUsed = 0;
     for (size_t i = 0; i < heardCount && i < PATH_HOP_NAMES_MAX; i++) {
-        if (nodeDbHoldsKeyPrefix(heard[i]->prefix, MeshCoreRepeaterName::PREFIX_LEN))
+        if (heardInNodeDb[i])
             continue;
         heard[i]->copyName(hopNameScratch[scratchUsed]);
         addName(hopNameScratch[scratchUsed++]);
@@ -1320,7 +1313,7 @@ static const MeshCoreNode *findNodeForTrace(const MeshCoreNodeStore<MESHCORE_NOD
         return nullptr;
     const MeshCoreNode *match = nullptr;
     nodes.forEach([&](const MeshCoreNode &n) {
-        if (!n.lastMod || match)
+        if (match) // forEach visits used slots only
             return;
         if (strcasecmp(n.name, name) == 0) {
             match = &n;
@@ -2855,6 +2848,7 @@ void MeshCoreCompanion::service()
 
 void MeshCoreCompanion::syncWithNodeDB()
 {
+    concurrency::RecursiveLockGuard guard(lock);
     nodes.forEach([](MeshCoreNode &n) {
         meshtastic_NodeInfoLite *lite = nodeDB ? nodeDB->getMeshNode(n.nodeNum) : nullptr;
         if (!lite || lite->hw_model != meshtastic_HardwareModel_UNSET) {

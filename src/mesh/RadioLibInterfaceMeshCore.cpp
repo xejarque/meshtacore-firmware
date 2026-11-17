@@ -157,6 +157,9 @@ static constexpr uint32_t MESHCORE_CONTACTS_SAVE_MIN_MS = 60 * 60 * 1000; // fla
 // Repeater names change all the time (every advert heard from a new one) and are relearned from the next advert, so they only
 // earn a flash write now and then. The file is rewritten whole, contacts included, whichever of the two asked for it.
 static constexpr uint32_t MESHCORE_REPEATERS_SAVE_MIN_MS = 3 * 60 * 60 * 1000; // at most one save per 3 hours for them
+// Marks and favourite stars need not follow the node DB within seconds; the sync costs a lookup per stored node.
+static constexpr uint32_t MESHCORE_NODEDB_SYNC_MS = 60 * 1000;
+static_assert(MESHCORE_CONTACTS_SAVE_MIN_MS <= MESHCORE_REPEATERS_SAVE_MIN_MS, "the fingerprint gate waits for the shorter");
 static constexpr uint32_t MESHCORE_TX_POLL_MS = 100;                      // a raw frame is on air: look again for a lost TX-done
 
 /** Runs RadioLibInterface::meshCoreAdvertTick() on its own schedule. */
@@ -440,7 +443,14 @@ uint32_t RadioLibInterface::meshCoreServiceTick()
 
     meshCoreCompanion.service();
 
-    if (meshCoreContactsLoaded) {
+    if (meshCoreContactsLoaded && Throttle::hasElapsed(lastMeshCoreNodeDbSyncMs, MESHCORE_NODEDB_SYNC_MS)) {
+        meshCoreCompanion.syncWithNodeDB();
+        lastMeshCoreNodeDbSyncMs = millis();
+    }
+
+    // Nothing can be saved before the shorter window has run out, so the fingerprints (a pass over every stored node and
+    // repeater) wait for it instead of running every tick.
+    if (meshCoreContactsLoaded && Throttle::hasElapsed(lastMeshCoreContactsSaveMs, MESHCORE_CONTACTS_SAVE_MIN_MS)) {
         const uint32_t contacts = meshCoreCompanion.contactsFingerprint();
         const uint32_t repeaters = meshCoreCompanion.repeatersFingerprint();
         // A change to the contacts waits for its window; one to the repeater names alone waits for the longer one.

@@ -408,8 +408,12 @@ class MeshCoreCompanion
     /// Restore nodes from an exportContacts() image, or from the contacts file of earlier builds. Returns how many loaded.
     size_t importContacts(const uint8_t *buf, size_t len);
 
-    /// Checksum of the saved set (not its order), to save only when it changed.
+    /// Checksum of the saved set (not its order), to save only when it changed. Syncs with the node DB first.
     uint32_t contactsFingerprint();
+
+    /// Mark our nodes in the node DB as MeshCore (evicted early) and copy back the client's favourite stars, which it sets
+    /// there. One node DB lookup per stored node: run it on a slow cadence, not every housekeeping tick.
+    void syncWithNodeDB();
 
     /// Mark one of our own transmitted frames seen, so hearing it back does not inject it.
     void noteTransmitted(const uint8_t *raw, size_t len);
@@ -492,9 +496,6 @@ class MeshCoreCompanion
     const uint8_t *secretFor(const MeshCoreNode &n);
     MeshCoreNode *contactByPub(const uint8_t pub[32]);
     MeshCoreNode *contactByNodeNum(uint32_t nodeNum);
-    /// Mark our nodes in the node DB as MeshCore (evicted early) and copy back the client's favourite stars, which it sets
-    /// there.
-    void syncWithNodeDB();
     /// Keep what an ADVERT says about n: its timestamp, position, and RF reception metrics.
     void noteAdvert(MeshCoreNode *n, uint32_t advertTime, int32_t latMicro, int32_t lonMicro, float snr, int32_t rssi,
                     uint8_t hops);
