@@ -5,10 +5,17 @@ export const REPO = "xejarque/meshtacore-firmware";
 
 const TOKEN_KEY = "meshtacore_gh_token"; // the key app.js saves the builder's token under
 
+// The token lives in sessionStorage: it disappears when the tab closes, so it is not left on disk for any script
+// of this origin to read later. A token saved by an older version in localStorage is dropped.
+try {
+  localStorage.removeItem(TOKEN_KEY);
+} catch {
+  // storage blocked: nothing to migrate
+}
 export const getStoredToken = () =>
-  (localStorage.getItem(TOKEN_KEY) ?? "").trim();
+  (sessionStorage.getItem(TOKEN_KEY) ?? "").trim();
 export const storeToken = (token) =>
-  localStorage.setItem(TOKEN_KEY, token.trim());
+  sessionStorage.setItem(TOKEN_KEY, token.trim());
 
 /** BuildCrypto.decryptBundle with an error that says what to do when this browser lacks the key. */
 export async function decrypt(bytes) {

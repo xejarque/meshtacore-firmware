@@ -432,12 +432,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Load saved token if present
-  const savedToken = localStorage.getItem("meshtacore_gh_token");
+  try {
+    localStorage.removeItem("meshtacore_gh_token");
+  } catch {
+    // storage bloqueado: nada que migrar
+  }
+  const savedToken = sessionStorage.getItem("meshtacore_gh_token");
   if (savedToken) {
     githubToken.value = savedToken;
   }
   githubToken.addEventListener("input", () => {
-    localStorage.setItem("meshtacore_gh_token", githubToken.value.trim());
+    sessionStorage.setItem("meshtacore_gh_token", githubToken.value.trim());
   });
 
   // Roll initial random name on load
