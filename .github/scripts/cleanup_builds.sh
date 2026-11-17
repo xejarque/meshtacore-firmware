@@ -31,7 +31,10 @@ echo "Repo: $REPO · umbral: ${MAX_AGE_HOURS} h · modo: $($APPLY && echo APPLY 
 # para que los pasos siguientes (release, rama de datos) no se queden sin ejecutar nunca.
 # Al final se sale con error si algo falló. Se usa un fichero porque los while van en subshell.
 ERRFILE="$(mktemp)"
-fail() { echo "::warning::$*" >&2; echo x >>"$ERRFILE"; }
+fail() {
+	echo "::warning::$*" >&2
+	echo x >>"$ERRFILE"
+}
 
 # 1. Issues de build
 echo "== Issues de build"
