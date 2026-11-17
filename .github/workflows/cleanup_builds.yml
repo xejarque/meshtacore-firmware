@@ -2,7 +2,8 @@ name: Cleanup old builder output
 
 # Privacidad: elimina issues de build, artifacts y bundles cifrados con más de 7 días.
 # Las releases no se tocan. Requiere el secret CLEANUP_TOKEN (PAT con permisos de admin del repo,
-# necesario para ELIMINAR issues; el GITHUB_TOKEN solo puede cerrarlos).
+# necesario para ELIMINAR issues; el GITHUB_TOKEN solo puede cerrarlos). Si es un PAT
+# fine-grained necesita además Actions: write (borrar artifacts) y Contents: write (release y rama de datos).
 on:
   schedule:
     - cron: "17 */6 * * *"
