@@ -12,6 +12,12 @@ const flasher = mountFlasher(container, {
   decrypt,
 });
 
+// Un botón real (no una etiqueta) para que funcione con teclado y lector de pantalla.
+document
+  .getElementById("btnPickFlasherFile")
+  .addEventListener("click", () =>
+    document.getElementById("flasherFile").click(),
+  );
 document.getElementById("flasherFile").addEventListener("change", (event) => {
   const file = event.target.files[0];
   if (!file) return;

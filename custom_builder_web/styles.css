@@ -874,3 +874,11 @@ input[type="file"]::file-selector-button { font: inherit; font-weight: 600; min-
   .nav-links { justify-content: flex-start; }
   .nav-more-list { right: auto; left: 0; }
 }
+
+/* ---- Pulido: espaciado y tamaños coherentes en las páginas de instalación ---- */
+.steps-simple { font-size: 1rem; }
+.card-body details:not(.collapsible):not(.json-preview) { margin-top: 0.9rem; }
+.card-body details > summary { cursor: pointer; font-weight: 600; padding: 0.35rem 0; }
+.card-body details[open] > summary { margin-bottom: 0.4rem; }
+.card-body h3 { margin-top: 1.4rem; margin-bottom: 0.35rem; }
+input[type="file"] { width: 100%; max-width: 100%; }

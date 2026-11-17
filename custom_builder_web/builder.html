@@ -6,8 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Meshtacore - Firmware Builder</title>
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
-    <link rel="stylesheet" href="styles.css?v=4" />
-    <link rel="stylesheet" href="flasher.css?v=4" />
+    <link rel="stylesheet" href="styles.css?v=5" />
+    <link rel="stylesheet" href="flasher.css?v=5" />
     <script src="theme.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -1557,9 +1557,13 @@
                 </li>
               </ul>
               <div class="flasher-pick">
-                <label class="btn btn-primary" for="flasherFile"
-                  >📂 Elegir archivo de firmware</label
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  id="btnPickFlasherFile"
                 >
+                  📂 Elegir archivo de firmware
+                </button>
                 <input
                   type="file"
                   id="flasherFile"

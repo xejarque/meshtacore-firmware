@@ -6,10 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Meshtacore - Descifrar firmware</title>
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
-    <link rel="stylesheet" href="styles.css?v=4" />
+    <link rel="stylesheet" href="styles.css?v=5" />
     <script src="theme.js"></script>
     <style>
-      /* styles.css has no status classes: define what this page needs. */
+      /* styles.css?v=5 has no status classes: define what this page needs. */
       .dl-panel {
         text-align: center;
         padding: 2rem 1rem;
@@ -127,7 +127,7 @@
             archivo no sale de tu equipo.
           </p>
 
-          <label for="encFile"
+          <label for="encFile" class="mt-3" style="display: block"
             ><strong>Archivo descargado (<code>.zip.enc</code>)</strong></label
           >
           <input type="file" id="encFile" accept=".enc" class="mt-2" />
@@ -153,13 +153,17 @@
           <button
             id="btnExportKey"
             type="button"
-            class="btn btn-secondary btn-sm"
+            class="btn btn-secondary btn-sm mt-2"
           >
             Exportar clave
           </button>
-          <label class="btn btn-outline btn-sm" for="importKeyFile"
-            >Importar clave</label
+          <button
+            id="btnImportKey"
+            type="button"
+            class="btn btn-outline btn-sm mt-2"
           >
+            Importar clave
+          </button>
           <input type="file" id="importKeyFile" accept=".json" class="hidden" />
           <div id="keyStatus" class="inline-status hidden"></div>
         </div>
@@ -336,6 +340,10 @@
         );
       });
 
+      // Un botón real (no una etiqueta) para que se pueda usar con teclado y lector de pantalla.
+      byId("btnImportKey").addEventListener("click", () =>
+        byId("importKeyFile").click(),
+      );
       byId("importKeyFile").addEventListener("change", async (e) => {
         const status = byId("keyStatus");
         try {

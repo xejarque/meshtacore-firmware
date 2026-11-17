@@ -58,3 +58,18 @@
     });
   }
 })();
+
+// El menú "Más" se cierra al pulsar fuera de él o con la tecla Escape.
+(function () {
+  function closeMenus(except) {
+    document.querySelectorAll(".nav-more details[open]").forEach((d) => {
+      if (d !== except) d.removeAttribute("open");
+    });
+  }
+  document.addEventListener("click", (event) => {
+    closeMenus(event.target.closest(".nav-more details"));
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeMenus(null);
+  });
+})();
