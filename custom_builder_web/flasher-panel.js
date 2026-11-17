@@ -232,7 +232,7 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
         "label",
         {},
         erase,
-        " Borrar toda la flash antes (pierde la configuración guardada)",
+        " Borrar antes todo lo guardado en la placa (canales, nombre, claves). Déjalo sin marcar si quieres conservarlo.",
       ),
     );
     say(
@@ -253,7 +253,7 @@ export function mountFlasher(root, { repo, getToken, decrypt }) {
         "label",
         { class: "flasher-modal-option" },
         modalErase,
-        " Borrar toda la flash antes (pierde la configuración guardada)",
+        " Borrar antes todo lo guardado en la placa (canales, nombre, claves). Déjalo sin marcar si quieres conservarlo.",
       ),
       actions: [
         { label: "Más tarde" },

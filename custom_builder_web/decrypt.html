@@ -339,6 +339,16 @@
       byId("importKeyFile").addEventListener("change", async (e) => {
         const status = byId("keyStatus");
         try {
+          // Si ya hay una clave en este navegador, sustituirla impide abrir las descargas pendientes con ella.
+          if (
+            localStorage.getItem("meshtacore.userKeyPair.v1") &&
+            !confirm(
+              "Ya hay una clave guardada en este navegador. Si la sustituyes, no podrás abrir con ella las descargas que aún no hayas abierto. ¿Has exportado una copia antes y quieres continuar?",
+            )
+          ) {
+            e.target.value = "";
+            return;
+          }
           await BuildCrypto.importUserKeys(await e.target.files[0].text());
           inlineStatus(status, "success", "✅ Clave importada.");
         } catch (err) {

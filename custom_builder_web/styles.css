@@ -852,3 +852,5 @@ html { font-size: 112.5%; } /* 18 px de base en lugar de 16 px */
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 .steps-simple { font-size: 1.05rem; line-height: 1.7; padding-left: 1.4rem; margin: 0.75rem 0; }
 .steps-simple li { margin-bottom: 0.4rem; }
+input[type="file"] { font-size: 1rem; padding: 0.5rem 0; }
+input[type="file"]::file-selector-button { font: inherit; font-weight: 600; min-height: 44px; padding: 0.5rem 1rem; margin-right: 0.75rem; cursor: pointer; }
