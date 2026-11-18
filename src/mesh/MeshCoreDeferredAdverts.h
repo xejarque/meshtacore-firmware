@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #pragma once
 
+#include "MeshCoreNodeStore.h"
 #include "MeshCoreRepeater.h"
 #include "Throttle.h"
 #include "UptimeClock.h"
@@ -18,7 +19,11 @@
 class MeshCoreDeferredAdverts
 {
   public:
+#ifdef MESHCORE_HEAP_TIGHT_BOARD
+    static constexpr size_t CAPACITY = 2; // 272 B a slot, and this board has no heap to spare
+#else
     static constexpr size_t CAPACITY = 4;
+#endif
     /** An advert that waited longer than this is stale: its hops and signal no longer describe the sender. */
     static constexpr uint32_t TTL_MS = 120000;
 

@@ -10,14 +10,19 @@
 #include <string.h>
 
 // About 120 B a node, all in RAM. LARGE matches MeshCore's own MAX_CONTACTS; the rest follow the class budgets.
+// An nRF52 companion with a screen and a GPS (the ThinkNode M1) is the tight one: measured with 88 % of its heap used and
+// 14 KB free. HAS_GPS is no help here: boards leave it 0 and name the GPS pins.
+#if MESHTASTIC_MEM_CLASS == MEM_CLASS_SMALL && HAS_SCREEN && defined(ARCH_NRF52) && defined(GPS_RX_PIN)
+#define MESHCORE_HEAP_TIGHT_BOARD 1
+#endif
+
 #ifndef MESHCORE_NODES_MAX
 #if MESHTASTIC_MEM_CLASS <= MEM_CLASS_TINY
 #define MESHCORE_NODES_MAX 16
 #elif MESHTASTIC_MEM_CLASS == MEM_CLASS_SMALL
-#if HAS_SCREEN && defined(ARCH_NRF52) && defined(GPS_RX_PIN)
-// An nRF52 companion with a screen and a GPS (the ThinkNode M1) is the tight one: measured with 88 % of its heap used and
-// 14 KB free. Contacts only need room for the favourites and the few people it writes to, and repeaters have their own
-// table (MeshCoreRepeaterNames.h), so 16 are enough. HAS_GPS is no help here: boards leave it 0 and name the GPS pins.
+#ifdef MESHCORE_HEAP_TIGHT_BOARD
+// Contacts only need room for the favourites and the few people it writes to, and repeaters have their own table
+// (MeshCoreRepeaterNames.h), so 16 are enough.
 #define MESHCORE_NODES_MAX 16
 #elif HAS_SCREEN
 #define MESHCORE_NODES_MAX 30
