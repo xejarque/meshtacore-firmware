@@ -2445,7 +2445,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
             if (heard->lastAdvert != 0 && advertTime < heard->lastAdvert)
                 return;
         }
-        if (!MeshCoreRepeater::verifyAdvert(payload, info.payload_len))
+        if (!advertProven(raw, len, info, snr, rssi))
             return;
         rememberFrame(frameHash);
         learnRepeater(payload, name, snr, info.path_hash_count, advertTime);
@@ -2465,7 +2465,7 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
         return;
     // The key and name are public, so even a known contact's advert must be signed: otherwise anyone could move it on
     // the map or fake its route. Later copies of the same advert are answered from the verified cache.
-    if (!MeshCoreRepeater::verifyAdvert(payload, info.payload_len))
+    if (!advertProven(raw, len, info, snr, rssi))
         return;
     if (known && strncmp(known->name, name, MeshCoreNode::NAME_LEN - 1) == 0) {
         nodes.touch(known);
@@ -2484,6 +2484,35 @@ void MeshCoreCompanion::handleAdvert(const uint8_t *raw, size_t len, const MeshC
     retireGroupNode(c->name);
     retireKeyedNode(c->pub, c->nodeNum);
     updatePosition(c->nodeNum, latMicro, lonMicro, rx);
+}
+
+bool MeshCoreCompanion::advertProven(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr,
+                                     int32_t rssi)
+{
+    switch (MeshCoreRepeater::cachedAdvertVerdict(&raw[info.header_len], info.payload_len)) {
+    case MeshCoreRepeater::AdvertVerdict::GENUINE:
+        return true;
+    case MeshCoreRepeater::AdvertVerdict::FORGED:
+        return false;
+    case MeshCoreRepeater::AdvertVerdict::UNKNOWN:
+        break;
+    }
+    deferredAdverts.hold(raw, len, info, snr, rssi);
+    return false;
+}
+
+void MeshCoreCompanion::verifyDeferredAdvert()
+{
+    concurrency::RecursiveLockGuard guard(lock);
+    MeshCoreDeferredAdverts::Entry advert;
+    if (!deferredAdverts.takeOldest(advert))
+        return;
+    MeshCoreRepeater::FrameInfo info;
+    if (!MeshCoreRepeater::parse(advert.frame, advert.len, &info))
+        return;
+    // Fills the signature cache, so handleAdvert() now finds its verdict there and runs no second check.
+    if (MeshCoreRepeater::verifyAdvert(&advert.frame[info.header_len], info.payload_len))
+        handleAdvert(advert.frame, advert.len, info, advert.snr, advert.rssi);
 }
 
 void MeshCoreCompanion::retireGroupNode(const char *name)
@@ -2814,6 +2843,7 @@ void MeshCoreCompanion::handleAck(const uint8_t *raw, size_t len, const MeshCore
 void MeshCoreCompanion::service()
 {
     concurrency::RecursiveLockGuard guard(lock);
+    verifyDeferredAdvert();
 #if MESHTASTIC_MESHCORE_PATH_COMMAND
     checkTraceTimeout();
 #endif

@@ -207,6 +207,14 @@ class MeshCoreRepeater
     /** Check an ADVERT payload's Ed25519 signature over pub_key || timestamp || app_data. */
     static bool verifyAdvert(const uint8_t *payload, size_t payloadLen);
 
+    /** What the signature caches already know about an ADVERT payload, without running Ed25519. */
+    enum class AdvertVerdict : uint8_t { UNKNOWN, GENUINE, FORGED };
+    static constexpr size_t ADVERT_DIGEST_LEN = 16;
+    /** The digest an ADVERT payload is cached under (truncated SHA-256). */
+    static void advertDigest(const uint8_t *payload, size_t payloadLen, uint8_t out[ADVERT_DIGEST_LEN]);
+    static AdvertVerdict cachedAdvertVerdict(const uint8_t digest[ADVERT_DIGEST_LEN]);
+    static AdvertVerdict cachedAdvertVerdict(const uint8_t *payload, size_t payloadLen);
+
     /** Ed25519 verifications actually run; a payload already proven good or bad is answered from a small cache instead. */
     static uint32_t advertSignatureChecks;
 
@@ -329,11 +337,17 @@ class MeshCoreRepeater
     uint8_t fwHopRatePerMin = 0;
     uint32_t fwRuleDrops[MeshCoreConfig::DROP_RULE_COUNT] = {};
 
-    // Last time an advert of each of the latest keys was kept, and how many frames each neighbouring repeater got through.
+    // Last time a genuine advert of each of the latest keys was kept, and how many frames each neighbouring repeater got
+    // through. The firewall never runs Ed25519 itself: an advert not yet proven waits as the key's candidate until the
+    // companion or the relay has checked it, and only then opens the gap, dated from when it arrived.
     static constexpr size_t ADVERT_SEEN_SIZE = 16;
     struct AdvertSeen {
         uint32_t key = 0;
         uint32_t atMs = 0;
+        bool gapOpen = false;
+        bool hasCandidate = false;
+        uint32_t candidateAtMs = 0;
+        uint8_t candidate[ADVERT_DIGEST_LEN] = {};
     };
     AdvertSeen advertSeen[ADVERT_SEEN_SIZE];
     uint8_t advertSeenNext = 0;
@@ -358,6 +372,9 @@ class MeshCoreRepeater
     /** True when the firewall drops this frame; counts it against the rule that did. */
     bool frameFiltered(const uint8_t *raw, const FrameInfo &info);
     bool rateLimited(const uint8_t *raw, const FrameInfo &info);
+    /** True when this key already sent a genuine advert within the gap; files a not-yet-proven one as its candidate. */
+    bool advertWithinGap(const uint8_t *payload, size_t payloadLen);
+    AdvertSeen &advertSlotFor(uint32_t key);
 
     /** True when the frame comes from an ignored node: its ADVERT or anonymous request, a message whose one-byte source hash
      * is one's, or a flood whose last hop is one. */

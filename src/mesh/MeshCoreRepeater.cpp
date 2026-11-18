@@ -54,7 +54,7 @@ namespace
 class AdvertDigests
 {
   public:
-    static constexpr size_t DIGEST_LEN = 16;
+    static constexpr size_t DIGEST_LEN = MeshCoreRepeater::ADVERT_DIGEST_LEN;
 
     bool contains(const uint8_t digest[DIGEST_LEN]) const
     {
@@ -140,6 +140,27 @@ uint8_t MeshCoreRepeater::nodeTypeForRole(int role)
 bool MeshCoreRepeater::verifyAdvert(const uint8_t *payload, size_t payloadLen)
 {
     return advertSignatureValid(payload, payloadLen);
+}
+
+void MeshCoreRepeater::advertDigest(const uint8_t *payload, size_t payloadLen, uint8_t out[ADVERT_DIGEST_LEN])
+{
+    AdvertDigests::digestOf(payload, payloadLen, out);
+}
+
+MeshCoreRepeater::AdvertVerdict MeshCoreRepeater::cachedAdvertVerdict(const uint8_t digest[ADVERT_DIGEST_LEN])
+{
+    if (verifiedAdverts.contains(digest))
+        return AdvertVerdict::GENUINE;
+    if (rejectedAdverts.contains(digest))
+        return AdvertVerdict::FORGED;
+    return AdvertVerdict::UNKNOWN;
+}
+
+MeshCoreRepeater::AdvertVerdict MeshCoreRepeater::cachedAdvertVerdict(const uint8_t *payload, size_t payloadLen)
+{
+    uint8_t digest[ADVERT_DIGEST_LEN];
+    advertDigest(payload, payloadLen, digest);
+    return cachedAdvertVerdict(digest);
 }
 
 // Every encrypted MeshCore payload is [routing hashes][2-byte MAC][AES-128 blocks], and Utils::encrypt zero-pads the

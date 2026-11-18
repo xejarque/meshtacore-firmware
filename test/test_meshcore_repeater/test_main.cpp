@@ -2166,14 +2166,27 @@ void test_drop_rule_silences_its_payload_types_only()
     TEST_ASSERT_TRUE(repeater.hasPendingFrame());
 }
 
+// The firewall never runs Ed25519 on the receive path: the companion or the relay proves the signature later, from the
+// service tick. This stands in for that check.
+static void proveAdvertSignature(const uint8_t *frame, size_t len)
+{
+    MeshCoreRepeater::FrameInfo info;
+    TEST_ASSERT_TRUE(MeshCoreRepeater::parse(frame, len, &info));
+    MeshCoreRepeater::verifyAdvert(&frame[info.header_len], info.payload_len);
+}
+
 void test_advert_gap_keeps_one_advert_per_key_per_window()
 {
+    MeshCoreRepeater::forgetVerifiedAdverts();
     MeshCoreRepeater repeater, sender;
     uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
     const size_t len = makeNeighborAdvert(sender, 0x3C, "Cima", frame);
     repeater.setFirewall(0, 10, 0); // ten minutes
 
+    const uint32_t checksBefore = MeshCoreRepeater::advertSignatureChecks;
     TEST_ASSERT_TRUE(repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs));
+    TEST_ASSERT_EQUAL_UINT32(checksBefore, MeshCoreRepeater::advertSignatureChecks); // nothing verified on the RX path
+    proveAdvertSignature(frame, len);
     Time::advanceTestMillis(9 * 60 * 1000UL);
     TEST_ASSERT_FALSE(repeater.handleReceivedFrame(frame, len, -6.0f, kAirtimeMs));
     TEST_ASSERT_EQUAL_UINT32(1, repeater.rxRateLimited);
@@ -2184,6 +2197,24 @@ void test_advert_gap_keeps_one_advert_per_key_per_window()
     uint8_t otherFrame[MeshCoreRepeater::MAX_FRAME_LEN];
     const size_t otherLen = makeNeighborAdvert(other, 0x3D, "Otra", otherFrame);
     TEST_ASSERT_TRUE(repeater.handleReceivedFrame(otherFrame, otherLen, -6.0f, kAirtimeMs)); // another key: own window
+}
+
+void test_advert_gap_is_not_opened_by_a_forged_advert()
+{
+    MeshCoreRepeater::forgetVerifiedAdverts();
+    MeshCoreRepeater repeater, sender;
+    uint8_t genuine[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = makeNeighborAdvert(sender, 0x3E, "Cima", genuine);
+    uint8_t forged[MeshCoreRepeater::MAX_FRAME_LEN];
+    memcpy(forged, genuine, len);
+    forged[len - 1] ^= 0x01; // the victim's key, a name the signature does not cover
+    repeater.setFirewall(0, 10, 0);
+
+    TEST_ASSERT_TRUE(repeater.handleReceivedFrame(forged, len, -6.0f, kAirtimeMs));
+    proveAdvertSignature(forged, len); // rejected
+    Time::advanceTestMillis(60 * 1000UL);
+    TEST_ASSERT_TRUE(repeater.handleReceivedFrame(genuine, len, -6.0f, kAirtimeMs)); // the real node still gets through
+    TEST_ASSERT_EQUAL_UINT32(0, repeater.rxRateLimited);
 }
 
 void test_hop_rate_caps_what_one_neighbouring_repeater_forwards_a_minute()
@@ -2341,6 +2372,7 @@ void setup()
     RUN_TEST(test_source_hash_cut_is_off_unless_the_rule_is_on);
     RUN_TEST(test_drop_rule_silences_its_payload_types_only);
     RUN_TEST(test_advert_gap_keeps_one_advert_per_key_per_window);
+    RUN_TEST(test_advert_gap_is_not_opened_by_a_forged_advert);
     RUN_TEST(test_hop_rate_caps_what_one_neighbouring_repeater_forwards_a_minute);
     RUN_TEST(test_one_byte_path_hashes_are_never_matched_against_the_ignore_list);
     RUN_TEST(test_taking_a_node_off_the_ignore_list_lets_its_traffic_through_again);

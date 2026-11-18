@@ -91,28 +91,9 @@ bool MeshCoreRepeater::rateLimited(const uint8_t *raw, const FrameInfo &info)
     const uint32_t now = Time::getMillis();
 
     // One advert per key per gap: a node that re-announces itself every few seconds is noise, not presence.
-    if (fwAdvertGapMin != 0 && info.payload_type == MC_PAYLOAD_TYPE_ADVERT && info.payload_len >= MC_PUB_KEY_SIZE) {
-        const uint32_t key = MeshCoreNodeStore<1>::nodeNumForKey(&raw[info.header_len]);
-        AdvertSeen *slot = nullptr;
-        for (AdvertSeen &seen : advertSeen) {
-            if (seen.key == key) {
-                slot = &seen;
-                break;
-            }
-        }
-        const uint32_t gapMs = (uint32_t)fwAdvertGapMin * 60000UL;
-        if (slot && Throttle::isWithinTimespanMs(slot->atMs, gapMs))
-            return true;
-        // Only a genuine advert opens the gap; a forged one carrying someone else's key would otherwise silence them.
-        if (!verifyAdvert(&raw[info.header_len], info.payload_len))
-            return false;
-        if (!slot) {
-            slot = &advertSeen[advertSeenNext];
-            advertSeenNext = (uint8_t)((advertSeenNext + 1) % ADVERT_SEEN_SIZE);
-            slot->key = key;
-        }
-        slot->atMs = now;
-    }
+    if (fwAdvertGapMin != 0 && info.payload_type == MC_PAYLOAD_TYPE_ADVERT && info.payload_len >= MC_PUB_KEY_SIZE &&
+        advertWithinGap(&raw[info.header_len], info.payload_len))
+        return true;
 
     // At most N frames a minute from one neighbouring repeater, named by the last hop of the path (2- or 3-byte hashes).
     const bool flood = info.route_type == MC_ROUTE_FLOOD || info.route_type == MC_ROUTE_TRANSPORT_FLOOD;
@@ -140,6 +121,52 @@ bool MeshCoreRepeater::rateLimited(const uint8_t *raw, const FrameInfo &info)
         if (slot->count >= fwHopRatePerMin)
             return true;
         slot->count++;
+    }
+    return false;
+}
+
+MeshCoreRepeater::AdvertSeen &MeshCoreRepeater::advertSlotFor(uint32_t key)
+{
+    for (AdvertSeen &seen : advertSeen) {
+        if (seen.key == key)
+            return seen;
+    }
+    AdvertSeen &slot = advertSeen[advertSeenNext];
+    advertSeenNext = (uint8_t)((advertSeenNext + 1) % ADVERT_SEEN_SIZE);
+    slot = AdvertSeen();
+    slot.key = key;
+    return slot;
+}
+
+bool MeshCoreRepeater::advertWithinGap(const uint8_t *payload, size_t payloadLen)
+{
+    // Only a genuine advert opens the gap; a forged one carrying someone else's key would otherwise silence them. Ed25519
+    // would deafen the radio here, on the receive path, so the verdict comes from the signature caches alone.
+    AdvertSeen &slot = advertSlotFor(MeshCoreNodeStore<1>::nodeNumForKey(payload));
+    if (slot.hasCandidate && cachedAdvertVerdict(slot.candidate) == AdvertVerdict::GENUINE) {
+        slot.gapOpen = true;
+        slot.atMs = slot.candidateAtMs;
+        slot.hasCandidate = false;
+    }
+    const uint32_t gapMs = (uint32_t)fwAdvertGapMin * 60000UL;
+    if (slot.gapOpen && Throttle::isWithinTimespanMs(slot.atMs, gapMs))
+        return true;
+
+    uint8_t digest[ADVERT_DIGEST_LEN];
+    advertDigest(payload, payloadLen, digest);
+    switch (cachedAdvertVerdict(digest)) {
+    case AdvertVerdict::GENUINE:
+        slot.gapOpen = true;
+        slot.atMs = Time::getMillis();
+        slot.hasCandidate = false;
+        break;
+    case AdvertVerdict::UNKNOWN:
+        memcpy(slot.candidate, digest, ADVERT_DIGEST_LEN);
+        slot.candidateAtMs = Time::getMillis();
+        slot.hasCandidate = true;
+        break;
+    case AdvertVerdict::FORGED:
+        break; // dropped further on; it must not open the gap
     }
     return false;
 }

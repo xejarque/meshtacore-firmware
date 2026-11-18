@@ -6,6 +6,7 @@
 
 #include "Channels.h"
 #include "MeshCoreDedup.h"
+#include "MeshCoreDeferredAdverts.h"
 #include "MeshCoreNodeFile.h"
 #include "MeshCoreNodeStore.h"
 #include "MeshCoreRepeater.h"
@@ -398,8 +399,17 @@ class MeshCoreCompanion
     /// How long a direct message waits for its ACK before the client is told it failed.
     static constexpr uint32_t ACK_TIMEOUT_MS = 30000;
 
-    /// Run periodically: report direct messages whose ACK never came.
+    /// Run periodically: report direct messages whose ACK never came, and check one deferred ADVERT's signature.
     void service();
+
+    /// Check the signature of the oldest ADVERT waiting for one and, if it holds, take the advert in. The receive path never
+    /// runs Ed25519 (the radio would be deaf meanwhile): an advert the signature caches do not know yet waits for this.
+    void verifyDeferredAdvert();
+    bool hasDeferredAdverts() const
+    {
+        concurrency::RecursiveLockGuard guard(lock);
+        return !deferredAdverts.empty();
+    }
 
     /// The MeshCore nodes worth keeping across a reboot as a flash image (MeshCoreNodeFile): favourites, then
     /// conversations, then the rest. Returns the image length, 0 if cap is below MeshCoreNodeFile::IMAGE_MAX.
@@ -471,6 +481,9 @@ class MeshCoreCompanion
     void handleGroupText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi,
                          float freqErr);
     void handleAdvert(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi);
+    /// True when the advert's signature is already proven. An advert not checked yet is deferred, a forged one refused.
+    bool advertProven(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi);
+    MeshCoreDeferredAdverts deferredAdverts;
     void handleDirectText(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info, float snr, int32_t rssi,
                           float freqErr);
     void handleAck(const uint8_t *raw, size_t len, const MeshCoreRepeater::FrameInfo &info);

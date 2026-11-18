@@ -948,6 +948,15 @@ class CaptureRadio : public RadioInterface
 };
 
 // Our identity (kSeedA) with one contact, Bob (kSeedB), who has a key. Swaps in a node DB and a capturing router for the test.
+// A frame as the radio delivers it, then the service ticks that check any advert signature it left waiting: the receive
+// path never runs Ed25519 itself.
+static void hear(MeshCoreCompanion &c, const uint8_t *raw, size_t len, float snr, int32_t rssi, float freqErr = 0.0f)
+{
+    c.handleFrame(raw, len, snr, rssi, freqErr);
+    while (c.hasDeferredAdverts())
+        c.verifyDeferredAdvert();
+}
+
 struct DirectSetup {
     // A RadioInterface sizes its slot time from the region in force, which nothing earlier in this suite sets.
     struct RegionReady {
@@ -989,7 +998,7 @@ void test_direct_relay_echo_reports_relayed_then_delivered(void)
 
     uint8_t echo[MeshCoreRepeater::MAX_FRAME_LEN];
     const size_t echoLen = repeaterEcho(s.radio.frame, s.radio.frameLen, echo);
-    s.c.handleFrame(echo, echoLen, 0, 0);
+    hear(s.c, echo, echoLen, 0, 0);
     TEST_ASSERT_EQUAL_UINT(1, s.capture.received.size());
     const meshtastic_MeshPacket &relayed = s.capture.received[0];
     TEST_ASSERT_EQUAL_UINT32(nodeDB->getNodeNum(), relayed.from);
@@ -997,7 +1006,7 @@ void test_direct_relay_echo_reports_relayed_then_delivered(void)
     TEST_ASSERT_EQUAL_HEX8(0xAB, relayed.relay_node);
     TEST_ASSERT_EQUAL(meshtastic_Routing_Error_NONE, routingError(relayed));
 
-    s.c.handleFrame(echo, echoLen, 0, 0); // another repeater re-flooding it
+    hear(s.c, echo, echoLen, 0, 0); // another repeater re-flooding it
     TEST_ASSERT_EQUAL_UINT(1, s.capture.received.size());
 
     MeshCoreRepeater::FrameInfo info;
@@ -1012,7 +1021,7 @@ void test_direct_relay_echo_reports_relayed_then_delivered(void)
 
     uint8_t ack[6];
     const size_t ackLen = MeshCoreCompanion::encodeAck(MeshCoreCompanion::ackHash(ts, flags, text, s.pubA), ack, sizeof(ack));
-    s.c.handleFrame(ack, ackLen, 0, 0);
+    hear(s.c, ack, ackLen, 0, 0);
     TEST_ASSERT_EQUAL_UINT(2, s.capture.received.size());
     TEST_ASSERT_EQUAL_UINT32(s.bobNum, s.capture.received[1].from);
     TEST_ASSERT_EQUAL(meshtastic_Routing_Error_NONE, routingError(s.capture.received[1]));
@@ -1026,7 +1035,7 @@ void test_relayed_direct_message_times_out_silently(void)
     TEST_ASSERT_TRUE(s.c.sendDirectText(s.bobNum, 42, "hola", 1700000000, &s.radio));
     uint8_t echo[MeshCoreRepeater::MAX_FRAME_LEN];
     const size_t echoLen = repeaterEcho(s.radio.frame, s.radio.frameLen, echo);
-    s.c.handleFrame(echo, echoLen, 0, 0);
+    hear(s.c, echo, echoLen, 0, 0);
     TEST_ASSERT_EQUAL_UINT(1, s.capture.received.size());
 
     Time::setTestMillis(1000 + MeshCoreCompanion::ACK_TIMEOUT_MS + 1);
@@ -1403,7 +1412,7 @@ static const meshtastic_MeshPacket &receiveFromBob(DirectSetup &s, uint32_t time
     const size_t len =
         MeshCoreCompanion::encodeDirectText(secret, s.pubA[0], s.pubB[0], timestamp, 0, "hola", frame, sizeof(frame));
     const size_t before = s.capture.received.size();
-    s.c.handleFrame(frame, len, 0, 0);
+    hear(s.c, frame, len, 0, 0);
     TEST_ASSERT_TRUE(s.capture.received.size() > before);
     return s.capture.received.back();
 }
@@ -1490,7 +1499,7 @@ void test_path_command_answers_a_direct_message(void)
     const size_t len = MeshCoreCompanion::encodeDirectText(secret, s.pubA[0], s.pubB[0], 1, 0, "hola", frame, sizeof(frame));
     const uint8_t hops[] = {0xAB, 0xCD};
     const size_t pathLen = withPath(frame, len, path, 2, hops, 1);
-    s.c.handleFrame(path, pathLen, -7.5f, -95);
+    hear(s.c, path, pathLen, -7.5f, -95);
 
     TEST_ASSERT_TRUE(!s.capture.received.empty());
     const meshtastic_MeshPacket original = s.capture.received.back();
@@ -1528,7 +1537,7 @@ void test_path_command_answers_our_channel_text_with_its_echo(void)
     TEST_ASSERT_TRUE(s.c.trackGroupText(frame, len, packetId, 0));
 
     const size_t echoLen = repeaterEcho(frame, len, echo);
-    s.c.handleFrame(echo, echoLen, -4.0f, -90);
+    hear(s.c, echo, echoLen, -4.0f, -90);
     char texts[256];
     collectReports(s.capture, 0, texts, sizeof(texts));
     TEST_ASSERT_EQUAL_STRING("", texts); // the echo is no new text, only a route
@@ -1568,7 +1577,7 @@ void test_path_command_answers_our_direct_message_with_its_echo(void)
     TEST_ASSERT_TRUE(s.c.sendDirectText(s.bobNum, 42, "hola", 1700000000, &s.radio));
     uint8_t echo[MeshCoreRepeater::MAX_FRAME_LEN];
     const size_t echoLen = repeaterEcho(s.radio.frame, s.radio.frameLen, echo);
-    s.c.handleFrame(echo, echoLen, -4.0f, -90);
+    hear(s.c, echo, echoLen, -4.0f, -90);
 
     meshtastic_MeshPacket command = textPacket(0, 42, ".path");
     command.to = s.bobNum;
@@ -1594,12 +1603,12 @@ void test_path_command_lists_every_route(void)
     const size_t longLen = withPath(frame, len, longPath, 2, longHops, 2);
     const size_t shortLen = withPath(frame, len, shortPath, 2, shortHops, 1);
 
-    s.c.handleFrame(longPath, longLen, -7.5f, -95); // two repeaters
+    hear(s.c, longPath, longLen, -7.5f, -95); // two repeaters
     TEST_ASSERT_TRUE(!s.capture.received.empty());
     const meshtastic_MeshPacket original = s.capture.received.back();
     const size_t injected = s.capture.received.size();
 
-    s.c.handleFrame(shortPath, shortLen, -4.0f, -70);            // same text, one repeater
+    hear(s.c, shortPath, shortLen, -4.0f, -70);            // same text, one repeater
     TEST_ASSERT_EQUAL_UINT(injected, s.capture.received.size()); // a route, not a second message
 
     meshtastic_MeshPacket command = textPacket(0, original.id, ".path");
@@ -1693,7 +1702,7 @@ void test_repeater_advert_is_stored_and_names_its_hop()
     uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
     const size_t len = other.buildAdvert(frame, sizeof(frame), "Montjuic RPT", 1792521507, true, true);
     TEST_ASSERT_GREATER_THAN(0, len);
-    s.c.handleFrame(frame, len, 5, -60);
+    hear(s.c, frame, len, 5, -60);
 
     // A repeater is remembered as a key prefix and a short name in its own table, never in the contact table.
     TEST_ASSERT_NULL(s.c.nodes.find(other.getAliasPub()));
@@ -1896,7 +1905,7 @@ void test_own_alias_advert_is_not_learned_as_a_contact()
     TEST_ASSERT_GREATER_THAN(0, len);
 
     const size_t nodesBefore = nodeDB->getNumMeshNodes();
-    s.c.handleFrame(frame, len, 5, -60);
+    hear(s.c, frame, len, 5, -60);
     TEST_ASSERT_EQUAL_UINT32(nodesBefore, nodeDB->getNumMeshNodes());
     TEST_ASSERT_NULL(s.c.nodes.find(s.repeater.getAliasPub()));
 }
@@ -2031,7 +2040,7 @@ void test_trace_response_formats_snr_report(void)
     rxFrame[i++] = 0xAA;
     rxFrame[i++] = 0x11;
 
-    s.c.handleFrame(rxFrame, i, 9.25f, -70);
+    hear(s.c, rxFrame, i, 9.25f, -70);
     TEST_ASSERT_FALSE(s.c.activeTrace.active);
 
     char body[512];
@@ -2130,7 +2139,7 @@ void test_repeater_adverts_never_take_a_contact_slot()
     s.c.learnContact(friendKey, "Friend");
     for (uint8_t i = 0; i < 6; i++) {
         const RepeaterAdvert a = makeRepeaterAdvert("Rpt", (uint8_t)(0x10 + i * 7));
-        s.c.handleFrame(a.frame, a.len, 5, -60);
+        hear(s.c, a.frame, a.len, 5, -60);
     }
     TEST_ASSERT_EQUAL_UINT32(1, s.c.nodes.count());
     TEST_ASSERT_EQUAL_UINT32(6, s.c.repeaterNames().count());
@@ -2143,18 +2152,18 @@ void test_repeater_advert_with_a_bad_signature_is_ignored()
     GroupSetup s;
     giveIdentity(s.c);
     RepeaterAdvert good = makeRepeaterAdvert("Tower", 0x30);
-    s.c.handleFrame(good.frame, good.len, 5, -60);
+    hear(s.c, good.frame, good.len, 5, -60);
     TEST_ASSERT_EQUAL_UINT32(1, s.c.repeaterNames().count());
 
     RepeaterAdvert forged = makeRepeaterAdvert("Tower", 0x30, 1792521999);
     forged.frame[46] ^= 0xFF; // a byte of the signature (2-byte header, 32-byte key, 4-byte time, then the signature)
-    s.c.handleFrame(forged.frame, forged.len, 9, -40);
+    hear(s.c, forged.frame, forged.len, 9, -40);
     TEST_ASSERT_EQUAL_UINT32(1, s.c.repeaterNames().count());
     TEST_ASSERT_EQUAL_FLOAT(5.0f, s.c.repeaterNames().nthNewest(0)->snr()); // not refreshed by the forgery
 
     RepeaterAdvert other = makeRepeaterAdvert("Tower", 0x61);
     other.frame[46] ^= 0xFF;
-    s.c.handleFrame(other.frame, other.len, 5, -60);
+    hear(s.c, other.frame, other.len, 5, -60);
     TEST_ASSERT_EQUAL_UINT32(1, s.c.repeaterNames().count()); // and a forged stranger is not added
 }
 
@@ -2165,12 +2174,12 @@ void test_repeater_advert_copy_is_dropped_and_a_new_advert_refreshes()
     GroupSetup s;
     giveIdentity(s.c);
     const RepeaterAdvert first = makeRepeaterAdvert("Tower", 0x30);
-    s.c.handleFrame(first.frame, first.len, 5, -60);
-    s.c.handleFrame(first.frame, first.len, 9, -40); // the same flood by another route
+    hear(s.c, first.frame, first.len, 5, -60);
+    hear(s.c, first.frame, first.len, 9, -40); // the same flood by another route
     TEST_ASSERT_EQUAL_FLOAT(5.0f, s.c.repeaterNames().nthNewest(0)->snr());
 
     const RepeaterAdvert later = makeRepeaterAdvert("Tower", 0x30, 1792521507 + 3600);
-    s.c.handleFrame(later.frame, later.len, 9, -40);
+    hear(s.c, later.frame, later.len, 9, -40);
     TEST_ASSERT_EQUAL_UINT32(1, s.c.repeaterNames().count());
     TEST_ASSERT_EQUAL_FLOAT(9.0f, s.c.repeaterNames().nthNewest(0)->snr());
 }
@@ -2182,11 +2191,11 @@ void test_old_signed_repeater_advert_is_a_replay_and_changes_nothing()
     GroupSetup s;
     giveIdentity(s.c);
     const RepeaterAdvert later = makeRepeaterAdvert("Tower", 0x30, 1792521507 + 3600);
-    s.c.handleFrame(later.frame, later.len, 5, -60);
+    hear(s.c, later.frame, later.len, 5, -60);
     TEST_ASSERT_EQUAL_UINT32(1, s.c.repeaterNames().count());
 
     const RepeaterAdvert replay = makeRepeaterAdvert("Hacked", 0x30, 1792521507 + 60);
-    s.c.handleFrame(replay.frame, replay.len, 9, -40);
+    hear(s.c, replay.frame, replay.len, 9, -40);
     TEST_ASSERT_EQUAL_UINT32(1, s.c.repeaterNames().count());
     const MeshCoreRepeaterName *e = s.c.repeaterNames().nthNewest(0);
     TEST_ASSERT_EQUAL_FLOAT(5.0f, e->snr());
@@ -2200,9 +2209,9 @@ void test_repeater_advert_timestamp_only_moves_forward()
     giveIdentity(s.c);
     const RepeaterAdvert first = makeRepeaterAdvert("Tower", 0x30, 1792521507);
     const RepeaterAdvert newer = makeRepeaterAdvert("Tower", 0x30, 1792521507 + 3600);
-    s.c.handleFrame(first.frame, first.len, 5, -60);
+    hear(s.c, first.frame, first.len, 5, -60);
     TEST_ASSERT_EQUAL_UINT32(1792521507, s.c.repeaterNames().nthNewest(0)->lastAdvert);
-    s.c.handleFrame(newer.frame, newer.len, 7, -50);
+    hear(s.c, newer.frame, newer.len, 7, -50);
     TEST_ASSERT_EQUAL_UINT32(1792521507 + 3600, s.c.repeaterNames().nthNewest(0)->lastAdvert);
 }
 
@@ -2464,6 +2473,40 @@ static size_t buildAdvertWithPos(uint8_t *out, const uint8_t *seed, const uint8_
 // A contact's key and name are public, so an advert claiming to be a known contact proves nothing until its signature
 // holds. Regression guard: the old shortcut that skipped the check for a known contact under the same name, which let
 // anyone move that contact on the map; and an older genuine advert replayed over a newer one (MeshCore drops those).
+// Ed25519 takes tens of ms on an nRF52 with the radio deaf meanwhile, so a new advert is not checked where it is received:
+// the companion holds it and takes it in on the next service tick, once its signature holds. Copies of it wait in one slot.
+void test_advert_signature_is_checked_on_the_service_tick_not_on_receive(void)
+{
+    MeshCoreRepeater::forgetVerifiedAdverts();
+    GroupSetup s;
+    uint8_t seed[32];
+    for (int i = 0; i < 32; i++)
+        seed[i] = (uint8_t)(0x35 ^ i);
+    uint8_t pub[32];
+    Ed25519::derivePublicKey(pub, seed);
+    s.c.setIdentity(seed, pub);
+
+    uint8_t remoteSeed[32];
+    for (int i = 0; i < 32; i++)
+        remoteSeed[i] = (uint8_t)(0x46 ^ i);
+    uint8_t remotePub[32];
+    Ed25519::derivePublicKey(remotePub, remoteSeed);
+    uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
+    const size_t len = buildAdvertWithPos(frame, remoteSeed, remotePub, "Diferido", 41387900, 2169900, 1792521507);
+
+    const uint32_t checksBefore = MeshCoreRepeater::advertSignatureChecks;
+    s.c.handleFrame(frame, len, 6.5f, -70);
+    s.c.handleFrame(frame, len, 4.0f, -80); // the same advert by another route
+    TEST_ASSERT_EQUAL_UINT32(checksBefore, MeshCoreRepeater::advertSignatureChecks);
+    TEST_ASSERT_EQUAL_UINT32(0, s.c.contactsLearned);
+    TEST_ASSERT_TRUE(s.c.hasDeferredAdverts());
+
+    s.c.service();
+    TEST_ASSERT_EQUAL_UINT32(checksBefore + 1, MeshCoreRepeater::advertSignatureChecks);
+    TEST_ASSERT_EQUAL_UINT32(1, s.c.contactsLearned);
+    TEST_ASSERT_FALSE(s.c.hasDeferredAdverts());
+}
+
 void test_known_contact_advert_must_be_signed_and_newer(void)
 {
     GroupSetup s;
@@ -2475,22 +2518,22 @@ void test_known_contact_advert_must_be_signed_and_newer(void)
 
     uint8_t frame[MeshCoreRepeater::MAX_FRAME_LEN];
     size_t len = buildAdvertWithPos(frame, remoteSeed, remotePub, "Friend", 41387900, 2169900, 1792521507);
-    s.c.handleFrame(frame, len, 6.5f, -70);
+    hear(s.c, frame, len, 6.5f, -70);
     const MeshCoreNode *n = s.c.nodes.find(remotePub);
     TEST_ASSERT_NOT_NULL(n);
     TEST_ASSERT_EQUAL_INT32(41387900, n->latitudeMicro);
 
     len = buildAdvertWithPos(frame, remoteSeed, remotePub, "Friend", 10000000, 10000000, 1792521600);
     frame[2 + 32 + 4] ^= 0x01; // break the signature
-    s.c.handleFrame(frame, len, 6.5f, -70);
+    hear(s.c, frame, len, 6.5f, -70);
     TEST_ASSERT_EQUAL_INT32(41387900, n->latitudeMicro);
 
     len = buildAdvertWithPos(frame, remoteSeed, remotePub, "Friend", 42000000, 2000000, 1792521600);
-    s.c.handleFrame(frame, len, 6.5f, -70);
+    hear(s.c, frame, len, 6.5f, -70);
     TEST_ASSERT_EQUAL_INT32(42000000, n->latitudeMicro); // a newer genuine advert moves it
 
     len = buildAdvertWithPos(frame, remoteSeed, remotePub, "Friend", 41387900, 2169900, 1792521507);
-    s.c.handleFrame(frame, len, 6.5f, -70);
+    hear(s.c, frame, len, 6.5f, -70);
     TEST_ASSERT_EQUAL_INT32(42000000, n->latitudeMicro); // the older one replayed does not
 }
 
@@ -2519,7 +2562,7 @@ void test_advert_with_position_announces_real_hops(void)
     const size_t len = buildAdvertWithPos(frame, remoteSeed, remotePub, "DirectNode", 41387900, 2169900, 1792521507);
     TEST_ASSERT_GREATER_THAN(0, len);
 
-    s.c.handleFrame(frame, len, 6.5f, -70);
+    hear(s.c, frame, len, 6.5f, -70);
     TEST_ASSERT_GREATER_OR_EQUAL(2, s.capture.received.size());
 
     meshtastic_MeshPacket *nodeInfoPkt = nullptr;
@@ -2551,7 +2594,7 @@ void test_advert_with_position_announces_real_hops(void)
     uint8_t hops[2] = {0x11, 0x22};
     uint8_t relayedFrame[MeshCoreRepeater::MAX_FRAME_LEN];
     const size_t relayedLen = withPath(frame2, len2, relayedFrame, 1, hops, 2);
-    s.c.handleFrame(relayedFrame, relayedLen, 0.0f, -90);
+    hear(s.c, relayedFrame, relayedLen, 0.0f, -90);
 
     nodeInfoPkt = nullptr;
     posPkt = nullptr;
@@ -2778,7 +2821,7 @@ void test_handle_frame_carries_the_frequency_error(void)
     TEST_ASSERT_GREATER_THAN(0, len);
 
     const size_t before = s.capture.received.size();
-    s.c.handleFrame(frame, len, -3.5f, -90, -12.0f);
+    hear(s.c, frame, len, -3.5f, -90, -12.0f);
     TEST_ASSERT_TRUE(s.capture.received.size() > before);
     TEST_ASSERT_EQUAL_FLOAT(-12.0f, s.capture.received.back().rx_frequency_error);
 
@@ -2787,7 +2830,7 @@ void test_handle_frame_carries_the_frequency_error(void)
     const size_t otherLen =
         MeshCoreCompanion::encodeGroupText(kPublicKey, sizeof(kPublicKey), "Alice", 0x01020305, "ping2", other, sizeof(other));
     TEST_ASSERT_GREATER_THAN(0, otherLen);
-    s.c.handleFrame(other, otherLen, -3.5f, -90, 47.0f);
+    hear(s.c, other, otherLen, -3.5f, -90, 47.0f);
     TEST_ASSERT_EQUAL_FLOAT(47.0f, s.capture.received.back().rx_frequency_error);
 }
 
@@ -2814,7 +2857,7 @@ void test_group_text_naming_a_contact_does_not_touch_its_metadata(void)
     const size_t len =
         MeshCoreCompanion::encodeGroupText(kPublicKey, sizeof(kPublicKey), "Alice", 0x01020304, "soy yo", frame, sizeof(frame));
     TEST_ASSERT_GREATER_THAN(0, len);
-    s.c.handleFrame(frame, len, -15.0f, -120);
+    hear(s.c, frame, len, -15.0f, -120);
 
     // Still one node per person: the text lands on Alice's node...
     TEST_ASSERT_FALSE(s.capture.received.empty());
@@ -2959,6 +3002,7 @@ void setup()
     RUN_TEST(test_a_long_route_keeps_its_signal_line);
     RUN_TEST(test_advert_with_position_announces_real_hops);
     RUN_TEST(test_known_contact_advert_must_be_signed_and_newer);
+    RUN_TEST(test_advert_signature_is_checked_on_the_service_tick_not_on_receive);
     RUN_TEST(test_unified_vecinos_formatting);
     RUN_TEST(test_meshcore_ping_formatting);
     RUN_TEST(test_route_line_formatting);
