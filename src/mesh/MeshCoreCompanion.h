@@ -383,6 +383,7 @@ class MeshCoreCompanion
     bool restoreRepeater(const uint8_t *record, const MeshCoreNodeFile::RepeaterTail &tail)
     {
         concurrency::RecursiveLockGuard guard(lock);
+        storeChanges++;
         return MeshCoreNodeFile::readRepeaterRecord(repeaters, record, tail);
     }
     /// Changes when the set of repeaters or a name does, not when one is heard again.
@@ -421,6 +422,16 @@ class MeshCoreCompanion
     /// Checksum of the saved set (not its order), to save only when it changed. Syncs with the node DB first.
     uint32_t contactsFingerprint();
 
+    /// Moves on whenever the nodes or the repeater names may have changed: while it stays put, the fingerprints (a pass
+    /// over every stored node) cannot have changed either and need not be computed.
+    uint32_t storeRevision() const
+    {
+        concurrency::RecursiveLockGuard guard(lock);
+        return storeChanges + nodes.getRevision() + repeaters.getRevision();
+    }
+    /// For code that writes a node field straight through a pointer, under storeLock(): the stores cannot see that.
+    void noteStoreChanged() { storeChanges++; }
+
     /// Mark our nodes in the node DB as MeshCore (evicted early) and copy back the client's favourite stars, which it sets
     /// there. One node DB lookup per stored node: run it on a slow cadence, not every housekeeping tick.
     void syncWithNodeDB();
@@ -441,6 +452,8 @@ class MeshCoreCompanion
 
   private:
     mutable concurrency::RecursiveLock lock;
+    /// Bumped by every entry point that may write a node field directly, which the stores' own revisions cannot see.
+    uint32_t storeChanges = 0;
 
     static constexpr size_t DEDUP_ENTRIES = 64;
 
@@ -585,11 +598,27 @@ class MeshCoreCompanion
     InjectedDirect injectedDirect[INJECTED_DIRECTS];
     size_t injectedDirectNext = 0;
 
+    /// What a contact's star needs once syncFavorite() has run: nothing more, or to be set on its node DB copy.
+    enum class FavoriteSync : uint8_t { DONE, PUSH_TO_NODE_DB };
+    /// Keep a contact's star in step with its node DB copy (see syncWithNodeDB). Never writes the node DB itself: setting
+    /// a favourite may re-sort it, which would break the walk over it.
+    FavoriteSync syncFavorite(MeshCoreNode &n, const meshtastic_NodeInfoLite *lite);
+
+    /// The stored nodes sorted by node number, rebuilt for each syncWithNodeDB(): one walk over the node DB then finds each
+    /// of its MeshCore nodes by binary search, instead of one node DB scan per stored node.
+    struct SyncSlot {
+        MeshCoreNode *node;
+        bool inNodeDb;
+    };
+    SyncSlot syncIndex[MESHCORE_NODES_MAX];
+    size_t indexStoreByNodeNum();
+    SyncSlot *findIndexed(uint32_t nodeNum, size_t indexed);
+    /// Stars a single sync sets on node DB copies; any beyond wait for the next sync.
+    static constexpr size_t STARS_PUSHED_PER_SYNC = 8;
+
     /// Tell the router, and through it the client, about a node: a NODEINFO packet from it carrying how the frame was heard.
     /// That packet is what puts the node in the node DB with its name, last-heard, signal, hops and the LoRa slot it was
     /// heard on, exactly as for a Meshtastic node.
-    /// Keep a contact's star in step with its node DB copy (see syncWithNodeDB).
-    static void syncFavorite(MeshCoreNode &n, const meshtastic_NodeInfoLite *lite);
     void announceUser(uint32_t nodeNum, const meshtastic_User &user, const MeshCoreRx &rx);
     void announceIfNeeded(uint32_t nodeNum, const meshtastic_User &user, const MeshCoreRx &rx);
 

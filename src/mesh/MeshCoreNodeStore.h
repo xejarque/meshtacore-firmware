@@ -116,6 +116,7 @@ template <size_t N> class MeshCoreNodeStore
         while (findByNodeNum(num) || num == reserved)
             num = meshCoreNodeNum(num + 1);
         n->nodeNum = num;
+        revision++;
     }
 
     /// The node with this key, created if new. Refreshes its recency either way.
@@ -204,29 +205,43 @@ template <size_t N> class MeshCoreNodeStore
         return collectByPrefix(entries, prefix, size, out, max);
     }
 
-    void touch(MeshCoreNode *n) { n->lastMod = ++clock; }
+    void touch(MeshCoreNode *n)
+    {
+        n->lastMod = ++clock;
+        revision++;
+    }
 
     void noteDirectMessage(MeshCoreNode *n)
     {
         n->flags |= MeshCoreNode::HAD_DM;
         n->lastDm = ++clock;
+        revision++;
     }
 
     void setFavorite(MeshCoreNode *n, bool on)
     {
+        if (n->isFavorite() == on)
+            return;
         if (on)
             n->flags |= MeshCoreNode::FAVORITE;
         else
             n->flags &= ~MeshCoreNode::FAVORITE;
+        revision++;
     }
 
     bool remove(const uint8_t pub[32])
     {
         MeshCoreNode *n = find(pub);
-        if (n)
-            *n = MeshCoreNode();
-        return n != nullptr;
+        if (!n)
+            return false;
+        *n = MeshCoreNode();
+        revision++;
+        return true;
     }
+
+    /// Moves on with every change made through this class: equal values mean nothing was added, removed, touched,
+    /// renumbered or starred in between. A field written straight through a node pointer does not move it.
+    uint32_t getRevision() const { return revision; }
 
     static constexpr size_t capacity() { return N; }
 
@@ -298,6 +313,7 @@ template <size_t N> class MeshCoreNodeStore
         return total;
     }
     uint32_t clock = 0;
+    uint32_t revision = 0;
 
     /// A free slot, else the oldest node not kept, else the oldest of all.
     size_t victim() const

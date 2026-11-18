@@ -630,6 +630,11 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
      */
     uint32_t meshCoreServiceTick();
 
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+    /// Write the MeshCore nodes to flash when they changed and their save window has run out.
+    void saveMeshCoreContactsIfChanged();
+#endif
+
     /// Load /prefs/meshcore_config.bin into the settings and apply them. A missing or bad file changes nothing.
     void reloadMeshCoreConfig();
 
@@ -681,6 +686,9 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
   private:
     uint32_t meshCoreContactsFingerprint = 0; // of what is on flash, so a save happens only on a change
     uint32_t meshCoreRepeatersFingerprint = 0; // same for the repeater names saved in that file
+    uint32_t meshCoreStoreRevisionSeen = 0;    // the store revision the fingerprints were last computed at
+    bool meshCoreContactsChanged = false;      // the contacts differ from what is on flash
+    bool meshCoreRepeatersChanged = false;     // the repeater names differ from what is on flash
     uint32_t lastMeshCoreContactsSaveMs = 0;
     uint32_t lastMeshCoreNodeDbSyncMs = 0;
     bool meshCoreContactsLoaded = false;

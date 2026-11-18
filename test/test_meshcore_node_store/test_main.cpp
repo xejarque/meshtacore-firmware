@@ -34,6 +34,39 @@ static MeshCoreNode *addNode(MeshCoreNodeStore<4> &store, uint8_t first, uint8_t
 void setUp() {}
 void tearDown() {}
 
+// --- revision: the save check skips its fingerprint pass while nothing changed ---
+
+// Every change made through the store moves the revision; a no-op favourite and a lookup do not.
+void test_revision_moves_with_every_change_and_only_then()
+{
+    MeshCoreNodeStore<4> store;
+    uint32_t r = store.getRevision();
+    MeshCoreNode *n = addNode(store, 0xA1);
+    TEST_ASSERT_NOT_EQUAL_UINT32(r, store.getRevision());
+
+    r = store.getRevision();
+    uint8_t pub[32];
+    makeKey(pub, 0xA1);
+    TEST_ASSERT_NOT_NULL(store.find(pub));
+    store.setFavorite(n, false); // already not a favourite
+    TEST_ASSERT_EQUAL_UINT32(r, store.getRevision());
+
+    store.setFavorite(n, true);
+    TEST_ASSERT_NOT_EQUAL_UINT32(r, store.getRevision());
+    r = store.getRevision();
+    store.noteDirectMessage(n);
+    TEST_ASSERT_NOT_EQUAL_UINT32(r, store.getRevision());
+    r = store.getRevision();
+    store.assignNodeNum(n, 0x4D000001, 0);
+    TEST_ASSERT_NOT_EQUAL_UINT32(r, store.getRevision());
+    r = store.getRevision();
+    TEST_ASSERT_TRUE(store.remove(pub));
+    TEST_ASSERT_NOT_EQUAL_UINT32(r, store.getRevision());
+    r = store.getRevision();
+    TEST_ASSERT_FALSE(store.remove(pub));
+    TEST_ASSERT_EQUAL_UINT32(r, store.getRevision());
+}
+
 // --- upsertIfRoom: a discovery scan may add, but never evicts ---
 
 // While there is room it behaves like upsert: creates the record and returns it.
@@ -301,6 +334,7 @@ void setup()
     RUN_TEST(test_name_is_cut_on_a_utf8_boundary);
     RUN_TEST(test_a_new_record_is_all_zeros);
     RUN_TEST(test_record_fits_the_ram_budget);
+    RUN_TEST(test_revision_moves_with_every_change_and_only_then);
     exit(UNITY_END());
 }
 

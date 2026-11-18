@@ -1831,6 +1831,27 @@ void test_the_client_star_wins_after_the_first_sight()
     TEST_ASSERT_TRUE(nodeInfoLiteIsFavorite(nodeDB->getMeshNode(num)));
 }
 
+// The save check only fingerprints the store when its revision moved, so a star set in the client (which reaches the store
+// through the node DB sync) must move it, and a sync that changes nothing must not. Regression guard: a favourite starred
+// in the app never written to flash because the save check thought nothing had changed.
+void test_a_client_star_moves_the_store_revision_and_an_idle_sync_does_not()
+{
+    GroupSetup s;
+    const uint8_t pub[32] = {0x85, 0x86};
+    const uint32_t num = s.c.learnContact(pub, "Estrella")->nodeNum;
+    nodeDB->getOrCreateMeshNode(num);
+    s.c.syncWithNodeDB();
+
+    uint32_t revision = s.c.storeRevision();
+    s.c.syncWithNodeDB();
+    TEST_ASSERT_EQUAL_UINT32(revision, s.c.storeRevision());
+
+    nodeInfoLiteSetBit(nodeDB->getMeshNode(num), NODEINFO_BITFIELD_IS_FAVORITE_MASK, true); // starred in the client
+    s.c.syncWithNodeDB();
+    TEST_ASSERT_TRUE(s.c.nodes.find(pub)->isFavorite());
+    TEST_ASSERT_NOT_EQUAL_UINT32(revision, s.c.storeRevision());
+}
+
 // A repeater heard now carries its node number, its type and when it was heard, which the neighbour listing reads to date it
 // and to tell it apart from the node DB copy of the same repeater.
 void test_a_learned_repeater_is_dated_and_numbered()
@@ -2971,6 +2992,7 @@ void setup()
     RUN_TEST(test_replay_walks_the_nodes_the_node_db_left_out);
     RUN_TEST(test_a_fresh_node_db_copy_gets_the_star_back);
     RUN_TEST(test_the_client_star_wins_after_the_first_sight);
+    RUN_TEST(test_a_client_star_moves_the_store_revision_and_an_idle_sync_does_not);
     RUN_TEST(test_a_learned_repeater_is_dated_and_numbered);
     RUN_TEST(test_trace_command_syntax_help);
     RUN_TEST(test_trace_command_unknown_node_reports_error);

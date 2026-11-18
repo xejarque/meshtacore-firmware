@@ -725,6 +725,7 @@ void NexusModule::finishMeshCoreDiscover()
         const bool wasKnown = meshCoreCompanion.nodes.find(peer.pub) != nullptr;
         MeshCoreNode *n = meshCoreCompanion.nodes.upsertIfRoom(peer.pub);
         if (n) {
+            meshCoreCompanion.noteStoreChanged();
             // The discover answer is unsigned: it may name a new node's type, never overwrite one an ADVERT set.
             if (!wasKnown) {
                 added++;

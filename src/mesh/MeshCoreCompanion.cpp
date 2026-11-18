@@ -22,6 +22,7 @@
 #include <Curve25519.h>
 #include <SHA256.h>
 #include <SHA512.h>
+#include <algorithm>
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -1208,6 +1209,7 @@ void MeshCoreCompanion::injectReportChunk(void *ctx, const char *text, size_t le
 bool MeshCoreCompanion::handlePathCommand(const meshtastic_MeshPacket *p, bool direct)
 {
     concurrency::RecursiveLockGuard guard(lock);
+    storeChanges++;
     if (!p || p->which_payload_variant != meshtastic_MeshPacket_decoded_tag ||
         p->decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP)
         return false;
@@ -1633,6 +1635,7 @@ bool MeshCoreCompanion::startTrace(const char *args, uint32_t fromNum, uint32_t 
                                    bool direct, const MeshCoreNode *c, char *statusReply, size_t statusCap)
 {
     concurrency::RecursiveLockGuard guard(lock);
+    storeChanges++;
     if (activeTrace.active) {
         if (statusReply && statusCap)
             snprintf(statusReply, statusCap, "MESHTACORE: trace already in progress");
@@ -1830,6 +1833,7 @@ bool MeshCoreCompanion::startTrace(const char *args, uint32_t fromNum, uint32_t 
 bool MeshCoreCompanion::handleTraceCommand(const meshtastic_MeshPacket *p, bool direct)
 {
     concurrency::RecursiveLockGuard guard(lock);
+    storeChanges++;
     if (!p || p->which_payload_variant != meshtastic_MeshPacket_decoded_tag ||
         p->decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP)
         return false;
@@ -2092,6 +2096,7 @@ bool MeshCoreCompanion::cachedChannelHash(ChannelIndex ch, const uint8_t *key, s
 void MeshCoreCompanion::handleFrame(const uint8_t *raw, size_t len, float snr, int32_t rssi, float freqErr)
 {
     concurrency::RecursiveLockGuard guard(lock);
+    storeChanges++;
     if (!raw || !router)
         return;
 
@@ -2308,6 +2313,7 @@ bool MeshCoreCompanion::injectedDirectText(const meshtastic_MeshPacket &p) const
 MeshCoreNode *MeshCoreCompanion::learnContact(const uint8_t pub[32], const char *name)
 {
     concurrency::RecursiveLockGuard guard(lock);
+    storeChanges++;
     MeshCoreNode *n = nodes.upsert(pub);
     if (n->type != MeshCoreNode::CHAT)
         n->nodeNum = 0; // a repeater turned chat takes the number contacts get, from its name
@@ -2340,6 +2346,7 @@ const MeshCoreRepeaterName *MeshCoreCompanion::learnRepeater(const uint8_t pub[3
                                                              uint32_t advertTime)
 {
     concurrency::RecursiveLockGuard guard(lock);
+    storeChanges++;
     MeshCoreHeard how;
     how.snr = snr;
     how.hops = hops;
@@ -2504,6 +2511,7 @@ bool MeshCoreCompanion::advertProven(const uint8_t *raw, size_t len, const MeshC
 void MeshCoreCompanion::verifyDeferredAdvert()
 {
     concurrency::RecursiveLockGuard guard(lock);
+    storeChanges++;
     MeshCoreDeferredAdverts::Entry advert;
     if (!deferredAdverts.takeOldest(advert))
         return;
@@ -2759,6 +2767,7 @@ void MeshCoreCompanion::settleEcho(uint32_t hash)
 bool MeshCoreCompanion::sendDirectText(uint32_t nodeNum, uint32_t packetId, const char *text, uint32_t now, RadioInterface *iface)
 {
     concurrency::RecursiveLockGuard guard(lock);
+    storeChanges++;
     MeshCoreNode *c = contactByNodeNum(nodeNum);
     const uint8_t *secret = c && iface && now != 0 && text ? secretFor(*c) : nullptr;
     if (!secret)
@@ -2861,32 +2870,61 @@ void MeshCoreCompanion::service()
 void MeshCoreCompanion::syncWithNodeDB()
 {
     concurrency::RecursiveLockGuard guard(lock);
-    nodes.forEach([](MeshCoreNode &n) {
-        meshtastic_NodeInfoLite *lite = nodeDB ? nodeDB->getMeshNode(n.nodeNum) : nullptr;
-        if (!lite || lite->hw_model != meshtastic_HardwareModel_UNSET) {
-            n.flags &= ~MeshCoreNode::IN_NODE_DB; // evicted (the store keeps what it had), or a Meshtastic node on the number
-            return;
-        }
+    const size_t indexed = indexStoreByNodeNum();
+    uint32_t starsToPush[STARS_PUSHED_PER_SYNC];
+    size_t pushes = 0;
+    const size_t dbNodes = nodeDB ? nodeDB->getNumMeshNodes() : 0;
+    for (size_t i = 0; i < dbNodes; i++) {
+        meshtastic_NodeInfoLite *lite = nodeDB->getMeshNodeByIndex(i);
+        SyncSlot *slot = inMeshCoreNodeNumRange(lite->num) ? findIndexed(lite->num, indexed) : nullptr;
+        if (!slot || lite->hw_model != meshtastic_HardwareModel_UNSET)
+            continue; // not ours, or a Meshtastic node on our number: ours is then not in the node DB
+        MeshCoreNode &n = *slot->node;
         nodeInfoLiteSetBit(lite, NODEINFO_BITFIELD_IS_MESHCORE_MASK, true);
-        if (n.type == MeshCoreNode::CHAT)
-            syncFavorite(n, lite);
-        n.flags |= MeshCoreNode::IN_NODE_DB;
-    });
+        if (n.type == MeshCoreNode::CHAT && syncFavorite(n, lite) == FavoriteSync::PUSH_TO_NODE_DB) {
+            if (pushes == STARS_PUSHED_PER_SYNC)
+                continue; // left unmarked, so the next sync still sees it for the first time and pushes the star
+            starsToPush[pushes++] = n.nodeNum;
+        }
+        slot->inNodeDb = true;
+    }
+    // Evicted nodes are no longer in the node DB; the store keeps what it had of them.
+    for (size_t i = 0; i < indexed; i++) {
+        if (syncIndex[i].inNodeDb)
+            syncIndex[i].node->flags |= MeshCoreNode::IN_NODE_DB;
+        else
+            syncIndex[i].node->flags &= ~MeshCoreNode::IN_NODE_DB;
+    }
+    // Setting a favourite may re-sort the node DB, so the stars go in once the walk over it is over.
+    for (size_t i = 0; i < pushes; i++)
+        nodeDB->set_favorite(true, starsToPush[i]);
 }
 
-void MeshCoreCompanion::syncFavorite(MeshCoreNode &n, const meshtastic_NodeInfoLite *lite)
+size_t MeshCoreCompanion::indexStoreByNodeNum()
+{
+    size_t count = 0;
+    nodes.forEach([&](MeshCoreNode &n) { syncIndex[count++] = {&n, false}; });
+    std::sort(syncIndex, syncIndex + count, [](const SyncSlot &a, const SyncSlot &b) { return a.node->nodeNum < b.node->nodeNum; });
+    return count;
+}
+
+MeshCoreCompanion::SyncSlot *MeshCoreCompanion::findIndexed(uint32_t nodeNum, size_t indexed)
+{
+    SyncSlot *end = syncIndex + indexed;
+    SyncSlot *at = std::lower_bound(syncIndex, end, nodeNum,
+                                    [](const SyncSlot &slot, uint32_t num) { return slot.node->nodeNum < num; });
+    return at != end && at->node->nodeNum == nodeNum ? at : nullptr;
+}
+
+MeshCoreCompanion::FavoriteSync MeshCoreCompanion::syncFavorite(MeshCoreNode &n, const meshtastic_NodeInfoLite *lite)
 {
     // A node DB copy seen for the first time (a reboot that did not save it, or an eviction) has no star of its own yet: the
     // store's is the one the user set. From then on the client stars the node in the node DB, and the store follows.
     const bool firstSight = !(n.flags & MeshCoreNode::IN_NODE_DB);
-    if (firstSight && n.isFavorite() && !nodeInfoLiteIsFavorite(lite)) {
-        nodeDB->set_favorite(true, n.nodeNum); // may re-sort the node DB: lite is not read again
-        return;
-    }
-    if (nodeInfoLiteIsFavorite(lite))
-        n.flags |= MeshCoreNode::FAVORITE;
-    else
-        n.flags &= ~MeshCoreNode::FAVORITE;
+    if (firstSight && n.isFavorite() && !nodeInfoLiteIsFavorite(lite))
+        return FavoriteSync::PUSH_TO_NODE_DB;
+    nodes.setFavorite(&n, nodeInfoLiteIsFavorite(lite)); // through the store, so the save check sees the change
+    return FavoriteSync::DONE;
 }
 
 size_t MeshCoreCompanion::exportContacts(uint8_t *buf, size_t cap)
@@ -2899,6 +2937,7 @@ size_t MeshCoreCompanion::exportContacts(uint8_t *buf, size_t cap)
 size_t MeshCoreCompanion::importContacts(const uint8_t *buf, size_t len)
 {
     concurrency::RecursiveLockGuard guard(lock);
+    storeChanges++;
     const size_t loaded = MeshCoreNodeFile::load(nodes, buf, len);
     if (identityReady) {
         nodes.remove(identityPub);

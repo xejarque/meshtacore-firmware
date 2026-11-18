@@ -442,6 +442,25 @@ void test_a_new_entry_is_all_zeros()
     TEST_ASSERT_EQUAL_MEMORY(zeros, &fresh, sizeof(zeros));
 }
 
+// The save check skips its fingerprint pass while the revision stays put: every learn and clear must move it.
+void test_revision_moves_with_every_learn_and_clear()
+{
+    MeshCoreRepeaterNames<4> t;
+    uint32_t r = t.getRevision();
+    hear(t, 0x01, "Cima");
+    TEST_ASSERT_NOT_EQUAL_UINT32(r, t.getRevision());
+    r = t.getRevision();
+    const MeshCoreRepeaterName *found[1];
+    const uint8_t prefix[1] = {0x01};
+    TEST_ASSERT_EQUAL_UINT32(1, t.findByPrefix(prefix, 1, found, 1));
+    TEST_ASSERT_EQUAL_UINT32(r, t.getRevision());
+    hear(t, 0x01, "Cima");
+    TEST_ASSERT_NOT_EQUAL_UINT32(r, t.getRevision());
+    r = t.getRevision();
+    t.clear();
+    TEST_ASSERT_NOT_EQUAL_UINT32(r, t.getRevision());
+}
+
 void setup()
 {
     initializeTestEnvironment();
@@ -470,6 +489,7 @@ void setup()
     RUN_TEST(test_fingerprint_follows_the_set_and_the_names);
     RUN_TEST(test_entry_fits_the_ram_budget);
     RUN_TEST(test_a_new_entry_is_all_zeros);
+    RUN_TEST(test_revision_moves_with_every_learn_and_clear);
     exit(UNITY_END());
 }
 

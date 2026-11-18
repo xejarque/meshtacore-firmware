@@ -160,7 +160,7 @@ static constexpr uint32_t MESHCORE_CONTACTS_SAVE_MIN_MS = 60 * 60 * 1000; // fla
 static constexpr uint32_t MESHCORE_REPEATERS_SAVE_MIN_MS = 3 * 60 * 60 * 1000; // at most one save per 3 hours for them
 // Marks and favourite stars need not follow the node DB within seconds; the sync costs a lookup per stored node.
 static constexpr uint32_t MESHCORE_NODEDB_SYNC_MS = 60 * 1000;
-static_assert(MESHCORE_CONTACTS_SAVE_MIN_MS <= MESHCORE_REPEATERS_SAVE_MIN_MS, "the fingerprint gate waits for the shorter");
+static_assert(MESHCORE_CONTACTS_SAVE_MIN_MS <= MESHCORE_REPEATERS_SAVE_MIN_MS, "the save gate waits for the shorter");
 static constexpr uint32_t MESHCORE_TX_POLL_MS = 100;                      // a raw frame is on air: look again for a lost TX-done
 
 /** Runs RadioLibInterface::meshCoreAdvertTick() on its own schedule. */
@@ -439,6 +439,7 @@ uint32_t RadioLibInterface::meshCoreServiceTick()
         loadMeshCoreContacts();
         meshCoreContactsFingerprint = meshCoreCompanion.contactsFingerprint();
         meshCoreRepeatersFingerprint = meshCoreCompanion.repeatersFingerprint();
+        meshCoreStoreRevisionSeen = meshCoreCompanion.storeRevision();
         lastMeshCoreContactsSaveMs = millis();
     }
 
@@ -449,27 +450,42 @@ uint32_t RadioLibInterface::meshCoreServiceTick()
         lastMeshCoreNodeDbSyncMs = millis();
     }
 
-    // Nothing can be saved before the shorter window has run out, so the fingerprints (a pass over every stored node and
-    // repeater) wait for it instead of running every tick.
-    if (meshCoreContactsLoaded && Throttle::hasElapsed(lastMeshCoreContactsSaveMs, MESHCORE_CONTACTS_SAVE_MIN_MS)) {
-        const uint32_t contacts = meshCoreCompanion.contactsFingerprint();
-        const uint32_t repeaters = meshCoreCompanion.repeatersFingerprint();
-        // A change to the contacts waits for its window; one to the repeater names alone waits for the longer one.
-        const bool due = (contacts != meshCoreContactsFingerprint &&
-                          Throttle::hasElapsed(lastMeshCoreContactsSaveMs, MESHCORE_CONTACTS_SAVE_MIN_MS)) ||
-                         (repeaters != meshCoreRepeatersFingerprint &&
-                          Throttle::hasElapsed(lastMeshCoreContactsSaveMs, MESHCORE_REPEATERS_SAVE_MIN_MS));
-        if (due) {
-            if (saveMeshCoreContacts()) {
-                meshCoreContactsFingerprint = contacts;
-                meshCoreRepeatersFingerprint = repeaters;
-            }
-            lastMeshCoreContactsSaveMs = millis();
-        }
-    }
+    if (meshCoreContactsLoaded)
+        saveMeshCoreContactsIfChanged();
 #endif
     return next < MESHCORE_SERVICE_MS ? next : MESHCORE_SERVICE_MS;
 }
+
+#if MESHTASTIC_ENABLE_MESHCORE_COMPANION
+void RadioLibInterface::saveMeshCoreContactsIfChanged()
+{
+    // Nothing can be saved before the shorter window has run out.
+    if (!Throttle::hasElapsed(lastMeshCoreContactsSaveMs, MESHCORE_CONTACTS_SAVE_MIN_MS))
+        return;
+    // The fingerprints are a pass over every stored node and repeater: computed again only once the store has changed.
+    const uint32_t revision = meshCoreCompanion.storeRevision();
+    if (revision != meshCoreStoreRevisionSeen) {
+        meshCoreStoreRevisionSeen = revision;
+        meshCoreContactsChanged = meshCoreCompanion.contactsFingerprint() != meshCoreContactsFingerprint;
+        meshCoreRepeatersChanged = meshCoreCompanion.repeatersFingerprint() != meshCoreRepeatersFingerprint;
+    }
+    // A change to the contacts waits for its window; one to the repeater names alone waits for the longer one.
+    const bool due = meshCoreContactsChanged ||
+                     (meshCoreRepeatersChanged && Throttle::hasElapsed(lastMeshCoreContactsSaveMs, MESHCORE_REPEATERS_SAVE_MIN_MS));
+    if (!due)
+        return;
+    // Fingerprinted again at save time: the store may have moved on since, and what is written is what is on flash.
+    const uint32_t contacts = meshCoreCompanion.contactsFingerprint();
+    const uint32_t repeaters = meshCoreCompanion.repeatersFingerprint();
+    if (saveMeshCoreContacts()) {
+        meshCoreContactsFingerprint = contacts;
+        meshCoreRepeatersFingerprint = repeaters;
+        meshCoreContactsChanged = meshCoreRepeatersChanged = false;
+        meshCoreStoreRevisionSeen = meshCoreCompanion.storeRevision();
+    }
+    lastMeshCoreContactsSaveMs = millis();
+}
+#endif
 
 // The announced MeshCore type follows the Meshtastic role: a router is a repeater, anything else a companion to
 // message. A node that relays under a chat identity also needs the alias, so the hop it appends belongs to a repeater
