@@ -1,4 +1,4 @@
-// Unit tests for src/mesh/MeshCoreCompanion.{h,cpp} - MeshCore GRP_TXT encode/decode.
+// Unit tests for src/mesh/MeshCoreCompanion.h and its source files (MeshCoreCompanion*.cpp) - MeshCore GRP_TXT encode/decode.
 //
 // The native test build compiles src/ with the MeshCore flags off, so those translation units are
 // empty there. This suite defines the flags and includes the .cpp files directly, mirroring
@@ -8,6 +8,11 @@
 #define MESHTASTIC_ENABLE_MESHCORE_COMPANION 1
 #define MESHTASTIC_MESHCORE_PATH_COMMAND 1
 #include "mesh/MeshCoreCompanion.cpp"
+#include "mesh/MeshCoreCompanionCodec.cpp"
+#include "mesh/MeshCoreCompanionDelivery.cpp"
+#include "mesh/MeshCoreCompanionMentions.cpp"
+#include "mesh/MeshCoreCompanionNodes.cpp"
+#include "mesh/MeshCoreCompanionReports.cpp"
 #include "mesh/MeshCoreFirewall.cpp"
 #include "mesh/MeshCoreRepeater.cpp"
 
