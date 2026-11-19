@@ -2912,7 +2912,11 @@ void NexusModule::handleNexusCommand(const meshtastic_MeshPacket &mp, const char
         if (*p == '\0') {
             const char* modes[] = {"DEFAULT", "ALWAYS-UPLOAD", "STRICT-PRIVACY"};
             const char* status = (moduleConfig.mqtt.enabled) ? "ENABLED" : "DISABLED";
+#if !MESHTASTIC_EXCLUDE_MQTT
             const char* conn = (mqtt && mqtt->isConnectedDirectly()) ? "CONNECTED" : (mqtt && moduleConfig.mqtt.proxy_to_client_enabled ? "PROXY" : "DISCONNECTED");
+#else
+            const char* conn = "NOT INCLUDED";
+#endif
 
             snprintf(replyMsg, sizeof(replyMsg), "MESHTACORE MQTT [%s]:\nStatus: %s\nMode: %s\nSrv: %s\nMap: %s",
                      conn, status,

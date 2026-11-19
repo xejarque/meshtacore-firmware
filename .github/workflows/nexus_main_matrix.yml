@@ -71,39 +71,19 @@ jobs:
       - run: pip install -U platformio==6.2.0
       - name: Generate matrix
         id: jsonStep
-        env:
-          BASE_REF: ${{ github.base_ref }}
-          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
         run: |
-          # A new board is 'release' and gets no CI until after merge, so force-build the
-          # first env of each ADDED variant config. A new env in an existing one does not count.
-          DIFF_BASE=""
-          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
-            # checkout above already fetched every branch (fetch-depth: 0), so the base ref
-            # is local. Do not re-fetch it with --depth=1: that grafts the fetched tip as
-            # parentless, and merge-base then finds no common commit whenever the base
-            # branch has moved past this merge commit, which is every re-run of an older run.
-            DIFF_BASE=$(git merge-base "origin/$BASE_REF" HEAD)
-          elif [[ "$GITHUB_EVENT_NAME" == "merge_group" ]]; then
-            DIFF_BASE="$MERGE_GROUP_BASE_SHA"
-          fi
-          ADDED_ARGS=()
-          if [[ -n "$DIFF_BASE" ]]; then
-            # Assign rather than pipe: a failing diff must abort the step under 'set -e',
-            # not silently yield an empty list and drop the new board from the matrix.
-            ADDED_CONFIGS=$(git diff --name-only --diff-filter=A \
-              "$DIFF_BASE" HEAD -- 'variants/**/platformio.ini')
-            while IFS= read -r cfg; do
-              [[ -n "$cfg" ]] && ADDED_ARGS+=(--added-config "$cfg")
-            done <<<"$ADDED_CONFIGS"
-          fi
-          # PRs and (for now) merge_group builds use the narrowed --level pr board
-          # subset. Full-matrix builds run on push / schedule / workflow_dispatch.
-          if [[ "$GITHUB_EVENT_NAME" == "pull_request" || "$GITHUB_EVENT_NAME" == "merge_group" ]]; then
-            TARGETS=$(./bin/generate_ci_matrix.py all --level pr "${ADDED_ARGS[@]}")
-          else
-            TARGETS=$(./bin/generate_ci_matrix.py all)
-          fi
+          # Meshtacore only supports the boards in nexus-targets.txt (the same list the
+          # community build and the web builder use), so CI builds exactly those instead of
+          # every env upstream ships. Platform comes from generate_ci_matrix.py.
+          TARGETS=$(./bin/generate_ci_matrix.py all | python3 -c '
+          import json, sys
+          wanted = {l.split("#", 1)[0].strip() for l in open("nexus-targets.txt")} - {""}
+          rows = [r for r in json.load(sys.stdin) if r["board"] in wanted]
+          missing = wanted - {r["board"] for r in rows}
+          if missing:
+              sys.exit("nexus-targets.txt boards missing from the CI matrix: " + ", ".join(sorted(missing)))
+          print(json.dumps(rows))
+          ')
           echo "Name: $GITHUB_REF_NAME Base: $GITHUB_BASE_REF Ref: $GITHUB_REF"
           echo "all=$TARGETS" >> $GITHUB_OUTPUT
           echo "$TARGETS" >> $GITHUB_STEP_SUMMARY
@@ -224,18 +204,6 @@ jobs:
       macos_ver: ${{ matrix.macos_ver }}
     # secrets: inherit
 
-  Windows:
-    if: github.event_name != 'schedule' && github.event.inputs.nightly != 'true' && !contains(github.ref_name, 'event/')
-    strategy:
-      fail-fast: false
-      matrix:
-        windows_ver:
-          - "2025" # x86_64
-    uses: ./.github/workflows/build_windows_bin.yml
-    with:
-      windows_ver: ${{ matrix.windows_ver }}
-    # secrets: inherit
-
   package-pio-deps-native-tft:
     if: github.repository_owner == 'meshtastic' && github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/package_pio_deps.yml
@@ -244,7 +212,7 @@ jobs:
     secrets: inherit
 
   test-native:
-    if: github.repository_owner == 'meshtastic' && github.event_name != 'schedule' && github.event.inputs.nightly != 'true' && !contains(github.ref_name, 'event/')
+    if: github.event_name != 'schedule' && github.event.inputs.nightly != 'true' && !contains(github.ref_name, 'event/')
     permissions: # Needed for dorny/test-reporter.
       contents: read
       actions: read
@@ -260,38 +228,23 @@ jobs:
     # it out of generate_ci_matrix.py.
     uses: ./.github/workflows/build_portduino_wasm.yml
 
-  docker:
-    if: github.event_name != 'schedule' && github.event.inputs.nightly != 'true' && !contains(github.ref_name, 'event/')
-    permissions: # Needed for pushing to GHCR.
-      contents: read
-      packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        distro: [debian, alpine]
-        platform: [linux/arm64]
-        pio_env: [native-tft]
-    uses: ./.github/workflows/docker_build.yml
-    with:
-      distro: ${{ matrix.distro }}
-      platform: ${{ matrix.platform }}
-      runs-on: ${{ contains(matrix.platform, 'arm') && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
-      pio_env: ${{ matrix.pio_env }}
-      push: false
-
   # Single, stable status check for branch protection.
   # Always runs and passes only if every build and check that ran succeeded.
   ci-gate:
     # Consumed in PRs and Merge Queue
     if: contains(fromJSON('["pull_request", "merge_group"]'), github.event_name) && !cancelled()
-    needs: [build, check]
+    needs: [build, check, test-native]
     runs-on: ubuntu-slim
     steps:
       - name: Verify build and check results
         run: |
-          echo "build=${{ needs.build.result }} check=${{ needs.check.result }}"
+          echo "build=${{ needs.build.result }} check=${{ needs.check.result }} tests=${{ needs.test-native.result }}"
           if [[ "${{ needs.build.result }}" != "success" ]]; then
             echo "::error::One or more firmware builds failed, were cancelled, or did not run."
+            exit 1
+          fi
+          if [[ "${{ needs.test-native.result }}" != "success" ]]; then
+            echo "::error::The native tests failed, were cancelled, or did not run."
             exit 1
           fi
           case "${{ needs.check.result }}" in
