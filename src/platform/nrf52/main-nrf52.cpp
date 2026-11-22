@@ -181,10 +181,13 @@ bool loopCanSleep()
     // return !(TinyUSBDevice.mounted() && !TinyUSBDevice.suspended());
 }
 
+void nrf52NoteAssertReset(); // reset log, defined further down
+
 // handle standard gcc assert failures
 void __attribute__((noreturn)) __assert_func(const char *file, int line, const char *func, const char *failedexpr)
 {
     LOG_ERROR("assert failed %s: %d, %s, test=%s", file, line, func, failedexpr);
+    nrf52NoteAssertReset();
     Serial.flush(); // the reset below would cut the message short
     // debugger_break(); FIXME doesn't work, possibly for segger
     // Reboot cpu
@@ -281,6 +284,142 @@ int printf(const char *fmt, ...)
 
 namespace
 {
+// Last boots, kept in RAM that a soft reset, watchdog or lockup leaves alone (a power loss clears it, which the
+// magic detects). The GAT562 bootloader clears RESETREAS before the app starts, so the hardware cause is useless
+// there: the log records what the PREVIOUS run said about itself instead. A run that was marked running and left no
+// deliberate-reset note was killed from outside (watchdog, reset pin, lockup or a brownout that spared the RAM).
+constexpr uint32_t RESET_LOG_MAGIC = 0x52534C48; // "RSLH"
+constexpr uint8_t RESET_LOG_DEPTH = 6;
+constexpr uint8_t RESET_FLAG_VBUS = 1 << 0;      // USB power present at that boot
+constexpr uint8_t RESET_FLAG_FORMATTED = 1 << 1; // LittleFS was formatted at that boot
+constexpr uint8_t RESET_FLAG_POFWARN = 1 << 2;   // the power-failure comparator had fired in the previous run
+
+enum ResetOutcome : uint8_t {
+    OUTCOME_COLD = 0,     // RAM lost: power was cut (switch, battery sag, plug glitch)
+    OUTCOME_KILLED = 1,   // previous run was alive and left no note: watchdog, pin reset, lockup, brownout
+    OUTCOME_REBOOT = 2,   // deliberate reboot (admin, CLI, button)
+    OUTCOME_LFS = 3,      // lfs_assert
+    OUTCOME_ASSERT = 4,   // gcc assert
+};
+
+struct ResetEntry {
+    uint32_t resetreas; // what the bootloader left us; 0 when it clears the register
+    uint32_t prevUptimeS;
+    uint16_t vddMv;
+    uint8_t outcome;
+    uint8_t flags;
+};
+struct ResetLog {
+    uint32_t magic;
+    uint8_t count;
+    uint8_t running; // 1 while this run is alive, set at boot
+    uint8_t intent;  // ResetOutcome noted just before a deliberate reset
+    uint8_t flags;   // flags to carry into the next entry (POFWARN)
+    uint32_t aliveS; // uptime of this run, refreshed from the loop
+    ResetEntry entries[RESET_LOG_DEPTH]; // newest first
+};
+__attribute__((section(".noinit"))) ResetLog resetLog;
+bool formattedThisBoot = false;
+
+void noteResetIntent(uint8_t outcome, uint8_t flags = 0)
+{
+    if (resetLog.magic != RESET_LOG_MAGIC)
+        return;
+    resetLog.intent = outcome;
+    resetLog.flags |= flags;
+}
+
+void recordBoot(uint32_t resetreas, uint16_t vddMv, bool vbus)
+{
+    ResetEntry e = {};
+    e.resetreas = resetreas;
+    e.vddMv = vddMv;
+    const bool valid = resetLog.magic == RESET_LOG_MAGIC && resetLog.count <= RESET_LOG_DEPTH;
+    if (!valid) {
+        memset(&resetLog, 0, sizeof(resetLog));
+        resetLog.magic = RESET_LOG_MAGIC;
+        e.outcome = OUTCOME_COLD;
+    } else {
+        e.outcome = resetLog.intent ? resetLog.intent : (resetLog.running ? OUTCOME_KILLED : OUTCOME_COLD);
+        e.prevUptimeS = resetLog.aliveS;
+        e.flags = resetLog.flags & RESET_FLAG_POFWARN;
+    }
+    if (vbus)
+        e.flags |= RESET_FLAG_VBUS;
+    if (formattedThisBoot)
+        e.flags |= RESET_FLAG_FORMATTED;
+    memmove(&resetLog.entries[1], &resetLog.entries[0], sizeof(ResetEntry) * (RESET_LOG_DEPTH - 1));
+    resetLog.entries[0] = e;
+    if (resetLog.count < RESET_LOG_DEPTH)
+        resetLog.count++;
+    resetLog.intent = 0;
+    resetLog.flags = 0;
+    resetLog.aliveS = 0;
+    resetLog.running = 1;
+}
+
+const char *resetOutcomeName(const ResetEntry &e)
+{
+    if (e.resetreas & POWER_RESETREAS_RESETPIN_Msk)
+        return "PIN";
+    if (e.resetreas & POWER_RESETREAS_DOG_Msk)
+        return "WDT";
+    if (e.resetreas & POWER_RESETREAS_LOCKUP_Msk)
+        return "LOCKUP";
+    switch (e.outcome) {
+    case OUTCOME_KILLED:
+        return "KILLED";
+    case OUTCOME_REBOOT:
+        return "REBOOT";
+    case OUTCOME_LFS:
+        return "LFS";
+    case OUTCOME_ASSERT:
+        return "ASSERT";
+    default:
+        return "COLD";
+    }
+}
+} // namespace
+
+/// Called from the main loop: lets the next boot know how long this run lived.
+void nrf52ResetLogHeartbeat()
+{
+    if (resetLog.magic == RESET_LOG_MAGIC)
+        resetLog.aliveS = millis() / 1000;
+}
+
+void nrf52NoteAssertReset()
+{
+    noteResetIntent(OUTCOME_ASSERT);
+}
+
+/// A deliberate reboot (admin, CLI, button): the next boot reads it as REBOOT instead of KILLED.
+void nrf52NoteDeliberateReboot()
+{
+    noteResetIntent(OUTCOME_REBOOT);
+}
+
+/// Newest first, one boot per line: "<how the previous run ended> after <s>s, <VDD>V[ USB][ FMT][ POF]".
+void nrf52DescribeResetLog(char *out, size_t outLen)
+{
+    size_t used = 0;
+    out[0] = '\0';
+    for (uint8_t i = 0; i < resetLog.count && used < outLen; i++) {
+        const ResetEntry &e = resetLog.entries[i];
+        char after[16] = "";
+        if (e.outcome != OUTCOME_COLD)
+            snprintf(after, sizeof(after), " after %us", (unsigned)e.prevUptimeS);
+        int n = snprintf(out + used, outLen - used, "%s%s%s %u.%02uV%s%s%s", i ? "\n" : "", resetOutcomeName(e), after,
+                         (unsigned)(e.vddMv / 1000), (unsigned)((e.vddMv % 1000) / 10), (e.flags & RESET_FLAG_VBUS) ? " USB" : "",
+                         (e.flags & RESET_FLAG_FORMATTED) ? " FMT" : "", (e.flags & RESET_FLAG_POFWARN) ? " POF" : "");
+        if (n < 0 || (size_t)n >= outLen - used)
+            break;
+        used += n;
+    }
+}
+
+namespace
+{
 constexpr uint8_t NRF52_MAGIC_LFS_IS_CORRUPT = 0xF5;
 constexpr uint32_t MULTIPLE_CORRUPTION_DELAY_MILLIS = 20 * 60 * 1000;
 // When the last format happened, not when the next one is due: measuring forward from the event
@@ -311,6 +450,7 @@ void preFSBegin()
     // unset-sentinel-ok: formatted_this_boot carries the armed state, so 0 is a legal stamp
     last_format_ms = Time::getMillis();
     formatted_this_boot = true;
+    formattedThisBoot = true;
     InternalFS.format();
     LOG_INFO("LittleFS format complete; restoring default settings");
 }
@@ -318,6 +458,7 @@ void preFSBegin()
 extern "C" void lfs_assert(const char *reason)
 {
     LOG_ERROR("LittleFS corruption detected: %s", reason);
+    noteResetIntent(OUTCOME_LFS, NRF_POWER->EVENTS_POFWARN ? RESET_FLAG_POFWARN : 0);
     // Test the armed flag first, since elapsed-since-0 is inside the backoff for the first 20
     // minutes after each wrap.
     if (formatted_this_boot && Throttle::isWithinTimespanMs(last_format_ms, MULTIPLE_CORRUPTION_DELAY_MILLIS)) {
@@ -397,6 +538,7 @@ void nrf52Loop()
     }
     nrfx_wdt_channel_feed(&nrfx_wdt, nrfx_wdt_channel_id_nrf52_main);
     nrf52CryptoCellIdleCheck();
+    nrf52ResetLogHeartbeat();
 
     if (nrf52Bluetooth) {
         nrf52Bluetooth->tick();
@@ -575,6 +717,7 @@ void nrf52Setup()
     // per
     // https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.nrf52832.ps.v1.1%2Fpower.html
     LOG_DEBUG("Reset reason: 0x%x", why);
+    recordBoot(why, getVDDVoltage(), powerHAL_isVBUSConnected());
 #ifdef BATTERY_LPCOMP_INPUT
     resetBatteryLpcomp();
 #endif
