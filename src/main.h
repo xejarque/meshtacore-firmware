@@ -128,6 +128,9 @@ bool nrf52ArmsBatteryLpcompWake(); // hardware present and the variant arms it o
 bool nrf52SetBatteryLpcompWakeFraction(uint8_t num, uint8_t den);
 bool nrf52GetBatteryLpcompWakeFraction(uint8_t *num, uint8_t *den);
 uint32_t nrf52EstimateBatteryLpcompWakeMv(); // 0 when the divider ratio is unknown
+void nrf52DescribeResetLog(char *out, size_t outLen); // last boots: reason, VDD, USB, lfs_assert, format
+void nrf52NoteDeliberateReboot(); // call just before a deliberate reset so the next boot is not logged as KILLED
+void nrf52ResetLogHeartbeat();
 void nrf52RequestTimedSleep();               // the next cpuDeepSleep() wakes on its timer instead of System OFF
 #endif
 #ifdef ARCH_ESP32

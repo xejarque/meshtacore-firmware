@@ -363,5 +363,13 @@ void NexusModule::handleHealthCommand()
     int len = snprintf(replyMsg, sizeof(replyMsg),
                        "MESHTACORE HEALTH:\nUp: %s\nBoot: %s\nBat: %s\nHeap: %s\nTemp: %.1fC\nChU: %.1f%% TxU: %.1f%% Noise: %ddBm",
                        upBuf, bootBuf, batBuf, heapBuf, temp, chUtil, txUtil, (int)noise);
+#ifdef ARCH_NRF52
+    {
+        char resets[160];
+        nrf52DescribeResetLog(resets, sizeof(resets));
+        if (len > 0 && (size_t)len < sizeof(replyMsg) && resets[0])
+            len += snprintf(replyMsg + len, sizeof(replyMsg) - len, "\nResets:\n%s", resets);
+    }
+#endif
     appendHealthWarnings(len);
 }
