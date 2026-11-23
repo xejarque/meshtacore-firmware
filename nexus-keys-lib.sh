@@ -4,7 +4,7 @@
 # Copyright (C) 2026 Jennifer Sanchez
 #
 # Licensed under the GNU Affero General Public License v3.
-# See LICENSE-AGPL for the full license text.
+# See LICENSE for the full license text.
 #
 # =============================================================================
 # Nexus Master Keys Library

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// See LICENSE for the full license text.
 // Run: node --test custom_builder_web/tests/
 const test = require("node:test");
 const assert = require("node:assert/strict");

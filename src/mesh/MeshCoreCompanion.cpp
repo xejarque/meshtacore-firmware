@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// See LICENSE for the full license text.
 #include "MeshCoreCompanion.h"
 
 #if MESHTASTIC_ENABLE_MESHCORE_COMPANION

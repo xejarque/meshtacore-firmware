@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// See LICENSE for the full license text.
 /*
  * NexusSensorBudget.h — Nexus sensor weight-reduction umbrella tiers.
  *

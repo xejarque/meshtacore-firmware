@@ -42,7 +42,7 @@ LABEL org.opencontainers.image.title="Meshtastic" \
       org.opencontainers.image.url="https://meshtastic.org" \
       org.opencontainers.image.documentation="https://meshtastic.org/docs/" \
       org.opencontainers.image.authors="Meshtastic" \
-      org.opencontainers.image.licenses="GPL-3.0-or-later" \
+      org.opencontainers.image.licenses="GPL-3.0-or-later AND AGPL-3.0-only" \
       org.opencontainers.image.source="https://github.com/meshtastic/firmware/"
 
 # nosemgrep: dockerfile.security.last-user-is-root.last-user-is-root

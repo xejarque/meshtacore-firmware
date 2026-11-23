@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// See LICENSE for the full license text.
 // MeshCore side of MeshService: the bridge from the client's texts to MeshCore, and the ".path" query. Kept out of
 // MeshService.cpp so that file stays close to the jentastic upstream and a merge of origin/main does not collide with it.
 

@@ -6,7 +6,7 @@
   <summary>Decentralized mesh communication</summary>
 
   <metadata_license>CC-BY-4.0</metadata_license>
-  <project_license>GPL-3.0-or-later</project_license>
+  <project_license>GPL-3.0-or-later AND AGPL-3.0-only</project_license>
 
   <developer id="org.meshtastic">
     <name>Meshtastic</name>

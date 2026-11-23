@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// See LICENSE for the full license text.
 #include "NexusRescue.h"
 
 #if HAS_NEXUS

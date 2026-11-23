@@ -20,7 +20,7 @@ Release:        {{{ git_commits_num }}}%{?copr_projectname:.%{copr_projectname}}
 VCS:            {{{ git_dir_vcs }}}
 Summary:        Meshtastic daemon for communicating with Meshtastic devices
 
-License:        GPL-3.0
+License:        GPL-3.0-or-later AND AGPL-3.0-only
 URL:            https://github.com/meshtastic/firmware
 Source0:        {{{ git_dir_pack }}}
 Source1:        https://github.com/meshtastic/web/releases/download/v{{{ web_version }}}/build.tar
@@ -175,7 +175,7 @@ fi
 
 %files
 %defattr(-,%{meshtasticd_user},%{meshtasticd_user})
-%license LICENSE
+%license LICENSE LICENSE-GPL LICENSES
 %doc README.md
 %{_bindir}/meshtasticd
 %{_bindir}/meshtasticd-start.sh

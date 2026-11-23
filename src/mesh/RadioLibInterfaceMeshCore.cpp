@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// See LICENSE for the full license text.
 // MeshCore side of RadioLibInterface: raw frame TX, the relay and ADVERT schedule, the repeater identity and the
 // companion bridge. Kept out of RadioLibInterface.cpp so that file stays close to the jentastic upstream and a merge of
 // origin/main does not collide with this code. The hooks that call into it remain in RadioLibInterface.cpp.

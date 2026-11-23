@@ -7,7 +7,7 @@
 A Meshtastic firmware fork that hears [MeshCore](https://github.com/meshcore-dev/MeshCore) on the same SX126x, repeats it, and bridges its groups and direct messages into the Meshtastic client.
 
 ![Status](https://img.shields.io/badge/status-experimental-orange)
-![License](https://img.shields.io/badge/license-GPL--3.0-blue)
+![License](https://img.shields.io/badge/license-GPL--3.0%20%2B%20AGPL--3.0-blue)
 ![Base](https://img.shields.io/badge/based%20on-Meshtastic%20firmware%202.8.1-lightgrey)
 [![Website](https://img.shields.io/badge/Web-Landing%20Page-38bdf8?style=for-the-badge&logo=googlechrome&logoColor=white)](https://xejarque.github.io/meshtacore-firmware/)
 [![Custom Firmware Builder](https://img.shields.io/badge/Web%20Builder-Generar%20Firmware-2ea043?style=for-the-badge&logo=githubactions&logoColor=white)](https://xejarque.github.io/meshtacore-firmware/builder.html)
@@ -163,11 +163,17 @@ Meshtacore builds on four projects:
 - **[Meshtastic firmware](https://github.com/meshtastic/firmware)**: the base firmware, radio abstraction, module system and client protocol.
 - **[Jentastic/Nexus](https://github.com/derpyspike/jentastic)**: the soft-fork this repository descends from, including the Nexus module and its remote administration tooling.
 - **[MeshCore](https://github.com/meshcore-dev/MeshCore)**: the protocol implemented here, including frame format, encryption, ADVERTs and companion behaviour.
-- **[ZephCore](https://github.com/liquidraver/ZephCore)**: the MeshCore Zephyr port. The relay's contention tracking and adaptive flood delay, duplicate-driven postponement and priority queue ordering follow its design, and parts of the implementation were adapted from it.
+- **[ZephCore](https://github.com/liquidraver/ZephCore)**: the MeshCore Zephyr port. The relay's contention tracking and adaptive flood delay, duplicate-driven postponement and priority queue ordering follow its design, and parts of the implementation were adapted from it under its MIT license ([LICENSES/MIT-ZephCore.txt](LICENSES/MIT-ZephCore.txt)).
 
 ## License and attribution
 
-Meshtacore is distributed under the [GNU General Public License v3.0](LICENSE). The inherited Nexus module and its accompanying scripts remain under the [GNU Affero General Public License v3](LICENSE-AGPL); AGPL files are tagged as such at the top of the file. It is a fork of [Meshtastic firmware](https://github.com/meshtastic/firmware) 2.8.1 through Jentastic/Nexus.
+Meshtacore is a fork of [Meshtastic firmware](https://github.com/meshtastic/firmware) 2.8.1 with the Jentastic/Nexus additions. Its code is licensed per file:
+
+- Inherited Meshtastic code, which has no license tag, is under the [GNU General Public License v3.0](LICENSE-GPL).
+- Nexus, the MeshCore relay and companion code, and the scripts that accompany them are under the [GNU Affero General Public License v3.0](LICENSE). Each such file starts with `SPDX-License-Identifier: AGPL-3.0-only`.
+- Code adapted from ZephCore is also under the MIT License. Its notice is in [LICENSES/MIT-ZephCore.txt](LICENSES/MIT-ZephCore.txt).
+
+[LICENSES/README.md](LICENSES/README.md) lists every license and third-party component in the tree.
 
 Meshtastic and MeshCore are independent projects with their own trademarks and communities. Meshtacore is not affiliated with or endorsed by either. MeshCore protocol details follow [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCore).
 

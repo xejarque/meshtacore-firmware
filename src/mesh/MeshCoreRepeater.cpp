@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Adaptive relay delay and contention EMA adapted from ZephCore (MIT): LICENSES/MIT-ZephCore.txt.
 #include "MeshCoreRepeater.h"
 
 #include "Arduino.h"

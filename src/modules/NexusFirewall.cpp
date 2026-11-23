@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Jennifer Sanchez
 //
 // Licensed under the GNU Affero General Public License v3.
-// See LICENSE-AGPL for the full license text.
+// See LICENSE for the full license text.
 //
 // The Meshtastic half of the Nexus firewall: the rules that decide whether a packet is dropped on its way in (decoded and opaque)
 // and on its way out, the rate limits, the invalid-packet filters, the signature scan and the NIGN list. NexusModule.cpp keeps

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// See LICENSE for the full license text.
 // Run: node --test custom_builder_web/tests/
 // El renderizado de nexus-options.js con un DOM mínimo (dom-shim.js): reparto de canales y roles.
 const test = require("node:test");

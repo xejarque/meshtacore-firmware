@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-only
+# See LICENSE for the full license text.
 
 """Emit the shared Nexus target list (nexus-targets.txt) as a CI matrix.
 

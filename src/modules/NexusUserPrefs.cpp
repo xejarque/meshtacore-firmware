@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// See LICENSE for the full license text.
 // Build-time starting values for the Nexus settings that are otherwise runtime-only (PPING bots, firewall, Zero-Hop,
 // features, security, rate limits). Each USERPREFS_NEXUS_* key mirrors one /mtc command, see docs/mtc-commands.md.
 //
